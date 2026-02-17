@@ -145,6 +145,12 @@ export interface GlazeColorToken {
   resolve(): ResolvedColor;
   /** Export as a flat token map (no color name key). */
   token(options?: GlazeTokenOptions): Record<string, string>;
+  /**
+   * Export as a tasty style-to-state binding (no color name key).
+   * Uses `#name` keys and state aliases (`''`, `@dark`, etc.).
+   * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
+   */
+  tasty(options?: GlazeTokenOptions): Record<string, string>;
   /** Export as a flat JSON map (no color name key). */
   json(options?: GlazeJsonOptions): Record<string, string>;
 }
@@ -188,8 +194,23 @@ export interface GlazeTheme {
   /** Resolve all colors and return the result map. */
   resolve(): Map<string, ResolvedColor>;
 
-  /** Export as token map. */
-  tokens(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
+  /**
+   * Export as a flat token map grouped by scheme variant.
+   *
+   * ```ts
+   * theme.tokens()
+   * // → { light: { surface: 'okhsl(...)' }, dark: { surface: 'okhsl(...)' } }
+   * ```
+   */
+  tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
+
+  /**
+   * Export as tasty style-to-state bindings.
+   * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
+   * Spread into component styles or register as a recipe via `configure({ recipes })`.
+   * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
+   */
+  tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
 
   /** Export as plain JSON. */
   json(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
@@ -245,8 +266,27 @@ export interface GlazeCssResult {
 }
 
 export interface GlazePalette {
-  /** Export all themes as a combined token map. */
-  tokens(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
+  /**
+   * Export all themes as a flat token map grouped by scheme variant.
+   *
+   * ```ts
+   * palette.tokens({ prefix: true })
+   * // → { light: { 'primary-surface': 'okhsl(...)' }, dark: { 'primary-surface': 'okhsl(...)' } }
+   * ```
+   */
+  tokens(
+    options?: GlazeJsonOptions & {
+      prefix?: boolean | Record<string, string>;
+    },
+  ): Record<string, Record<string, string>>;
+
+  /**
+   * Export all themes as tasty style-to-state bindings.
+   * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
+   * Spread into component styles or register as a recipe via `configure({ recipes })`.
+   * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
+   */
+  tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
 
   /** Export all themes as plain JSON. */
   json(
