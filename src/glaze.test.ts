@@ -374,14 +374,68 @@ describe('glaze', () => {
   });
 
   describe('token export', () => {
-    it('exports tokens with # prefix', () => {
+    it('exports tokens grouped by variant', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97 },
+      });
+
+      const tokens = theme.tokens({
+        modes: { dark: true, highContrast: true },
+      });
+      expect(tokens.light).toBeDefined();
+      expect(tokens.dark).toBeDefined();
+      expect(tokens.lightContrast).toBeDefined();
+      expect(tokens.darkContrast).toBeDefined();
+      expect(tokens.light.surface).toMatch(/^okhsl\(/);
+      expect(tokens.dark.surface).toMatch(/^okhsl\(/);
+      expect(tokens.lightContrast.surface).toMatch(/^okhsl\(/);
+      expect(tokens.darkContrast.surface).toMatch(/^okhsl\(/);
+    });
+
+    it('defaults to light + dark variants', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tokens();
+      expect(Object.keys(tokens)).toEqual(['light', 'dark']);
+      expect(tokens.light.surface).toMatch(/^okhsl\(/);
+      expect(tokens.dark.surface).toMatch(/^okhsl\(/);
+    });
+
+    it('respects modes option', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const lightOnly = theme.tokens({
+        modes: { dark: false, highContrast: false },
+      });
+      expect(Object.keys(lightOnly)).toEqual(['light']);
+
+      const withHc = theme.tokens({
+        modes: { dark: false, highContrast: true },
+      });
+      expect(Object.keys(withHc)).toEqual(['light', 'lightContrast']);
+    });
+
+    it('respects format option', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tokens({ format: 'rgb' });
+      expect(tokens.light.surface).toMatch(/^rgb\(/);
+    });
+  });
+
+  describe('tasty export', () => {
+    it('exports tasty tokens with # prefix and state aliases', () => {
       const theme = glaze(280, 80);
       theme.colors({
         surface: { lightness: 97 },
       });
 
       // Enable all modes for this test
-      const tokens = theme.tokens({
+      const tokens = theme.tasty({
         modes: { dark: true, highContrast: true },
       });
       expect(tokens['#surface']).toBeDefined();
@@ -396,7 +450,7 @@ describe('glaze', () => {
       theme.colors({ surface: { lightness: 97 } });
 
       // Enable highContrast to test HC state aliases
-      const tokens = theme.tokens({
+      const tokens = theme.tasty({
         states: { dark: '@night', highContrast: '@hc' },
         modes: { dark: true, highContrast: true },
       });
@@ -423,7 +477,7 @@ describe('glaze', () => {
   });
 
   describe('palette', () => {
-    it('combines multiple themes with prefix', () => {
+    it('combines multiple themes with prefix (tokens)', () => {
       const primary = glaze(280, 80);
       primary.colors({ surface: { lightness: 97 } });
 
@@ -432,11 +486,13 @@ describe('glaze', () => {
       const palette = glaze.palette({ primary, danger });
       const tokens = palette.tokens({ prefix: true });
 
-      expect(tokens['#primary-surface']).toBeDefined();
-      expect(tokens['#danger-surface']).toBeDefined();
+      expect(tokens.light['primary-surface']).toBeDefined();
+      expect(tokens.light['danger-surface']).toBeDefined();
+      expect(tokens.dark['primary-surface']).toBeDefined();
+      expect(tokens.dark['danger-surface']).toBeDefined();
     });
 
-    it('supports custom prefix mapping', () => {
+    it('supports custom prefix mapping (tokens)', () => {
       const primary = glaze(280, 80);
       primary.colors({ surface: { lightness: 97 } });
 
@@ -444,6 +500,34 @@ describe('glaze', () => {
 
       const palette = glaze.palette({ primary, danger });
       const tokens = palette.tokens({
+        prefix: { primary: 'brand-', danger: 'error-' },
+      });
+
+      expect(tokens.light['brand-surface']).toBeDefined();
+      expect(tokens.light['error-surface']).toBeDefined();
+    });
+
+    it('combines multiple themes with prefix (tasty)', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const tokens = palette.tasty({ prefix: true });
+
+      expect(tokens['#primary-surface']).toBeDefined();
+      expect(tokens['#danger-surface']).toBeDefined();
+    });
+
+    it('supports custom prefix mapping (tasty)', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const tokens = palette.tasty({
         prefix: { primary: 'brand-', danger: 'error-' },
       });
 
@@ -496,20 +580,47 @@ describe('glaze', () => {
   });
 
   describe('output modes', () => {
-    it('defaults to light + dark (2 variants) in tokens', () => {
+    it('defaults to light + dark variants in tokens', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens();
-      // Default: dark=true, highContrast=false → light + dark
-      expect(Object.keys(tokens['#surface'])).toHaveLength(2);
+      expect(Object.keys(tokens)).toEqual(['light', 'dark']);
     });
 
-    it('modes: { dark: false, highContrast: true } omits dark and darkContrast from tokens', () => {
+    it('modes filter variants in tokens', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({
+        modes: { dark: false, highContrast: true },
+      });
+      expect(Object.keys(tokens)).toEqual(['light', 'lightContrast']);
+    });
+
+    it('light-only mode in tokens', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tokens({
+        modes: { dark: false, highContrast: false },
+      });
+      expect(Object.keys(tokens)).toEqual(['light']);
+    });
+
+    it('defaults to light + dark (2 states) in tasty', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tasty();
+      expect(Object.keys(tokens['#surface'])).toHaveLength(2);
+    });
+
+    it('modes: { dark: false, highContrast: true } omits dark from tasty', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tasty({
         modes: { dark: false, highContrast: true },
       });
       const keys = Object.keys(tokens['#surface']);
@@ -518,22 +629,22 @@ describe('glaze', () => {
       expect(keys).toHaveLength(2);
     });
 
-    it('modes: { highContrast: false } omits HC and darkContrast from tokens', () => {
+    it('modes: { highContrast: false } omits HC from tasty', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { lightness: 97 } });
 
-      const tokens = theme.tokens({ modes: { highContrast: false } });
+      const tokens = theme.tasty({ modes: { highContrast: false } });
       const keys = Object.keys(tokens['#surface']);
       expect(keys).toContain('');
       expect(keys).toContain('@dark');
       expect(keys).toHaveLength(2);
     });
 
-    it('modes: { dark: false, highContrast: false } exports light only in tokens', () => {
+    it('modes: { dark: false, highContrast: false } exports light only in tasty', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { lightness: 97 } });
 
-      const tokens = theme.tokens({
+      const tokens = theme.tasty({
         modes: { dark: false, highContrast: false },
       });
       const keys = Object.keys(tokens['#surface']);
@@ -552,28 +663,58 @@ describe('glaze', () => {
       expect(keys).not.toContain('darkContrast');
     });
 
-    it('global modes config is respected', () => {
+    it('global modes config is respected in tasty', () => {
+      glaze.configure({ modes: { highContrast: true } });
+
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tasty();
+      expect(Object.keys(tokens['#surface'])).toHaveLength(4);
+    });
+
+    it('per-call modes override global config in tasty', () => {
+      glaze.configure({ modes: { dark: false, highContrast: false } });
+
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tasty({
+        modes: { dark: true, highContrast: true },
+      });
+      expect(Object.keys(tokens['#surface'])).toHaveLength(4);
+    });
+
+    it('global modes config is respected in tokens', () => {
       glaze.configure({ modes: { highContrast: true } });
 
       const theme = glaze(280, 80);
       theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens();
-      // highContrast enabled → all 4 variants
-      expect(Object.keys(tokens['#surface'])).toHaveLength(4);
+      expect(Object.keys(tokens)).toEqual([
+        'light',
+        'dark',
+        'lightContrast',
+        'darkContrast',
+      ]);
     });
 
-    it('per-call modes override global config', () => {
+    it('per-call modes override global config in tokens', () => {
       glaze.configure({ modes: { dark: false, highContrast: false } });
 
       const theme = glaze(280, 80);
       theme.colors({ surface: { lightness: 97 } });
 
-      // Override back to all modes
       const tokens = theme.tokens({
         modes: { dark: true, highContrast: true },
       });
-      expect(Object.keys(tokens['#surface'])).toHaveLength(4);
+      expect(Object.keys(tokens)).toEqual([
+        'light',
+        'dark',
+        'lightContrast',
+        'darkContrast',
+      ]);
     });
 
     it('modes work on palette tokens', () => {
@@ -585,6 +726,19 @@ describe('glaze', () => {
         prefix: true,
         modes: { dark: false, highContrast: false },
       });
+      expect(Object.keys(tokens)).toEqual(['light']);
+      expect(tokens.light['primary-surface']).toBeDefined();
+    });
+
+    it('modes work on palette tasty', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const palette = glaze.palette({ primary });
+      const tokens = palette.tasty({
+        prefix: true,
+        modes: { dark: false, highContrast: false },
+      });
       expect(Object.keys(tokens['#primary-surface'])).toEqual(['']);
     });
 
@@ -593,7 +747,6 @@ describe('glaze', () => {
       primary.colors({ surface: { lightness: 97 } });
 
       const palette = glaze.palette({ primary });
-      // Enable highContrast to test filtering
       const json = palette.json({
         modes: { dark: false, highContrast: true },
       });
@@ -767,6 +920,19 @@ describe('glaze', () => {
       expect(token['@dark']).toMatch(/^okhsl\(/);
     });
 
+    it('exports tasty for a standalone color', () => {
+      const color = glaze.color({
+        hue: 280,
+        saturation: 80,
+        lightness: 52,
+        mode: 'fixed',
+      });
+      const tastyToken = color.tasty();
+
+      expect(tastyToken['']).toMatch(/^okhsl\(/);
+      expect(tastyToken['@dark']).toMatch(/^okhsl\(/);
+    });
+
     it('exports json for a standalone color', () => {
       const color = glaze.color({ hue: 280, saturation: 80, lightness: 52 });
       const json = color.json();
@@ -824,7 +990,7 @@ describe('glaze', () => {
       theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({ format: 'rgb' });
-      expect(tokens['#surface']['']).toMatch(/^rgb\(/);
+      expect(tokens.light.surface).toMatch(/^rgb\(/);
     });
 
     it('outputs hsl format in tokens', () => {
@@ -832,7 +998,7 @@ describe('glaze', () => {
       theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({ format: 'hsl' });
-      expect(tokens['#surface']['']).toMatch(/^hsl\(/);
+      expect(tokens.light.surface).toMatch(/^hsl\(/);
     });
 
     it('outputs oklch format in tokens', () => {
@@ -840,7 +1006,15 @@ describe('glaze', () => {
       theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({ format: 'oklch' });
-      expect(tokens['#surface']['']).toMatch(/^oklch\(/);
+      expect(tokens.light.surface).toMatch(/^oklch\(/);
+    });
+
+    it('outputs rgb format in tasty', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const tokens = theme.tasty({ format: 'rgb' });
+      expect(tokens['#surface']['']).toMatch(/^rgb\(/);
     });
 
     it('outputs rgb format in json', () => {
@@ -857,6 +1031,15 @@ describe('glaze', () => {
 
       const palette = glaze.palette({ primary });
       const tokens = palette.tokens({ prefix: true, format: 'rgb' });
+      expect(tokens.light['primary-surface']).toMatch(/^rgb\(/);
+    });
+
+    it('outputs format in palette tasty', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const palette = glaze.palette({ primary });
+      const tokens = palette.tasty({ prefix: true, format: 'rgb' });
       expect(tokens['#primary-surface']['']).toMatch(/^rgb\(/);
     });
 
@@ -874,14 +1057,14 @@ describe('glaze', () => {
       theme.colors({ surface: { lightness: 52 } });
 
       const tokens = theme.tokens({ format: 'rgb' });
-      const value = tokens['#surface'][''];
+      const value = tokens.light.surface;
       // Should contain decimal points for fractional precision
       expect(value).toMatch(/\d+\.\d+/);
     });
   });
 
   describe('full example from spec', () => {
-    it('resolves the full example without errors', () => {
+    it('resolves the full example without errors (tokens)', () => {
       const primary = glaze(280, 80);
 
       primary.colors({
@@ -918,7 +1101,60 @@ describe('glaze', () => {
       });
       const tokens = palette.tokens({ prefix: true });
 
-      // Verify all expected tokens exist
+      // Verify variant structure (default: dark=true, highContrast=false → light + dark)
+      expect(Object.keys(tokens)).toEqual(['light', 'dark']);
+
+      // Verify all expected tokens exist in each variant
+      expect(tokens.light['primary-surface']).toBeDefined();
+      expect(tokens.light['primary-text']).toBeDefined();
+      expect(tokens.light['primary-border']).toBeDefined();
+      expect(tokens.light['primary-accent-fill']).toBeDefined();
+      expect(tokens.light['primary-accent-text']).toBeDefined();
+      expect(tokens.light['danger-surface']).toBeDefined();
+      expect(tokens.light['success-surface']).toBeDefined();
+      expect(tokens.light['warning-surface']).toBeDefined();
+      expect(tokens.light['note-surface']).toBeDefined();
+      expect(tokens.light['primary-surface']).toMatch(/^okhsl\(/);
+    });
+
+    it('resolves the full example without errors (tasty)', () => {
+      const primary = glaze(280, 80);
+
+      primary.colors({
+        surface: { lightness: 97, saturation: 0.75 },
+        text: { base: 'surface', lightness: '-52', contrast: 'AAA' },
+        border: {
+          base: 'surface',
+          lightness: ['-7', '-20'],
+          contrast: 'AA-large',
+        },
+        bg: { lightness: 97, saturation: 0.75 },
+        icon: { lightness: 60, saturation: 0.94 },
+        'accent-fill': { lightness: 52, mode: 'fixed' },
+        'accent-text': {
+          base: 'accent-fill',
+          lightness: '+48',
+          contrast: 'AA',
+          mode: 'fixed',
+        },
+        disabled: { lightness: 81, saturation: 0.4 },
+      });
+
+      const danger = primary.extend({ hue: 23 });
+      const success = primary.extend({ hue: 157 });
+      const warning = primary.extend({ hue: 84 });
+      const note = primary.extend({ hue: 302 });
+
+      const palette = glaze.palette({
+        primary,
+        danger,
+        success,
+        warning,
+        note,
+      });
+      const tokens = palette.tasty({ prefix: true });
+
+      // Verify all expected tasty tokens exist
       expect(tokens['#primary-surface']).toBeDefined();
       expect(tokens['#primary-text']).toBeDefined();
       expect(tokens['#primary-border']).toBeDefined();
@@ -929,7 +1165,7 @@ describe('glaze', () => {
       expect(tokens['#warning-surface']).toBeDefined();
       expect(tokens['#note-surface']).toBeDefined();
 
-      // Verify token structure (default: dark=true, highContrast=false → 2 variants)
+      // Verify tasty token structure (default: dark=true, highContrast=false → 2 states)
       const surfaceToken = tokens['#primary-surface'];
       expect(Object.keys(surfaceToken)).toHaveLength(2);
       expect(surfaceToken['']).toMatch(/^okhsl\(/);

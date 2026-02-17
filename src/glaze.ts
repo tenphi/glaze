@@ -582,6 +582,45 @@ function buildTokenMap(
   return tokens;
 }
 
+function buildFlatTokenMap(
+  resolved: Map<string, ResolvedColor>,
+  prefix: string,
+  modes: Required<GlazeOutputModes>,
+  format: GlazeColorFormat = 'okhsl',
+): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {
+    light: {},
+  };
+
+  if (modes.dark) {
+    result.dark = {};
+  }
+  if (modes.highContrast) {
+    result.lightContrast = {};
+  }
+  if (modes.dark && modes.highContrast) {
+    result.darkContrast = {};
+  }
+
+  for (const [name, color] of resolved) {
+    const key = `${prefix}${name}`;
+
+    result.light[key] = formatVariant(color.light, format);
+
+    if (modes.dark) {
+      result.dark[key] = formatVariant(color.dark, format);
+    }
+    if (modes.highContrast) {
+      result.lightContrast[key] = formatVariant(color.lightContrast, format);
+    }
+    if (modes.dark && modes.highContrast) {
+      result.darkContrast[key] = formatVariant(color.darkContrast, format);
+    }
+  }
+
+  return result;
+}
+
 function buildJsonMap(
   resolved: Map<string, ResolvedColor>,
   modes: Required<GlazeOutputModes>,
@@ -714,9 +753,13 @@ function createTheme(
       return resolveAllColors(hue, saturation, colorDefs);
     },
 
-    tokens(
-      options?: GlazeTokenOptions,
-    ): Record<string, Record<string, string>> {
+    tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>> {
+      const resolved = resolveAllColors(hue, saturation, colorDefs);
+      const modes = resolveModes(options?.modes);
+      return buildFlatTokenMap(resolved, '', modes, options?.format);
+    },
+
+    tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>> {
       const resolved = resolveAllColors(hue, saturation, colorDefs);
       const states = {
         dark: options?.states?.dark ?? globalConfig.states.dark,
@@ -753,11 +796,51 @@ function createTheme(
 
 type PaletteInput = Record<string, GlazeTheme>;
 
+function resolvePrefix(
+  options: { prefix?: boolean | Record<string, string> } | undefined,
+  themeName: string,
+): string {
+  if (options?.prefix === true) {
+    return `${themeName}-`;
+  }
+  if (typeof options?.prefix === 'object' && options.prefix !== null) {
+    return options.prefix[themeName] ?? `${themeName}-`;
+  }
+  return '';
+}
+
 function createPalette(themes: PaletteInput) {
   return {
     tokens(
-      options?: GlazeTokenOptions,
+      options?: GlazeJsonOptions & {
+        prefix?: boolean | Record<string, string>;
+      },
     ): Record<string, Record<string, string>> {
+      const modes = resolveModes(options?.modes);
+      const allTokens: Record<string, Record<string, string>> = {};
+
+      for (const [themeName, theme] of Object.entries(themes)) {
+        const resolved = theme.resolve();
+        const prefix = resolvePrefix(options, themeName);
+        const tokens = buildFlatTokenMap(
+          resolved,
+          prefix,
+          modes,
+          options?.format,
+        );
+
+        for (const variant of Object.keys(tokens)) {
+          if (!allTokens[variant]) {
+            allTokens[variant] = {};
+          }
+          Object.assign(allTokens[variant], tokens[variant]);
+        }
+      }
+
+      return allTokens;
+    },
+
+    tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>> {
       const states = {
         dark: options?.states?.dark ?? globalConfig.states.dark,
         highContrast:
@@ -769,17 +852,7 @@ function createPalette(themes: PaletteInput) {
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
-
-        let prefix = '';
-        if (options?.prefix === true) {
-          prefix = `${themeName}-`;
-        } else if (
-          typeof options?.prefix === 'object' &&
-          options.prefix !== null
-        ) {
-          prefix = options.prefix[themeName] ?? `${themeName}-`;
-        }
-
+        const prefix = resolvePrefix(options, themeName);
         const tokens = buildTokenMap(
           resolved,
           prefix,
@@ -827,16 +900,7 @@ function createPalette(themes: PaletteInput) {
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
-
-        let prefix = '';
-        if (options?.prefix === true) {
-          prefix = `${themeName}-`;
-        } else if (
-          typeof options?.prefix === 'object' &&
-          options.prefix !== null
-        ) {
-          prefix = options.prefix[themeName] ?? `${themeName}-`;
-        }
+        const prefix = resolvePrefix(options, themeName);
 
         const css = buildCssMap(resolved, prefix, suffix, format);
 
@@ -882,6 +946,24 @@ function createColorToken(input: GlazeColorInput): GlazeColorToken {
     },
 
     token(options?: GlazeTokenOptions): Record<string, string> {
+      const resolved = resolveAllColors(input.hue, input.saturation, defs);
+      const states = {
+        dark: options?.states?.dark ?? globalConfig.states.dark,
+        highContrast:
+          options?.states?.highContrast ?? globalConfig.states.highContrast,
+      };
+      const modes = resolveModes(options?.modes);
+      const tokenMap = buildTokenMap(
+        resolved,
+        '',
+        states,
+        modes,
+        options?.format,
+      );
+      return tokenMap['#__color__'];
+    },
+
+    tasty(options?: GlazeTokenOptions): Record<string, string> {
       const resolved = resolveAllColors(input.hue, input.saturation, defs);
       const states = {
         dark: options?.states?.dark ?? globalConfig.states.dark,

@@ -70,7 +70,7 @@ const success = primary.extend({ hue: 157 });
 // Compose into a palette and export
 const palette = glaze.palette({ primary, danger, success });
 const tokens = palette.tokens({ prefix: true });
-// → { '#primary-surface': { '': 'okhsl(...)', '@dark': 'okhsl(...)' }, ... }
+// → { light: { 'primary-surface': 'okhsl(...)', ... }, dark: { 'primary-surface': 'okhsl(...)', ... } }
 ```
 
 ## Core Concepts
@@ -262,7 +262,8 @@ Create a single color token without a full theme:
 const accent = glaze.color({ hue: 280, saturation: 80, lightness: 52, mode: 'fixed' });
 
 accent.resolve();  // → ResolvedColor with light/dark/lightContrast/darkContrast
-accent.token();    // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }
+accent.token();    // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }  (tasty format)
+accent.tasty();    // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }  (same as token)
 accent.json();     // → { light: 'okhsl(...)', dark: 'okhsl(...)' }
 ```
 
@@ -307,7 +308,7 @@ theme.tokens({ format: 'hsl' });       // → 'hsl(270.5, 45.2%, 95.8%)'
 theme.tokens({ format: 'oklch' });     // → 'oklch(96.5% 0.0123 280.0)'
 ```
 
-The `format` option works on all export methods: `theme.tokens()`, `theme.json()`, `theme.css()`, `palette.tokens()`, `palette.json()`, `palette.css()`, and standalone `glaze.color().token()` / `.json()`.
+The `format` option works on all export methods: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `palette.tokens()`, `palette.tasty()`, `palette.json()`, `palette.css()`, and standalone `glaze.color().token()` / `.tasty()` / `.json()`.
 
 Available formats:
 
@@ -410,11 +411,13 @@ const palette = glaze.palette({ primary, danger, success, warning });
 
 ### Token Export
 
+Tokens are grouped by scheme variant, with plain color names as keys:
+
 ```ts
 const tokens = palette.tokens({ prefix: true });
 // → {
-//   '#primary-surface': { '': 'okhsl(...)', '@dark': 'okhsl(...)' },
-//   '#danger-surface':  { '': 'okhsl(...)', '@dark': 'okhsl(...)' },
+//   light: { 'primary-surface': 'okhsl(...)', 'danger-surface': 'okhsl(...)' },
+//   dark:  { 'primary-surface': 'okhsl(...)', 'danger-surface': 'okhsl(...)' },
 // }
 ```
 
@@ -422,6 +425,79 @@ Custom prefix mapping:
 
 ```ts
 palette.tokens({ prefix: { primary: 'brand-', danger: 'error-' } });
+```
+
+### Tasty Export (for [Tasty](https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs) style system)
+
+The `tasty()` method exports tokens in the [Tasty](https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs) style-to-state binding format — `#name` color token keys with state aliases (`''`, `@dark`, etc.):
+
+```ts
+const tastyTokens = palette.tasty({ prefix: true });
+// → {
+//   '#primary-surface': { '': 'okhsl(...)', '@dark': 'okhsl(...)' },
+//   '#danger-surface':  { '': 'okhsl(...)', '@dark': 'okhsl(...)' },
+// }
+```
+
+Apply as global styles to make color tokens available app-wide:
+
+```ts
+import { useGlobalStyles } from '@cube-dev/ui-kit';
+
+// In your root component
+useGlobalStyles('body', tastyTokens);
+```
+
+For zero-runtime builds, use `tastyStatic` to generate the CSS at build time:
+
+```ts
+import { tastyStatic } from '@cube-dev/ui-kit';
+
+tastyStatic('body', tastyTokens);
+```
+
+Alternatively, register as a recipe via `configure()`:
+
+```ts
+import { configure, tasty } from '@cube-dev/ui-kit';
+
+configure({
+  recipes: {
+    'all-themes': tastyTokens,
+  },
+});
+
+const Page = tasty({
+  styles: {
+    recipe: 'all-themes',
+    fill: '#primary-surface',
+    color: '#primary-text',
+  },
+});
+```
+
+Or spread directly into component styles:
+
+```ts
+const Card = tasty({
+  styles: {
+    ...tastyTokens,
+    fill: '#primary-surface',
+    color: '#primary-text',
+  },
+});
+```
+
+Custom prefix mapping:
+
+```ts
+palette.tasty({ prefix: { primary: 'brand-', danger: 'error-' } });
+```
+
+Custom state aliases:
+
+```ts
+palette.tasty({ states: { dark: '@dark', highContrast: '@hc' } });
 ```
 
 ### JSON Export (Framework-Agnostic)
@@ -488,17 +564,22 @@ Control which scheme variants appear in exports:
 ```ts
 // Light only
 palette.tokens({ modes: { dark: false, highContrast: false } });
+// → { light: { ... } }
 
 // Light + dark (default)
 palette.tokens({ modes: { highContrast: false } });
+// → { light: { ... }, dark: { ... } }
 
 // All four variants
 palette.tokens({ modes: { dark: true, highContrast: true } });
+// → { light: { ... }, dark: { ... }, lightContrast: { ... }, darkContrast: { ... } }
 ```
+
+The `modes` option works the same way on `tokens()`, `tasty()`, `json()`, and `css()`.
 
 Resolution priority (highest first):
 
-1. `tokens({ modes })` / `json({ modes })` / `css({ ... })` — per-call override
+1. `tokens({ modes })` / `tasty({ modes })` / `json({ modes })` / `css({ ... })` — per-call override
 2. `glaze.configure({ modes })` — global config
 3. Built-in default: `{ dark: true, highContrast: false }`
 
@@ -609,8 +690,15 @@ const note    = primary.extend({ hue: 302 });
 
 const palette = glaze.palette({ primary, danger, success, warning, note });
 
-// Export as OKHSL tokens (default)
+// Export as flat token map grouped by variant
 const tokens = palette.tokens({ prefix: true });
+// tokens.light → { 'primary-surface': 'okhsl(...)', 'danger-surface': 'okhsl(...)' }
+// tokens.dark  → { 'primary-surface': 'okhsl(...)', 'danger-surface': 'okhsl(...)' }
+
+// Export as tasty style-to-state bindings (for Tasty style system)
+const tastyTokens = palette.tasty({ prefix: true });
+// tastyTokens['#primary-surface'] → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }
+// Use as a recipe or spread into component styles (see Tasty Export section)
 
 // Export as RGB for broader CSS compatibility
 const rgbTokens = palette.tokens({ prefix: true, format: 'rgb' });
@@ -656,7 +744,8 @@ brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '
 | `theme.export()` | Export configuration as JSON-safe object |
 | `theme.extend(options)` | Create a child theme |
 | `theme.resolve()` | Resolve all colors |
-| `theme.tokens(options?)` | Export as token map |
+| `theme.tokens(options?)` | Export as flat token map grouped by variant |
+| `theme.tasty(options?)` | Export as [Tasty](https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs) style-to-state bindings |
 | `theme.json(options?)` | Export as plain JSON |
 | `theme.css(options?)` | Export as CSS custom property declarations |
 
