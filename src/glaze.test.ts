@@ -935,4 +935,106 @@ describe('glaze', () => {
       expect(surfaceToken['']).toMatch(/^okhsl\(/);
     });
   });
+
+  describe('css export', () => {
+    it('outputs CSS custom properties with default options (rgb format, -color suffix)', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97, saturation: 0.75 },
+        text: { base: 'surface', lightness: '-52', contrast: 'AAA' },
+      });
+
+      const css = theme.css();
+
+      // All four variants should be present
+      expect(css.light).toBeDefined();
+      expect(css.dark).toBeDefined();
+      expect(css.lightContrast).toBeDefined();
+      expect(css.darkContrast).toBeDefined();
+
+      // Should use rgb format by default
+      expect(css.light).toMatch(/^--surface-color: rgb\(/);
+      expect(css.light).toMatch(/--text-color: rgb\(/);
+
+      // Each variant should have two lines (one per color)
+      expect(css.light.split('\n')).toHaveLength(2);
+      expect(css.dark.split('\n')).toHaveLength(2);
+
+      // Lines should end with semicolons
+      for (const line of css.light.split('\n')) {
+        expect(line).toMatch(/;$/);
+      }
+    });
+
+    it('respects custom format option', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const css = theme.css({ format: 'okhsl' });
+      expect(css.light).toMatch(/--surface-color: okhsl\(/);
+
+      const cssHsl = theme.css({ format: 'hsl' });
+      expect(cssHsl.light).toMatch(/--surface-color: hsl\(/);
+
+      const cssOklch = theme.css({ format: 'oklch' });
+      expect(cssOklch.light).toMatch(/--surface-color: oklch\(/);
+    });
+
+    it('respects custom suffix option', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const css = theme.css({ suffix: '' });
+      expect(css.light).toMatch(/^--surface: rgb\(/);
+
+      const cssBg = theme.css({ suffix: '-bg' });
+      expect(cssBg.light).toMatch(/^--surface-bg: rgb\(/);
+    });
+
+    it('produces different values for light and dark variants', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const css = theme.css();
+      expect(css.light).not.toBe(css.dark);
+    });
+
+    it('works with palette and prefix', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const css = palette.css({ prefix: true });
+
+      expect(css.light).toMatch(/--primary-surface-color: rgb\(/);
+      expect(css.light).toMatch(/--danger-surface-color: rgb\(/);
+    });
+
+    it('works with palette and custom prefix map', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const css = palette.css({ prefix: { primary: 'p-', danger: 'd-' } });
+
+      expect(css.light).toMatch(/--p-surface-color: rgb\(/);
+      expect(css.light).toMatch(/--d-surface-color: rgb\(/);
+    });
+
+    it('works with palette without prefix', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const palette = glaze.palette({ primary });
+      const css = palette.css();
+
+      expect(css.light).toMatch(/--surface-color: rgb\(/);
+      // No prefix
+      expect(css.light).not.toMatch(/--primary-/);
+    });
+  });
 });

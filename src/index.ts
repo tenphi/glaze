@@ -25,6 +25,8 @@ export type {
   GlazeExtendOptions,
   GlazeTokenOptions,
   GlazeJsonOptions,
+  GlazeCssOptions,
+  GlazeCssResult,
   GlazeColorInput,
   GlazeColorToken,
   GlazePalette,
