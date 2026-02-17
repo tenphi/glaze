@@ -55,6 +55,15 @@ src/
 - **Versioning**: Changesets
 - **Node**: >=20, **Package manager**: pnpm 10
 
+## CI/CD & Release
+
+- **CI**: Runs lint, format check, typecheck, build, and tests on push to `main` and PRs.
+- **Release**: On push to `main`, `changesets/action` either creates a version PR or publishes to npm.
+- **Snapshot**: Comment `/snapshot` on a PR to publish a `0.0.0-snapshot.<sha>` release.
+- **npm trusted publishing**: Uses OIDC provenance via the `release` GitHub environment. The workflow requires `environment: release` for npm to accept the OIDC token.
+- **RELEASE_TOKEN secret**: A fine-grained GitHub PAT stored as a repo secret, used by `changesets/action` for Git pushes and PR creation. The default `GITHUB_TOKEN` is insufficient inside the `release` environment. The PAT needs `contents: write` and `pull-requests: write` scopes on the repo. Remember to rotate it before expiry.
+- **Repo settings required**: Under Settings > Actions > General > Workflow permissions, "Allow GitHub Actions to create and approve pull requests" must be enabled.
+
 ## Code Conventions
 
 - TypeScript strict mode, `consistent-type-imports` enforced
