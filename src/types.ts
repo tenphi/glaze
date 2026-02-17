@@ -193,6 +193,9 @@ export interface GlazeTheme {
 
   /** Export as plain JSON. */
   json(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
+
+  /** Export as CSS custom property declarations. */
+  css(options?: GlazeCssOptions): GlazeCssResult;
 }
 
 export interface GlazeExtendOptions {
@@ -226,6 +229,21 @@ export interface GlazeJsonOptions {
   format?: GlazeColorFormat;
 }
 
+export interface GlazeCssOptions {
+  /** Output color format. Default: 'rgb'. */
+  format?: GlazeColorFormat;
+  /** Suffix appended to each CSS custom property name. Default: '-color'. */
+  suffix?: string;
+}
+
+/** CSS custom property declarations grouped by scheme variant. */
+export interface GlazeCssResult {
+  light: string;
+  dark: string;
+  lightContrast: string;
+  darkContrast: string;
+}
+
 export interface GlazePalette {
   /** Export all themes as a combined token map. */
   tokens(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
@@ -236,4 +254,11 @@ export interface GlazePalette {
       prefix?: boolean | Record<string, string>;
     },
   ): Record<string, Record<string, Record<string, string>>>;
+
+  /** Export all themes as CSS custom property declarations. */
+  css(
+    options?: GlazeCssOptions & {
+      prefix?: boolean | Record<string, string>;
+    },
+  ): GlazeCssResult;
 }

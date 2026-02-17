@@ -32,6 +32,8 @@ import type {
   GlazeExtendOptions,
   GlazeTokenOptions,
   GlazeJsonOptions,
+  GlazeCssOptions,
+  GlazeCssResult,
   GlazeColorInput,
   GlazeColorToken,
 } from './types';
@@ -608,6 +610,39 @@ function buildJsonMap(
   return result;
 }
 
+function buildCssMap(
+  resolved: Map<string, ResolvedColor>,
+  prefix: string,
+  suffix: string,
+  format: GlazeColorFormat,
+): GlazeCssResult {
+  const lines: Record<keyof GlazeCssResult, string[]> = {
+    light: [],
+    dark: [],
+    lightContrast: [],
+    darkContrast: [],
+  };
+
+  for (const [name, color] of resolved) {
+    const prop = `--${prefix}${name}${suffix}`;
+    lines.light.push(`${prop}: ${formatVariant(color.light, format)};`);
+    lines.dark.push(`${prop}: ${formatVariant(color.dark, format)};`);
+    lines.lightContrast.push(
+      `${prop}: ${formatVariant(color.lightContrast, format)};`,
+    );
+    lines.darkContrast.push(
+      `${prop}: ${formatVariant(color.darkContrast, format)};`,
+    );
+  }
+
+  return {
+    light: lines.light.join('\n'),
+    dark: lines.dark.join('\n'),
+    lightContrast: lines.lightContrast.join('\n'),
+    darkContrast: lines.darkContrast.join('\n'),
+  };
+}
+
 // ============================================================================
 // Theme implementation
 // ============================================================================
@@ -697,6 +732,16 @@ function createTheme(
       const modes = resolveModes(options?.modes);
       return buildJsonMap(resolved, modes, options?.format);
     },
+
+    css(options?: GlazeCssOptions): GlazeCssResult {
+      const resolved = resolveAllColors(hue, saturation, colorDefs);
+      return buildCssMap(
+        resolved,
+        '',
+        options?.suffix ?? '-color',
+        options?.format ?? 'rgb',
+      );
+    },
   } as GlazeTheme;
 
   return theme;
@@ -763,6 +808,56 @@ function createPalette(themes: PaletteInput) {
       }
 
       return result;
+    },
+
+    css(
+      options?: GlazeCssOptions & {
+        prefix?: boolean | Record<string, string>;
+      },
+    ): GlazeCssResult {
+      const suffix = options?.suffix ?? '-color';
+      const format = options?.format ?? 'rgb';
+
+      const allLines: Record<keyof GlazeCssResult, string[]> = {
+        light: [],
+        dark: [],
+        lightContrast: [],
+        darkContrast: [],
+      };
+
+      for (const [themeName, theme] of Object.entries(themes)) {
+        const resolved = theme.resolve();
+
+        let prefix = '';
+        if (options?.prefix === true) {
+          prefix = `${themeName}-`;
+        } else if (
+          typeof options?.prefix === 'object' &&
+          options.prefix !== null
+        ) {
+          prefix = options.prefix[themeName] ?? `${themeName}-`;
+        }
+
+        const css = buildCssMap(resolved, prefix, suffix, format);
+
+        for (const key of [
+          'light',
+          'dark',
+          'lightContrast',
+          'darkContrast',
+        ] as const) {
+          if (css[key]) {
+            allLines[key].push(css[key]);
+          }
+        }
+      }
+
+      return {
+        light: allLines.light.join('\n'),
+        dark: allLines.dark.join('\n'),
+        lightContrast: allLines.lightContrast.join('\n'),
+        darkContrast: allLines.darkContrast.join('\n'),
+      };
     },
   };
 }

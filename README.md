@@ -25,6 +25,7 @@ Glaze generates robust **light**, **dark**, and **high-contrast** color schemes 
 - **Light + Dark + High-Contrast** — all schemes from one definition
 - **Per-color hue override** — absolute or relative hue shifts within a theme
 - **Multi-format output** — `okhsl`, `rgb`, `hsl`, `oklch`
+- **CSS custom properties export** — ready-to-use `--var: value;` declarations per scheme
 - **Import/Export** — serialize and restore theme configurations
 - **Create from hex/RGB** — start from an existing brand color
 - **Zero dependencies** — pure math, runs anywhere (Node.js, browser, edge)
@@ -306,7 +307,7 @@ theme.tokens({ format: 'hsl' });       // → 'hsl(270.5, 45.2%, 95.8%)'
 theme.tokens({ format: 'oklch' });     // → 'oklch(96.5% 0.0123 280.0)'
 ```
 
-The `format` option works on all export methods: `theme.tokens()`, `theme.json()`, `palette.tokens()`, `palette.json()`, and standalone `glaze.color().token()` / `.json()`.
+The `format` option works on all export methods: `theme.tokens()`, `theme.json()`, `theme.css()`, `palette.tokens()`, `palette.json()`, `palette.css()`, and standalone `glaze.color().token()` / `.json()`.
 
 Available formats:
 
@@ -433,6 +434,53 @@ const data = palette.json({ prefix: true });
 // }
 ```
 
+### CSS Export
+
+Export as CSS custom property declarations, grouped by scheme variant. Each variant is a string of `--name-color: value;` lines that you can wrap in your own selectors and media queries.
+
+```ts
+const css = theme.css();
+// css.light        → "--surface-color: rgb(...);\n--text-color: rgb(...);"
+// css.dark         → "--surface-color: rgb(...);\n--text-color: rgb(...);"
+// css.lightContrast → "--surface-color: rgb(...);\n--text-color: rgb(...);"
+// css.darkContrast  → "--surface-color: rgb(...);\n--text-color: rgb(...);"
+```
+
+Use in a stylesheet:
+
+```ts
+const css = palette.css({ prefix: true });
+
+const stylesheet = `
+:root { ${css.light} }
+@media (prefers-color-scheme: dark) {
+  :root { ${css.dark} }
+}
+`;
+```
+
+Options:
+
+| Option | Default | Description |
+|---|---|---|
+| `format` | `'rgb'` | Color format (`'rgb'`, `'hsl'`, `'okhsl'`, `'oklch'`) |
+| `suffix` | `'-color'` | Suffix appended to each CSS property name |
+| `prefix` | — | (palette only) Same prefix behavior as `tokens()` |
+
+```ts
+// Custom suffix
+theme.css({ suffix: '' });
+// → "--surface: rgb(...);"
+
+// Custom format
+theme.css({ format: 'hsl' });
+// → "--surface-color: hsl(...);"
+
+// Palette with prefix
+palette.css({ prefix: true });
+// → "--primary-surface-color: rgb(...);\n--danger-surface-color: rgb(...);"
+```
+
 ## Output Modes
 
 Control which scheme variants appear in exports:
@@ -450,7 +498,7 @@ palette.tokens({ modes: { dark: true, highContrast: true } });
 
 Resolution priority (highest first):
 
-1. `tokens({ modes })` / `json({ modes })` — per-call override
+1. `tokens({ modes })` / `json({ modes })` / `css({ ... })` — per-call override
 2. `glaze.configure({ modes })` — global config
 3. Built-in default: `{ dark: true, highContrast: false }`
 
@@ -567,6 +615,11 @@ const tokens = palette.tokens({ prefix: true });
 // Export as RGB for broader CSS compatibility
 const rgbTokens = palette.tokens({ prefix: true, format: 'rgb' });
 
+// Export as CSS custom properties (rgb format by default)
+const css = palette.css({ prefix: true });
+// css.light → "--primary-surface-color: rgb(...);\n--danger-surface-color: rgb(...);"
+// css.dark  → "--primary-surface-color: rgb(...);\n--danger-surface-color: rgb(...);"
+
 // Save and restore a theme
 const snapshot = primary.export();
 const restored = glaze.from(snapshot);
@@ -605,6 +658,7 @@ brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '
 | `theme.resolve()` | Resolve all colors |
 | `theme.tokens(options?)` | Export as token map |
 | `theme.json(options?)` | Export as plain JSON |
+| `theme.css(options?)` | Export as CSS custom property declarations |
 
 ### Global Configuration
 
