@@ -31,6 +31,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -46,7 +50,7 @@ jobs:
           echo "SNAPSHOT_VERSION=${SNAPSHOT_VERSION}" >> $GITHUB_ENV
 
       - name: Publish snapshot
-        run: pnpm publish --tag snapshot --no-git-checks --access public --provenance
+        run: npm publish --tag snapshot --access public --provenance
 
       - name: Comment on PR
         uses: actions/github-script@v7
