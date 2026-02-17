@@ -11,6 +11,7 @@ export { glaze } from './glaze';
 export type {
   HCPair,
   MinContrast,
+  RelativeValue,
   AdaptationMode,
   GlazeColorFormat,
   GlazeOutputModes,

@@ -15,6 +15,9 @@ export type MinContrast = number | ContrastPreset;
 
 export type AdaptationMode = 'auto' | 'fixed' | 'static';
 
+/** A signed relative offset string, e.g. '+20' or '-15.5'. */
+export type RelativeValue = `+${number}` | `-${number}`;
+
 /** Color format for output. */
 export type GlazeColorFormat = 'okhsl' | 'rgb' | 'hsl' | 'oklch';
 
@@ -34,17 +37,25 @@ export interface GlazeOutputModes {
 // ============================================================================
 
 export interface ColorDef {
-  /** Lightness in the light scheme (0–100). Root color. */
-  l?: HCPair<number>;
+  /**
+   * Lightness value (0–100).
+   * - Number: absolute lightness.
+   * - String ('+N' / '-N'): relative to base color's lightness (requires `base`).
+   */
+  lightness?: HCPair<number | RelativeValue>;
   /** Saturation factor applied to the seed saturation (0–1, default: 1). */
-  sat?: number;
+  saturation?: number;
+  /**
+   * Hue override for this color.
+   * - Number: absolute hue (0–360).
+   * - String ('+N' / '-N'): relative to the theme seed hue.
+   */
+  hue?: number | RelativeValue;
 
   /** Name of another color in the same theme (dependent color). */
   base?: string;
-  /** Lightness delta from the base color. */
-  contrast?: HCPair<number>;
-  /** Ensures the WCAG contrast ratio meets a target floor against the base. */
-  ensureContrast?: HCPair<MinContrast>;
+  /** WCAG contrast ratio floor against the base color. */
+  contrast?: HCPair<MinContrast>;
 
   /** Adaptation mode. Default: 'auto'. */
   mode?: AdaptationMode;
@@ -123,8 +134,8 @@ export interface GlazeThemeExport {
 export interface GlazeColorInput {
   hue: number;
   saturation: number;
-  l: HCPair<number>;
-  sat?: number;
+  lightness: HCPair<number>;
+  saturationFactor?: number;
   mode?: AdaptationMode;
 }
 

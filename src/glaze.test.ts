@@ -28,7 +28,7 @@ describe('glaze', () => {
     it('resolves root colors', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        surface: { l: 97, sat: 0.75 },
+        surface: { lightness: 97, saturation: 0.75 },
       });
 
       const resolved = theme.resolve();
@@ -40,11 +40,11 @@ describe('glaze', () => {
       expect(surface.light.s).toBeCloseTo(0.6, 2); // 0.75 * 80/100
     });
 
-    it('resolves dependent colors', () => {
+    it('resolves dependent colors with relative lightness', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        surface: { l: 97, sat: 0.75 },
-        text: { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
+        surface: { lightness: 97, saturation: 0.75 },
+        text: { base: 'surface', lightness: '-52', contrast: 'AAA' },
       });
 
       const resolved = theme.resolve();
@@ -55,10 +55,39 @@ describe('glaze', () => {
       expect(text.light.l).toBeLessThan(0.97);
     });
 
+    it('resolves dependent colors with absolute lightness', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+        text: { base: 'surface', lightness: 45, contrast: 'AAA' },
+      });
+
+      const resolved = theme.resolve();
+      const text = resolved.get('text')!;
+
+      expect(text).toBeDefined();
+      // Absolute lightness 45 in light mode
+      expect(text.light.l).toBeLessThan(0.97);
+    });
+
+    it('resolves dependent colors without lightness (inherits base)', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+        overlay: { base: 'surface' },
+      });
+
+      const resolved = theme.resolve();
+      const overlay = resolved.get('overlay')!;
+
+      // Should inherit base lightness
+      expect(overlay.light.l).toBeCloseTo(0.97, 2);
+    });
+
     it('merges colors additively on second .colors() call', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
-      theme.colors({ text: { l: 30 } });
+      theme.colors({ surface: { lightness: 97 } });
+      theme.colors({ text: { lightness: 30 } });
 
       const resolved = theme.resolve();
       expect(resolved.has('surface')).toBe(true);
@@ -67,8 +96,8 @@ describe('glaze', () => {
 
     it('overwrites existing color on .colors() with same key', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
-      theme.colors({ surface: { l: 50 } });
+      theme.colors({ surface: { lightness: 97 } });
+      theme.colors({ surface: { lightness: 50 } });
 
       const resolved = theme.resolve();
       expect(resolved.get('surface')!.light.l).toBeCloseTo(0.5, 2);
@@ -79,16 +108,25 @@ describe('glaze', () => {
     it('throws on contrast without base', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        text: { contrast: 52 } as any,
+        text: { lightness: 50, contrast: 'AA' } as any,
       });
 
       expect(() => theme.resolve()).toThrow('contrast');
     });
 
+    it('throws on relative lightness without base', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        text: { lightness: '-52' } as any,
+      });
+
+      expect(() => theme.resolve()).toThrow('relative');
+    });
+
     it('throws on non-existent base reference', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        text: { base: 'nonexistent', contrast: 52 },
+        text: { base: 'nonexistent', lightness: '-52' },
       });
 
       expect(() => theme.resolve()).toThrow('non-existent');
@@ -97,55 +135,29 @@ describe('glaze', () => {
     it('throws on circular base references', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        a: { base: 'b', contrast: 10 },
-        b: { base: 'a', contrast: 10 },
+        a: { base: 'b', lightness: '-10' },
+        b: { base: 'a', lightness: '-10' },
       });
 
       expect(() => theme.resolve()).toThrow('circular');
     });
 
-    it('throws when color has neither l nor base', () => {
+    it('throws when color has neither absolute lightness nor base', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        text: { sat: 0.5 } as any,
+        text: { saturation: 0.5 } as any,
       });
 
       expect(() => theme.resolve()).toThrow('must have either');
     });
   });
 
-  describe('contrast sign convention', () => {
-    it('auto-flips unsigned contrast when result > 100', () => {
+  describe('relative lightness', () => {
+    it('negative relative lightness means darker than base', () => {
       const theme = glaze(0, 0);
       theme.colors({
-        surface: { l: 97 },
-        text: { base: 'surface', contrast: 52 },
-      });
-
-      const resolved = theme.resolve();
-      const text = resolved.get('text')!;
-      // 97 + 52 = 149 > 100 → flips to 97 - 52 = 45
-      expect(text.light.l).toBeCloseTo(0.45, 2);
-    });
-
-    it('keeps positive contrast when result <= 100', () => {
-      const theme = glaze(0, 0);
-      theme.colors({
-        fill: { l: 52 },
-        text: { base: 'fill', contrast: 48 },
-      });
-
-      const resolved = theme.resolve();
-      const text = resolved.get('text')!;
-      // 52 + 48 = 100 → keeps as 100
-      expect(text.light.l).toBeCloseTo(1.0, 2);
-    });
-
-    it('explicit negative always means darker', () => {
-      const theme = glaze(0, 0);
-      theme.colors({
-        surface: { l: 97 },
-        text: { base: 'surface', contrast: -52 },
+        surface: { lightness: 97 },
+        text: { base: 'surface', lightness: '-52' },
       });
 
       const resolved = theme.resolve();
@@ -153,13 +165,87 @@ describe('glaze', () => {
       // 97 - 52 = 45
       expect(text.light.l).toBeCloseTo(0.45, 2);
     });
+
+    it('positive relative lightness means lighter than base', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        fill: { lightness: 52 },
+        text: { base: 'fill', lightness: '+48' },
+      });
+
+      const resolved = theme.resolve();
+      const text = resolved.get('text')!;
+      // 52 + 48 = 100
+      expect(text.light.l).toBeCloseTo(1.0, 2);
+    });
+  });
+
+  describe('per-color hue', () => {
+    it('absolute hue overrides theme seed', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97, hue: 120 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+      expect(surface.light.h).toBe(120);
+    });
+
+    it('relative hue shifts from theme seed', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97, hue: '+20' },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+      expect(surface.light.h).toBeCloseTo(300, 2);
+    });
+
+    it('negative relative hue shifts backwards', () => {
+      const theme = glaze(30, 80);
+      theme.colors({
+        surface: { lightness: 97, hue: '-50' },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+      // 30 - 50 = -20 → wraps to 340
+      expect(surface.light.h).toBeCloseTo(340, 2);
+    });
+
+    it('hue wraps around 360', () => {
+      const theme = glaze(350, 80);
+      theme.colors({
+        surface: { lightness: 97, hue: '+30' },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+      // 350 + 30 = 380 → wraps to 20
+      expect(surface.light.h).toBeCloseTo(20, 2);
+    });
+
+    it('per-color hue is relative to theme seed, not base', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97, hue: 120 },
+        text: { base: 'surface', lightness: '-30', hue: '+20' },
+      });
+
+      const resolved = theme.resolve();
+      const text = resolved.get('text')!;
+      // hue: '+20' is relative to theme seed 280, not surface's 120
+      expect(text.light.h).toBeCloseTo(300, 2);
+    });
   });
 
   describe('adaptation modes', () => {
     it('auto mode inverts lightness in dark scheme', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        surface: { l: 97, sat: 0.75 },
+        surface: { lightness: 97, saturation: 0.75 },
       });
 
       const resolved = theme.resolve();
@@ -173,7 +259,7 @@ describe('glaze', () => {
     it('fixed mode maps lightness without inversion', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        fill: { l: 52, mode: 'fixed' },
+        fill: { lightness: 52, mode: 'fixed' },
       });
 
       const resolved = theme.resolve();
@@ -186,7 +272,7 @@ describe('glaze', () => {
     it('static mode preserves lightness across schemes', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        brand: { l: 60, mode: 'static' },
+        brand: { lightness: 60, mode: 'static' },
       });
 
       const resolved = theme.resolve();
@@ -201,7 +287,7 @@ describe('glaze', () => {
     it('applies desaturation in dark mode', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        surface: { l: 97, sat: 0.75 },
+        surface: { lightness: 97, saturation: 0.75 },
       });
 
       const resolved = theme.resolve();
@@ -216,7 +302,7 @@ describe('glaze', () => {
     it('uses HC pair value for lightness', () => {
       const theme = glaze(0, 0);
       theme.colors({
-        surface: { l: [97, 100] },
+        surface: { lightness: [97, 100] },
       });
 
       const resolved = theme.resolve();
@@ -226,18 +312,18 @@ describe('glaze', () => {
       expect(surface.lightContrast.l).toBeCloseTo(1.0, 2);
     });
 
-    it('uses HC pair value for contrast', () => {
+    it('uses HC pair value for relative lightness', () => {
       const theme = glaze(0, 0);
       theme.colors({
-        surface: { l: 97 },
-        border: { base: 'surface', contrast: [7, 20] },
+        surface: { lightness: 97 },
+        border: { base: 'surface', lightness: ['-7', '-20'] },
       });
 
       const resolved = theme.resolve();
       const border = resolved.get('border')!;
 
-      // Normal: 97 + 7 > 100 → 97 - 7 = 90
-      // HC: 97 + 20 > 100 → 97 - 20 = 77
+      // Normal: 97 - 7 = 90
+      // HC: 97 - 20 = 77
       expect(border.light.l).toBeCloseTo(0.9, 2);
       expect(border.lightContrast.l).toBeCloseTo(0.77, 2);
     });
@@ -247,8 +333,8 @@ describe('glaze', () => {
     it('inherits all color definitions', () => {
       const primary = glaze(280, 80);
       primary.colors({
-        surface: { l: 97, sat: 0.75 },
-        text: { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
+        surface: { lightness: 97, saturation: 0.75 },
+        text: { base: 'surface', lightness: '-52', contrast: 'AAA' },
       });
 
       const danger = primary.extend({ hue: 23 });
@@ -261,7 +347,7 @@ describe('glaze', () => {
 
     it('can override saturation', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const muted = primary.extend({ saturation: 40 });
       expect(muted.saturation).toBe(40);
@@ -270,14 +356,14 @@ describe('glaze', () => {
     it('can override individual colors (additive merge)', () => {
       const primary = glaze(280, 80);
       primary.colors({
-        surface: { l: 97 },
-        fill: { l: 52 },
+        surface: { lightness: 97 },
+        fill: { lightness: 52 },
       });
 
       const danger = primary.extend({
         hue: 23,
         colors: {
-          fill: { l: 48, mode: 'fixed' },
+          fill: { lightness: 48, mode: 'fixed' },
         },
       });
 
@@ -291,7 +377,7 @@ describe('glaze', () => {
     it('exports tokens with # prefix', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        surface: { l: 97 },
+        surface: { lightness: 97 },
       });
 
       // Enable all modes for this test
@@ -307,7 +393,7 @@ describe('glaze', () => {
 
     it('supports custom state aliases', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       // Enable highContrast to test HC state aliases
       const tokens = theme.tokens({
@@ -324,7 +410,7 @@ describe('glaze', () => {
   describe('JSON export', () => {
     it('exports plain scheme variants', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       // Enable all modes for this test
       const json = theme.json({ modes: { dark: true, highContrast: true } });
@@ -339,7 +425,7 @@ describe('glaze', () => {
   describe('palette', () => {
     it('combines multiple themes with prefix', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const danger = primary.extend({ hue: 23 });
 
@@ -352,7 +438,7 @@ describe('glaze', () => {
 
     it('supports custom prefix mapping', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const danger = primary.extend({ hue: 23 });
 
@@ -367,7 +453,7 @@ describe('glaze', () => {
 
     it('exports JSON with theme grouping', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const danger = primary.extend({ hue: 23 });
 
@@ -412,7 +498,7 @@ describe('glaze', () => {
   describe('output modes', () => {
     it('defaults to light + dark (2 variants) in tokens', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens();
       // Default: dark=true, highContrast=false → light + dark
@@ -421,7 +507,7 @@ describe('glaze', () => {
 
     it('modes: { dark: false, highContrast: true } omits dark and darkContrast from tokens', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({
         modes: { dark: false, highContrast: true },
@@ -434,7 +520,7 @@ describe('glaze', () => {
 
     it('modes: { highContrast: false } omits HC and darkContrast from tokens', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({ modes: { highContrast: false } });
       const keys = Object.keys(tokens['#surface']);
@@ -445,7 +531,7 @@ describe('glaze', () => {
 
     it('modes: { dark: false, highContrast: false } exports light only in tokens', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({
         modes: { dark: false, highContrast: false },
@@ -456,7 +542,7 @@ describe('glaze', () => {
 
     it('modes work on json() export', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const json = theme.json({ modes: { highContrast: false } });
       const keys = Object.keys(json.surface);
@@ -470,7 +556,7 @@ describe('glaze', () => {
       glaze.configure({ modes: { highContrast: true } });
 
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens();
       // highContrast enabled → all 4 variants
@@ -481,7 +567,7 @@ describe('glaze', () => {
       glaze.configure({ modes: { dark: false, highContrast: false } });
 
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       // Override back to all modes
       const tokens = theme.tokens({
@@ -492,7 +578,7 @@ describe('glaze', () => {
 
     it('modes work on palette tokens', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const palette = glaze.palette({ primary });
       const tokens = palette.tokens({
@@ -504,7 +590,7 @@ describe('glaze', () => {
 
     it('modes work on palette json', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const palette = glaze.palette({ primary });
       // Enable highContrast to test filtering
@@ -522,7 +608,7 @@ describe('glaze', () => {
   describe('color getter/setter', () => {
     it('sets a single color with .color(name, def)', () => {
       const theme = glaze(280, 80);
-      theme.color('surface', { l: 97 });
+      theme.color('surface', { lightness: 97 });
 
       const resolved = theme.resolve();
       expect(resolved.has('surface')).toBe(true);
@@ -531,10 +617,10 @@ describe('glaze', () => {
 
     it('gets a color definition with .color(name)', () => {
       const theme = glaze(280, 80);
-      theme.color('surface', { l: 97, sat: 0.75 });
+      theme.color('surface', { lightness: 97, saturation: 0.75 });
 
       const def = theme.color('surface');
-      expect(def).toEqual({ l: 97, sat: 0.75 });
+      expect(def).toEqual({ lightness: 97, saturation: 0.75 });
     });
 
     it('returns undefined for missing color', () => {
@@ -546,7 +632,7 @@ describe('glaze', () => {
   describe('remove', () => {
     it('removes a single color', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 }, text: { l: 30 } });
+      theme.colors({ surface: { lightness: 97 }, text: { lightness: 30 } });
       theme.remove('surface');
 
       expect(theme.has('surface')).toBe(false);
@@ -555,7 +641,11 @@ describe('glaze', () => {
 
     it('removes multiple colors', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 }, text: { l: 30 }, bg: { l: 100 } });
+      theme.colors({
+        surface: { lightness: 97 },
+        text: { lightness: 30 },
+        bg: { lightness: 100 },
+      });
       theme.remove(['surface', 'text']);
 
       expect(theme.has('surface')).toBe(false);
@@ -565,7 +655,7 @@ describe('glaze', () => {
 
     it('is a no-op for missing names', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
       theme.remove('nonexistent');
 
       expect(theme.list()).toEqual(['surface']);
@@ -575,7 +665,7 @@ describe('glaze', () => {
   describe('has / list', () => {
     it('has() returns true for defined colors', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       expect(theme.has('surface')).toBe(true);
       expect(theme.has('text')).toBe(false);
@@ -583,14 +673,14 @@ describe('glaze', () => {
 
     it('list() returns all defined color names', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 }, text: { l: 30 } });
+      theme.colors({ surface: { lightness: 97 }, text: { lightness: 30 } });
 
       expect(theme.list()).toEqual(['surface', 'text']);
     });
 
     it('list() reflects removals', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 }, text: { l: 30 } });
+      theme.colors({ surface: { lightness: 97 }, text: { lightness: 30 } });
       theme.remove('surface');
 
       expect(theme.list()).toEqual(['text']);
@@ -600,7 +690,7 @@ describe('glaze', () => {
   describe('reset', () => {
     it('clears all color definitions', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 }, text: { l: 30 } });
+      theme.colors({ surface: { lightness: 97 }, text: { lightness: 30 } });
       theme.reset();
 
       expect(theme.list()).toEqual([]);
@@ -610,19 +700,22 @@ describe('glaze', () => {
   describe('export / from', () => {
     it('exports theme configuration', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97, sat: 0.75 } });
+      theme.colors({ surface: { lightness: 97, saturation: 0.75 } });
 
       const exported = theme.export();
       expect(exported.hue).toBe(280);
       expect(exported.saturation).toBe(80);
-      expect(exported.colors.surface).toEqual({ l: 97, sat: 0.75 });
+      expect(exported.colors.surface).toEqual({
+        lightness: 97,
+        saturation: 0.75,
+      });
     });
 
     it('round-trips through export/from', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        surface: { l: 97, sat: 0.75 },
-        text: { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
+        surface: { lightness: 97, saturation: 0.75 },
+        text: { base: 'surface', lightness: '-52', contrast: 'AAA' },
       });
 
       const exported = theme.export();
@@ -643,10 +736,10 @@ describe('glaze', () => {
 
     it('export creates a snapshot (mutations do not affect it)', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const exported = theme.export();
-      theme.colors({ newColor: { l: 50 } });
+      theme.colors({ newColor: { lightness: 50 } });
 
       expect(exported.colors).not.toHaveProperty('newColor');
     });
@@ -654,7 +747,7 @@ describe('glaze', () => {
 
   describe('glaze.color standalone', () => {
     it('resolves a standalone color', () => {
-      const color = glaze.color({ hue: 280, saturation: 80, l: 52 });
+      const color = glaze.color({ hue: 280, saturation: 80, lightness: 52 });
       const resolved = color.resolve();
 
       expect(resolved.light.h).toBe(280);
@@ -665,7 +758,7 @@ describe('glaze', () => {
       const color = glaze.color({
         hue: 280,
         saturation: 80,
-        l: 52,
+        lightness: 52,
         mode: 'fixed',
       });
       const token = color.token();
@@ -675,7 +768,7 @@ describe('glaze', () => {
     });
 
     it('exports json for a standalone color', () => {
-      const color = glaze.color({ hue: 280, saturation: 80, l: 52 });
+      const color = glaze.color({ hue: 280, saturation: 80, lightness: 52 });
       const json = color.json();
 
       expect(json.light).toMatch(/^okhsl\(/);
@@ -683,7 +776,7 @@ describe('glaze', () => {
     });
 
     it('supports format option', () => {
-      const color = glaze.color({ hue: 280, saturation: 80, l: 52 });
+      const color = glaze.color({ hue: 280, saturation: 80, lightness: 52 });
 
       const rgbToken = color.token({ format: 'rgb' });
       expect(rgbToken['']).toMatch(/^rgb\(/);
@@ -728,7 +821,7 @@ describe('glaze', () => {
   describe('format option', () => {
     it('outputs rgb format in tokens', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({ format: 'rgb' });
       expect(tokens['#surface']['']).toMatch(/^rgb\(/);
@@ -736,7 +829,7 @@ describe('glaze', () => {
 
     it('outputs hsl format in tokens', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({ format: 'hsl' });
       expect(tokens['#surface']['']).toMatch(/^hsl\(/);
@@ -744,7 +837,7 @@ describe('glaze', () => {
 
     it('outputs oklch format in tokens', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const tokens = theme.tokens({ format: 'oklch' });
       expect(tokens['#surface']['']).toMatch(/^oklch\(/);
@@ -752,7 +845,7 @@ describe('glaze', () => {
 
     it('outputs rgb format in json', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 97 } });
+      theme.colors({ surface: { lightness: 97 } });
 
       const json = theme.json({ format: 'rgb' });
       expect(json.surface.light).toMatch(/^rgb\(/);
@@ -760,7 +853,7 @@ describe('glaze', () => {
 
     it('outputs format in palette tokens', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const palette = glaze.palette({ primary });
       const tokens = palette.tokens({ prefix: true, format: 'rgb' });
@@ -769,7 +862,7 @@ describe('glaze', () => {
 
     it('outputs format in palette json', () => {
       const primary = glaze(280, 80);
-      primary.colors({ surface: { l: 97 } });
+      primary.colors({ surface: { lightness: 97 } });
 
       const palette = glaze.palette({ primary });
       const json = palette.json({ format: 'hsl' });
@@ -778,7 +871,7 @@ describe('glaze', () => {
 
     it('rgb format uses fractional values', () => {
       const theme = glaze(280, 80);
-      theme.colors({ surface: { l: 52 } });
+      theme.colors({ surface: { lightness: 52 } });
 
       const tokens = theme.tokens({ format: 'rgb' });
       const value = tokens['#surface'][''];
@@ -792,23 +885,23 @@ describe('glaze', () => {
       const primary = glaze(280, 80);
 
       primary.colors({
-        surface: { l: 97, sat: 0.75 },
-        text: { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
+        surface: { lightness: 97, saturation: 0.75 },
+        text: { base: 'surface', lightness: '-52', contrast: 'AAA' },
         border: {
           base: 'surface',
-          contrast: [7, 20],
-          ensureContrast: 'AA-large',
+          lightness: ['-7', '-20'],
+          contrast: 'AA-large',
         },
-        bg: { l: 97, sat: 0.75 },
-        icon: { l: 60, sat: 0.94 },
-        'accent-fill': { l: 52, mode: 'fixed' },
+        bg: { lightness: 97, saturation: 0.75 },
+        icon: { lightness: 60, saturation: 0.94 },
+        'accent-fill': { lightness: 52, mode: 'fixed' },
         'accent-text': {
           base: 'accent-fill',
-          contrast: 48,
-          ensureContrast: 'AA',
+          lightness: '+48',
+          contrast: 'AA',
           mode: 'fixed',
         },
-        disabled: { l: 81, sat: 0.4 },
+        disabled: { lightness: 81, saturation: 0.4 },
       });
 
       const danger = primary.extend({ hue: 23 });

@@ -93,7 +93,7 @@ describe('contrast-solver', () => {
         saturation: 0,
         preferredLightness: 0.2,
         baseLinearRgb,
-        ensureContrast: 'AA',
+        contrast: 'AA',
       });
 
       // Dark text on near-white should easily pass AA
@@ -109,7 +109,7 @@ describe('contrast-solver', () => {
         saturation: 0,
         preferredLightness: 0.5,
         baseLinearRgb,
-        ensureContrast: 'AAA',
+        contrast: 'AAA',
       });
 
       expect(result.met).toBe(true);
@@ -124,7 +124,7 @@ describe('contrast-solver', () => {
         saturation: 0,
         preferredLightness: 0.7,
         baseLinearRgb,
-        ensureContrast: 'AA',
+        contrast: 'AA',
       });
 
       expect(result.met).toBe(true);
@@ -139,7 +139,7 @@ describe('contrast-solver', () => {
         saturation: 0,
         preferredLightness: 0.5,
         baseLinearRgb,
-        ensureContrast: 21, // Maximum possible contrast — only black vs white
+        contrast: 21, // Maximum possible contrast — only black vs white
         lightnessRange: [0.4, 0.6],
       });
 
@@ -179,7 +179,7 @@ describe('contrast-solver', () => {
           saturation: tc.sat,
           preferredLightness: tc.prefL,
           baseLinearRgb,
-          ensureContrast: tc.target,
+          contrast: tc.target,
         });
 
         if (result.met) {
@@ -208,7 +208,7 @@ describe('contrast-solver', () => {
         saturation: 0.8,
         preferredLightness: 0.45,
         baseLinearRgb,
-        ensureContrast: 'AAA',
+        contrast: 'AAA',
       });
 
       expect(result.met).toBe(true);

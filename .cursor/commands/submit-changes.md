@@ -1,15 +1,10 @@
----
-description: When submitting, committing, or pushing changes
-alwaysApply: false
----
+# submit-changes
 
-# Submit Changes
-
-Follow these steps **in order** when asked to submit/commit/push changes.
+Submit changes by creating a changeset, committing, and pushing. Follow these steps **in order**.
 
 ## 1. Create a changeset
 
-Run `pnpm changeset` non-interactively by writing a changeset file directly:
+Create a changeset file directly (non-interactive):
 
 - Create a markdown file in `.changeset/` with a random kebab-case name (e.g. `.changeset/bright-dogs-fly.md`).
 - Format:
@@ -25,7 +20,11 @@ Short description of what changed.
 - Use `patch` for fixes and small changes, `minor` for new features or non-breaking API changes, `major` for breaking changes.
 - The description should be a concise user-facing summary (what changed, not how).
 
-## 2. Commit
+## 2. Format code
+
+Run `pnpm format` to format code before committing.
+
+## 3. Commit
 
 Use **Conventional Commits** format:
 
@@ -38,7 +37,7 @@ type(scope): short description
 - Keep the message as short as possible.
 - Include the changeset file in the same commit.
 
-## 3. Push
+## 4. Push
 
 - **Never push to `main`**. Verify the current branch first.
 - If on `main`, stop and warn the user.

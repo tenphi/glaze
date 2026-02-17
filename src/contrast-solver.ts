@@ -3,7 +3,7 @@
  *
  * Finds the closest OKHSL lightness that satisfies a WCAG 2 contrast target
  * against a base color. Used by glaze when resolving dependent colors
- * with `ensureContrast`.
+ * with `contrast`.
  */
 
 import {
@@ -30,8 +30,8 @@ export interface FindLightnessForContrastOptions {
   /** Base/reference color as linear sRGB (channels may be outside 0–1 before clamp). */
   baseLinearRgb: [number, number, number];
 
-  /** Ensures the WCAG contrast ratio meets a target floor. */
-  ensureContrast: MinContrast;
+  /** WCAG contrast ratio target floor. */
+  contrast: MinContrast;
 
   /** Search bounds for lightness. Default: [0, 1]. */
   lightnessRange?: [number, number];
@@ -249,13 +249,13 @@ export function findLightnessForContrast(
     saturation,
     preferredLightness,
     baseLinearRgb,
-    ensureContrast: ensureContrastInput,
+    contrast: contrastInput,
     lightnessRange = [0, 1],
     epsilon = 1e-4,
     maxIterations = 14,
   } = options;
 
-  const target = resolveMinContrast(ensureContrastInput);
+  const target = resolveMinContrast(contrastInput);
   const yBase = relativeLuminanceFromLinearRgb(baseLinearRgb);
 
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
