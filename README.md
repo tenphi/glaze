@@ -23,6 +23,7 @@ Glaze generates robust **light**, **dark**, and **high-contrast** color schemes 
 - **OKHSL color space** — perceptually uniform hue and saturation
 - **WCAG 2 contrast solving** — automatic lightness adjustment to meet AA/AAA targets
 - **Light + Dark + High-Contrast** — all schemes from one definition
+- **Per-color hue override** — absolute or relative hue shifts within a theme
 - **Multi-format output** — `okhsl`, `rgb`, `hsl`, `oklch`
 - **Import/Export** — serialize and restore theme configurations
 - **Create from hex/RGB** — start from an existing brand color
@@ -54,11 +55,11 @@ const primary = glaze(280, 80);
 
 // Define colors with explicit lightness and contrast relationships
 primary.colors({
-  surface:    { l: 97, sat: 0.75 },
-  text:       { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
-  border:     { base: 'surface', contrast: [7, 20], ensureContrast: 'AA-large' },
-  'accent-fill': { l: 52, mode: 'fixed' },
-  'accent-text': { base: 'accent-fill', contrast: 48, ensureContrast: 'AA', mode: 'fixed' },
+  surface:       { lightness: 97, saturation: 0.75 },
+  text:          { base: 'surface', lightness: '-52', contrast: 'AAA' },
+  border:        { base: 'surface', lightness: ['-7', '-20'], contrast: 'AA-large' },
+  'accent-fill': { lightness: 52, mode: 'fixed' },
+  'accent-text': { base: 'accent-fill', lightness: '+48', contrast: 'AA', mode: 'fixed' },
 });
 
 // Create status themes by rotating the hue
@@ -77,6 +78,8 @@ const tokens = palette.tokens({ prefix: true });
 
 A single `glaze` theme is tied to one hue/saturation seed. Status colors (danger, success, warning) are derived via `extend`, which inherits all color definitions and replaces the seed.
 
+Individual colors can override the hue via the `hue` prop (see [Per-Color Hue Override](#per-color-hue-override)), but the primary purpose of a theme is to scope colors with the same hue.
+
 ### Color Definitions
 
 Every color is defined explicitly. No implicit roles — every value is stated.
@@ -85,48 +88,73 @@ Every color is defined explicitly. No implicit roles — every value is stated.
 
 ```ts
 primary.colors({
-  surface: { l: 97, sat: 0.75 },
-  border:  { l: 90, sat: 0.20 },
+  surface: { lightness: 97, saturation: 0.75 },
+  border:  { lightness: 90, saturation: 0.20 },
 });
 ```
 
-- `l` — lightness in the light scheme (0–100)
-- `sat` — saturation factor applied to the seed saturation (0–1, default: `1`)
+- `lightness` — lightness in the light scheme (0–100)
+- `saturation` — saturation factor applied to the seed saturation (0–1, default: `1`)
 
 #### Dependent Colors (relative to base)
 
 ```ts
 primary.colors({
-  surface: { l: 97, sat: 0.75 },
-  text:    { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
+  surface: { lightness: 97, saturation: 0.75 },
+  text:    { base: 'surface', lightness: '-52', contrast: 'AAA' },
 });
 ```
 
 - `base` — name of another color in the same theme
-- `contrast` — lightness delta from the base color
-- `ensureContrast` — ensures the WCAG contrast ratio meets a target floor against the base
+- `lightness` — position of this color (see [Lightness Values](#lightness-values))
+- `contrast` — ensures the WCAG contrast ratio meets a target floor against the base
 
-Both `contrast` and `ensureContrast` are considered. The effective lightness satisfies both constraints — the more demanding one wins.
+### Lightness Values
 
-### Contrast Sign Convention
+The `lightness` prop accepts two forms:
 
-| Sign | Behavior |
-|---|---|
-| Negative (`-52`) | Always darker than base |
-| Positive (`+48`) | Always lighter than base |
-| Unsigned (`52`) | Auto-resolved: if `base_L + contrast > 100`, flips to negative |
+| Form | Example | Meaning |
+|---|---|---|
+| Number (absolute) | `lightness: 45` | Absolute lightness 0–100 |
+| String (relative) | `lightness: '-52'` | Relative to base color's lightness |
+
+**Absolute lightness** on a dependent color (with `base`) positions the color independently. In dark mode, it is dark-mapped on its own. The `contrast` WCAG solver acts as a safety net.
+
+**Relative lightness** applies a signed delta to the base color's resolved lightness. In dark mode with `auto` adaptation, the sign flips automatically.
 
 ```ts
-// Surface L=97
-'text': { base: 'surface', contrast: 52 }
-// → 97 + 52 = 149 > 100 → flips to 97 - 52 = 45 ✓
+// Relative: 97 - 52 = 45 in light mode
+'text': { base: 'surface', lightness: '-52' }
 
-// Button fill L=52
-'accent-text': { base: 'accent-fill', contrast: 48 }
-// → 52 + 48 = 100 → keeps as 100 ✓
+// Absolute: lightness 45 in light mode, dark-mapped independently
+'text': { base: 'surface', lightness: 45 }
 ```
 
-### ensureContrast (WCAG Floor)
+A dependent color with `base` but no `lightness` inherits the base's lightness (equivalent to a delta of 0).
+
+### Per-Color Hue Override
+
+Individual colors can override the theme's hue. The `hue` prop accepts:
+
+| Form | Example | Meaning |
+|---|---|---|
+| Number (absolute) | `hue: 120` | Absolute hue 0–360 |
+| String (relative) | `hue: '+20'` | Relative to the **theme seed** hue |
+
+**Important:** Relative hue is always relative to the **theme seed hue**, not to a base color's hue.
+
+```ts
+const theme = glaze(280, 80);
+theme.colors({
+  surface:     { lightness: 97 },
+  // Gradient end — slight hue shift from seed (280 + 20 = 300)
+  gradientEnd: { lightness: 90, hue: '+20' },
+  // Entirely different hue
+  warning:     { lightness: 60, hue: 40 },
+});
+```
+
+### contrast (WCAG Floor)
 
 Ensures the WCAG contrast ratio meets a target floor. Accepts a numeric ratio or a preset string:
 
@@ -141,26 +169,26 @@ type MinContrast = number | 'AA' | 'AAA' | 'AA-large' | 'AAA-large';
 | `'AA-large'` | 3 |
 | `'AAA-large'` | 4.5 |
 
-You can also pass any numeric ratio directly (e.g., `ensureContrast: 4.5`, `ensureContrast: 7`, `ensureContrast: 11`).
+You can also pass any numeric ratio directly (e.g., `contrast: 4.5`, `contrast: 7`, `contrast: 11`).
 
-The constraint is applied independently for each scheme. If the `contrast` delta already satisfies the floor, it's kept. Otherwise, the solver adjusts lightness until the target is met.
+The constraint is applied independently for each scheme. If the `lightness` already satisfies the floor, it's kept. Otherwise, the solver adjusts lightness until the target is met.
 
 ### High-Contrast via Array Values
 
-`contrast`, `ensureContrast`, and `l` accept a `[normal, high-contrast]` pair:
+`lightness` and `contrast` accept a `[normal, high-contrast]` pair:
 
 ```ts
-'border': { base: 'surface', contrast: [7, 20], ensureContrast: 'AA-large' }
-//                                      ↑   ↑
-//                                  normal  high-contrast
+'border': { base: 'surface', lightness: ['-7', '-20'], contrast: 'AA-large' }
+//                                        ↑      ↑
+//                                    normal  high-contrast
 ```
 
 A single value applies to both modes. All control is local and explicit.
 
 ```ts
-'text':   { base: 'surface', contrast: 52, ensureContrast: 'AAA' }
-'border': { base: 'surface', contrast: [7, 20], ensureContrast: 'AA-large' }
-'muted':  { base: 'surface', contrast: [35, 50], ensureContrast: ['AA-large', 'AA'] }
+'text':   { base: 'surface', lightness: '-52', contrast: 'AAA' }
+'border': { base: 'surface', lightness: ['-7', '-20'], contrast: 'AA-large' }
+'muted':  { base: 'surface', lightness: ['-35', '-50'], contrast: ['AA-large', 'AA'] }
 ```
 
 ## Theme Color Management
@@ -171,8 +199,8 @@ A single value applies to both modes. All control is local and explicit.
 
 ```ts
 const theme = glaze(280, 80);
-theme.colors({ surface: { l: 97 } });
-theme.colors({ text: { l: 30 } });
+theme.colors({ surface: { lightness: 97 } });
+theme.colors({ text: { lightness: 30 } });
 // Both 'surface' and 'text' are now defined
 ```
 
@@ -181,8 +209,8 @@ theme.colors({ text: { l: 30 } });
 `.color(name)` returns the definition, `.color(name, def)` sets it:
 
 ```ts
-theme.color('surface', { l: 97, sat: 0.75 }); // set
-const def = theme.color('surface');             // get → { l: 97, sat: 0.75 }
+theme.color('surface', { lightness: 97, saturation: 0.75 }); // set
+const def = theme.color('surface');                     // get → { lightness: 97, saturation: 0.75 }
 ```
 
 ### Removing Colors
@@ -214,7 +242,7 @@ Serialize a theme's configuration (hue, saturation, color definitions) to a plai
 ```ts
 // Export
 const snapshot = theme.export();
-// → { hue: 280, saturation: 80, colors: { surface: { l: 97, sat: 0.75 }, ... } }
+// → { hue: 280, saturation: 80, colors: { surface: { lightness: 97, saturation: 0.75 }, ... } }
 
 const jsonString = JSON.stringify(snapshot);
 
@@ -230,14 +258,14 @@ The export contains only the configuration — not resolved color values. Resolv
 Create a single color token without a full theme:
 
 ```ts
-const accent = glaze.color({ hue: 280, saturation: 80, l: 52, mode: 'fixed' });
+const accent = glaze.color({ hue: 280, saturation: 80, lightness: 52, mode: 'fixed' });
 
 accent.resolve();  // → ResolvedColor with light/dark/lightContrast/darkContrast
 accent.token();    // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }
 accent.json();     // → { light: 'okhsl(...)', dark: 'okhsl(...)' }
 ```
 
-Standalone colors are always root colors (no `base`/`contrast`/`ensureContrast`).
+Standalone colors are always root colors (no `base`/`contrast`).
 
 ## From Existing Colors
 
@@ -255,8 +283,8 @@ The resulting theme has the extracted hue and saturation. Add colors as usual:
 
 ```ts
 brand.colors({
-  surface: { l: 97, sat: 0.75 },
-  text:    { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
+  surface: { lightness: 97, saturation: 0.75 },
+  text:    { base: 'surface', lightness: '-52', contrast: 'AAA' },
 });
 ```
 
@@ -299,20 +327,20 @@ Modes control how colors adapt across schemes:
 | `'fixed'` | Color stays recognizable. Only safety corrections. For brand buttons, CTAs. |
 | `'static'` | No adaptation. Same value in every scheme. |
 
-### How `contrast` Adapts
+### How Relative Lightness Adapts
 
-**`auto` mode** — contrast sign flips in dark scheme:
+**`auto` mode** — relative lightness sign flips in dark scheme:
 
 ```ts
-// Light: surface L=97, text contrast=52 → L=45 (dark text on light bg)
+// Light: surface L=97, text lightness='-52' → L=45 (dark text on light bg)
 // Dark:  surface inverts to L≈14, sign flips → L=14+52=66
-//        ensureContrast solver may push further (light text on dark bg)
+//        contrast solver may push further (light text on dark bg)
 ```
 
-**`fixed` mode** — lightness is mapped (not inverted), contrast sign preserved:
+**`fixed` mode** — lightness is mapped (not inverted), relative sign preserved:
 
 ```ts
-// Light: accent-fill L=52, accent-text contrast=+48 → L=100 (white on brand)
+// Light: accent-fill L=52, accent-text lightness='+48' → L=100 (white on brand)
 // Dark:  accent-fill maps to L≈51.6, sign preserved → L≈99.6
 ```
 
@@ -367,7 +395,7 @@ Override individual colors (additive merge):
 ```ts
 const danger = primary.extend({
   hue: 23,
-  colors: { 'accent-fill': { l: 48, mode: 'fixed' } },
+  colors: { 'accent-fill': { lightness: 48, mode: 'fixed' } },
 });
 ```
 
@@ -446,33 +474,43 @@ glaze.configure({
 ## Color Definition Shape
 
 ```ts
+type RelativeValue = `+${number}` | `-${number}`;
 type HCPair<T> = T | [T, T]; // [normal, high-contrast]
 
 interface ColorDef {
-  // Root color (explicit position)
-  l?: HCPair<number>;    // 0–100, light scheme lightness
-  sat?: number;           // 0–1, saturation factor (default: 1)
+  // Lightness
+  lightness?: HCPair<number | RelativeValue>;
+  //   Number: absolute (0–100)
+  //   String: relative to base ('+N' / '-N')
 
-  // Dependent color (relative to base)
+  // Hue override
+  hue?: number | RelativeValue;
+  //   Number: absolute (0–360)
+  //   String: relative to theme seed ('+N' / '-N')
+
+  // Saturation factor (0–1, default: 1)
+  saturation?: number;
+
+  // Dependency
   base?: string;                  // name of another color
-  contrast?: HCPair<number>;     // lightness delta from base
-  ensureContrast?: HCPair<MinContrast>; // ensures WCAG contrast ratio meets target floor
+  contrast?: HCPair<MinContrast>; // WCAG contrast ratio floor against base
 
   // Adaptation mode
   mode?: 'auto' | 'fixed' | 'static'; // default: 'auto'
 }
 ```
 
-Every color must have either `l` (root) or `base` + `contrast` (dependent).
+A root color must have absolute `lightness` (a number). A dependent color must have `base`. Relative `lightness` (a string) requires `base`.
 
 ## Validation
 
 | Condition | Behavior |
 |---|---|
-| Both `l` and `base` on same color | Warning, `l` takes precedence |
+| Both absolute `lightness` and `base` on same color | Warning, `lightness` takes precedence |
 | `contrast` without `base` | Validation error |
-| `l` resolves outside 0–100 | Clamp silently |
-| `sat` outside 0–1 | Clamp silently |
+| Relative `lightness` without `base` | Validation error |
+| `lightness` resolves outside 0–100 | Clamp silently |
+| `saturation` outside 0–1 | Clamp silently |
 | Circular `base` references | Validation error |
 | `base` references non-existent name | Validation error |
 
@@ -506,14 +544,14 @@ import { glaze } from '@tenphi/glaze';
 const primary = glaze(280, 80);
 
 primary.colors({
-  surface:    { l: 97, sat: 0.75 },
-  text:       { base: 'surface', contrast: 52, ensureContrast: 'AAA' },
-  border:     { base: 'surface', contrast: [7, 20], ensureContrast: 'AA-large' },
-  bg:         { l: 97, sat: 0.75 },
-  icon:       { l: 60, sat: 0.94 },
-  'accent-fill': { l: 52, mode: 'fixed' },
-  'accent-text': { base: 'accent-fill', contrast: 48, ensureContrast: 'AA', mode: 'fixed' },
-  disabled:   { l: 81, sat: 0.40 },
+  surface:       { lightness: 97, saturation: 0.75 },
+  text:          { base: 'surface', lightness: '-52', contrast: 'AAA' },
+  border:        { base: 'surface', lightness: ['-7', '-20'], contrast: 'AA-large' },
+  bg:            { lightness: 97, saturation: 0.75 },
+  icon:          { lightness: 60, saturation: 0.94 },
+  'accent-fill': { lightness: 52, mode: 'fixed' },
+  'accent-text': { base: 'accent-fill', lightness: '+48', contrast: 'AA', mode: 'fixed' },
+  disabled:      { lightness: 81, saturation: 0.4 },
 });
 
 const danger  = primary.extend({ hue: 23 });
@@ -535,7 +573,7 @@ const restored = glaze.from(snapshot);
 
 // Create from an existing brand color
 const brand = glaze.fromHex('#7a4dbf');
-brand.colors({ surface: { l: 97 }, text: { base: 'surface', contrast: 52 } });
+brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '-52' } });
 ```
 
 ## API Reference

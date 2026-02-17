@@ -18,6 +18,7 @@ import { findLightnessForContrast } from './contrast-solver';
 import type {
   HCPair,
   AdaptationMode,
+  RelativeValue,
   ColorDef,
   ColorMap,
   ResolvedColor,
@@ -76,9 +77,16 @@ function validateColorDefs(defs: ColorMap): void {
       throw new Error(`glaze: color "${name}" has "contrast" without "base".`);
     }
 
-    if (def.l !== undefined && def.base !== undefined) {
+    // Relative lightness requires base
+    if (def.lightness !== undefined && !isAbsoluteLightness(def.lightness) && !def.base) {
+      throw new Error(
+        `glaze: color "${name}" has relative "lightness" without "base".`,
+      );
+    }
+
+    if (isAbsoluteLightness(def.lightness) && def.base !== undefined) {
       console.warn(
-        `glaze: color "${name}" has both "l" and "base". "l" takes precedence.`,
+        `glaze: color "${name}" has absolute "lightness" and "base". Absolute lightness takes precedence.`,
       );
     }
 
@@ -88,9 +96,9 @@ function validateColorDefs(defs: ColorMap): void {
       );
     }
 
-    if (def.l === undefined && def.base === undefined) {
+    if (!isAbsoluteLightness(def.lightness) && def.base === undefined) {
       throw new Error(
-        `glaze: color "${name}" must have either "l" (root) or "base" + "contrast" (dependent).`,
+        `glaze: color "${name}" must have either absolute "lightness" (root) or "base" (dependent).`,
       );
     }
   }
@@ -109,7 +117,7 @@ function validateColorDefs(defs: ColorMap): void {
 
     inStack.add(name);
     const def = defs[name];
-    if (def.base && def.l === undefined) {
+    if (def.base && !isAbsoluteLightness(def.lightness)) {
       dfs(def.base);
     }
     inStack.delete(name);
@@ -134,7 +142,7 @@ function topoSort(defs: ColorMap): string[] {
     visited.add(name);
 
     const def = defs[name];
-    if (def.base && def.l === undefined) {
+    if (def.base && !isAbsoluteLightness(def.lightness)) {
       visit(def.base);
     }
 
@@ -171,29 +179,52 @@ function mapSaturationDark(s: number, mode: AdaptationMode): number {
 }
 
 // ============================================================================
-// Contrast sign resolution
+// Helpers
 // ============================================================================
-
-/**
- * Resolve the effective lightness from a contrast delta.
- */
-function resolveContrastLightness(
-  baseLightness: number,
-  contrast: number,
-): number {
-  if (contrast < 0) {
-    return clamp(baseLightness + contrast, 0, 100);
-  }
-
-  const candidate = baseLightness + contrast;
-  if (candidate > 100) {
-    return clamp(baseLightness - contrast, 0, 100);
-  }
-  return clamp(candidate, 0, 100);
-}
 
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
+}
+
+/**
+ * Parse a value that can be absolute (number) or relative (signed string).
+ * Returns the numeric value and whether it's relative.
+ */
+function parseRelativeOrAbsolute(
+  value: number | RelativeValue,
+): { value: number; relative: boolean } {
+  if (typeof value === 'number') {
+    return { value, relative: false };
+  }
+  return { value: parseFloat(value), relative: true };
+}
+
+/**
+ * Compute the effective hue for a color, given the theme seed hue
+ * and an optional per-color hue override.
+ */
+function resolveEffectiveHue(
+  seedHue: number,
+  defHue: number | RelativeValue | undefined,
+): number {
+  if (defHue === undefined) return seedHue;
+  const parsed = parseRelativeOrAbsolute(defHue);
+  if (parsed.relative) {
+    return ((seedHue + parsed.value) % 360 + 360) % 360;
+  }
+  return ((parsed.value % 360) + 360) % 360;
+}
+
+/**
+ * Check whether a lightness value represents an absolute root definition
+ * (i.e. a number, not a relative string).
+ */
+function isAbsoluteLightness(
+  lightness: HCPair<number | RelativeValue> | undefined,
+): boolean {
+  if (lightness === undefined) return false;
+  const normal = Array.isArray(lightness) ? lightness[0] : lightness;
+  return typeof normal === 'number';
 }
 
 // ============================================================================
@@ -212,15 +243,13 @@ function resolveRootColor(
   def: ColorDef,
   _ctx: ResolveContext,
   isHighContrast: boolean,
-): { lightL: number; sat: number } {
-  const rawL = def.l!;
-  const lightL = clamp(
-    isHighContrast ? pairHC(rawL) : pairNormal(rawL),
-    0,
-    100,
-  );
-  const sat = clamp(def.sat ?? 1, 0, 1);
-  return { lightL, sat };
+): { lightL: number; satFactor: number } {
+  const rawL = def.lightness!;
+  const rawValue = isHighContrast ? pairHC(rawL) : pairNormal(rawL);
+  const parsed = parseRelativeOrAbsolute(rawValue);
+  const lightL = clamp(parsed.value, 0, 100);
+  const satFactor = clamp(def.saturation ?? 1, 0, 1);
+  return { lightL, satFactor };
 }
 
 function resolveDependentColor(
@@ -229,7 +258,8 @@ function resolveDependentColor(
   ctx: ResolveContext,
   isHighContrast: boolean,
   isDark: boolean,
-): { l: number; sat: number } {
+  effectiveHue: number,
+): { l: number; satFactor: number } {
   const baseName = def.base!;
   const baseResolved = ctx.resolved.get(baseName);
   if (!baseResolved) {
@@ -239,7 +269,7 @@ function resolveDependentColor(
   }
 
   const mode = def.mode ?? 'auto';
-  const sat = clamp(def.sat ?? 1, 0, 1);
+  const satFactor = clamp(def.saturation ?? 1, 0, 1);
 
   let baseL: number;
   if (isDark && isHighContrast) {
@@ -252,24 +282,44 @@ function resolveDependentColor(
     baseL = baseResolved.light.l * 100;
   }
 
-  const rawContrast = def.contrast ?? 0;
-  let contrast = isHighContrast ? pairHC(rawContrast) : pairNormal(rawContrast);
+  // Resolve preferred lightness from the lightness prop
+  let preferredL: number;
+  const rawLightness = def.lightness;
 
-  if (isDark && mode === 'auto') {
-    contrast = -contrast;
+  if (rawLightness === undefined) {
+    // No lightness specified — inherit base lightness (delta 0)
+    preferredL = baseL;
+  } else {
+    const rawValue = isHighContrast ? pairHC(rawLightness) : pairNormal(rawLightness);
+    const parsed = parseRelativeOrAbsolute(rawValue);
+
+    if (parsed.relative) {
+      // Relative: signed delta from base
+      let delta = parsed.value;
+      if (isDark && mode === 'auto') {
+        delta = -delta;
+      }
+      preferredL = clamp(baseL + delta, 0, 100);
+    } else {
+      // Absolute: dark-map independently when isDark
+      if (isDark) {
+        preferredL = mapLightnessDark(parsed.value, mode);
+      } else {
+        preferredL = clamp(parsed.value, 0, 100);
+      }
+    }
   }
 
-  const preferredL = resolveContrastLightness(baseL, contrast);
-
-  const rawEnsureContrast = def.ensureContrast;
-  if (rawEnsureContrast !== undefined) {
+  // Apply WCAG contrast solver if contrast floor is specified
+  const rawContrast = def.contrast;
+  if (rawContrast !== undefined) {
     const minCr = isHighContrast
-      ? pairHC(rawEnsureContrast)
-      : pairNormal(rawEnsureContrast);
+      ? pairHC(rawContrast)
+      : pairNormal(rawContrast);
 
     const effectiveSat = isDark
-      ? mapSaturationDark((sat * ctx.saturation) / 100, mode)
-      : (sat * ctx.saturation) / 100;
+      ? mapSaturationDark((satFactor * ctx.saturation) / 100, mode)
+      : (satFactor * ctx.saturation) / 100;
 
     let baseH: number;
     let baseS: number;
@@ -295,17 +345,17 @@ function resolveDependentColor(
     const baseLinearRgb = okhslToLinearSrgb(baseH, baseS, baseLNorm);
 
     const result = findLightnessForContrast({
-      hue: ctx.hue,
+      hue: effectiveHue,
       saturation: effectiveSat,
       preferredLightness: preferredL / 100,
       baseLinearRgb,
-      ensureContrast: minCr,
+      contrast: minCr,
     });
 
-    return { l: result.lightness * 100, sat };
+    return { l: result.lightness * 100, satFactor };
   }
 
-  return { l: clamp(preferredL, 0, 100), sat };
+  return { l: clamp(preferredL, 0, 100), satFactor };
 }
 
 function resolveColorForScheme(
@@ -316,19 +366,20 @@ function resolveColorForScheme(
   isHighContrast: boolean,
 ): ResolvedColorVariant {
   const mode = def.mode ?? 'auto';
-  const isRoot = def.l !== undefined;
+  const isRoot = isAbsoluteLightness(def.lightness) && !def.base;
+  const effectiveHue = resolveEffectiveHue(ctx.hue, def.hue);
 
   let lightL: number;
-  let sat: number;
+  let satFactor: number;
 
   if (isRoot) {
     const root = resolveRootColor(name, def, ctx, isHighContrast);
     lightL = root.lightL;
-    sat = root.sat;
+    satFactor = root.satFactor;
   } else {
-    const dep = resolveDependentColor(name, def, ctx, isHighContrast, isDark);
+    const dep = resolveDependentColor(name, def, ctx, isHighContrast, isDark, effectiveHue);
     lightL = dep.l;
-    sat = dep.sat;
+    satFactor = dep.satFactor;
   }
 
   let finalL: number;
@@ -336,17 +387,17 @@ function resolveColorForScheme(
 
   if (isDark && isRoot) {
     finalL = mapLightnessDark(lightL, mode);
-    finalSat = mapSaturationDark((sat * ctx.saturation) / 100, mode);
+    finalSat = mapSaturationDark((satFactor * ctx.saturation) / 100, mode);
   } else if (isDark && !isRoot) {
     finalL = lightL;
-    finalSat = mapSaturationDark((sat * ctx.saturation) / 100, mode);
+    finalSat = mapSaturationDark((satFactor * ctx.saturation) / 100, mode);
   } else {
     finalL = lightL;
-    finalSat = (sat * ctx.saturation) / 100;
+    finalSat = (satFactor * ctx.saturation) / 100;
   }
 
   return {
-    h: ctx.hue,
+    h: effectiveHue,
     s: clamp(finalSat, 0, 1),
     l: clamp(finalL / 100, 0, 1),
   };
@@ -708,8 +759,8 @@ function createPalette(themes: PaletteInput) {
 
 function createColorToken(input: GlazeColorInput): GlazeColorToken {
   const colorDef: ColorDef = {
-    l: input.l,
-    sat: input.sat,
+    lightness: input.lightness,
+    saturation: input.saturationFactor,
     mode: input.mode,
   };
 

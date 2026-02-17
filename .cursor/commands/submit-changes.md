@@ -1,15 +1,10 @@
----
-description: When submitting, committing, or pushing changes
-alwaysApply: false
----
+# submit-changes
 
-# Submit Changes
-
-Follow these steps **in order** when asked to submit/commit/push changes.
+Submit changes by creating a changeset, committing, and pushing. Follow these steps **in order**.
 
 ## 1. Create a changeset
 
-Run `pnpm changeset` non-interactively by writing a changeset file directly:
+Create a changeset file directly (non-interactive):
 
 - Create a markdown file in `.changeset/` with a random kebab-case name (e.g. `.changeset/bright-dogs-fly.md`).
 - Format:
