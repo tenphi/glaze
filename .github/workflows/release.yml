@@ -10,7 +10,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: release
     permissions:
       contents: write
       pull-requests: write
@@ -47,7 +46,7 @@ jobs:
           title: 'chore: version packages'
           commit: 'chore: version packages'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
       - name: Create GitHub Release
