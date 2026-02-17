@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.3.0
+
+### Minor Changes
+
+- [#6](https://github.com/tenphi/glaze/pull/6) [`bb4a0d1`](https://github.com/tenphi/glaze/commit/bb4a0d144c818a3f5e2979faecd66f02f970fc25) Thanks [@tenphi](https://github.com/tenphi)! - Add CSS custom property export method for themes and palettes
+
 ## 0.2.0
 
 ### Minor Changes
