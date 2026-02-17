@@ -705,7 +705,10 @@ describe('glaze', () => {
       const exported = theme.export();
       expect(exported.hue).toBe(280);
       expect(exported.saturation).toBe(80);
-      expect(exported.colors.surface).toEqual({ lightness: 97, saturation: 0.75 });
+      expect(exported.colors.surface).toEqual({
+        lightness: 97,
+        saturation: 0.75,
+      });
     });
 
     it('round-trips through export/from', () => {

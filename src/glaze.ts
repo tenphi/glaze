@@ -78,7 +78,11 @@ function validateColorDefs(defs: ColorMap): void {
     }
 
     // Relative lightness requires base
-    if (def.lightness !== undefined && !isAbsoluteLightness(def.lightness) && !def.base) {
+    if (
+      def.lightness !== undefined &&
+      !isAbsoluteLightness(def.lightness) &&
+      !def.base
+    ) {
       throw new Error(
         `glaze: color "${name}" has relative "lightness" without "base".`,
       );
@@ -190,9 +194,10 @@ function clamp(v: number, min: number, max: number): number {
  * Parse a value that can be absolute (number) or relative (signed string).
  * Returns the numeric value and whether it's relative.
  */
-function parseRelativeOrAbsolute(
-  value: number | RelativeValue,
-): { value: number; relative: boolean } {
+function parseRelativeOrAbsolute(value: number | RelativeValue): {
+  value: number;
+  relative: boolean;
+} {
   if (typeof value === 'number') {
     return { value, relative: false };
   }
@@ -210,7 +215,7 @@ function resolveEffectiveHue(
   if (defHue === undefined) return seedHue;
   const parsed = parseRelativeOrAbsolute(defHue);
   if (parsed.relative) {
-    return ((seedHue + parsed.value) % 360 + 360) % 360;
+    return (((seedHue + parsed.value) % 360) + 360) % 360;
   }
   return ((parsed.value % 360) + 360) % 360;
 }
@@ -290,7 +295,9 @@ function resolveDependentColor(
     // No lightness specified — inherit base lightness (delta 0)
     preferredL = baseL;
   } else {
-    const rawValue = isHighContrast ? pairHC(rawLightness) : pairNormal(rawLightness);
+    const rawValue = isHighContrast
+      ? pairHC(rawLightness)
+      : pairNormal(rawLightness);
     const parsed = parseRelativeOrAbsolute(rawValue);
 
     if (parsed.relative) {
@@ -377,7 +384,14 @@ function resolveColorForScheme(
     lightL = root.lightL;
     satFactor = root.satFactor;
   } else {
-    const dep = resolveDependentColor(name, def, ctx, isHighContrast, isDark, effectiveHue);
+    const dep = resolveDependentColor(
+      name,
+      def,
+      ctx,
+      isHighContrast,
+      isDark,
+      effectiveHue,
+    );
     lightL = dep.l;
     satFactor = dep.satFactor;
   }
