@@ -1,0 +1,80 @@
+---
+description: Glaze project structure, purpose, commands, and conventions
+alwaysApply: true
+---
+
+# Glaze — OKHSL Color Theme Generator
+
+Package: `@tenphi/glaze` — zero-dependency, OKHSL-based color theme generator with WCAG contrast solving for light, dark, and high-contrast schemes.
+
+## Key Features
+
+- OKHSL color space (perceptually uniform)
+- WCAG 2 contrast solving (automatic lightness adjustment)
+- Multi-scheme generation (light, dark, high-contrast)
+- Multi-format output (`okhsl`, `rgb`, `hsl`, `oklch`)
+- Import/export (serialize/restore theme configs)
+- Tree-shakeable ESM + CJS dual-format package
+- TypeScript-first with full type definitions
+
+## Project Structure
+
+```
+src/
+  index.ts                 # Entry point, re-exports everything
+  glaze.ts                 # Core theme factory: glaze(), glaze.palette(), glaze.from(), etc.
+  types.ts                 # All TypeScript type definitions
+  okhsl-color-math.ts      # OKHSL/sRGB/OKLab conversions, hex parsing, format functions
+  contrast-solver.ts        # Binary-search WCAG contrast solver
+  glaze.test.ts            # Main test suite
+  contrast-solver.test.ts  # Contrast solver tests
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `pnpm build` | Build ESM + CJS via tsdown |
+| `pnpm test` | Run tests once (vitest) |
+| `pnpm test:watch` | Tests in watch mode |
+| `pnpm test:coverage` | Tests with coverage |
+| `pnpm typecheck` | Type-check without emitting |
+| `pnpm lint` | Lint source files |
+| `pnpm lint:fix` | Lint and auto-fix |
+| `pnpm format` | Format code with Prettier |
+| `pnpm format:check` | Check formatting |
+| `pnpm changeset` | Create a changeset |
+| `pnpm release` | Build and publish |
+
+## Stack
+
+- **Build**: tsdown (ESM + CJS + dts + sourcemaps)
+- **Test**: Vitest 4 with globals enabled
+- **Lint**: ESLint 10 + typescript-eslint + prettier
+- **Format**: Prettier (single quotes, semicolons, trailing commas, 80 cols)
+- **Versioning**: Changesets
+- **Node**: >=20, **Package manager**: pnpm 10
+
+## Code Conventions
+
+- TypeScript strict mode, `consistent-type-imports` enforced
+- Test files use `*.test.ts` suffix, co-located in `src/`
+- Unused vars prefixed with `_` are allowed
+- No runtime dependencies — all math is implemented from scratch
+- Functional API pattern: `glaze()` factory with attached static methods
+
+## Core API Surface
+
+- `glaze(config)` — create a theme
+- `glaze.configure(opts)` — set global defaults
+- `glaze.palette(themes)` — compose multiple themes
+- `glaze.from(exported)` — restore from exported config
+- `glaze.fromHex(hex)` / `glaze.fromRgb(r,g,b)` — create from raw colors
+- `glaze.color(def)` — standalone color token factory
+- Theme methods: `extend()`, `toTokens()`, `toJSON()`
+
+## Export Formats
+
+- Token format: `{ '#color-name': { '': '...', '@dark': '...' } }`
+- JSON format: `{ colorName: { light: '...', dark: '...' } }`
+- Prefix support and mode control available

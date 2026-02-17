@@ -1,0 +1,45 @@
+---
+description: When submitting, committing, or pushing changes
+alwaysApply: false
+---
+
+# Submit Changes
+
+Follow these steps **in order** when asked to submit/commit/push changes.
+
+## 1. Create a changeset
+
+Run `pnpm changeset` non-interactively by writing a changeset file directly:
+
+- Create a markdown file in `.changeset/` with a random kebab-case name (e.g. `.changeset/bright-dogs-fly.md`).
+- Format:
+
+```markdown
+---
+'@tenphi/glaze': patch
+---
+
+Short description of what changed.
+```
+
+- Use `patch` for fixes and small changes, `minor` for new features or non-breaking API changes, `major` for breaking changes.
+- The description should be a concise user-facing summary (what changed, not how).
+
+## 2. Commit
+
+Use **Conventional Commits** format:
+
+```
+type(scope): short description
+```
+
+- Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `ci`
+- Scope is optional — use it when changes are isolated to a specific module (e.g. `fix(contrast-solver): ...`).
+- Keep the message as short as possible.
+- Include the changeset file in the same commit.
+
+## 3. Push
+
+- **Never push to `main`**. Verify the current branch first.
+- If on `main`, stop and warn the user.
+- Push with `git push -u origin HEAD`.
