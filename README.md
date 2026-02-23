@@ -779,6 +779,8 @@ A root color must have absolute `lightness` (a number). A dependent color must h
 | Shadow `fg` references non-existent color | Validation error |
 | Shadow `bg` references another shadow color | Validation error |
 | Shadow `fg` references another shadow color | Validation error |
+| Regular color `base` references a shadow color | Validation error |
+| Shadow `intensity` outside 0–100 | Clamp silently |
 | `contrast` + `opacity` combined | Warning |
 
 ## Advanced: Color Math Utilities
