@@ -153,7 +153,8 @@ export interface ResolvedColor {
   dark: ResolvedColorVariant;
   lightContrast: ResolvedColorVariant;
   darkContrast: ResolvedColorVariant;
-  mode: AdaptationMode;
+  /** Adaptation mode. Present only for regular colors, omitted for shadows. */
+  mode?: AdaptationMode;
 }
 
 // ============================================================================

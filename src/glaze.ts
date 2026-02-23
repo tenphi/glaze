@@ -116,8 +116,9 @@ function computeShadow(
   tuning: Required<ShadowTuning>,
 ): ResolvedColorVariant {
   const EPSILON = 1e-6;
+  const clampedIntensity = clamp(intensity, 0, 100);
   const contrastWeight = fg ? Math.abs(bg.l - fg.l) : 1;
-  const deltaL = (intensity / 100) * contrastWeight;
+  const deltaL = (clampedIntensity / 100) * contrastWeight;
 
   const h = fg ? circularLerp(fg.h, bg.h, tuning.bgHueBlend) : bg.h;
   const s = fg
@@ -197,6 +198,12 @@ function validateColorDefs(defs: ColorMap): void {
     if (regDef.base && !names.has(regDef.base)) {
       throw new Error(
         `glaze: color "${name}" references non-existent base "${regDef.base}".`,
+      );
+    }
+
+    if (regDef.base && isShadowDef(defs[regDef.base])) {
+      throw new Error(
+        `glaze: color "${name}" base "${regDef.base}" references a shadow color.`,
       );
     }
 
@@ -560,9 +567,9 @@ function resolveAllColors(
     resolved: new Map(),
   };
 
-  function defMode(def: ColorDef): AdaptationMode {
+  function defMode(def: ColorDef): AdaptationMode | undefined {
     return isShadowDef(def)
-      ? 'auto'
+      ? undefined
       : ((def as RegularColorDef).mode ?? 'auto');
   }
 

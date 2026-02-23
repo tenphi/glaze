@@ -1371,6 +1371,58 @@ describe('glaze', () => {
       expect(shadow.light.alpha).toBe(0);
     });
 
+    it('negative intensity is clamped to 0', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-neg': { type: 'shadow', bg: 'surface', intensity: -5 },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-neg')!;
+
+      expect(shadow.light.alpha).toBe(0);
+    });
+
+    it('intensity above 100 is clamped to 100', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-over': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 200,
+        },
+        'shadow-max': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 100,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const over = resolved.get('shadow-over')!.light.alpha;
+      const max = resolved.get('shadow-max')!.light.alpha;
+
+      expect(over).toBeCloseTo(max, 6);
+    });
+
+    it('shadow resolved color has no mode property', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-md')!;
+
+      expect(shadow.mode).toBeUndefined();
+    });
+
     it('shadow levels are well-separated', () => {
       const theme = glaze(280, 80);
       theme.colors({
@@ -1580,6 +1632,33 @@ describe('glaze', () => {
       });
 
       expect(() => theme.resolve()).toThrow('another shadow');
+    });
+
+    it('throws when regular color base references a shadow color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+        derived: { base: 'shadow-md', lightness: '-10' },
+      });
+
+      expect(() => theme.resolve()).toThrow('shadow color');
+    });
+
+    it('detects circular dependency through shadow bg/fg edges', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95, base: 'text' },
+        text: { lightness: 15, base: 'surface' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('circular');
     });
   });
 
