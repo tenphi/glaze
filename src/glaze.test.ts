@@ -1645,11 +1645,11 @@ describe('glaze', () => {
       expect(() => theme.resolve()).toThrow('shadow color');
     });
 
-    it('detects circular dependency through shadow bg/fg edges', () => {
+    it('detects circular dependency involving shadow dependencies', () => {
       const theme = glaze(280, 80);
       theme.colors({
-        surface: { lightness: 95, base: 'text' },
-        text: { lightness: 15, base: 'surface' },
+        surface: { base: 'text', lightness: '+50' },
+        text: { base: 'surface', lightness: '-50' },
         'shadow-md': {
           type: 'shadow',
           bg: 'surface',
