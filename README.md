@@ -22,9 +22,10 @@ Glaze generates robust **light**, **dark**, and **high-contrast** color schemes 
 
 - **OKHSL color space** — perceptually uniform hue and saturation
 - **WCAG 2 contrast solving** — automatic lightness adjustment to meet AA/AAA targets
+- **Shadow colors** — OKHSL-native shadow computation with automatic alpha, fg/bg tinting, and per-scheme adaptation
 - **Light + Dark + High-Contrast** — all schemes from one definition
 - **Per-color hue override** — absolute or relative hue shifts within a theme
-- **Multi-format output** — `okhsl`, `rgb`, `hsl`, `oklch`
+- **Multi-format output** — `okhsl`, `rgb`, `hsl`, `oklch` with modern CSS space syntax
 - **CSS custom properties export** — ready-to-use `--var: value;` declarations per scheme
 - **Import/Export** — serialize and restore theme configurations
 - **Create from hex/RGB** — start from an existing brand color
@@ -290,34 +291,165 @@ brand.colors({
 });
 ```
 
+## Shadow Colors
+
+Shadow colors are colors with computed alpha. Instead of a parallel shadow system, they extend the existing color pipeline. All math is done natively in OKHSL.
+
+### Defining Shadow Colors
+
+Shadow colors use `type: 'shadow'` and reference a `bg` (background) color and optionally an `fg` (foreground) color for tinting and intensity modulation:
+
+```ts
+theme.colors({
+  surface: { lightness: 95 },
+  text:    { base: 'surface', lightness: '-52', contrast: 'AAA' },
+
+  'shadow-sm': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 5 },
+  'shadow-md': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 10 },
+  'shadow-lg': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 20 },
+});
+```
+
+Shadow colors are included in all output methods (`tokens()`, `tasty()`, `css()`, `json()`) alongside regular colors:
+
+```ts
+theme.tokens({ format: 'oklch' });
+// light: { 'shadow-md': 'oklch(0.15 0.009 282 / 0.1)', ... }
+// dark:  { 'shadow-md': 'oklch(0.06 0.004 0 / 0.49)', ... }
+```
+
+### How Shadows Work
+
+The shadow algorithm computes a dark, low-saturation pigment color and an alpha value that produces the desired visual intensity:
+
+1. **Contrast weight** — when `fg` is provided, shadow strength scales with `|l_bg - l_fg|`. Dark text on a light background produces a strong shadow; near-background-lightness elements produce barely visible shadows.
+2. **Pigment color** — hue blended between fg and bg, low saturation, dark lightness.
+3. **Alpha** — computed via a `tanh` curve that saturates smoothly toward `alphaMax` (default 0.6), ensuring well-separated shadow levels even on dark backgrounds.
+
+### Achromatic Shadows
+
+Omit `fg` for a pure achromatic shadow at full user-specified intensity:
+
+```ts
+theme.colors({
+  'drop-shadow': { type: 'shadow', bg: 'surface', intensity: 12 },
+});
+```
+
+### High-Contrast Intensity
+
+`intensity` supports `[normal, highContrast]` pairs:
+
+```ts
+theme.colors({
+  'shadow-card': { type: 'shadow', bg: 'surface', fg: 'text', intensity: [10, 20] },
+});
+```
+
+### Fixed Opacity (Regular Colors)
+
+For a simple fixed-alpha color (no shadow algorithm), use `opacity` on a regular color:
+
+```ts
+theme.colors({
+  overlay: { lightness: 0, opacity: 0.5 },
+});
+// → 'oklch(0 0 0 / 0.5)'
+```
+
+### Shadow Tuning
+
+Fine-tune shadow behavior per-color or globally:
+
+```ts
+// Per-color tuning
+theme.colors({
+  'shadow-soft': {
+    type: 'shadow', bg: 'surface', intensity: 10,
+    tuning: { alphaMax: 0.3, saturationFactor: 0.1 },
+  },
+});
+
+// Global tuning
+glaze.configure({
+  shadowTuning: { alphaMax: 0.5, bgHueBlend: 0.3 },
+});
+```
+
+Available tuning parameters:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `saturationFactor` | 0.18 | Fraction of fg saturation kept in pigment |
+| `maxSaturation` | 0.25 | Upper clamp on pigment saturation |
+| `lightnessFactor` | 0.25 | Multiplier for bg lightness to pigment lightness |
+| `lightnessBounds` | [0.05, 0.20] | Clamp range for pigment lightness |
+| `minGapTarget` | 0.05 | Target minimum gap between pigment and bg lightness |
+| `alphaMax` | 0.6 | Asymptotic maximum alpha |
+| `bgHueBlend` | 0.2 | Blend weight pulling pigment hue toward bg hue |
+
+### Standalone Shadow Computation
+
+Compute a shadow outside of a theme:
+
+```ts
+const v = glaze.shadow({
+  bg: '#f0eef5',
+  fg: '#1a1a2e',
+  intensity: 10,
+});
+// → { h: 280, s: 0.14, l: 0.2, alpha: 0.1 }
+
+const css = glaze.format(v, 'oklch');
+// → 'oklch(0.15 0.014 280 / 0.1)'
+```
+
+### Consuming in CSS
+
+```css
+.card {
+  box-shadow: 0 2px 6px var(--shadow-sm-color),
+              0 8px 24px var(--shadow-md-color);
+}
+```
+
 ## Output Formats
 
 Control the color format in exports with the `format` option:
 
 ```ts
 // Default: OKHSL
-theme.tokens();                        // → 'okhsl(280.0 60.0% 97.0%)'
+theme.tokens();                        // → 'okhsl(280 60% 97%)'
 
-// RGB with fractional precision
-theme.tokens({ format: 'rgb' });       // → 'rgb(244.123, 240.456, 249.789)'
+// RGB (modern space syntax, rounded integers)
+theme.tokens({ format: 'rgb' });       // → 'rgb(244 240 250)'
 
-// HSL
-theme.tokens({ format: 'hsl' });       // → 'hsl(270.5, 45.2%, 95.8%)'
+// HSL (modern space syntax)
+theme.tokens({ format: 'hsl' });       // → 'hsl(270.5 45.2% 95.8%)'
 
 // OKLCH
-theme.tokens({ format: 'oklch' });     // → 'oklch(96.5% 0.0123 280.0)'
+theme.tokens({ format: 'oklch' });     // → 'oklch(0.965 0.0123 280)'
 ```
 
 The `format` option works on all export methods: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `palette.tokens()`, `palette.tasty()`, `palette.json()`, `palette.css()`, and standalone `glaze.color().token()` / `.tasty()` / `.json()`.
 
+Colors with `alpha < 1` (shadow colors, or regular colors with `opacity`) include an alpha component:
+
+```ts
+// → 'oklch(0.15 0.009 282 / 0.1)'
+// → 'rgb(34 28 42 / 0.1)'
+```
+
 Available formats:
 
-| Format | Output | Notes |
-|---|---|---|
-| `'okhsl'` (default) | `okhsl(H S% L%)` | Native format, perceptually uniform |
-| `'rgb'` | `rgb(R, G, B)` | Fractional 0–255 values (3 decimals) |
-| `'hsl'` | `hsl(H, S%, L%)` | Standard CSS HSL |
-| `'oklch'` | `oklch(L% C H)` | OKLab-based LCH |
+| Format | Output (alpha = 1) | Output (alpha < 1) | Notes |
+|---|---|---|---|
+| `'okhsl'` (default) | `okhsl(H S% L%)` | `okhsl(H S% L% / A)` | Native format, not a CSS function |
+| `'rgb'` | `rgb(R G B)` | `rgb(R G B / A)` | Rounded integers, space syntax |
+| `'hsl'` | `hsl(H S% L%)` | `hsl(H S% L% / A)` | Modern space syntax |
+| `'oklch'` | `oklch(L C H)` | `oklch(L C H / A)` | OKLab-based LCH |
+
+All numeric output strips trailing zeros for cleaner CSS (e.g., `95` not `95.0`).
 
 ## Adaptation Modes
 
@@ -597,39 +729,40 @@ glaze.configure({
     dark: true,                // Include dark variants in exports
     highContrast: false,       // Include high-contrast variants
   },
+  shadowTuning: {              // Default tuning for all shadow colors
+    alphaMax: 0.6,
+    bgHueBlend: 0.2,
+  },
 });
 ```
 
 ## Color Definition Shape
 
+`ColorDef` is a discriminated union of regular colors and shadow colors:
+
 ```ts
-type RelativeValue = `+${number}` | `-${number}`;
-type HCPair<T> = T | [T, T]; // [normal, high-contrast]
+type ColorDef = RegularColorDef | ShadowColorDef;
 
-interface ColorDef {
-  // Lightness
+interface RegularColorDef {
   lightness?: HCPair<number | RelativeValue>;
-  //   Number: absolute (0–100)
-  //   String: relative to base ('+N' / '-N')
-
-  // Hue override
-  hue?: number | RelativeValue;
-  //   Number: absolute (0–360)
-  //   String: relative to theme seed ('+N' / '-N')
-
-  // Saturation factor (0–1, default: 1)
   saturation?: number;
+  hue?: number | RelativeValue;
+  base?: string;
+  contrast?: HCPair<MinContrast>;
+  mode?: 'auto' | 'fixed' | 'static';
+  opacity?: number; // fixed alpha (0–1)
+}
 
-  // Dependency
-  base?: string;                  // name of another color
-  contrast?: HCPair<MinContrast>; // WCAG contrast ratio floor against base
-
-  // Adaptation mode
-  mode?: 'auto' | 'fixed' | 'static'; // default: 'auto'
+interface ShadowColorDef {
+  type: 'shadow';
+  bg: string;       // background color name (non-shadow)
+  fg?: string;      // foreground color name (non-shadow)
+  intensity: HCPair<number>; // 0–100
+  tuning?: ShadowTuning;
 }
 ```
 
-A root color must have absolute `lightness` (a number). A dependent color must have `base`. Relative `lightness` (a string) requires `base`.
+A root color must have absolute `lightness` (a number). A dependent color must have `base`. Relative `lightness` (a string) requires `base`. Shadow colors use `type: 'shadow'` and must reference a non-shadow `bg` color.
 
 ## Validation
 
@@ -642,6 +775,11 @@ A root color must have absolute `lightness` (a number). A dependent color must h
 | `saturation` outside 0–1 | Clamp silently |
 | Circular `base` references | Validation error |
 | `base` references non-existent name | Validation error |
+| Shadow `bg` references non-existent color | Validation error |
+| Shadow `fg` references non-existent color | Validation error |
+| Shadow `bg` references another shadow color | Validation error |
+| Shadow `fg` references another shadow color | Validation error |
+| `contrast` + `opacity` combined | Warning |
 
 ## Advanced: Color Math Utilities
 
@@ -681,6 +819,14 @@ primary.colors({
   'accent-fill': { lightness: 52, mode: 'fixed' },
   'accent-text': { base: 'accent-fill', lightness: '+48', contrast: 'AA', mode: 'fixed' },
   disabled:      { lightness: 81, saturation: 0.4 },
+
+  // Shadow colors — computed alpha, automatic dark-mode adaptation
+  'shadow-sm':   { type: 'shadow', bg: 'surface', fg: 'text', intensity: 5 },
+  'shadow-md':   { type: 'shadow', bg: 'surface', fg: 'text', intensity: 10 },
+  'shadow-lg':   { type: 'shadow', bg: 'surface', fg: 'text', intensity: 20 },
+
+  // Fixed-alpha overlay
+  overlay:       { lightness: 0, opacity: 0.5 },
 });
 
 const danger  = primary.extend({ hue: 23 });
@@ -692,21 +838,19 @@ const palette = glaze.palette({ primary, danger, success, warning, note });
 
 // Export as flat token map grouped by variant
 const tokens = palette.tokens({ prefix: true });
-// tokens.light → { 'primary-surface': 'okhsl(...)', 'danger-surface': 'okhsl(...)' }
-// tokens.dark  → { 'primary-surface': 'okhsl(...)', 'danger-surface': 'okhsl(...)' }
+// tokens.light → { 'primary-surface': 'okhsl(...)', 'primary-shadow-md': 'okhsl(... / 0.1)' }
 
 // Export as tasty style-to-state bindings (for Tasty style system)
 const tastyTokens = palette.tasty({ prefix: true });
-// tastyTokens['#primary-surface'] → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }
-// Use as a recipe or spread into component styles (see Tasty Export section)
-
-// Export as RGB for broader CSS compatibility
-const rgbTokens = palette.tokens({ prefix: true, format: 'rgb' });
 
 // Export as CSS custom properties (rgb format by default)
 const css = palette.css({ prefix: true });
-// css.light → "--primary-surface-color: rgb(...);\n--danger-surface-color: rgb(...);"
-// css.dark  → "--primary-surface-color: rgb(...);\n--danger-surface-color: rgb(...);"
+// css.light → "--primary-surface-color: rgb(...);\n--primary-shadow-md-color: rgb(... / 0.1);"
+
+// Standalone shadow computation
+const v = glaze.shadow({ bg: '#f0eef5', fg: '#1a1a2e', intensity: 10 });
+const shadowCss = glaze.format(v, 'oklch');
+// → 'oklch(0.15 0.014 280 / 0.1)'
 
 // Save and restore a theme
 const snapshot = primary.export();
@@ -729,6 +873,8 @@ brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '
 | `glaze.fromHex(hex)` | Create a theme from a hex color (`#rgb` or `#rrggbb`) |
 | `glaze.fromRgb(r, g, b)` | Create a theme from RGB values (0–255) |
 | `glaze.color(input)` | Create a standalone color token |
+| `glaze.shadow(input)` | Compute a standalone shadow color (returns `ResolvedColorVariant`) |
+| `glaze.format(variant, format?)` | Format any `ResolvedColorVariant` as a CSS string |
 
 ### Theme Methods
 
