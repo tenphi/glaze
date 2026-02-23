@@ -19,6 +19,9 @@ import type {
   HCPair,
   AdaptationMode,
   RelativeValue,
+  RegularColorDef,
+  ShadowColorDef,
+  ShadowTuning,
   ColorDef,
   ColorMap,
   ResolvedColor,
@@ -36,6 +39,8 @@ import type {
   GlazeCssResult,
   GlazeColorInput,
   GlazeColorToken,
+  GlazeShadowInput,
+  OkhslColor,
 } from './types';
 
 // ============================================================================
@@ -68,6 +73,72 @@ function pairHC<T>(p: HCPair<T>): T {
 }
 
 // ============================================================================
+// Shadow helpers
+// ============================================================================
+
+function isShadowDef(def: ColorDef): def is ShadowColorDef {
+  return (def as ShadowColorDef).type === 'shadow';
+}
+
+const DEFAULT_SHADOW_TUNING: Required<ShadowTuning> = {
+  saturationFactor: 0.18,
+  maxSaturation: 0.25,
+  lightnessFactor: 0.25,
+  lightnessBounds: [0.05, 0.2],
+  minGapTarget: 0.05,
+  alphaMax: 0.6,
+  bgHueBlend: 0.2,
+};
+
+function resolveShadowTuning(perColor?: ShadowTuning): Required<ShadowTuning> {
+  return {
+    ...DEFAULT_SHADOW_TUNING,
+    ...globalConfig.shadowTuning,
+    ...perColor,
+    lightnessBounds:
+      perColor?.lightnessBounds ??
+      globalConfig.shadowTuning?.lightnessBounds ??
+      DEFAULT_SHADOW_TUNING.lightnessBounds,
+  };
+}
+
+function circularLerp(a: number, b: number, t: number): number {
+  let diff = b - a;
+  if (diff > 180) diff -= 360;
+  else if (diff < -180) diff += 360;
+  return (((a + diff * t) % 360) + 360) % 360;
+}
+
+function computeShadow(
+  bg: ResolvedColorVariant,
+  fg: ResolvedColorVariant | undefined,
+  intensity: number,
+  tuning: Required<ShadowTuning>,
+): ResolvedColorVariant {
+  const EPSILON = 1e-6;
+  const contrastWeight = fg ? Math.abs(bg.l - fg.l) : 1;
+  const deltaL = (intensity / 100) * contrastWeight;
+
+  const h = fg ? circularLerp(fg.h, bg.h, tuning.bgHueBlend) : bg.h;
+  const s = fg
+    ? Math.min(fg.s * tuning.saturationFactor, tuning.maxSaturation)
+    : 0;
+
+  let lSh = clamp(
+    bg.l * tuning.lightnessFactor,
+    tuning.lightnessBounds[0],
+    tuning.lightnessBounds[1],
+  );
+  lSh = Math.max(Math.min(lSh, bg.l - tuning.minGapTarget), 0);
+
+  const gap = Math.max(bg.l - lSh, EPSILON);
+  const t = deltaL / gap;
+  const alpha = tuning.alphaMax * Math.tanh(t / tuning.alphaMax);
+
+  return { h, s, l: lSh, alpha };
+}
+
+// ============================================================================
 // Validation
 // ============================================================================
 
@@ -75,41 +146,74 @@ function validateColorDefs(defs: ColorMap): void {
   const names = new Set(Object.keys(defs));
 
   for (const [name, def] of Object.entries(defs)) {
-    if (def.contrast !== undefined && !def.base) {
+    if (isShadowDef(def)) {
+      if (!names.has(def.bg)) {
+        throw new Error(
+          `glaze: shadow "${name}" references non-existent bg "${def.bg}".`,
+        );
+      }
+      if (isShadowDef(defs[def.bg])) {
+        throw new Error(
+          `glaze: shadow "${name}" bg "${def.bg}" references another shadow color.`,
+        );
+      }
+      if (def.fg !== undefined) {
+        if (!names.has(def.fg)) {
+          throw new Error(
+            `glaze: shadow "${name}" references non-existent fg "${def.fg}".`,
+          );
+        }
+        if (isShadowDef(defs[def.fg])) {
+          throw new Error(
+            `glaze: shadow "${name}" fg "${def.fg}" references another shadow color.`,
+          );
+        }
+      }
+      continue;
+    }
+
+    const regDef = def as RegularColorDef;
+
+    if (regDef.contrast !== undefined && !regDef.base) {
       throw new Error(`glaze: color "${name}" has "contrast" without "base".`);
     }
 
-    // Relative lightness requires base
     if (
-      def.lightness !== undefined &&
-      !isAbsoluteLightness(def.lightness) &&
-      !def.base
+      regDef.lightness !== undefined &&
+      !isAbsoluteLightness(regDef.lightness) &&
+      !regDef.base
     ) {
       throw new Error(
         `glaze: color "${name}" has relative "lightness" without "base".`,
       );
     }
 
-    if (isAbsoluteLightness(def.lightness) && def.base !== undefined) {
+    if (isAbsoluteLightness(regDef.lightness) && regDef.base !== undefined) {
       console.warn(
         `glaze: color "${name}" has absolute "lightness" and "base". Absolute lightness takes precedence.`,
       );
     }
 
-    if (def.base && !names.has(def.base)) {
+    if (regDef.base && !names.has(regDef.base)) {
       throw new Error(
-        `glaze: color "${name}" references non-existent base "${def.base}".`,
+        `glaze: color "${name}" references non-existent base "${regDef.base}".`,
       );
     }
 
-    if (!isAbsoluteLightness(def.lightness) && def.base === undefined) {
+    if (!isAbsoluteLightness(regDef.lightness) && regDef.base === undefined) {
       throw new Error(
         `glaze: color "${name}" must have either absolute "lightness" (root) or "base" (dependent).`,
       );
     }
+
+    if (regDef.contrast !== undefined && regDef.opacity !== undefined) {
+      console.warn(
+        `glaze: color "${name}" has both "contrast" and "opacity". Opacity makes perceived lightness unpredictable.`,
+      );
+    }
   }
 
-  // Check for circular references
+  // Check for circular references (follows base, bg, fg edges)
   const visited = new Set<string>();
   const inStack = new Set<string>();
 
@@ -123,8 +227,14 @@ function validateColorDefs(defs: ColorMap): void {
 
     inStack.add(name);
     const def = defs[name];
-    if (def.base && !isAbsoluteLightness(def.lightness)) {
-      dfs(def.base);
+    if (isShadowDef(def)) {
+      dfs(def.bg);
+      if (def.fg) dfs(def.fg);
+    } else {
+      const regDef = def as RegularColorDef;
+      if (regDef.base && !isAbsoluteLightness(regDef.lightness)) {
+        dfs(regDef.base);
+      }
     }
     inStack.delete(name);
     visited.add(name);
@@ -148,8 +258,14 @@ function topoSort(defs: ColorMap): string[] {
     visited.add(name);
 
     const def = defs[name];
-    if (def.base && !isAbsoluteLightness(def.lightness)) {
-      visit(def.base);
+    if (isShadowDef(def)) {
+      visit(def.bg);
+      if (def.fg) visit(def.fg);
+    } else {
+      const regDef = def as RegularColorDef;
+      if (regDef.base && !isAbsoluteLightness(regDef.lightness)) {
+        visit(regDef.base);
+      }
     }
 
     result.push(name);
@@ -247,7 +363,7 @@ interface ResolveContext {
 
 function resolveRootColor(
   _name: string,
-  def: ColorDef,
+  def: RegularColorDef,
   _ctx: ResolveContext,
   isHighContrast: boolean,
 ): { lightL: number; satFactor: number } {
@@ -261,7 +377,7 @@ function resolveRootColor(
 
 function resolveDependentColor(
   name: string,
-  def: ColorDef,
+  def: RegularColorDef,
   ctx: ResolveContext,
   isHighContrast: boolean,
   isDark: boolean,
@@ -278,23 +394,13 @@ function resolveDependentColor(
   const mode = def.mode ?? 'auto';
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
 
-  let baseL: number;
-  if (isDark && isHighContrast) {
-    baseL = baseResolved.darkContrast.l * 100;
-  } else if (isDark) {
-    baseL = baseResolved.dark.l * 100;
-  } else if (isHighContrast) {
-    baseL = baseResolved.lightContrast.l * 100;
-  } else {
-    baseL = baseResolved.light.l * 100;
-  }
+  const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);
+  const baseL = baseVariant.l * 100;
 
-  // Resolve preferred lightness from the lightness prop
   let preferredL: number;
   const rawLightness = def.lightness;
 
   if (rawLightness === undefined) {
-    // No lightness specified — inherit base lightness (delta 0)
     preferredL = baseL;
   } else {
     const rawValue = isHighContrast
@@ -303,14 +409,12 @@ function resolveDependentColor(
     const parsed = parseRelativeOrAbsolute(rawValue);
 
     if (parsed.relative) {
-      // Relative: signed delta from base
       let delta = parsed.value;
       if (isDark && mode === 'auto') {
         delta = -delta;
       }
       preferredL = clamp(baseL + delta, 0, 100);
     } else {
-      // Absolute: dark-map independently when isDark
       if (isDark) {
         preferredL = mapLightnessDark(parsed.value, mode);
       } else {
@@ -319,7 +423,6 @@ function resolveDependentColor(
     }
   }
 
-  // Apply WCAG contrast solver if contrast floor is specified
   const rawContrast = def.contrast;
   if (rawContrast !== undefined) {
     const minCr = isHighContrast
@@ -330,28 +433,11 @@ function resolveDependentColor(
       ? mapSaturationDark((satFactor * ctx.saturation) / 100, mode)
       : (satFactor * ctx.saturation) / 100;
 
-    let baseH: number;
-    let baseS: number;
-    let baseLNorm: number;
-    if (isDark && isHighContrast) {
-      baseH = baseResolved.darkContrast.h;
-      baseS = baseResolved.darkContrast.s;
-      baseLNorm = baseResolved.darkContrast.l;
-    } else if (isDark) {
-      baseH = baseResolved.dark.h;
-      baseS = baseResolved.dark.s;
-      baseLNorm = baseResolved.dark.l;
-    } else if (isHighContrast) {
-      baseH = baseResolved.lightContrast.h;
-      baseS = baseResolved.lightContrast.s;
-      baseLNorm = baseResolved.lightContrast.l;
-    } else {
-      baseH = baseResolved.light.h;
-      baseS = baseResolved.light.s;
-      baseLNorm = baseResolved.light.l;
-    }
-
-    const baseLinearRgb = okhslToLinearSrgb(baseH, baseS, baseLNorm);
+    const baseLinearRgb = okhslToLinearSrgb(
+      baseVariant.h,
+      baseVariant.s,
+      baseVariant.l,
+    );
 
     const result = findLightnessForContrast({
       hue: effectiveHue,
@@ -367,6 +453,17 @@ function resolveDependentColor(
   return { l: clamp(preferredL, 0, 100), satFactor };
 }
 
+function getSchemeVariant(
+  color: ResolvedColor,
+  isDark: boolean,
+  isHighContrast: boolean,
+): ResolvedColorVariant {
+  if (isDark && isHighContrast) return color.darkContrast;
+  if (isDark) return color.dark;
+  if (isHighContrast) return color.lightContrast;
+  return color.light;
+}
+
 function resolveColorForScheme(
   name: string,
   def: ColorDef,
@@ -374,21 +471,26 @@ function resolveColorForScheme(
   isDark: boolean,
   isHighContrast: boolean,
 ): ResolvedColorVariant {
-  const mode = def.mode ?? 'auto';
-  const isRoot = isAbsoluteLightness(def.lightness) && !def.base;
-  const effectiveHue = resolveEffectiveHue(ctx.hue, def.hue);
+  if (isShadowDef(def)) {
+    return resolveShadowForScheme(def, ctx, isDark, isHighContrast);
+  }
+
+  const regDef = def as RegularColorDef;
+  const mode = regDef.mode ?? 'auto';
+  const isRoot = isAbsoluteLightness(regDef.lightness) && !regDef.base;
+  const effectiveHue = resolveEffectiveHue(ctx.hue, regDef.hue);
 
   let lightL: number;
   let satFactor: number;
 
   if (isRoot) {
-    const root = resolveRootColor(name, def, ctx, isHighContrast);
+    const root = resolveRootColor(name, regDef, ctx, isHighContrast);
     lightL = root.lightL;
     satFactor = root.satFactor;
   } else {
     const dep = resolveDependentColor(
       name,
-      def,
+      regDef,
       ctx,
       isHighContrast,
       isDark,
@@ -416,7 +518,31 @@ function resolveColorForScheme(
     h: effectiveHue,
     s: clamp(finalSat, 0, 1),
     l: clamp(finalL / 100, 0, 1),
+    alpha: regDef.opacity ?? 1,
   };
+}
+
+function resolveShadowForScheme(
+  def: ShadowColorDef,
+  ctx: ResolveContext,
+  isDark: boolean,
+  isHighContrast: boolean,
+): ResolvedColorVariant {
+  const bgResolved = ctx.resolved.get(def.bg)!;
+  const bgVariant = getSchemeVariant(bgResolved, isDark, isHighContrast);
+
+  let fgVariant: ResolvedColorVariant | undefined;
+  if (def.fg) {
+    const fgResolved = ctx.resolved.get(def.fg)!;
+    fgVariant = getSchemeVariant(fgResolved, isDark, isHighContrast);
+  }
+
+  const intensity = isHighContrast
+    ? pairHC(def.intensity)
+    : pairNormal(def.intensity);
+
+  const tuning = resolveShadowTuning(def.tuning);
+  return computeShadow(bgVariant, fgVariant, intensity, tuning);
 }
 
 function resolveAllColors(
@@ -434,6 +560,12 @@ function resolveAllColors(
     resolved: new Map(),
   };
 
+  function defMode(def: ColorDef): AdaptationMode {
+    return isShadowDef(def)
+      ? 'auto'
+      : ((def as RegularColorDef).mode ?? 'auto');
+  }
+
   // Pass 1: Light normal
   const lightMap = new Map<string, ResolvedColorVariant>();
   for (const name of order) {
@@ -445,7 +577,7 @@ function resolveAllColors(
       dark: variant,
       lightContrast: variant,
       darkContrast: variant,
-      mode: defs[name].mode ?? 'auto',
+      mode: defMode(defs[name]),
     });
   }
 
@@ -475,7 +607,7 @@ function resolveAllColors(
       dark: lightMap.get(name)!,
       lightContrast: lightHCMap.get(name)!,
       darkContrast: lightHCMap.get(name)!,
-      mode: defs[name].mode ?? 'auto',
+      mode: defMode(defs[name]),
     });
   }
   for (const name of order) {
@@ -513,7 +645,7 @@ function resolveAllColors(
       dark: darkMap.get(name)!,
       lightContrast: lightHCMap.get(name)!,
       darkContrast: darkHCMap.get(name)!,
-      mode: defs[name].mode ?? 'auto',
+      mode: defMode(defs[name]),
     });
   }
 
@@ -534,11 +666,18 @@ const formatters: Record<
   oklch: formatOklch,
 };
 
+function fmt(value: number, decimals: number): string {
+  return parseFloat(value.toFixed(decimals)).toString();
+}
+
 function formatVariant(
   v: ResolvedColorVariant,
   format: GlazeColorFormat = 'okhsl',
 ): string {
-  return formatters[format](v.h, v.s * 100, v.l * 100);
+  const base = formatters[format](v.h, v.s * 100, v.l * 100);
+  if (v.alpha >= 1) return base;
+  const closing = base.lastIndexOf(')');
+  return `${base.slice(0, closing)} / ${fmt(v.alpha, 4)})`;
 }
 
 function resolveModes(override?: GlazeOutputModes): Required<GlazeOutputModes> {
@@ -931,7 +1070,7 @@ function createPalette(themes: PaletteInput) {
 // ============================================================================
 
 function createColorToken(input: GlazeColorInput): GlazeColorToken {
-  const colorDef: ColorDef = {
+  const colorDef: RegularColorDef = {
     lightness: input.lightness,
     saturation: input.saturationFactor,
     mode: input.mode,
@@ -1031,6 +1170,7 @@ glaze.configure = function configure(config: GlazeConfig): void {
       highContrast:
         config.modes?.highContrast ?? globalConfig.modes.highContrast,
     },
+    shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
   };
 };
 
@@ -1054,6 +1194,41 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
 glaze.color = function color(input: GlazeColorInput): GlazeColorToken {
   return createColorToken(input);
 };
+
+/**
+ * Compute a shadow color from a bg/fg pair and intensity.
+ */
+glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
+  const bg = parseOkhslInput(input.bg);
+  const fg = input.fg ? parseOkhslInput(input.fg) : undefined;
+  const tuning = resolveShadowTuning(input.tuning);
+  return computeShadow(
+    { ...bg, alpha: 1 },
+    fg ? { ...fg, alpha: 1 } : undefined,
+    input.intensity,
+    tuning,
+  );
+};
+
+/**
+ * Format a resolved color variant as a CSS string.
+ */
+glaze.format = function format(
+  variant: ResolvedColorVariant,
+  colorFormat?: GlazeColorFormat,
+): string {
+  return formatVariant(variant, colorFormat);
+};
+
+function parseOkhslInput(input: string | OkhslColor): OkhslColor {
+  if (typeof input === 'string') {
+    const rgb = parseHex(input);
+    if (!rgb) throw new Error(`glaze: invalid hex color "${input}".`);
+    const [h, s, l] = srgbToOkhsl(rgb);
+    return { h, s, l };
+  }
+  return input;
+}
 
 /**
  * Create a theme from a hex color string.

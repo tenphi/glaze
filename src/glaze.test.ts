@@ -1,4 +1,5 @@
 import { glaze } from './glaze';
+import type { ResolvedColorVariant } from './types';
 
 describe('glaze', () => {
   beforeEach(() => {
@@ -1052,14 +1053,14 @@ describe('glaze', () => {
       expect(json.primary.surface.light).toMatch(/^hsl\(/);
     });
 
-    it('rgb format uses fractional values', () => {
+    it('rgb format uses rounded integers with space syntax', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { lightness: 52 } });
 
       const tokens = theme.tokens({ format: 'rgb' });
       const value = tokens.light.surface;
-      // Should contain decimal points for fractional precision
-      expect(value).toMatch(/\d+\.\d+/);
+      // Space syntax with rounded integers: rgb(R G B)
+      expect(value).toMatch(/^rgb\(\d+ \d+ \d+\)$/);
     });
   });
 
@@ -1271,6 +1272,496 @@ describe('glaze', () => {
       expect(css.light).toMatch(/--surface-color: rgb\(/);
       // No prefix
       expect(css.light).not.toMatch(/--primary-/);
+    });
+  });
+
+  describe('shadow colors', () => {
+    it('resolves shadow color with alpha < 1', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-md')!;
+
+      expect(shadow.light.alpha).toBeLessThan(1);
+      expect(shadow.light.alpha).toBeGreaterThan(0);
+      expect(shadow.dark.alpha).toBeLessThan(1);
+      expect(shadow.dark.alpha).toBeGreaterThan(0);
+    });
+
+    it('achromatic shadow (no fg) has s=0 and contrastWeight=1', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'drop-shadow': { type: 'shadow', bg: 'surface', intensity: 12 },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('drop-shadow')!;
+
+      expect(shadow.light.s).toBe(0);
+      expect(shadow.light.alpha).toBeGreaterThan(0);
+    });
+
+    it('low-contrast fg produces softer shadow', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 20, base: 'surface', contrast: 'AA' },
+        'subtle-bg': { lightness: 80 },
+        'shadow-a': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+        'shadow-b': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'subtle-bg',
+          intensity: 10,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const a = resolved.get('shadow-a')!;
+      const b = resolved.get('shadow-b')!;
+
+      expect(a.light.alpha).toBeGreaterThan(b.light.alpha);
+    });
+
+    it('HC intensity pair uses second value for high-contrast', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-card': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: [10, 20],
+        },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-card')!;
+
+      expect(shadow.lightContrast.alpha).toBeGreaterThan(shadow.light.alpha);
+    });
+
+    it('intensity 0 produces alpha 0', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-zero': { type: 'shadow', bg: 'surface', intensity: 0 },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-zero')!;
+
+      expect(shadow.light.alpha).toBe(0);
+    });
+
+    it('shadow levels are well-separated', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-sm': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 5,
+        },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+        'shadow-lg': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 20,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const sm = resolved.get('shadow-sm')!.light.alpha;
+      const md = resolved.get('shadow-md')!.light.alpha;
+      const lg = resolved.get('shadow-lg')!.light.alpha;
+
+      expect(sm).toBeLessThan(md);
+      expect(md).toBeLessThan(lg);
+    });
+
+    it('shadow alpha never exceeds alphaMax', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-max': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 100,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-max')!;
+
+      expect(shadow.light.alpha).toBeLessThan(0.6 + 0.001);
+    });
+
+    it('shadow output includes alpha in formatted tokens', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+      });
+
+      const tokens = theme.tokens({ format: 'oklch' });
+      expect(tokens.light['shadow-md']).toMatch(/\/ [\d.]+\)$/);
+    });
+
+    it('shadow output includes alpha in CSS export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+      });
+
+      const css = theme.css({ format: 'oklch' });
+      expect(css.light).toMatch(/--shadow-md-color:.*\/ [\d.]+\)/);
+    });
+
+    it('shadow output includes alpha in tasty export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+      });
+
+      const tokens = theme.tasty({ format: 'rgb' });
+      expect(tokens['#shadow-md']['']).toMatch(/\/ [\d.]+\)$/);
+    });
+
+    it('shadow adapts to dark scheme (higher alpha on dark bg)', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-md')!;
+
+      expect(shadow.dark.alpha).toBeGreaterThan(shadow.light.alpha);
+    });
+
+    it('per-color tuning overrides defaults', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-a': {
+          type: 'shadow',
+          bg: 'surface',
+          intensity: 10,
+        },
+        'shadow-b': {
+          type: 'shadow',
+          bg: 'surface',
+          intensity: 10,
+          tuning: { alphaMax: 0.3 },
+        },
+      });
+
+      const resolved = theme.resolve();
+      const a = resolved.get('shadow-a')!.light.alpha;
+      const b = resolved.get('shadow-b')!.light.alpha;
+
+      expect(b).toBeLessThan(a);
+    });
+
+    it('global shadowTuning config is respected', () => {
+      glaze.configure({ shadowTuning: { alphaMax: 0.3 } });
+
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-md')!;
+
+      expect(shadow.light.alpha).toBeLessThan(0.3 + 0.001);
+    });
+  });
+
+  describe('shadow validation', () => {
+    it('throws when bg references non-existent color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'nonexistent',
+          intensity: 10,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('non-existent bg');
+    });
+
+    it('throws when fg references non-existent color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'nonexistent',
+          intensity: 10,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('non-existent fg');
+    });
+
+    it('throws when bg references another shadow color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-a': { type: 'shadow', bg: 'surface', intensity: 5 },
+        'shadow-b': {
+          type: 'shadow',
+          bg: 'shadow-a',
+          intensity: 10,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('another shadow');
+    });
+
+    it('throws when fg references another shadow color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-a': { type: 'shadow', bg: 'surface', intensity: 5 },
+        'shadow-b': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'shadow-a',
+          intensity: 10,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('another shadow');
+    });
+  });
+
+  describe('opacity (regular colors)', () => {
+    it('regular color with opacity has alpha < 1', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        overlay: { lightness: 0, opacity: 0.5 },
+      });
+
+      const resolved = theme.resolve();
+      const overlay = resolved.get('overlay')!;
+
+      expect(overlay.light.alpha).toBe(0.5);
+      expect(overlay.dark.alpha).toBe(0.5);
+    });
+
+    it('opacity appears in formatted output', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        overlay: { lightness: 0, opacity: 0.5 },
+      });
+
+      const tokens = theme.tokens({ format: 'oklch' });
+      expect(tokens.light.overlay).toMatch(/\/ 0\.5\)$/);
+    });
+
+    it('regular color without opacity has alpha 1', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { lightness: 97 } });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      expect(surface.light.alpha).toBe(1);
+    });
+
+    it('warns when contrast and opacity are combined', () => {
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97 },
+        text: {
+          base: 'surface',
+          lightness: '-52',
+          contrast: 'AA',
+          opacity: 0.8,
+        },
+      });
+
+      theme.resolve();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('contrast'));
+
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe('glaze.shadow() standalone', () => {
+    it('computes shadow from hex inputs', () => {
+      const v = glaze.shadow({
+        bg: '#f0eef5',
+        fg: '#1a1a2e',
+        intensity: 10,
+      });
+
+      expect(v.alpha).toBeGreaterThan(0);
+      expect(v.alpha).toBeLessThan(1);
+      expect(v.l).toBeLessThan(0.5);
+    });
+
+    it('computes shadow from OKHSL inputs', () => {
+      const v = glaze.shadow({
+        bg: { h: 280, s: 0.6, l: 0.95 },
+        fg: { h: 280, s: 0.6, l: 0.2 },
+        intensity: 10,
+      });
+
+      expect(v.alpha).toBeGreaterThan(0);
+      expect(v.alpha).toBeLessThan(1);
+    });
+
+    it('achromatic standalone shadow (no fg)', () => {
+      const v = glaze.shadow({
+        bg: { h: 280, s: 0.6, l: 0.95 },
+        intensity: 10,
+      });
+
+      expect(v.s).toBe(0);
+      expect(v.alpha).toBeGreaterThan(0);
+    });
+
+    it('throws on invalid hex input', () => {
+      expect(() =>
+        glaze.shadow({
+          bg: '#invalid' as `#${string}`,
+          intensity: 10,
+        }),
+      ).toThrow('invalid hex');
+    });
+  });
+
+  describe('glaze.format()', () => {
+    it('formats a resolved variant', () => {
+      const v = glaze.shadow({
+        bg: { h: 280, s: 0.6, l: 0.95 },
+        intensity: 10,
+      });
+
+      const okhsl = glaze.format(v, 'okhsl');
+      expect(okhsl).toMatch(/^okhsl\(/);
+      expect(okhsl).toMatch(/\/ [\d.]+\)$/);
+    });
+
+    it('formats without alpha when alpha >= 1', () => {
+      const v: ResolvedColorVariant = {
+        h: 280,
+        s: 0.6,
+        l: 0.95,
+        alpha: 1,
+      };
+
+      const css = glaze.format(v, 'rgb');
+      expect(css).not.toContain('/');
+    });
+
+    it('defaults to okhsl format', () => {
+      const v: ResolvedColorVariant = {
+        h: 280,
+        s: 0.6,
+        l: 0.95,
+        alpha: 1,
+      };
+
+      const css = glaze.format(v);
+      expect(css).toMatch(/^okhsl\(/);
+    });
+  });
+
+  describe('shadow with extend and serialization', () => {
+    it('inherited shadow reacts to overridden colors in child themes', () => {
+      const primary = glaze(280, 80);
+      primary.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+      });
+
+      const danger = primary.extend({ hue: 23 });
+      const primaryResolved = primary.resolve();
+      const dangerResolved = danger.resolve();
+
+      const primaryShadow = primaryResolved.get('shadow-md')!;
+      const dangerShadow = dangerResolved.get('shadow-md')!;
+
+      expect(dangerShadow.light.alpha).toBeGreaterThan(0);
+      expect(dangerShadow.light.h).not.toBeCloseTo(primaryShadow.light.h, 0);
+    });
+
+    it('shadow defs round-trip through export/from', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+      });
+
+      const exported = theme.export();
+      const restored = glaze.from(exported);
+
+      const origResolved = theme.resolve();
+      const restoredResolved = restored.resolve();
+
+      const origShadow = origResolved.get('shadow-md')!;
+      const restoredShadow = restoredResolved.get('shadow-md')!;
+
+      expect(restoredShadow.light.alpha).toBeCloseTo(origShadow.light.alpha, 6);
     });
   });
 });

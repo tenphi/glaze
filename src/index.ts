@@ -15,6 +15,11 @@ export type {
   AdaptationMode,
   GlazeColorFormat,
   GlazeOutputModes,
+  HexColor,
+  OkhslColor,
+  RegularColorDef,
+  ShadowColorDef,
+  ShadowTuning,
   ColorDef,
   ColorMap,
   ResolvedColor,
@@ -29,6 +34,7 @@ export type {
   GlazeCssResult,
   GlazeColorInput,
   GlazeColorToken,
+  GlazeShadowInput,
   GlazePalette,
 } from './types';
 

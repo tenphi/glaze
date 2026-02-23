@@ -36,7 +36,17 @@ export interface GlazeOutputModes {
 // Color definitions
 // ============================================================================
 
-export interface ColorDef {
+/** Hex color string for DX hints. Runtime validation in `parseHex()`. */
+export type HexColor = `#${string}`;
+
+/** Direct OKHSL color input. */
+export interface OkhslColor {
+  h: number;
+  s: number;
+  l: number;
+}
+
+export interface RegularColorDef {
   /**
    * Lightness value (0–100).
    * - Number: absolute lightness.
@@ -59,7 +69,64 @@ export interface ColorDef {
 
   /** Adaptation mode. Default: 'auto'. */
   mode?: AdaptationMode;
+
+  /**
+   * Fixed opacity (0–1).
+   * Output includes alpha in the CSS value.
+   * Does not affect contrast resolution — a semi-transparent color
+   * has no fixed perceived lightness, so `contrast` and `opacity`
+   * should not be combined (a console.warn is emitted).
+   */
+  opacity?: number;
 }
+
+/** Shadow tuning knobs. All values use the 0–1 scale (OKHSL). */
+export interface ShadowTuning {
+  /** Fraction of fg saturation kept in pigment (0-1). Default: 0.18. */
+  saturationFactor?: number;
+  /** Upper clamp on pigment saturation (0-1). Default: 0.25. */
+  maxSaturation?: number;
+  /** Multiplier for bg lightness → pigment lightness. Default: 0.25. */
+  lightnessFactor?: number;
+  /** [min, max] clamp for pigment lightness (0-1). Default: [0.05, 0.20]. */
+  lightnessBounds?: [number, number];
+  /**
+   * Target minimum gap between pigment lightness and bg lightness (0-1).
+   * Default: 0.05.
+   */
+  minGapTarget?: number;
+  /** Asymptotic max alpha (0-1). Default: 0.6. */
+  alphaMax?: number;
+  /**
+   * Blend weight (0-1) pulling pigment hue toward bg hue.
+   * 0 = pure fg hue, 1 = pure bg hue. Default: 0.2.
+   */
+  bgHueBlend?: number;
+}
+
+export interface ShadowColorDef {
+  type: 'shadow';
+  /**
+   * Background color name — the surface the shadow sits on.
+   * Must reference a non-shadow color in the same theme.
+   */
+  bg: string;
+  /**
+   * Foreground color name for tinting and intensity modulation.
+   * Must reference a non-shadow color in the same theme.
+   * Omit for achromatic shadow at full user-specified intensity.
+   */
+  fg?: string;
+  /**
+   * Shadow intensity, 0-100.
+   * Supports [normal, highContrast] pair.
+   */
+  intensity: HCPair<number>;
+  /** Override default tuning. Merged field-by-field with global `shadowTuning`. */
+  tuning?: ShadowTuning;
+}
+
+export type ColorDef = RegularColorDef | ShadowColorDef;
 
 export type ColorMap = Record<string, ColorDef>;
 
@@ -75,6 +142,8 @@ export interface ResolvedColorVariant {
   s: number;
   /** OKHSL lightness (0–1). */
   l: number;
+  /** Opacity (0–1). Default: 1. */
+  alpha: number;
 }
 
 /** Fully resolved color across all scheme variants. */
@@ -103,6 +172,8 @@ export interface GlazeConfig {
   };
   /** Which scheme variants to include in exports. Default: both true. */
   modes?: GlazeOutputModes;
+  /** Default tuning for all shadow colors. Per-color tuning merges field-by-field. */
+  shadowTuning?: ShadowTuning;
 }
 
 export interface GlazeConfigResolved {
@@ -113,6 +184,7 @@ export interface GlazeConfigResolved {
     highContrast: string;
   };
   modes: Required<GlazeOutputModes>;
+  shadowTuning?: ShadowTuning;
 }
 
 // ============================================================================
@@ -124,6 +196,21 @@ export interface GlazeThemeExport {
   hue: number;
   saturation: number;
   colors: ColorMap;
+}
+
+// ============================================================================
+// Standalone shadow
+// ============================================================================
+
+/** Input for `glaze.shadow()` standalone factory. */
+export interface GlazeShadowInput {
+  /** Background color — hex string or OKHSL { h, s (0-1), l (0-1) }. */
+  bg: HexColor | OkhslColor;
+  /** Foreground color for tinting + intensity modulation. */
+  fg?: HexColor | OkhslColor;
+  /** Intensity 0-100. */
+  intensity: number;
+  tuning?: ShadowTuning;
 }
 
 // ============================================================================
