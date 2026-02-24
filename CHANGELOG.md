@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.1
+
+### Patch Changes
+
+- [#12](https://github.com/tenphi/glaze/pull/12) [`e869204`](https://github.com/tenphi/glaze/commit/e8692049a89139225c9b26a6e873aeb59b363200) Thanks [@tenphi](https://github.com/tenphi)! - Fix shadow intensity normalization to properly scale alpha values across different background/foreground contrast pairs. Shadow alpha now correctly reaches alphaMax (default 1.0) at intensity=100 with maximum contrast.
+
 ## 0.5.0
 
 ### Minor Changes
