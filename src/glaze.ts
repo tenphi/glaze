@@ -86,7 +86,7 @@ const DEFAULT_SHADOW_TUNING: Required<ShadowTuning> = {
   lightnessFactor: 0.25,
   lightnessBounds: [0.05, 0.2],
   minGapTarget: 0.05,
-  alphaMax: 0.6,
+  alphaMax: 1.0,
   bgHueBlend: 0.2,
 };
 
@@ -107,6 +107,24 @@ function circularLerp(a: number, b: number, t: number): number {
   if (diff > 180) diff -= 360;
   else if (diff < -180) diff += 360;
   return (((a + diff * t) % 360) + 360) % 360;
+}
+
+/**
+ * Compute the canonical max-contrast reference t value for normalization.
+ * Uses bg.l=1, fg.l=0, intensity=100 — the theoretical maximum.
+ * This is a fixed constant per tuning configuration, ensuring uniform
+ * scaling across all bg/fg pairs at low intensities.
+ */
+function computeRefT(tuning: Required<ShadowTuning>): number {
+  const EPSILON = 1e-6;
+  let lShRef = clamp(
+    tuning.lightnessFactor,
+    tuning.lightnessBounds[0],
+    tuning.lightnessBounds[1],
+  );
+  lShRef = Math.max(Math.min(lShRef, 1 - tuning.minGapTarget), 0);
+  const gapRef = Math.max(1 - lShRef, EPSILON);
+  return 1 / gapRef;
 }
 
 function computeShadow(
@@ -134,7 +152,13 @@ function computeShadow(
 
   const gap = Math.max(bg.l - lSh, EPSILON);
   const t = deltaL / gap;
-  const alpha = tuning.alphaMax * Math.tanh(t / tuning.alphaMax);
+
+  const tRef = computeRefT(tuning);
+  const norm = Math.tanh(tRef / tuning.alphaMax);
+  const alpha = Math.min(
+    (tuning.alphaMax * Math.tanh(t / tuning.alphaMax)) / norm,
+    tuning.alphaMax,
+  );
 
   return { h, s, l: lSh, alpha };
 }

@@ -1473,7 +1473,46 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const shadow = resolved.get('shadow-max')!;
 
-      expect(shadow.light.alpha).toBeLessThan(0.6 + 0.001);
+      expect(shadow.light.alpha).toBeLessThanOrEqual(1.0);
+    });
+
+    it('intensity=100 with max contrast reaches alphaMax', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        white: { lightness: 100 },
+        black: { lightness: 0 },
+        'shadow-full': {
+          type: 'shadow',
+          bg: 'white',
+          fg: 'black',
+          intensity: 100,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-full')!;
+
+      expect(shadow.light.alpha).toBeCloseTo(1.0, 6);
+    });
+
+    it('intensity=100 with custom alphaMax reaches that value', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        white: { lightness: 100 },
+        black: { lightness: 0 },
+        'shadow-capped': {
+          type: 'shadow',
+          bg: 'white',
+          fg: 'black',
+          intensity: 100,
+          tuning: { alphaMax: 0.5 },
+        },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-capped')!;
+
+      expect(shadow.light.alpha).toBeCloseTo(0.5, 6);
     });
 
     it('shadow output includes alpha in formatted tokens', () => {
