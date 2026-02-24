@@ -1,5 +1,5 @@
 ---
-'@tenphi/glaze': major
+'@tenphi/glaze': minor
 ---
 
 Switch `formatRgb` and `formatHsl` from comma syntax to modern CSS space syntax
