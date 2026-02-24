@@ -151,6 +151,18 @@ describe('glaze', () => {
 
       expect(() => theme.resolve()).toThrow('must have either');
     });
+
+    it('resolves colors with absolute lightness and base (for contrast)', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97 },
+        card: { base: 'surface', lightness: 46 },
+      });
+
+      const resolved = theme.resolve();
+      const card = resolved.get('card')!;
+      expect(card.light.l).toBeCloseTo(0.46, 2);
+    });
   });
 
   describe('relative lightness', () => {
