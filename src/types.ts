@@ -95,7 +95,7 @@ export interface ShadowTuning {
    * Default: 0.05.
    */
   minGapTarget?: number;
-  /** Asymptotic max alpha (0-1). Default: 0.6. */
+  /** Max alpha (0-1). Reached at intensity=100 with max contrast. Default: 1.0. */
   alphaMax?: number;
   /**
    * Blend weight (0-1) pulling pigment hue toward bg hue.
