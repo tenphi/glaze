@@ -550,25 +550,29 @@ export function parseHex(hex: string): [number, number, number] | null {
 // Format functions
 // ============================================================================
 
+function fmt(value: number, decimals: number): string {
+  return parseFloat(value.toFixed(decimals)).toString();
+}
+
 /**
  * Format OKHSL values as a CSS `okhsl(H S% L%)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
 export function formatOkhsl(h: number, s: number, l: number): string {
-  return `okhsl(${h.toFixed(1)} ${s.toFixed(1)}% ${l.toFixed(1)}%)`;
+  return `okhsl(${fmt(h, 1)} ${fmt(s, 1)}% ${fmt(l, 1)}%)`;
 }
 
 /**
- * Format OKHSL values as a CSS `rgb(R, G, B)` string with fractional 0–255 values.
+ * Format OKHSL values as a CSS `rgb(R G B)` string with rounded integer values.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
 export function formatRgb(h: number, s: number, l: number): string {
   const [r, g, b] = okhslToSrgb(h, s / 100, l / 100);
-  return `rgb(${(r * 255).toFixed(3)}, ${(g * 255).toFixed(3)}, ${(b * 255).toFixed(3)})`;
+  return `rgb(${Math.round(r * 255)} ${Math.round(g * 255)} ${Math.round(b * 255)})`;
 }
 
 /**
- * Format OKHSL values as a CSS `hsl(H, S%, L%)` string.
+ * Format OKHSL values as a CSS `hsl(H S% L%)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
 export function formatHsl(h: number, s: number, l: number): string {
@@ -594,11 +598,11 @@ export function formatHsl(h: number, s: number, l: number): string {
     }
   }
 
-  return `hsl(${hh.toFixed(1)}, ${(ss * 100).toFixed(1)}%, ${(ll * 100).toFixed(1)}%)`;
+  return `hsl(${fmt(hh, 1)} ${fmt(ss * 100, 1)}% ${fmt(ll * 100, 1)}%)`;
 }
 
 /**
- * Format OKHSL values as a CSS `oklch(L% C H)` string.
+ * Format OKHSL values as a CSS `oklch(L C H)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
 export function formatOklch(h: number, s: number, l: number): string {
@@ -607,5 +611,5 @@ export function formatOklch(h: number, s: number, l: number): string {
   let hh = Math.atan2(b, a) * (180 / Math.PI);
   hh = constrainAngle(hh);
 
-  return `oklch(${(L * 100).toFixed(1)}% ${C.toFixed(4)} ${hh.toFixed(1)})`;
+  return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 1)})`;
 }

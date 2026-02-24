@@ -36,6 +36,7 @@ type(scope): short description
 - Scope is optional — use it when changes are isolated to a specific module (e.g. `fix(contrast-solver): ...`).
 - Keep the message as short as possible.
 - Include the changeset file in the same commit.
+- Before 1.0.0 release treat major changes as minor and minor as patches.
 
 ## 4. Push
 
