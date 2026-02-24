@@ -263,7 +263,7 @@ function validateColorDefs(defs: ColorMap): void {
       if (def.fg) dfs(def.fg);
     } else {
       const regDef = def as RegularColorDef;
-      if (regDef.base && !isAbsoluteLightness(regDef.lightness)) {
+      if (regDef.base) {
         dfs(regDef.base);
       }
     }
@@ -294,7 +294,7 @@ function topoSort(defs: ColorMap): string[] {
       if (def.fg) visit(def.fg);
     } else {
       const regDef = def as RegularColorDef;
-      if (regDef.base && !isAbsoluteLightness(regDef.lightness)) {
+      if (regDef.base) {
         visit(regDef.base);
       }
     }

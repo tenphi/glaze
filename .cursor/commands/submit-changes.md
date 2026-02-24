@@ -37,6 +37,7 @@ type(scope): short description
 - Keep the message as short as possible.
 - Include the changeset file in the same commit.
 - Before 1.0.0 release treat major changes as minor and minor as patches.
+- Do not include markdown files that are not in the repo yet and wasn't staged manually by the user.
 
 ## 4. Push
 
