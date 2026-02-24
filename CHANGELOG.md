@@ -1,5 +1,28 @@
 # @tenphi/glaze
 
+## 0.5.0
+
+### Minor Changes
+
+- [#10](https://github.com/tenphi/glaze/pull/10) [`79253fc`](https://github.com/tenphi/glaze/commit/79253fcd0081a31e2c8f057ac40ea4cd7f70a077) Thanks [@tenphi](https://github.com/tenphi)! - Add CSS custom property export method for themes and palettes
+
+- [#10](https://github.com/tenphi/glaze/pull/10) [`79253fc`](https://github.com/tenphi/glaze/commit/79253fcd0081a31e2c8f057ac40ea4cd7f70a077) Thanks [@tenphi](https://github.com/tenphi)! - Add shadow color support and standalone shadow/format APIs
+  - Shadow colors via `ShadowColorDef` (`type: 'shadow'`) with OKHSL-native algorithm using `tanh` alpha curve
+  - `glaze.shadow()` standalone factory for one-off shadow computation
+  - `glaze.format()` to format any `ResolvedColorVariant` as CSS
+  - `opacity` field on `RegularColorDef` for fixed alpha on regular colors
+  - `alpha` field on `ResolvedColorVariant` (default 1)
+  - `shadowTuning` on `GlazeConfig` for global shadow defaults
+  - `ResolvedColor.mode` is now optional (omitted for shadow colors)
+  - Intensity is clamped to `[0, 100]`
+  - Validation: shadow bg/fg cannot reference other shadows; regular color base cannot reference a shadow
+
+- [#10](https://github.com/tenphi/glaze/pull/10) [`79253fc`](https://github.com/tenphi/glaze/commit/79253fcd0081a31e2c8f057ac40ea4cd7f70a077) Thanks [@tenphi](https://github.com/tenphi)! - Switch `formatRgb` and `formatHsl` from comma syntax to modern CSS space syntax
+
+  `rgb(R, G, B)` → `rgb(R G B)` and `hsl(H, S%, L%)` → `hsl(H S% L%)`. `rgb` output now uses rounded integers instead of fractional values. This enables alpha support via the `/ alpha` separator and aligns with modern CSS (supported since Chrome 65+, Firefox 52+, Safari 12.1+).
+
+  Downstream code that parses Glaze's CSS output using comma-separated patterns must update to space-separated syntax.
+
 ## 0.4.0
 
 ### Minor Changes
