@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.2
+
+### Patch Changes
+
+- [#14](https://github.com/tenphi/glaze/pull/14) [`6baff6b`](https://github.com/tenphi/glaze/commit/6baff6beeec525f4828737bba982e30b79fd2fa4) Thanks [@tenphi](https://github.com/tenphi)! - Fix relative lightness application: allow absolute lightness values when using base colors for contrast solving. Previously, colors with both `base` and absolute `lightness` were incorrectly rejected during validation and topological sorting.
+
 ## 0.5.1
 
 ### Patch Changes
