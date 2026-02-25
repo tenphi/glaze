@@ -48,7 +48,7 @@ import type {
 // ============================================================================
 
 let globalConfig: GlazeConfigResolved = {
-  darkLightness: [10, 90],
+  darkLightness: [15, 95],
   darkDesaturation: 0.1,
   states: {
     dark: '@dark',
@@ -1295,7 +1295,7 @@ glaze.getConfig = function getConfig(): GlazeConfigResolved {
  */
 glaze.resetConfig = function resetConfig(): void {
   globalConfig = {
-    darkLightness: [10, 90],
+    darkLightness: [15, 95],
     darkDesaturation: 0.1,
     states: {
       dark: '@dark',
