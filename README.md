@@ -487,7 +487,7 @@ Modes control how colors adapt across schemes:
 **`auto`** — inverted within the configured window:
 
 ```ts
-const [lo, hi] = darkLightness; // default: [10, 90]
+const [lo, hi] = darkLightness; // default: [15, 95]
 const invertedL = ((100 - lightness) * (hi - lo)) / 100 + lo;
 ```
 
@@ -499,9 +499,9 @@ const mappedL = (lightness * (hi - lo)) / 100 + lo;
 
 | Color | Light L | Auto (inverted) | Fixed (mapped) |
 |---|---|---|---|
-| surface (L=97) | 97 | 12.4 | 87.6 |
-| accent-fill (L=52) | 52 | 48.4 | 51.6 |
-| accent-text (L=100) | 100 | 10 | 90 |
+| surface (L=97) | 97 | 17.4 | 92.6 |
+| accent-fill (L=52) | 52 | 53.4 | 56.6 |
+| accent-text (L=100) | 100 | 15 | 95 |
 
 ### Saturation
 
@@ -719,7 +719,7 @@ Resolution priority (highest first):
 
 ```ts
 glaze.configure({
-  darkLightness: [10, 90],    // Dark scheme lightness window [lo, hi]
+  darkLightness: [15, 95],    // Dark scheme lightness window [lo, hi]
   darkDesaturation: 0.1,       // Saturation reduction in dark scheme (0–1)
   states: {
     dark: '@dark',             // State alias for dark mode tokens

@@ -265,8 +265,8 @@ describe('glaze', () => {
       const surface = resolved.get('surface')!;
 
       // Light: L=97
-      // Dark (auto, inverted): ((100-97) * (90-10)) / 100 + 10 = 3*0.8 + 10 = 12.4
-      expect(surface.dark.l).toBeCloseTo(0.124, 2);
+      // Dark (auto, inverted): ((100-97) * (95-15)) / 100 + 15 = 3*0.8 + 15 = 17.4
+      expect(surface.dark.l).toBeCloseTo(0.174, 2);
     });
 
     it('fixed mode maps lightness without inversion', () => {
@@ -278,8 +278,8 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const fill = resolved.get('fill')!;
 
-      // Fixed: (52 * (90-10)) / 100 + 10 = 52*0.8 + 10 = 51.6
-      expect(fill.dark.l).toBeCloseTo(0.516, 2);
+      // Fixed: (52 * (95-15)) / 100 + 15 = 52*0.8 + 15 = 56.6
+      expect(fill.dark.l).toBeCloseTo(0.566, 2);
     });
 
     it('static mode preserves lightness across schemes', () => {
