@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.3
+
+### Patch Changes
+
+- [#16](https://github.com/tenphi/glaze/pull/16) [`f34cb5e`](https://github.com/tenphi/glaze/commit/f34cb5ead4e21b7ae5dc728e525a43a71f4c4867) Thanks [@tenphi](https://github.com/tenphi)! - Updated default `darkLightness` range from `[10, 90]` to `[15, 95]` for improved dark mode color mapping.
+
 ## 0.5.2
 
 ### Patch Changes
