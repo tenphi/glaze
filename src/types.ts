@@ -162,6 +162,8 @@ export interface ResolvedColor {
 // ============================================================================
 
 export interface GlazeConfig {
+  /** Light scheme lightness window [lo, hi]. Default: [10, 100]. */
+  lightLightness?: [number, number];
   /** Dark scheme lightness window [lo, hi]. Default: [15, 95]. */
   darkLightness?: [number, number];
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
@@ -178,6 +180,7 @@ export interface GlazeConfig {
 }
 
 export interface GlazeConfigResolved {
+  lightLightness: [number, number];
   darkLightness: [number, number];
   darkDesaturation: number;
   states: {

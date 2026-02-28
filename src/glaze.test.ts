@@ -101,7 +101,8 @@ describe('glaze', () => {
       theme.colors({ surface: { lightness: 50 } });
 
       const resolved = theme.resolve();
-      expect(resolved.get('surface')!.light.l).toBeCloseTo(0.5, 2);
+      // lightLightness [10, 100]: 50 * 0.9 + 10 = 55
+      expect(resolved.get('surface')!.light.l).toBeCloseTo(0.55, 2);
     });
   });
 
@@ -564,6 +565,12 @@ describe('glaze', () => {
   });
 
   describe('configure', () => {
+    it('updates light lightness window', () => {
+      glaze.configure({ lightLightness: [5, 95] });
+      const config = glaze.getConfig();
+      expect(config.lightLightness).toEqual([5, 95]);
+    });
+
     it('updates dark lightness window', () => {
       glaze.configure({ darkLightness: [5, 95] });
       const config = glaze.getConfig();
@@ -917,7 +924,8 @@ describe('glaze', () => {
       const resolved = color.resolve();
 
       expect(resolved.light.h).toBe(280);
-      expect(resolved.light.l).toBeCloseTo(0.52, 2);
+      // lightLightness [10, 100]: 52 * 0.9 + 10 = 56.8
+      expect(resolved.light.l).toBeCloseTo(0.568, 2);
     });
 
     it('exports token for a standalone color', () => {
@@ -1491,8 +1499,8 @@ describe('glaze', () => {
     it('intensity=100 with max contrast reaches alphaMax', () => {
       const theme = glaze(0, 0);
       theme.colors({
-        white: { lightness: 100 },
-        black: { lightness: 0 },
+        white: { lightness: 100, mode: 'static' },
+        black: { lightness: 0, mode: 'static' },
         'shadow-full': {
           type: 'shadow',
           bg: 'white',
@@ -1510,8 +1518,8 @@ describe('glaze', () => {
     it('intensity=100 with custom alphaMax reaches that value', () => {
       const theme = glaze(0, 0);
       theme.colors({
-        white: { lightness: 100 },
-        black: { lightness: 0 },
+        white: { lightness: 100, mode: 'static' },
+        black: { lightness: 0, mode: 'static' },
         'shadow-capped': {
           type: 'shadow',
           bg: 'white',

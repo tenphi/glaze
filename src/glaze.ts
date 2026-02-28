@@ -48,6 +48,7 @@ import type {
 // ============================================================================
 
 let globalConfig: GlazeConfigResolved = {
+  lightLightness: [10, 100],
   darkLightness: [15, 95],
   darkDesaturation: 0.1,
   states: {
@@ -310,6 +311,16 @@ function topoSort(defs: ColorMap): string[] {
 }
 
 // ============================================================================
+// Light scheme mapping
+// ============================================================================
+
+function mapLightnessLight(l: number, mode: AdaptationMode): number {
+  if (mode === 'static') return l;
+  const [lo, hi] = globalConfig.lightLightness;
+  return (l * (hi - lo)) / 100 + lo;
+}
+
+// ============================================================================
 // Dark scheme mapping
 // ============================================================================
 
@@ -540,6 +551,9 @@ function resolveColorForScheme(
   } else if (isDark && !isRoot) {
     finalL = lightL;
     finalSat = mapSaturationDark((satFactor * ctx.saturation) / 100, mode);
+  } else if (isRoot) {
+    finalL = mapLightnessLight(lightL, mode);
+    finalSat = (satFactor * ctx.saturation) / 100;
   } else {
     finalL = lightL;
     finalSat = (satFactor * ctx.saturation) / 100;
@@ -1189,6 +1203,7 @@ export function glaze(
  */
 glaze.configure = function configure(config: GlazeConfig): void {
   globalConfig = {
+    lightLightness: config.lightLightness ?? globalConfig.lightLightness,
     darkLightness: config.darkLightness ?? globalConfig.darkLightness,
     darkDesaturation: config.darkDesaturation ?? globalConfig.darkDesaturation,
     states: {
@@ -1295,6 +1310,7 @@ glaze.getConfig = function getConfig(): GlazeConfigResolved {
  */
 glaze.resetConfig = function resetConfig(): void {
   globalConfig = {
+    lightLightness: [10, 100],
     darkLightness: [15, 95],
     darkDesaturation: 0.1,
     states: {

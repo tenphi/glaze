@@ -480,6 +480,25 @@ Modes control how colors adapt across schemes:
 
 **`static` mode** — no adaptation, same value in every scheme.
 
+## Light Scheme Mapping
+
+### Lightness
+
+Root color lightness is mapped linearly within the configured `lightLightness` window:
+
+```ts
+const [lo, hi] = lightLightness; // default: [10, 100]
+const mappedL = (lightness * (hi - lo)) / 100 + lo;
+```
+
+Both `auto` and `fixed` modes use the same linear formula. `static` mode bypasses the mapping entirely.
+
+| Color | Raw L | Mapped L (default [10, 100]) |
+|---|---|---|
+| surface (L=97) | 97 | 97.3 |
+| accent-fill (L=52) | 52 | 56.8 |
+| near-black (L=0) | 0 | 10 |
+
 ## Dark Scheme Mapping
 
 ### Lightness
@@ -719,7 +738,8 @@ Resolution priority (highest first):
 
 ```ts
 glaze.configure({
-  darkLightness: [15, 95],    // Dark scheme lightness window [lo, hi]
+  lightLightness: [10, 100],   // Light scheme lightness window [lo, hi]
+  darkLightness: [15, 95],     // Dark scheme lightness window [lo, hi]
   darkDesaturation: 0.1,       // Saturation reduction in dark scheme (0–1)
   states: {
     dark: '@dark',             // State alias for dark mode tokens
