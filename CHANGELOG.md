@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.4
+
+### Patch Changes
+
+- [#18](https://github.com/tenphi/glaze/pull/18) [`b4f799b`](https://github.com/tenphi/glaze/commit/b4f799b578b6a2717ec6d73306d5f4eb2ff663d5) Thanks [@tenphi](https://github.com/tenphi)! - Add lightLightness configuration option for controlling lightness bounds in light schemes.
+
 ## 0.5.3
 
 ### Patch Changes
