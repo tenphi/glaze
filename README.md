@@ -788,7 +788,6 @@ A root color must have absolute `lightness` (a number). A dependent color must h
 
 | Condition | Behavior |
 |---|---|
-| Both absolute `lightness` and `base` on same color | Warning, `lightness` takes precedence |
 | `contrast` without `base` | Validation error |
 | Relative `lightness` without `base` | Validation error |
 | `lightness` resolves outside 0–100 | Clamp silently |

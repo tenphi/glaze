@@ -214,12 +214,6 @@ function validateColorDefs(defs: ColorMap): void {
       );
     }
 
-    if (isAbsoluteLightness(regDef.lightness) && regDef.base !== undefined) {
-      console.warn(
-        `glaze: color "${name}" has absolute "lightness" and "base". Absolute lightness takes precedence.`,
-      );
-    }
-
     if (regDef.base && !names.has(regDef.base)) {
       throw new Error(
         `glaze: color "${name}" references non-existent base "${regDef.base}".`,
