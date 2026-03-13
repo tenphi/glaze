@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.5
+
+### Patch Changes
+
+- [`3b8cdbf`](https://github.com/tenphi/glaze/commit/3b8cdbf95d18eb047532e14f67ba446c4686feb9) Thanks [@tenphi](https://github.com/tenphi)! - Remove spurious warning when a color has both absolute `lightness` and `base`. This is a valid configuration — `base` is still used for minimum contrast calculation.
+
 ## 0.5.4
 
 ### Patch Changes
