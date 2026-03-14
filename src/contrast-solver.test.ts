@@ -221,9 +221,9 @@ describe('contrast-solver', () => {
       // Reproduces the real-world case: lime theme accent-text-2 on surface-2.
       // Hue 125 at high saturation produces out-of-gamut linear sRGB (negative R).
       // Without gamut-clamped luminance the solver over-estimates contrast.
-      const baseSat = 0.25 * 75 / 100;
+      const baseSat = (0.25 * 75) / 100;
       const baseLinearRgb = okhslToLinearSrgb(125, baseSat, 0.96);
-      const candidateSat = 0.9 * 75 / 100;
+      const candidateSat = (0.9 * 75) / 100;
       const result = findLightnessForContrast({
         hue: 125,
         saturation: candidateSat,

@@ -85,9 +85,15 @@ const cacheOrder: string[] = [];
  * This avoids over/under-estimating luminance for out-of-gamut OKHSL colors.
  */
 function gamutClampedLuminance(linearRgb: [number, number, number]): number {
-  const r = sRGBGammaToLinear(Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))));
-  const g = sRGBGammaToLinear(Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))));
-  const b = sRGBGammaToLinear(Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))));
+  const r = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))),
+  );
+  const g = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))),
+  );
+  const b = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
+  );
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
