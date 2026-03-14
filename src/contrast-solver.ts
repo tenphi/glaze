@@ -282,7 +282,7 @@ export function findLightnessForContrast(
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
   const crPref = contrastRatioFromLuminance(yPref, yBase);
 
-  if (crPref >= target) {
+  if (crPref >= searchTarget) {
     return {
       lightness: preferredLightness,
       contrast: crPref,

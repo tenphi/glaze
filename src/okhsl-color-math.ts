@@ -559,7 +559,7 @@ function fmt(value: number, decimals: number): string {
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
 export function formatOkhsl(h: number, s: number, l: number): string {
-  return `okhsl(${fmt(h, 1)} ${fmt(s, 1)}% ${fmt(l, 1)}%)`;
+  return `okhsl(${fmt(h, 2)} ${fmt(s, 2)}% ${fmt(l, 2)}%)`;
 }
 
 /**
@@ -598,7 +598,7 @@ export function formatHsl(h: number, s: number, l: number): string {
     }
   }
 
-  return `hsl(${fmt(hh, 1)} ${fmt(ss * 100, 1)}% ${fmt(ll * 100, 1)}%)`;
+  return `hsl(${fmt(hh, 2)} ${fmt(ss * 100, 2)}% ${fmt(ll * 100, 2)}%)`;
 }
 
 /**
