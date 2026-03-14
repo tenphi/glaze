@@ -193,9 +193,7 @@ describe('contrast-solver', () => {
           const yBase = relativeLuminanceFromLinearRgb(baseLinearRgb);
           const cr = contrastRatioFromLuminance(yCandidate, yBase);
 
-          expect(cr).toBeGreaterThanOrEqual(
-            resolveMinContrast(tc.target) - 0.01,
-          );
+          expect(cr).toBeGreaterThanOrEqual(resolveMinContrast(tc.target));
         }
       }
     });

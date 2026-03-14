@@ -256,6 +256,8 @@ export function findLightnessForContrast(
   } = options;
 
   const target = resolveMinContrast(contrastInput);
+  // Overshoot slightly so floating-point rounding never lands at 4.4999…
+  const searchTarget = target + 0.01;
   const yBase = relativeLuminanceFromLinearRgb(baseLinearRgb);
 
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
@@ -280,7 +282,7 @@ export function findLightnessForContrast(
           minL,
           preferredLightness,
           yBase,
-          target,
+          searchTarget,
           epsilon,
           maxIterations,
           preferredLightness,
@@ -295,12 +297,16 @@ export function findLightnessForContrast(
           preferredLightness,
           maxL,
           yBase,
-          target,
+          searchTarget,
           epsilon,
           maxIterations,
           preferredLightness,
         )
       : null;
+
+  // Re-check met against the original target (not the bumped searchTarget)
+  if (darkerResult) darkerResult.met = darkerResult.contrast >= target;
+  if (lighterResult) lighterResult.met = lighterResult.contrast >= target;
 
   const darkerPasses = darkerResult?.met ?? false;
   const lighterPasses = lighterResult?.met ?? false;
