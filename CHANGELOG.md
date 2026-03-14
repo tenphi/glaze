@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.6
+
+### Patch Changes
+
+- [`5acac86`](https://github.com/tenphi/glaze/commit/5acac86b14e43c3410f9065c38a0d84b7abdd25d) Thanks [@tenphi](https://github.com/tenphi)! - Add +0.01 margin to the contrast solver's internal search target to prevent floating-point rounding from producing contrast ratios like 4.4999… that fail Lighthouse's exact WCAG AA threshold check.
+
 ## 0.5.5
 
 ### Patch Changes
