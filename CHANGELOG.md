@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.7
+
+### Patch Changes
+
+- [`d7f00b1`](https://github.com/tenphi/glaze/commit/d7f00b168bf3da83bf07bc3efa27352a0a8810aa) Thanks [@tenphi](https://github.com/tenphi)! - Fix contrast solver computing WCAG luminance from unclamped linear sRGB, which caused it to overestimate contrast for high-saturation colors near gamut boundaries (e.g. lime green). The solver now matches the browser rendering pipeline by gamma-encoding, clamping to sRGB gamut, then linearizing before computing luminance.
+
 ## 0.5.6
 
 ### Patch Changes
