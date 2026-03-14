@@ -371,7 +371,7 @@ export function contrastRatioFromLuminance(yA: number, yB: number): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-const sRGBLinearToGamma = (val: number): number => {
+export const sRGBLinearToGamma = (val: number): number => {
   const sign = val < 0 ? -1 : 1;
   const abs = Math.abs(val);
   return abs > 0.0031308
@@ -379,7 +379,7 @@ const sRGBLinearToGamma = (val: number): number => {
     : 12.92 * val;
 };
 
-const sRGBGammaToLinear = (val: number): number => {
+export const sRGBGammaToLinear = (val: number): number => {
   const sign = val < 0 ? -1 : 1;
   const abs = Math.abs(val);
   return abs <= 0.04045

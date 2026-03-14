@@ -8,7 +8,8 @@
 
 import {
   okhslToLinearSrgb,
-  relativeLuminanceFromLinearRgb,
+  sRGBLinearToGamma,
+  sRGBGammaToLinear,
   contrastRatioFromLuminance,
 } from './okhsl-color-math';
 
@@ -78,6 +79,18 @@ const CACHE_SIZE = 512;
 const luminanceCache = new Map<string, number>();
 const cacheOrder: string[] = [];
 
+/**
+ * Compute WCAG 2 relative luminance from linear sRGB, matching the browser
+ * rendering pipeline: gamma-encode, clamp to sRGB gamut [0,1], then linearize.
+ * This avoids over/under-estimating luminance for out-of-gamut OKHSL colors.
+ */
+function gamutClampedLuminance(linearRgb: [number, number, number]): number {
+  const r = sRGBGammaToLinear(Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))));
+  const g = sRGBGammaToLinear(Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))));
+  const b = sRGBGammaToLinear(Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 function cachedLuminance(h: number, s: number, l: number): number {
   const lRounded = Math.round(l * 10000) / 10000;
   const key = `${h}|${s}|${lRounded}`;
@@ -86,7 +99,7 @@ function cachedLuminance(h: number, s: number, l: number): number {
   if (cached !== undefined) return cached;
 
   const linearRgb = okhslToLinearSrgb(h, s, lRounded);
-  const y = relativeLuminanceFromLinearRgb(linearRgb);
+  const y = gamutClampedLuminance(linearRgb);
 
   if (luminanceCache.size >= CACHE_SIZE) {
     const evict = cacheOrder.shift()!;
@@ -258,7 +271,7 @@ export function findLightnessForContrast(
   const target = resolveMinContrast(contrastInput);
   // Overshoot slightly so floating-point rounding never lands at 4.4999…
   const searchTarget = target + 0.01;
-  const yBase = relativeLuminanceFromLinearRgb(baseLinearRgb);
+  const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
   const crPref = contrastRatioFromLuminance(yPref, yBase);

@@ -4,6 +4,8 @@ import {
 } from './contrast-solver';
 import {
   okhslToLinearSrgb,
+  okhslToSrgb,
+  sRGBGammaToLinear,
   relativeLuminanceFromLinearRgb,
   contrastRatioFromLuminance,
 } from './okhsl-color-math';
@@ -147,7 +149,15 @@ describe('contrast-solver', () => {
     });
 
     it('accuracy: returned candidate satisfies contrast >= target when met=true', () => {
-      // Test with various hue/saturation combinations
+      function srgbLuminance(h: number, s: number, l: number): number {
+        const [r, g, b] = okhslToSrgb(h, s, l);
+        return (
+          0.2126 * sRGBGammaToLinear(r) +
+          0.7152 * sRGBGammaToLinear(g) +
+          0.0722 * sRGBGammaToLinear(b)
+        );
+      }
+
       const testCases = [
         {
           hue: 280,
@@ -183,14 +193,8 @@ describe('contrast-solver', () => {
         });
 
         if (result.met) {
-          // Verify independently
-          const candidateLinearRgb = okhslToLinearSrgb(
-            tc.hue,
-            tc.sat,
-            result.lightness,
-          );
-          const yCandidate = relativeLuminanceFromLinearRgb(candidateLinearRgb);
-          const yBase = relativeLuminanceFromLinearRgb(baseLinearRgb);
+          const yCandidate = srgbLuminance(tc.hue, tc.sat, result.lightness);
+          const yBase = srgbLuminance(tc.hue, tc.sat, tc.baseL);
           const cr = contrastRatioFromLuminance(yCandidate, yBase);
 
           expect(cr).toBeGreaterThanOrEqual(resolveMinContrast(tc.target));
@@ -211,6 +215,39 @@ describe('contrast-solver', () => {
 
       expect(result.met).toBe(true);
       expect(result.contrast).toBeGreaterThanOrEqual(7);
+    });
+
+    it('meets AA contrast for high-saturation lime green on light surface', () => {
+      // Reproduces the real-world case: lime theme accent-text-2 on surface-2.
+      // Hue 125 at high saturation produces out-of-gamut linear sRGB (negative R).
+      // Without gamut-clamped luminance the solver over-estimates contrast.
+      const baseSat = 0.25 * 75 / 100;
+      const baseLinearRgb = okhslToLinearSrgb(125, baseSat, 0.96);
+      const candidateSat = 0.9 * 75 / 100;
+      const result = findLightnessForContrast({
+        hue: 125,
+        saturation: candidateSat,
+        preferredLightness: 0.5,
+        baseLinearRgb,
+        contrast: 'AA',
+      });
+
+      expect(result.met).toBe(true);
+
+      // Verify with the real sRGB rendering pipeline
+      const [cr, cg, cb] = okhslToSrgb(125, candidateSat, result.lightness);
+      const yCandidate =
+        0.2126 * sRGBGammaToLinear(cr) +
+        0.7152 * sRGBGammaToLinear(cg) +
+        0.0722 * sRGBGammaToLinear(cb);
+      const [br, bg, bb] = okhslToSrgb(125, baseSat, 0.96);
+      const yBase =
+        0.2126 * sRGBGammaToLinear(br) +
+        0.7152 * sRGBGammaToLinear(bg) +
+        0.0722 * sRGBGammaToLinear(bb);
+      const cr2 = contrastRatioFromLuminance(yCandidate, yBase);
+
+      expect(cr2).toBeGreaterThanOrEqual(4.5);
     });
   });
 });
