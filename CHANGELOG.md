@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.5.8
+
+### Patch Changes
+
+- [#23](https://github.com/tenphi/glaze/pull/23) [`a06a843`](https://github.com/tenphi/glaze/commit/a06a843ff10fcddd85c00fbd2da5b2dd18524b60) Thanks [@tenphi](https://github.com/tenphi)! - Fix contrast solver using wrong target variable for preferred lightness check, and increase decimal precision in OKHSL/HSL color formatting from 1 to 2 digits.
+
 ## 0.5.7
 
 ### Patch Changes
