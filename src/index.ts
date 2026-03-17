@@ -20,6 +20,7 @@ export type {
   RegularColorDef,
   ShadowColorDef,
   ShadowTuning,
+  MixColorDef,
   ColorDef,
   ColorMap,
   ResolvedColor,
@@ -41,12 +42,15 @@ export type {
 // Re-export contrast solver utilities for advanced use
 export {
   findLightnessForContrast,
+  findValueForMixContrast,
   resolveMinContrast,
 } from './contrast-solver';
 export type {
   ContrastPreset,
   FindLightnessForContrastOptions,
   FindLightnessForContrastResult,
+  FindValueForMixContrastOptions,
+  FindValueForMixContrastResult,
 } from './contrast-solver';
 
 // Re-export color math for advanced use

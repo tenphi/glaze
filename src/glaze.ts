@@ -7,6 +7,8 @@
 
 import {
   okhslToLinearSrgb,
+  sRGBLinearToGamma,
+  sRGBGammaToLinear,
   formatOkhsl,
   formatRgb,
   formatHsl,
@@ -14,7 +16,11 @@ import {
   srgbToOkhsl,
   parseHex,
 } from './okhsl-color-math';
-import { findLightnessForContrast } from './contrast-solver';
+import {
+  findLightnessForContrast,
+  findValueForMixContrast,
+} from './contrast-solver';
+import type { LinearRgb } from './contrast-solver';
 import type {
   HCPair,
   AdaptationMode,
@@ -22,6 +28,7 @@ import type {
   RegularColorDef,
   ShadowColorDef,
   ShadowTuning,
+  MixColorDef,
   ColorDef,
   ColorMap,
   ResolvedColor,
@@ -79,6 +86,10 @@ function pairHC<T>(p: HCPair<T>): T {
 
 function isShadowDef(def: ColorDef): def is ShadowColorDef {
   return (def as ShadowColorDef).type === 'shadow';
+}
+
+function isMixDef(def: ColorDef): def is MixColorDef {
+  return (def as MixColorDef).type === 'mix';
 }
 
 const DEFAULT_SHADOW_TUNING: Required<ShadowTuning> = {
@@ -198,6 +209,30 @@ function validateColorDefs(defs: ColorMap): void {
       continue;
     }
 
+    if (isMixDef(def)) {
+      if (!names.has(def.base)) {
+        throw new Error(
+          `glaze: mix "${name}" references non-existent base "${def.base}".`,
+        );
+      }
+      if (!names.has(def.target)) {
+        throw new Error(
+          `glaze: mix "${name}" references non-existent target "${def.target}".`,
+        );
+      }
+      if (isShadowDef(defs[def.base])) {
+        throw new Error(
+          `glaze: mix "${name}" base "${def.base}" references a shadow color.`,
+        );
+      }
+      if (isShadowDef(defs[def.target])) {
+        throw new Error(
+          `glaze: mix "${name}" target "${def.target}" references a shadow color.`,
+        );
+      }
+      continue;
+    }
+
     const regDef = def as RegularColorDef;
 
     if (regDef.contrast !== undefined && !regDef.base) {
@@ -256,6 +291,9 @@ function validateColorDefs(defs: ColorMap): void {
     if (isShadowDef(def)) {
       dfs(def.bg);
       if (def.fg) dfs(def.fg);
+    } else if (isMixDef(def)) {
+      dfs(def.base);
+      dfs(def.target);
     } else {
       const regDef = def as RegularColorDef;
       if (regDef.base) {
@@ -287,6 +325,9 @@ function topoSort(defs: ColorMap): string[] {
     if (isShadowDef(def)) {
       visit(def.bg);
       if (def.fg) visit(def.fg);
+    } else if (isMixDef(def)) {
+      visit(def.base);
+      visit(def.target);
     } else {
       const regDef = def as RegularColorDef;
       if (regDef.base) {
@@ -511,6 +552,10 @@ function resolveColorForScheme(
     return resolveShadowForScheme(def, ctx, isDark, isHighContrast);
   }
 
+  if (isMixDef(def)) {
+    return resolveMixForScheme(def, ctx, isDark, isHighContrast);
+  }
+
   const regDef = def as RegularColorDef;
   const mode = regDef.mode ?? 'auto';
   const isRoot = isAbsoluteLightness(regDef.lightness) && !regDef.base;
@@ -584,6 +629,142 @@ function resolveShadowForScheme(
   return computeShadow(bgVariant, fgVariant, intensity, tuning);
 }
 
+function variantToLinearRgb(v: ResolvedColorVariant): LinearRgb {
+  return okhslToLinearSrgb(v.h, v.s, v.l);
+}
+
+function gamutClampedLuminance(linearRgb: LinearRgb): number {
+  const r = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))),
+  );
+  const g = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))),
+  );
+  const b = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
+  );
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Resolve hue for OKHSL mixing, handling achromatic colors.
+ * When one color has no saturation, its hue is meaningless —
+ * use the hue from the color that has saturation (matches CSS
+ * color-mix "missing component" behavior).
+ */
+function mixHue(
+  base: ResolvedColorVariant,
+  target: ResolvedColorVariant,
+  t: number,
+): number {
+  const SAT_EPSILON = 1e-6;
+  const baseHasSat = base.s > SAT_EPSILON;
+  const targetHasSat = target.s > SAT_EPSILON;
+
+  if (baseHasSat && targetHasSat) return circularLerp(base.h, target.h, t);
+  if (targetHasSat) return target.h;
+  return base.h;
+}
+
+function linearSrgbLerp(
+  base: LinearRgb,
+  target: LinearRgb,
+  t: number,
+): LinearRgb {
+  return [
+    base[0] + (target[0] - base[0]) * t,
+    base[1] + (target[1] - base[1]) * t,
+    base[2] + (target[2] - base[2]) * t,
+  ];
+}
+
+function linearRgbToVariant(rgb: LinearRgb): ResolvedColorVariant {
+  const gamma: [number, number, number] = [
+    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[0]))),
+    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[1]))),
+    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[2]))),
+  ];
+  const [h, s, l] = srgbToOkhsl(gamma);
+  return { h, s, l, alpha: 1 };
+}
+
+function resolveMixForScheme(
+  def: MixColorDef,
+  ctx: ResolveContext,
+  isDark: boolean,
+  isHighContrast: boolean,
+): ResolvedColorVariant {
+  const baseResolved = ctx.resolved.get(def.base)!;
+  const targetResolved = ctx.resolved.get(def.target)!;
+  const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);
+  const targetVariant = getSchemeVariant(
+    targetResolved,
+    isDark,
+    isHighContrast,
+  );
+
+  const rawValue = isHighContrast ? pairHC(def.value) : pairNormal(def.value);
+  let t = clamp(rawValue, 0, 100) / 100;
+
+  const blend = def.blend ?? 'opaque';
+  const space = def.space ?? 'okhsl';
+  const baseLinear = variantToLinearRgb(baseVariant);
+  const targetLinear = variantToLinearRgb(targetVariant);
+
+  if (def.contrast !== undefined) {
+    const minCr = isHighContrast
+      ? pairHC(def.contrast)
+      : pairNormal(def.contrast);
+
+    let luminanceAt: (v: number) => number;
+
+    if (blend === 'transparent') {
+      luminanceAt = (v: number) =>
+        gamutClampedLuminance(linearSrgbLerp(baseLinear, targetLinear, v));
+    } else if (space === 'srgb') {
+      luminanceAt = (v: number) =>
+        gamutClampedLuminance(linearSrgbLerp(baseLinear, targetLinear, v));
+    } else {
+      luminanceAt = (v: number) => {
+        const h = mixHue(baseVariant, targetVariant, v);
+        const s = baseVariant.s + (targetVariant.s - baseVariant.s) * v;
+        const l = baseVariant.l + (targetVariant.l - baseVariant.l) * v;
+        return gamutClampedLuminance(okhslToLinearSrgb(h, s, l));
+      };
+    }
+
+    const result = findValueForMixContrast({
+      preferredValue: t,
+      baseLinearRgb: baseLinear,
+      targetLinearRgb: targetLinear,
+      contrast: minCr,
+      luminanceAtValue: luminanceAt,
+    });
+    t = result.value;
+  }
+
+  if (blend === 'transparent') {
+    return {
+      h: targetVariant.h,
+      s: targetVariant.s,
+      l: targetVariant.l,
+      alpha: clamp(t, 0, 1),
+    };
+  }
+
+  if (space === 'srgb') {
+    const mixed = linearSrgbLerp(baseLinear, targetLinear, t);
+    return linearRgbToVariant(mixed);
+  }
+
+  return {
+    h: mixHue(baseVariant, targetVariant, t),
+    s: clamp(baseVariant.s + (targetVariant.s - baseVariant.s) * t, 0, 1),
+    l: clamp(baseVariant.l + (targetVariant.l - baseVariant.l) * t, 0, 1),
+    alpha: 1,
+  };
+}
+
 function resolveAllColors(
   hue: number,
   saturation: number,
@@ -600,9 +781,8 @@ function resolveAllColors(
   };
 
   function defMode(def: ColorDef): AdaptationMode | undefined {
-    return isShadowDef(def)
-      ? undefined
-      : ((def as RegularColorDef).mode ?? 'auto');
+    if (isShadowDef(def) || isMixDef(def)) return undefined;
+    return (def as RegularColorDef).mode ?? 'auto';
   }
 
   // Pass 1: Light normal

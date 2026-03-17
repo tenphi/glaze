@@ -126,7 +126,42 @@ export interface ShadowColorDef {
   tuning?: ShadowTuning;
 }
 
-export type ColorDef = RegularColorDef | ShadowColorDef;
+export interface MixColorDef {
+  type: 'mix';
+  /** Background/base color name — the "from" color. */
+  base: string;
+  /** Target color name — the "to" color to mix toward. */
+  target: string;
+  /**
+   * Mix ratio 0–100 (0 = pure base, 100 = pure target).
+   * In 'transparent' blend mode, this controls the opacity of the target.
+   * Supports [normal, highContrast] pair.
+   */
+  value: HCPair<number>;
+  /**
+   * Blending mode. Default: 'opaque'.
+   * - 'opaque': produces a solid color by interpolating base and target.
+   * - 'transparent': produces the target color with alpha = value/100.
+   */
+  blend?: 'opaque' | 'transparent';
+  /**
+   * Interpolation color space for opaque blending. Default: 'okhsl'.
+   * - 'okhsl': perceptually uniform, consistent with Glaze's internal model.
+   * - 'srgb': linear sRGB interpolation, matches browser compositing.
+   *
+   * Ignored for 'transparent' blend (always composites in linear sRGB).
+   */
+  space?: 'okhsl' | 'srgb';
+  /**
+   * Minimum WCAG contrast between the base and the resulting color.
+   * In 'opaque' mode, adjusts the mix ratio to meet contrast.
+   * In 'transparent' mode, adjusts opacity to meet contrast against the composite.
+   * Supports [normal, highContrast] pair.
+   */
+  contrast?: HCPair<MinContrast>;
+}
+
+export type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 
 export type ColorMap = Record<string, ColorDef>;
 
