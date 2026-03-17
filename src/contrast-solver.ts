@@ -13,6 +13,8 @@ import {
   contrastRatioFromLuminance,
 } from './okhsl-color-math';
 
+export type LinearRgb = [number, number, number];
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -362,4 +364,210 @@ export function findLightnessForContrast(
 
   candidates.sort((a, b) => b.contrast - a.contrast);
   return candidates[0];
+}
+
+// ============================================================================
+// Mix contrast solver
+// ============================================================================
+
+export interface FindValueForMixContrastOptions {
+  /** Preferred mix parameter (0–1). */
+  preferredValue: number;
+  /** Base color as linear sRGB. */
+  baseLinearRgb: LinearRgb;
+  /** Target color as linear sRGB. */
+  targetLinearRgb: LinearRgb;
+  /** WCAG contrast target. */
+  contrast: MinContrast;
+  /**
+   * Compute the luminance of the mixed color at parameter t.
+   * For opaque: luminance of OKHSL-interpolated color.
+   * For transparent: luminance of alpha-composited color over base.
+   */
+  luminanceAtValue: (t: number) => number;
+  /** Convergence threshold. Default: 1e-4. */
+  epsilon?: number;
+  /** Maximum binary-search iterations per branch. Default: 20. */
+  maxIterations?: number;
+}
+
+export interface FindValueForMixContrastResult {
+  /** Chosen mix parameter (0–1). */
+  value: number;
+  /** Achieved WCAG contrast ratio. */
+  contrast: number;
+  /** Whether the target was reached. */
+  met: boolean;
+}
+
+/**
+ * Binary-search one branch [lo, hi] for the nearest passing mix value
+ * to `preferred`.
+ */
+function searchMixBranch(
+  lo: number,
+  hi: number,
+  yBase: number,
+  target: number,
+  epsilon: number,
+  maxIter: number,
+  preferred: number,
+  luminanceAt: (t: number) => number,
+): BranchResult {
+  const crLo = contrastRatioFromLuminance(luminanceAt(lo), yBase);
+  const crHi = contrastRatioFromLuminance(luminanceAt(hi), yBase);
+
+  if (crLo < target && crHi < target) {
+    if (crLo >= crHi) {
+      return { lightness: lo, contrast: crLo, met: false };
+    }
+    return { lightness: hi, contrast: crHi, met: false };
+  }
+
+  let low = lo;
+  let high = hi;
+
+  for (let i = 0; i < maxIter; i++) {
+    if (high - low < epsilon) break;
+
+    const mid = (low + high) / 2;
+    const crMid = contrastRatioFromLuminance(luminanceAt(mid), yBase);
+
+    if (crMid >= target) {
+      if (mid < preferred) low = mid;
+      else high = mid;
+    } else {
+      if (mid < preferred) high = mid;
+      else low = mid;
+    }
+  }
+
+  const crLow = contrastRatioFromLuminance(luminanceAt(low), yBase);
+  const crHigh = contrastRatioFromLuminance(luminanceAt(high), yBase);
+
+  const lowPasses = crLow >= target;
+  const highPasses = crHigh >= target;
+
+  if (lowPasses && highPasses) {
+    if (Math.abs(low - preferred) <= Math.abs(high - preferred)) {
+      return { lightness: low, contrast: crLow, met: true };
+    }
+    return { lightness: high, contrast: crHigh, met: true };
+  }
+  if (lowPasses) return { lightness: low, contrast: crLow, met: true };
+  if (highPasses) return { lightness: high, contrast: crHigh, met: true };
+
+  return crLow >= crHigh
+    ? { lightness: low, contrast: crLow, met: false }
+    : { lightness: high, contrast: crHigh, met: false };
+}
+
+/**
+ * Find the mix parameter (ratio or opacity) that satisfies a WCAG 2 contrast
+ * target against a base color, staying as close to `preferredValue` as possible.
+ */
+export function findValueForMixContrast(
+  options: FindValueForMixContrastOptions,
+): FindValueForMixContrastResult {
+  const {
+    preferredValue,
+    baseLinearRgb,
+    contrast: contrastInput,
+    luminanceAtValue,
+    epsilon = 1e-4,
+    maxIterations = 20,
+  } = options;
+
+  const target = resolveMinContrast(contrastInput);
+  const searchTarget = target + 0.01;
+  const yBase = gamutClampedLuminance(baseLinearRgb);
+
+  const yPref = luminanceAtValue(preferredValue);
+  const crPref = contrastRatioFromLuminance(yPref, yBase);
+
+  if (crPref >= searchTarget) {
+    return { value: preferredValue, contrast: crPref, met: true };
+  }
+
+  const darkerResult =
+    preferredValue > 0
+      ? searchMixBranch(
+          0,
+          preferredValue,
+          yBase,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          preferredValue,
+          luminanceAtValue,
+        )
+      : null;
+
+  const lighterResult =
+    preferredValue < 1
+      ? searchMixBranch(
+          preferredValue,
+          1,
+          yBase,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          preferredValue,
+          luminanceAtValue,
+        )
+      : null;
+
+  if (darkerResult) darkerResult.met = darkerResult.contrast >= target;
+  if (lighterResult) lighterResult.met = lighterResult.contrast >= target;
+
+  const darkerPasses = darkerResult?.met ?? false;
+  const lighterPasses = lighterResult?.met ?? false;
+
+  if (darkerPasses && lighterPasses) {
+    const darkerDist = Math.abs(darkerResult!.lightness - preferredValue);
+    const lighterDist = Math.abs(lighterResult!.lightness - preferredValue);
+    if (darkerDist <= lighterDist) {
+      return {
+        value: darkerResult!.lightness,
+        contrast: darkerResult!.contrast,
+        met: true,
+      };
+    }
+    return {
+      value: lighterResult!.lightness,
+      contrast: lighterResult!.contrast,
+      met: true,
+    };
+  }
+
+  if (darkerPasses) {
+    return {
+      value: darkerResult!.lightness,
+      contrast: darkerResult!.contrast,
+      met: true,
+    };
+  }
+
+  if (lighterPasses) {
+    return {
+      value: lighterResult!.lightness,
+      contrast: lighterResult!.contrast,
+      met: true,
+    };
+  }
+
+  const candidates: (BranchResult & { branch: string })[] = [];
+  if (darkerResult) candidates.push({ ...darkerResult, branch: 'lower' });
+  if (lighterResult) candidates.push({ ...lighterResult, branch: 'upper' });
+
+  if (candidates.length === 0) {
+    return { value: preferredValue, contrast: crPref, met: false };
+  }
+
+  candidates.sort((a, b) => b.contrast - a.contrast);
+  return {
+    value: candidates[0].lightness,
+    contrast: candidates[0].contrast,
+    met: candidates[0].met,
+  };
 }

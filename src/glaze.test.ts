@@ -1902,4 +1902,739 @@ describe('glaze', () => {
       expect(restoredShadow.light.alpha).toBeCloseTo(origShadow.light.alpha, 6);
     });
   });
+
+  describe('mix colors', () => {
+    describe('opaque blend', () => {
+      it('resolves a 50/50 opaque mix between two colors', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          white: { lightness: 100 },
+          black: { lightness: 0 },
+          mid: { type: 'mix', base: 'white', target: 'black', value: 50 },
+        });
+
+        const resolved = theme.resolve();
+        const base = resolved.get('white')!;
+        const target = resolved.get('black')!;
+        const mid = resolved.get('mid')!;
+
+        const expectedL = (base.light.l + target.light.l) / 2;
+        expect(mid.light.alpha).toBe(1);
+        expect(mid.light.l).toBeCloseTo(expectedL, 4);
+      });
+
+      it('value 0 produces pure base color', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { lightness: 95 },
+          accent: { lightness: 30 },
+          result: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 0,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const base = resolved.get('surface')!;
+        const result = resolved.get('result')!;
+
+        expect(result.light.l).toBeCloseTo(base.light.l, 6);
+        expect(result.light.s).toBeCloseTo(base.light.s, 6);
+      });
+
+      it('value 100 produces pure target color', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { lightness: 95 },
+          accent: { lightness: 30 },
+          result: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 100,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const target = resolved.get('accent')!;
+        const result = resolved.get('result')!;
+
+        expect(result.light.l).toBeCloseTo(target.light.l, 6);
+        expect(result.light.s).toBeCloseTo(target.light.s, 6);
+      });
+
+      it('always produces alpha = 1 in opaque mode', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          a: { lightness: 90 },
+          b: { lightness: 20 },
+          mixed: { type: 'mix', base: 'a', target: 'b', value: 30 },
+        });
+
+        const resolved = theme.resolve();
+        const mixed = resolved.get('mixed')!;
+
+        expect(mixed.light.alpha).toBe(1);
+        expect(mixed.dark.alpha).toBe(1);
+      });
+
+      it('adapts to dark scheme via resolved base and target', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { lightness: 95 },
+          accent: { lightness: 30 },
+          mixed: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 50,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const mixed = resolved.get('mixed')!;
+
+        expect(mixed.light.l).not.toBeCloseTo(mixed.dark.l, 1);
+      });
+    });
+
+    describe('transparent blend', () => {
+      it('produces target color with alpha = value/100', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          bg: { lightness: 95 },
+          fg: { lightness: 20 },
+          overlay: {
+            type: 'mix',
+            base: 'bg',
+            target: 'fg',
+            value: 40,
+            blend: 'transparent',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const fg = resolved.get('fg')!;
+        const overlay = resolved.get('overlay')!;
+
+        expect(overlay.light.h).toBeCloseTo(fg.light.h, 6);
+        expect(overlay.light.s).toBeCloseTo(fg.light.s, 6);
+        expect(overlay.light.l).toBeCloseTo(fg.light.l, 6);
+        expect(overlay.light.alpha).toBeCloseTo(0.4, 6);
+      });
+
+      it('value 0 produces fully transparent', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          bg: { lightness: 95 },
+          fg: { lightness: 20 },
+          overlay: {
+            type: 'mix',
+            base: 'bg',
+            target: 'fg',
+            value: 0,
+            blend: 'transparent',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const overlay = resolved.get('overlay')!;
+
+        expect(overlay.light.alpha).toBeCloseTo(0, 6);
+      });
+
+      it('value 100 produces fully opaque target', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          bg: { lightness: 95 },
+          fg: { lightness: 20 },
+          overlay: {
+            type: 'mix',
+            base: 'bg',
+            target: 'fg',
+            value: 100,
+            blend: 'transparent',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const overlay = resolved.get('overlay')!;
+
+        expect(overlay.light.alpha).toBeCloseTo(1, 6);
+      });
+    });
+
+    describe('contrast solving', () => {
+      it('adjusts opaque mix ratio to meet contrast target', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { lightness: 95 },
+          accent: { lightness: 85 },
+          result: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            contrast: 'AA',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const result = resolved.get('result')!;
+
+        expect(result.light.alpha).toBe(1);
+        expect(result.light.l).not.toBeCloseTo(0.95 * 0.9 + 0.85 * 0.1, 1);
+      });
+
+      it('adjusts transparent opacity to meet contrast target', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { lightness: 95 },
+          overlay: { lightness: 10 },
+          result: {
+            type: 'mix',
+            base: 'surface',
+            target: 'overlay',
+            value: 5,
+            blend: 'transparent',
+            contrast: 3,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const result = resolved.get('result')!;
+
+        expect(result.light.alpha).toBeGreaterThan(0.05);
+      });
+
+      it('supports HCPair for contrast in mix colors', () => {
+        const theme = glaze(0, 0);
+        glaze.configure({ modes: { highContrast: true } });
+        theme.colors({
+          surface: { lightness: 95 },
+          accent: { lightness: 10 },
+          result: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            contrast: [3, 'AAA'],
+          },
+        });
+
+        const resolved = theme.resolve();
+        const result = resolved.get('result')!;
+
+        expect(result.lightContrast.l).toBeLessThan(result.light.l);
+      });
+    });
+
+    describe('HCPair value', () => {
+      it('uses different mix values for normal and high-contrast', () => {
+        const theme = glaze(0, 0);
+        glaze.configure({ modes: { highContrast: true } });
+        theme.colors({
+          a: { lightness: 90 },
+          b: { lightness: 10 },
+          mixed: { type: 'mix', base: 'a', target: 'b', value: [20, 80] },
+        });
+
+        const resolved = theme.resolve();
+        const mixed = resolved.get('mixed')!;
+
+        expect(mixed.lightContrast.l).toBeLessThan(mixed.light.l);
+      });
+    });
+
+    describe('mix-on-mix chaining', () => {
+      it('resolves a mix that references another mix color', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          white: { lightness: 100 },
+          black: { lightness: 0 },
+          gray: { type: 'mix', base: 'white', target: 'black', value: 50 },
+          lightGray: {
+            type: 'mix',
+            base: 'white',
+            target: 'gray',
+            value: 50,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const gray = resolved.get('gray')!;
+        const lightGray = resolved.get('lightGray')!;
+
+        expect(lightGray.light.l).toBeGreaterThan(gray.light.l);
+      });
+    });
+
+    describe('achromatic hue handling', () => {
+      it('uses target hue when base has no saturation (e.g. white)', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          white: { lightness: 100, saturation: 0 },
+          blue: { lightness: 50, hue: 240 },
+          tint: {
+            type: 'mix',
+            base: 'white',
+            target: 'blue',
+            value: 30,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const blue = resolved.get('blue')!;
+        const tint = resolved.get('tint')!;
+
+        expect(tint.light.h).toBeCloseTo(blue.light.h, 1);
+      });
+
+      it('uses base hue when target has no saturation (e.g. black)', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          blue: { lightness: 50, hue: 240 },
+          black: { lightness: 0, saturation: 0 },
+          shade: {
+            type: 'mix',
+            base: 'blue',
+            target: 'black',
+            value: 30,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const blue = resolved.get('blue')!;
+        const shade = resolved.get('shade')!;
+
+        expect(shade.light.h).toBeCloseTo(blue.light.h, 1);
+      });
+
+      it('uses circularLerp when both have saturation', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          red: { lightness: 50, hue: 0 },
+          blue: { lightness: 50, hue: 240 },
+          mixed: {
+            type: 'mix',
+            base: 'red',
+            target: 'blue',
+            value: 50,
+          },
+        });
+
+        const resolved = theme.resolve();
+        const red = resolved.get('red')!;
+        const blue = resolved.get('blue')!;
+        const mixed = resolved.get('mixed')!;
+
+        expect(mixed.light.h).not.toBeCloseTo(red.light.h, 1);
+        expect(mixed.light.h).not.toBeCloseTo(blue.light.h, 1);
+      });
+    });
+
+    describe('blend space', () => {
+      it('srgb blend produces a valid color', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { lightness: 90 },
+          accent: { lightness: 30 },
+          mixed: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 50,
+            space: 'srgb',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const mixed = resolved.get('mixed')!;
+
+        expect(mixed.light.alpha).toBe(1);
+        expect(mixed.light.l).toBeGreaterThan(0);
+        expect(mixed.light.l).toBeLessThan(1);
+        expect(mixed.light.s).toBeGreaterThanOrEqual(0);
+        expect(mixed.light.s).toBeLessThanOrEqual(1);
+      });
+
+      it('srgb blend differs from okhsl blend', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          a: { lightness: 90 },
+          b: { lightness: 20 },
+          okhslMix: {
+            type: 'mix',
+            base: 'a',
+            target: 'b',
+            value: 50,
+          },
+          srgbMix: {
+            type: 'mix',
+            base: 'a',
+            target: 'b',
+            value: 50,
+            space: 'srgb',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const okhslMix = resolved.get('okhslMix')!;
+        const srgbMix = resolved.get('srgbMix')!;
+
+        const diff = Math.abs(okhslMix.light.l - srgbMix.light.l);
+        expect(diff).toBeGreaterThan(0.001);
+      });
+
+      it('srgb value=0 produces pure base', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { lightness: 90 },
+          accent: { lightness: 20 },
+          mixed: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 0,
+            space: 'srgb',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const base = resolved.get('surface')!;
+        const mixed = resolved.get('mixed')!;
+
+        expect(mixed.light.l).toBeCloseTo(base.light.l, 3);
+        expect(mixed.light.s).toBeCloseTo(base.light.s, 3);
+      });
+
+      it('srgb value=100 produces pure target', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { lightness: 90 },
+          accent: { lightness: 20 },
+          mixed: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 100,
+            space: 'srgb',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const target = resolved.get('accent')!;
+        const mixed = resolved.get('mixed')!;
+
+        expect(mixed.light.l).toBeCloseTo(target.light.l, 3);
+        expect(mixed.light.s).toBeCloseTo(target.light.s, 3);
+      });
+
+      it('srgb blend with contrast solving works', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { lightness: 95 },
+          overlay: { lightness: 85 },
+          result: {
+            type: 'mix',
+            base: 'surface',
+            target: 'overlay',
+            value: 10,
+            space: 'srgb',
+            contrast: 'AA',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const result = resolved.get('result')!;
+        expect(result.light.alpha).toBe(1);
+      });
+
+      it('space is ignored for transparent blend', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          bg: { lightness: 95 },
+          fg: { lightness: 20 },
+          overlayOkhsl: {
+            type: 'mix',
+            base: 'bg',
+            target: 'fg',
+            value: 40,
+            blend: 'transparent',
+            space: 'okhsl',
+          },
+          overlaySrgb: {
+            type: 'mix',
+            base: 'bg',
+            target: 'fg',
+            value: 40,
+            blend: 'transparent',
+            space: 'srgb',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const a = resolved.get('overlayOkhsl')!;
+        const b = resolved.get('overlaySrgb')!;
+
+        expect(a.light.h).toBeCloseTo(b.light.h, 6);
+        expect(a.light.s).toBeCloseTo(b.light.s, 6);
+        expect(a.light.l).toBeCloseTo(b.light.l, 6);
+        expect(a.light.alpha).toBeCloseTo(b.light.alpha, 6);
+      });
+
+      it('srgb blend with white produces clean tint', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          blue: { lightness: 50, hue: 240 },
+          white: { lightness: 100, saturation: 0 },
+          tint: {
+            type: 'mix',
+            base: 'blue',
+            target: 'white',
+            value: 50,
+            space: 'srgb',
+          },
+        });
+
+        const resolved = theme.resolve();
+        const blue = resolved.get('blue')!;
+        const tint = resolved.get('tint')!;
+
+        expect(tint.light.l).toBeGreaterThan(blue.light.l);
+        expect(tint.light.alpha).toBe(1);
+      });
+    });
+  });
+
+  describe('mix validation', () => {
+    it('throws when base references non-existent color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        accent: { lightness: 30 },
+        result: {
+          type: 'mix',
+          base: 'nonexistent',
+          target: 'accent',
+          value: 50,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('non-existent base');
+    });
+
+    it('throws when target references non-existent color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        result: {
+          type: 'mix',
+          base: 'surface',
+          target: 'nonexistent',
+          value: 50,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('non-existent target');
+    });
+
+    it('throws when base references a shadow color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+        result: {
+          type: 'mix',
+          base: 'shadow-md',
+          target: 'surface',
+          value: 50,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('shadow color');
+    });
+
+    it('throws when target references a shadow color', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+        result: {
+          type: 'mix',
+          base: 'surface',
+          target: 'shadow-md',
+          value: 50,
+        },
+      });
+
+      expect(() => theme.resolve()).toThrow('shadow color');
+    });
+
+    it('throws on circular reference between mix colors', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        a: { type: 'mix', base: 'b', target: 'b', value: 50 } as any,
+        b: { type: 'mix', base: 'a', target: 'a', value: 50 } as any,
+      });
+
+      expect(() => theme.resolve()).toThrow('circular');
+    });
+  });
+
+  describe('mix with export formats', () => {
+    it('includes mix colors in tasty token export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        accent: { lightness: 30 },
+        mixed: {
+          type: 'mix',
+          base: 'surface',
+          target: 'accent',
+          value: 50,
+        },
+      });
+
+      const tokens = theme.tasty();
+      expect(tokens['#mixed']).toBeDefined();
+      expect(tokens['#mixed']['']).toBeDefined();
+    });
+
+    it('includes mix colors in JSON export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        accent: { lightness: 30 },
+        mixed: {
+          type: 'mix',
+          base: 'surface',
+          target: 'accent',
+          value: 50,
+        },
+      });
+
+      const json = theme.json();
+      expect(json['mixed']).toBeDefined();
+      expect(json['mixed'].light).toBeDefined();
+    });
+
+    it('transparent mix includes alpha in tokens export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        bg: { lightness: 95 },
+        fg: { lightness: 20 },
+        overlay: {
+          type: 'mix',
+          base: 'bg',
+          target: 'fg',
+          value: 40,
+          blend: 'transparent',
+        },
+      });
+
+      const tokens = theme.tokens({ format: 'oklch' });
+      expect(tokens.light['overlay']).toMatch(/\/ [\d.]+\)$/);
+    });
+
+    it('transparent mix includes alpha in CSS export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        bg: { lightness: 95 },
+        fg: { lightness: 20 },
+        overlay: {
+          type: 'mix',
+          base: 'bg',
+          target: 'fg',
+          value: 40,
+          blend: 'transparent',
+        },
+      });
+
+      const css = theme.css({ format: 'oklch' });
+      expect(css.light).toMatch(/--overlay-color:.*\/ [\d.]+\)/);
+    });
+
+    it('transparent mix includes alpha in tasty export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        bg: { lightness: 95 },
+        fg: { lightness: 20 },
+        overlay: {
+          type: 'mix',
+          base: 'bg',
+          target: 'fg',
+          value: 40,
+          blend: 'transparent',
+        },
+      });
+
+      const tokens = theme.tasty({ format: 'rgb' });
+      expect(tokens['#overlay']['']).toMatch(/\/ [\d.]+\)$/);
+    });
+
+    it('transparent mix includes alpha in JSON export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        bg: { lightness: 95 },
+        fg: { lightness: 20 },
+        overlay: {
+          type: 'mix',
+          base: 'bg',
+          target: 'fg',
+          value: 40,
+          blend: 'transparent',
+        },
+      });
+
+      const json = theme.json({ format: 'rgb' });
+      expect(json['overlay'].light).toMatch(/\/ [\d.]+\)$/);
+      expect(json['overlay'].dark).toMatch(/\/ [\d.]+\)$/);
+    });
+
+    it('opaque mix does NOT include alpha in export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        bg: { lightness: 95 },
+        fg: { lightness: 20 },
+        mixed: {
+          type: 'mix',
+          base: 'bg',
+          target: 'fg',
+          value: 40,
+        },
+      });
+
+      const tokens = theme.tasty({ format: 'rgb' });
+      expect(tokens['#mixed']['']).not.toContain('/');
+    });
+
+    it('serializes and restores mix colors via export/from', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        accent: { lightness: 30 },
+        mixed: {
+          type: 'mix',
+          base: 'surface',
+          target: 'accent',
+          value: 50,
+        },
+      });
+
+      const exported = theme.export();
+      const restored = glaze.from(exported);
+
+      const origResolved = theme.resolve();
+      const restoredResolved = restored.resolve();
+
+      const origMix = origResolved.get('mixed')!;
+      const restoredMix = restoredResolved.get('mixed')!;
+
+      expect(restoredMix.light.l).toBeCloseTo(origMix.light.l, 6);
+      expect(restoredMix.light.s).toBeCloseTo(origMix.light.s, 6);
+      expect(restoredMix.dark.l).toBeCloseTo(origMix.dark.l, 6);
+    });
+  });
 });

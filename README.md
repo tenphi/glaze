@@ -22,6 +22,7 @@ Glaze generates robust **light**, **dark**, and **high-contrast** color schemes 
 
 - **OKHSL color space** — perceptually uniform hue and saturation
 - **WCAG 2 contrast solving** — automatic lightness adjustment to meet AA/AAA targets
+- **Mix colors** — blend two colors with OKHSL or sRGB interpolation, opaque or transparent, with optional contrast solving
 - **Shadow colors** — OKHSL-native shadow computation with automatic alpha, fg/bg tinting, and per-scheme adaptation
 - **Light + Dark + High-Contrast** — all schemes from one definition
 - **Per-color hue override** — absolute or relative hue shifts within a theme
@@ -413,6 +414,139 @@ const css = glaze.format(v, 'oklch');
 }
 ```
 
+## Mix Colors
+
+Mix colors blend two existing colors together. Use them for hover overlays, tints, shades, and any derived color that sits between two reference colors.
+
+### Opaque Mix
+
+Produces a solid color by interpolating between `base` and `target`:
+
+```ts
+theme.colors({
+  surface: { lightness: 95 },
+  accent:  { lightness: 30 },
+
+  // 30% of the way from surface toward accent
+  tint: { type: 'mix', base: 'surface', target: 'accent', value: 30 },
+});
+```
+
+- `value` — mix ratio 0–100 (0 = pure base, 100 = pure target)
+- The result is a fully opaque color (alpha = 1)
+- Adapts to light/dark/HC schemes automatically via the resolved base and target
+
+### Transparent Mix
+
+Produces the target color with a controlled opacity — useful for hover overlays:
+
+```ts
+theme.colors({
+  surface: { lightness: 95 },
+  black:   { lightness: 0, saturation: 0 },
+
+  hover: {
+    type: 'mix',
+    base: 'surface',
+    target: 'black',
+    value: 8,
+    blend: 'transparent',
+  },
+});
+// hover → target color (black) with alpha = 0.08
+```
+
+The output color has `h`, `s`, `l` from the target and `alpha = value / 100`.
+
+### Blend Space
+
+By default, opaque mixing interpolates in OKHSL (perceptually uniform, consistent with Glaze's model). Use `space: 'srgb'` for linear sRGB interpolation, which matches browser compositing:
+
+```ts
+theme.colors({
+  surface: { lightness: 95 },
+  accent:  { lightness: 30 },
+
+  // sRGB blend — matches what the browser would render
+  hover: { type: 'mix', base: 'surface', target: 'accent', value: 20, space: 'srgb' },
+});
+```
+
+| Space | Behavior | Best for |
+|---|---|---|
+| `'okhsl'` (default) | Perceptually uniform OKHSL interpolation | Design token derivation |
+| `'srgb'` | Linear sRGB channel interpolation | Matching browser compositing |
+
+The `space` option only affects opaque blending. Transparent blending always composites in linear sRGB (matching browser alpha compositing).
+
+### Contrast Solving
+
+Mix colors support the same `contrast` prop as regular colors. The solver adjusts the mix ratio (opaque) or opacity (transparent) to meet the WCAG target:
+
+```ts
+theme.colors({
+  surface: { lightness: 95 },
+  accent:  { lightness: 30 },
+
+  // Ensure the mixed color has at least AA contrast against surface
+  tint: {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: 10,
+    contrast: 'AA',
+  },
+
+  // Ensure the transparent overlay has at least 3:1 contrast
+  overlay: {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: 5,
+    blend: 'transparent',
+    contrast: 3,
+  },
+});
+```
+
+### High-Contrast Pairs
+
+Both `value` and `contrast` support `[normal, highContrast]` pairs:
+
+```ts
+theme.colors({
+  surface: { lightness: 95 },
+  accent:  { lightness: 30 },
+
+  tint: {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: [20, 40],          // stronger mix in high-contrast mode
+    contrast: [3, 'AAA'],     // stricter contrast in high-contrast mode
+  },
+});
+```
+
+### Achromatic Colors
+
+When mixing with achromatic colors (saturation near zero, e.g., white or black) in `okhsl` space, the hue comes from whichever color has saturation. This prevents meaningless hue artifacts and matches CSS `color-mix()` "missing component" behavior. For purely achromatic mixes, prefer `space: 'srgb'` where hue is irrelevant.
+
+### Mix Chaining
+
+Mix colors can reference other mix colors, enabling multi-step derivations:
+
+```ts
+theme.colors({
+  white: { lightness: 100, saturation: 0 },
+  black: { lightness: 0, saturation: 0 },
+  gray:  { type: 'mix', base: 'white', target: 'black', value: 50, space: 'srgb' },
+  lightGray: { type: 'mix', base: 'white', target: 'gray', value: 50, space: 'srgb' },
+});
+```
+
+Mix colors cannot reference shadow colors (same restriction as regular dependent colors).
+
 ## Output Formats
 
 Control the color format in exports with the `format` option:
@@ -758,10 +892,10 @@ glaze.configure({
 
 ## Color Definition Shape
 
-`ColorDef` is a discriminated union of regular colors and shadow colors:
+`ColorDef` is a discriminated union of regular colors, shadow colors, and mix colors:
 
 ```ts
-type ColorDef = RegularColorDef | ShadowColorDef;
+type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 
 interface RegularColorDef {
   lightness?: HCPair<number | RelativeValue>;
@@ -780,9 +914,19 @@ interface ShadowColorDef {
   intensity: HCPair<number>; // 0–100
   tuning?: ShadowTuning;
 }
+
+interface MixColorDef {
+  type: 'mix';
+  base: string;     // "from" color name
+  target: string;   // "to" color name
+  value: HCPair<number>;     // 0–100 (mix ratio or opacity)
+  blend?: 'opaque' | 'transparent'; // default: 'opaque'
+  space?: 'okhsl' | 'srgb';        // default: 'okhsl'
+  contrast?: HCPair<MinContrast>;
+}
 ```
 
-A root color must have absolute `lightness` (a number). A dependent color must have `base`. Relative `lightness` (a string) requires `base`. Shadow colors use `type: 'shadow'` and must reference a non-shadow `bg` color.
+A root color must have absolute `lightness` (a number). A dependent color must have `base`. Relative `lightness` (a string) requires `base`. Shadow colors use `type: 'shadow'` and must reference a non-shadow `bg` color. Mix colors use `type: 'mix'` and must reference two non-shadow colors.
 
 ## Validation
 
@@ -801,6 +945,12 @@ A root color must have absolute `lightness` (a number). A dependent color must h
 | Regular color `base` references a shadow color | Validation error |
 | Shadow `intensity` outside 0–100 | Clamp silently |
 | `contrast` + `opacity` combined | Warning |
+| Mix `base` references non-existent color | Validation error |
+| Mix `target` references non-existent color | Validation error |
+| Mix `base` references a shadow color | Validation error |
+| Mix `target` references a shadow color | Validation error |
+| Mix `value` outside 0–100 | Clamp silently |
+| Circular references involving mix colors | Validation error |
 
 ## Advanced: Color Math Utilities
 
@@ -845,6 +995,10 @@ primary.colors({
   'shadow-sm':   { type: 'shadow', bg: 'surface', fg: 'text', intensity: 5 },
   'shadow-md':   { type: 'shadow', bg: 'surface', fg: 'text', intensity: 10 },
   'shadow-lg':   { type: 'shadow', bg: 'surface', fg: 'text', intensity: 20 },
+
+  // Mix colors — hover overlays and tints
+  'hover':       { type: 'mix', base: 'surface', target: 'accent-fill', value: 8, blend: 'transparent' },
+  'tint':        { type: 'mix', base: 'surface', target: 'accent-fill', value: 20 },
 
   // Fixed-alpha overlay
   overlay:       { lightness: 0, opacity: 0.5 },
