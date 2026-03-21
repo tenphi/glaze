@@ -47,7 +47,7 @@ const OKLab_to_linear_sRGB_coefficients: [
   ],
   [
     [1.8144407988010998, -1.194452667805235],
-    [0.73956515, -0.45954404, 0.08285427, 0.12541073, -0.14503204],
+    [0.73956515, -0.45954404, 0.08285427, 0.1254107, 0.14503204],
   ],
   [
     [0.13110757611180954, 1.813339709266608],
@@ -306,10 +306,9 @@ const getCs = (
 // ============================================================================
 
 /**
- * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to linear sRGB.
- * Channels may exceed [0, 1] near gamut boundaries — caller must clamp if needed.
+ * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to OKLab [L, a, b].
  */
-export function okhslToLinearSrgb(
+export function okhslToOklab(
   h: number,
   s: number,
   l: number,
@@ -349,7 +348,19 @@ export function okhslToLinearSrgb(
     b = c * b_;
   }
 
-  return OKLabToLinearSRGB([L, a, b]);
+  return [L, a, b];
+}
+
+/**
+ * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to linear sRGB.
+ * Channels may exceed [0, 1] near gamut boundaries — caller must clamp if needed.
+ */
+export function okhslToLinearSrgb(
+  h: number,
+  s: number,
+  l: number,
+): [number, number, number] {
+  return OKLabToLinearSRGB(okhslToOklab(h, s, l));
 }
 
 /**
@@ -404,49 +415,23 @@ export function okhslToSrgb(
 }
 
 /**
- * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to OKLab [L, a, b].
+ * Compute WCAG 2 relative luminance from linear sRGB, matching the browser
+ * rendering pipeline: gamma-encode, clamp to sRGB gamut [0,1], then linearize.
+ * This avoids over/under-estimating luminance for out-of-gamut OKHSL colors.
  */
-export function okhslToOklab(
-  h: number,
-  s: number,
-  l: number,
-): [number, number, number] {
-  const L = toeInv(l);
-  let a = 0;
-  let b = 0;
-
-  const hNorm = constrainAngle(h) / 360.0;
-
-  if (L !== 0.0 && L !== 1.0 && s !== 0) {
-    const a_ = Math.cos(TAU * hNorm);
-    const b_ = Math.sin(TAU * hNorm);
-
-    const cusp = findCuspOKLCH(a_, b_);
-    const Cs = getCs(L, a_, b_, cusp);
-    const [c0, cMid, cMax] = Cs;
-
-    const mid = 0.8;
-    const midInv = 1.25;
-    let t: number, k0: number, k1: number, k2: number;
-
-    if (s < mid) {
-      t = midInv * s;
-      k0 = 0.0;
-      k1 = mid * c0;
-      k2 = 1.0 - k1 / cMid;
-    } else {
-      t = 5 * (s - 0.8);
-      k0 = cMid;
-      k1 = (0.2 * cMid ** 2 * 1.25 ** 2) / c0;
-      k2 = 1.0 - k1 / (cMax - cMid);
-    }
-
-    const c = k0 + (t * k1) / (1.0 - k2 * t);
-    a = c * a_;
-    b = c * b_;
-  }
-
-  return [L, a, b];
+export function gamutClampedLuminance(
+  linearRgb: [number, number, number],
+): number {
+  const r = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))),
+  );
+  const g = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))),
+  );
+  const b = sRGBGammaToLinear(
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
+  );
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 // ============================================================================

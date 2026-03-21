@@ -62,6 +62,7 @@ export {
   parseHex,
   relativeLuminanceFromLinearRgb,
   contrastRatioFromLuminance,
+  gamutClampedLuminance,
   formatOkhsl,
   formatRgb,
   formatHsl,

@@ -5,6 +5,7 @@ import {
 import {
   okhslToLinearSrgb,
   okhslToSrgb,
+  srgbToOkhsl,
   sRGBGammaToLinear,
   relativeLuminanceFromLinearRgb,
   contrastRatioFromLuminance,
@@ -248,6 +249,40 @@ describe('contrast-solver', () => {
       const cr2 = contrastRatioFromLuminance(yCandidate, yBase);
 
       expect(cr2).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+
+  describe('OKHSL round-trip accuracy', () => {
+    it('round-trips green-hue colors accurately (k4 coefficient regression)', () => {
+      const testCases = [
+        { h: 120, s: 0.8, l: 0.5 },
+        { h: 140, s: 0.9, l: 0.4 },
+        { h: 100, s: 0.7, l: 0.6 },
+        { h: 160, s: 0.95, l: 0.3 },
+        { h: 80, s: 0.85, l: 0.7 },
+      ];
+
+      for (const { h, s, l } of testCases) {
+        const [r, g, b] = okhslToSrgb(h, s, l);
+        const [h2, s2, l2] = srgbToOkhsl([r, g, b]);
+
+        expect(h2).toBeCloseTo(h, 0);
+        expect(s2).toBeCloseTo(s, 2);
+        expect(l2).toBeCloseTo(l, 2);
+      }
+    });
+
+    it('produces valid sRGB for saturated green hues', () => {
+      for (let h = 80; h <= 170; h += 10) {
+        const [r, g, b] = okhslToSrgb(h, 1.0, 0.5);
+
+        expect(r).toBeGreaterThanOrEqual(0);
+        expect(r).toBeLessThanOrEqual(1);
+        expect(g).toBeGreaterThanOrEqual(0);
+        expect(g).toBeLessThanOrEqual(1);
+        expect(b).toBeGreaterThanOrEqual(0);
+        expect(b).toBeLessThanOrEqual(1);
+      }
     });
   });
 });
