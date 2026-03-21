@@ -1,5 +1,23 @@
 # @tenphi/glaze
 
+## 0.6.0
+
+### Minor Changes
+
+- [#25](https://github.com/tenphi/glaze/pull/25) [`7462021`](https://github.com/tenphi/glaze/commit/7462021ffa912c72aa4668d279d7ce77119a696d) Thanks [@tenphi](https://github.com/tenphi)! - Add mix color type for blending two colors with optional contrast solving
+  - New `MixColorDef` with `type: 'mix'` — blend two referenced colors via `base` and `target`
+  - Opaque blend: interpolates in OKHSL or sRGB space, producing a solid color
+  - Transparent blend: outputs the target color with controlled opacity (alpha = value/100)
+  - `space` option: `'okhsl'` (default, perceptually uniform) or `'srgb'` (matches browser compositing)
+  - `contrast` option: adjusts mix ratio or opacity to meet a WCAG contrast floor against the base
+  - Achromatic hue handling: when mixing with unsaturated colors (e.g. white/black), the hue is taken from the saturated color
+  - `value` and `contrast` support `[normal, highContrast]` pairs
+  - Mix colors can reference other mix colors (chaining) but not shadow colors
+
+### Patch Changes
+
+- [#27](https://github.com/tenphi/glaze/pull/27) [`175fc81`](https://github.com/tenphi/glaze/commit/175fc81f9c4e39e15a03f4c887829945ec56d1a0) Thanks [@tenphi](https://github.com/tenphi)! - Fix green-channel k4 sign error in OKHSL gamut mapping, deduplicate internal color math, add round-trip regression tests.
+
 ## 0.5.8
 
 ### Patch Changes
