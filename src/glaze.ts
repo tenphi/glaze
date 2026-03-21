@@ -8,7 +8,7 @@
 import {
   okhslToLinearSrgb,
   sRGBLinearToGamma,
-  sRGBGammaToLinear,
+  gamutClampedLuminance,
   formatOkhsl,
   formatRgb,
   formatHsl,
@@ -631,19 +631,6 @@ function resolveShadowForScheme(
 
 function variantToLinearRgb(v: ResolvedColorVariant): LinearRgb {
   return okhslToLinearSrgb(v.h, v.s, v.l);
-}
-
-function gamutClampedLuminance(linearRgb: LinearRgb): number {
-  const r = sRGBGammaToLinear(
-    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))),
-  );
-  const g = sRGBGammaToLinear(
-    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))),
-  );
-  const b = sRGBGammaToLinear(
-    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
-  );
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 /**

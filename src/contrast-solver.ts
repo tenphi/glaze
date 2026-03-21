@@ -8,9 +8,8 @@
 
 import {
   okhslToLinearSrgb,
-  sRGBLinearToGamma,
-  sRGBGammaToLinear,
   contrastRatioFromLuminance,
+  gamutClampedLuminance,
 } from './okhsl-color-math';
 
 export type LinearRgb = [number, number, number];
@@ -80,24 +79,6 @@ export function resolveMinContrast(value: MinContrast): number {
 const CACHE_SIZE = 512;
 const luminanceCache = new Map<string, number>();
 const cacheOrder: string[] = [];
-
-/**
- * Compute WCAG 2 relative luminance from linear sRGB, matching the browser
- * rendering pipeline: gamma-encode, clamp to sRGB gamut [0,1], then linearize.
- * This avoids over/under-estimating luminance for out-of-gamut OKHSL colors.
- */
-function gamutClampedLuminance(linearRgb: [number, number, number]): number {
-  const r = sRGBGammaToLinear(
-    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))),
-  );
-  const g = sRGBGammaToLinear(
-    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))),
-  );
-  const b = sRGBGammaToLinear(
-    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
-  );
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
 
 function cachedLuminance(h: number, s: number, l: number): number {
   const lRounded = Math.round(l * 10000) / 10000;
