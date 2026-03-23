@@ -10,6 +10,7 @@ import {
   relativeLuminanceFromLinearRgb,
   contrastRatioFromLuminance,
 } from './okhsl-color-math';
+import { glaze } from './glaze';
 
 describe('contrast-solver', () => {
   describe('resolveMinContrast', () => {
@@ -249,6 +250,168 @@ describe('contrast-solver', () => {
       const cr2 = contrastRatioFromLuminance(yCandidate, yBase);
 
       expect(cr2).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+
+  describe('RGB output contrast robustness', () => {
+    function rgbOutputLuminance(h: number, s: number, l: number): number {
+      const [r, g, b] = okhslToSrgb(h, s, l);
+      const rq = parseFloat((r * 255).toFixed(2)) / 255;
+      const gq = parseFloat((g * 255).toFixed(2)) / 255;
+      const bq = parseFloat((b * 255).toFixed(2)) / 255;
+      return (
+        0.2126 * sRGBGammaToLinear(rq) +
+        0.7152 * sRGBGammaToLinear(gq) +
+        0.0722 * sRGBGammaToLinear(bq)
+      );
+    }
+
+    it('meets contrast targets after RGB formatting across all hues', () => {
+      const colorDefs = {
+        surface: { lightness: 100, saturation: 0.2 },
+        'surface-2': { lightness: 96, saturation: 0.25 },
+        'surface-3': { lightness: 92, saturation: 0.3 },
+        text: {
+          base: 'surface',
+          lightness: 0,
+          contrast: 'AAA' as const,
+          saturation: 0.08,
+        },
+        'text-2': {
+          base: 'surface-2',
+          lightness: 0,
+          contrast: 'AAA' as const,
+          saturation: 0.08,
+        },
+        'text-3': {
+          base: 'surface-3',
+          lightness: 0,
+          contrast: 'AAA' as const,
+          saturation: 0.08,
+        },
+        'text-soft': {
+          base: 'surface',
+          lightness: 25,
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 0.05,
+        },
+        'text-soft-2': {
+          base: 'surface-2',
+          lightness: 25,
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 0.05,
+        },
+        'text-soft-3': {
+          base: 'surface-3',
+          lightness: 25,
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 0.05,
+        },
+        'accent-text': {
+          base: 'surface',
+          lightness: 50,
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 0.9,
+        },
+        'accent-text-2': {
+          base: 'surface-2',
+          lightness: 50,
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 0.9,
+        },
+        'accent-text-3': {
+          base: 'surface-3',
+          lightness: 50,
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 0.9,
+        },
+        'accent-surface-text': { lightness: 100, mode: 'fixed' as const },
+        'accent-surface': {
+          base: 'accent-surface-text',
+          lightness: '-48',
+          contrast: ['AA', 7] as [string, number],
+          mode: 'fixed' as const,
+        },
+        'pop-surface': {
+          base: 'accent-surface-text',
+          lightness: '-48',
+          contrast: ['AA', 'AAA'] as [string, string],
+          mode: 'fixed' as const,
+          saturation: 100,
+        },
+        'pop-text': {
+          base: 'surface',
+          lightness: '+1',
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 100,
+        },
+        'pop-text-2': {
+          base: 'surface-2',
+          lightness: '+1',
+          contrast: ['AA', 'AAA'] as [string, string],
+          saturation: 100,
+        },
+      };
+
+      const pairsAA: [string, string][] = [
+        ['surface', 'accent-text'],
+        ['surface-2', 'accent-text-2'],
+        ['surface-3', 'accent-text-3'],
+        ['accent-surface-text', 'accent-surface'],
+        ['surface', 'pop-text'],
+        ['surface-2', 'pop-text-2'],
+        ['accent-surface-text', 'pop-surface'],
+        ['surface', 'text-soft'],
+        ['surface-2', 'text-soft-2'],
+        ['surface-3', 'text-soft-3'],
+      ];
+      const pairsAAA: [string, string][] = [
+        ['surface', 'text'],
+        ['surface-2', 'text-2'],
+        ['surface-3', 'text-3'],
+      ];
+
+      const hues = [272, 15, 155, 70, 210, 340, 125];
+      const failures: string[] = [];
+
+      for (const hue of hues) {
+        const theme = glaze(hue, 75);
+        theme.colors(colorDefs);
+        const resolved = theme.resolve();
+
+        for (const scheme of [
+          'light',
+          'dark',
+          'lightContrast',
+          'darkContrast',
+        ] as const) {
+          const isHC = scheme.includes('Contrast');
+
+          const check = (baseName: string, fgName: string, minCR: number) => {
+            const base = resolved.get(baseName)!;
+            const fg = resolved.get(fgName)!;
+            const bv = base[scheme];
+            const fv = fg[scheme];
+            const yB = rgbOutputLuminance(bv.h, bv.s, bv.l);
+            const yF = rgbOutputLuminance(fv.h, fv.s, fv.l);
+            const cr = contrastRatioFromLuminance(yB, yF);
+            if (cr < minCR) {
+              failures.push(
+                `hue=${hue} ${scheme}: ${baseName} vs ${fgName}: ${cr.toFixed(4)} < ${minCR}`,
+              );
+            }
+          };
+
+          for (const [b, f] of pairsAA) {
+            check(b, f, isHC ? 7 : 4.5);
+          }
+          for (const [b, f] of pairsAAA) {
+            check(b, f, 7);
+          }
+        }
+      }
+
+      expect(failures).toEqual([]);
     });
   });
 

@@ -1079,8 +1079,8 @@ describe('glaze', () => {
 
       const tokens = theme.tokens({ format: 'rgb' });
       const value = tokens.light.surface;
-      // Space syntax with rounded integers: rgb(R G B)
-      expect(value).toMatch(/^rgb\(\d+ \d+ \d+\)$/);
+      // Space syntax: rgb(R G B) with optional decimal places
+      expect(value).toMatch(/^rgb\([\d.]+ [\d.]+ [\d.]+\)$/);
     });
   });
 
