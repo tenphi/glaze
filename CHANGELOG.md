@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.6.1
+
+### Patch Changes
+
+- [#28](https://github.com/tenphi/glaze/pull/28) [`8085e0f`](https://github.com/tenphi/glaze/commit/8085e0f634acfa1e7f38ec17189115bfacc5a749) Thanks [@tenphi](https://github.com/tenphi)! - Increase contrast search overshoot to avoid floating-point rounding below WCAG threshold.
+
 ## 0.6.0
 
 ### Minor Changes
