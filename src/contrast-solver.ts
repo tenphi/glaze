@@ -259,7 +259,7 @@ export function findLightnessForContrast(
 
   const target = resolveMinContrast(contrastInput);
   // Overshoot slightly so floating-point rounding never lands at 4.4999…
-  const searchTarget = target + 0.01;
+  const searchTarget = target + 0.02;
   const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
@@ -460,7 +460,7 @@ export function findValueForMixContrast(
   } = options;
 
   const target = resolveMinContrast(contrastInput);
-  const searchTarget = target + 0.01;
+  const searchTarget = target + 0.02;
   const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = luminanceAtValue(preferredValue);
