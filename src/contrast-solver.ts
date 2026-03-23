@@ -258,8 +258,8 @@ export function findLightnessForContrast(
   } = options;
 
   const target = resolveMinContrast(contrastInput);
-  // Overshoot slightly so floating-point rounding never lands at 4.4999…
-  const searchTarget = target + 0.02;
+  // Overshoot scales with target: higher CRs are more sensitive to luminance errors
+  const searchTarget = target * 1.005;
   const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
@@ -460,7 +460,7 @@ export function findValueForMixContrast(
   } = options;
 
   const target = resolveMinContrast(contrastInput);
-  const searchTarget = target + 0.02;
+  const searchTarget = target * 1.005;
   const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = luminanceAtValue(preferredValue);
