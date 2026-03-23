@@ -387,11 +387,7 @@ describe('contrast-solver', () => {
         ] as const) {
           const isHC = scheme.includes('Contrast');
 
-          const check = (
-            baseName: string,
-            fgName: string,
-            minCR: number,
-          ) => {
+          const check = (baseName: string, fgName: string, minCR: number) => {
             const base = resolved.get(baseName)!;
             const fg = resolved.get(fgName)!;
             const bv = base[scheme];
