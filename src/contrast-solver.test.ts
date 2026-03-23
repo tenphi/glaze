@@ -253,12 +253,12 @@ describe('contrast-solver', () => {
     });
   });
 
-  describe('8-bit quantization robustness', () => {
-    function rgb8Luminance(h: number, s: number, l: number): number {
+  describe('RGB output contrast robustness', () => {
+    function rgbOutputLuminance(h: number, s: number, l: number): number {
       const [r, g, b] = okhslToSrgb(h, s, l);
-      const rq = Math.round(r * 255) / 255;
-      const gq = Math.round(g * 255) / 255;
-      const bq = Math.round(b * 255) / 255;
+      const rq = parseFloat((r * 255).toFixed(2)) / 255;
+      const gq = parseFloat((g * 255).toFixed(2)) / 255;
+      const bq = parseFloat((b * 255).toFixed(2)) / 255;
       return (
         0.2126 * sRGBGammaToLinear(rq) +
         0.7152 * sRGBGammaToLinear(gq) +
@@ -266,7 +266,7 @@ describe('contrast-solver', () => {
       );
     }
 
-    it('meets contrast targets after 8-bit RGB quantization across all hues', () => {
+    it('meets contrast targets after RGB formatting across all hues', () => {
       const colorDefs = {
         surface: { lightness: 100, saturation: 0.2 },
         'surface-2': { lightness: 96, saturation: 0.25 },
@@ -396,8 +396,8 @@ describe('contrast-solver', () => {
             const fg = resolved.get(fgName)!;
             const bv = base[scheme];
             const fv = fg[scheme];
-            const yB = rgb8Luminance(bv.h, bv.s, bv.l);
-            const yF = rgb8Luminance(fv.h, fv.s, fv.l);
+            const yB = rgbOutputLuminance(bv.h, bv.s, bv.l);
+            const yF = rgbOutputLuminance(fv.h, fv.s, fv.l);
             const cr = contrastRatioFromLuminance(yB, yF);
             if (cr < minCR) {
               failures.push(

@@ -548,12 +548,13 @@ export function formatOkhsl(h: number, s: number, l: number): string {
 }
 
 /**
- * Format OKHSL values as a CSS `rgb(R G B)` string with rounded integer values.
+ * Format OKHSL values as a CSS `rgb(R G B)` string.
+ * Uses 2 decimal places to avoid 8-bit quantization contrast loss.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
 export function formatRgb(h: number, s: number, l: number): string {
   const [r, g, b] = okhslToSrgb(h, s / 100, l / 100);
-  return `rgb(${Math.round(r * 255)} ${Math.round(g * 255)} ${Math.round(b * 255)})`;
+  return `rgb(${parseFloat((r * 255).toFixed(2))} ${parseFloat((g * 255).toFixed(2))} ${parseFloat((b * 255).toFixed(2))})`;
 }
 
 /**
