@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.6.2
+
+### Patch Changes
+
+- [#30](https://github.com/tenphi/glaze/pull/30) [`06be989`](https://github.com/tenphi/glaze/commit/06be98901039274446d0b4615ff76e80bea9e896) Thanks [@tenphi](https://github.com/tenphi)! - Use 1% proportional contrast overshoot to reliably meet WCAG targets after 8-bit RGB quantization.
+
 ## 0.6.1
 
 ### Patch Changes
