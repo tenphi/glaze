@@ -377,6 +377,17 @@ function mapSaturationDark(s: number, mode: AdaptationMode): number {
   return s * (1 - globalConfig.darkDesaturation);
 }
 
+function schemeLightnessRange(
+  isDark: boolean,
+  mode: AdaptationMode,
+): [number, number] {
+  if (mode === 'static') return [0, 1];
+  const [lo, hi] = isDark
+    ? globalConfig.darkLightness
+    : globalConfig.lightLightness;
+  return [lo / 100, hi / 100];
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -516,12 +527,19 @@ function resolveDependentColor(
       baseVariant.l,
     );
 
+    const lightnessRange = schemeLightnessRange(isDark, mode);
+
     const result = findLightnessForContrast({
       hue: effectiveHue,
       saturation: effectiveSat,
-      preferredLightness: preferredL / 100,
+      preferredLightness: clamp(
+        preferredL / 100,
+        lightnessRange[0],
+        lightnessRange[1],
+      ),
       baseLinearRgb,
       contrast: minCr,
+      lightnessRange,
     });
 
     return { l: result.lightness * 100, satFactor };
