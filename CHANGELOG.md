@@ -1,5 +1,15 @@
 # @tenphi/glaze
 
+## 0.7.0
+
+### Minor Changes
+
+- [#34](https://github.com/tenphi/glaze/pull/34) [`2278b4e`](https://github.com/tenphi/glaze/commit/2278b4e79e51d285c5afd83fdf5be423d28a7d75) Thanks [@tenphi](https://github.com/tenphi)! - Add `primary` option to palette exports (`tokens`, `tasty`, `css`) that duplicates one theme's tokens without prefix. Palette prefix now defaults to `true`.
+
+### Patch Changes
+
+- [#36](https://github.com/tenphi/glaze/pull/36) [`e9e6ef6`](https://github.com/tenphi/glaze/commit/e9e6ef6c210607da05cfb3ea763c493e225ade2c) Thanks [@tenphi](https://github.com/tenphi)! - Fix contrast solver undershooting WCAG targets when using OKLCH output format. Increase OKLCH hue precision to 2dp and widen solver overshoot margin.
+
 ## 0.6.3
 
 ### Patch Changes
