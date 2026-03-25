@@ -1,5 +1,13 @@
 # @tenphi/glaze
 
+## 0.6.3
+
+### Patch Changes
+
+- [`d148498`](https://github.com/tenphi/glaze/commit/d148498d820f63c759872327c554bd1746ebe520) Thanks [@tenphi](https://github.com/tenphi)! - Apply `lightLightness` mapping to dependent colors with absolute lightness, matching `darkLightness` behavior.
+
+- [#32](https://github.com/tenphi/glaze/pull/32) [`90bd23c`](https://github.com/tenphi/glaze/commit/90bd23c578f0e8df607b3ab33af6f496fd111c53) Thanks [@tenphi](https://github.com/tenphi)! - Propagate scheme lightness range to contrast solver for dependent colors, preventing pure black/white output when contrast-solving against extreme lightness values.
+
 ## 0.6.2
 
 ### Patch Changes
