@@ -162,7 +162,8 @@ describe('glaze', () => {
 
       const resolved = theme.resolve();
       const card = resolved.get('card')!;
-      expect(card.light.l).toBeCloseTo(0.46, 2);
+      // lightLightness [10, 100]: (46 * 90) / 100 + 10 = 51.4
+      expect(card.light.l).toBeCloseTo(0.514, 2);
     });
   });
 

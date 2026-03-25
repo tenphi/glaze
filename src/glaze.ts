@@ -495,7 +495,7 @@ function resolveDependentColor(
       if (isDark) {
         preferredL = mapLightnessDark(parsed.value, mode);
       } else {
-        preferredL = clamp(parsed.value, 0, 100);
+        preferredL = mapLightnessLight(parsed.value, mode);
       }
     }
   }
