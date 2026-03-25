@@ -618,7 +618,7 @@ Modes control how colors adapt across schemes:
 
 ### Lightness
 
-Root color lightness is mapped linearly within the configured `lightLightness` window:
+Absolute lightness values (both root colors and dependent colors with absolute lightness) are mapped linearly within the configured `lightLightness` window:
 
 ```ts
 const [lo, hi] = lightLightness; // default: [10, 100]
