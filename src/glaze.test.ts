@@ -165,6 +165,28 @@ describe('glaze', () => {
       // lightLightness [10, 100]: (46 * 90) / 100 + 10 = 51.4
       expect(card.light.l).toBeCloseTo(0.514, 2);
     });
+
+    it('clamps contrast-solved lightness to scheme range (no pure black)', () => {
+      glaze.configure({ lightLightness: [10, 100] });
+      const theme = glaze(210, 75);
+      theme.colors({
+        surface: { lightness: 100, saturation: 0.2 },
+        text: {
+          base: 'surface',
+          lightness: 0,
+          contrast: 'AAA',
+          saturation: 0.08,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const text = resolved.get('text')!;
+      // lightness should be clamped to the scheme minimum (10/100 = 0.1),
+      // not pure black (0)
+      expect(text.light.l).toBeGreaterThanOrEqual(0.1);
+      expect(text.light.l).toBeLessThanOrEqual(1);
+      glaze.resetConfig();
+    });
   });
 
   describe('relative lightness', () => {
