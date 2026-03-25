@@ -585,6 +585,125 @@ describe('glaze', () => {
       expect(json.danger).toBeDefined();
       expect(json.primary.surface.light).toMatch(/^okhsl\(/);
     });
+
+    it('defaults to prefix: true for palette tokens', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const tokens = palette.tokens();
+
+      expect(tokens.light['primary-surface']).toBeDefined();
+      expect(tokens.light['danger-surface']).toBeDefined();
+      expect(tokens.light['surface']).toBeUndefined();
+    });
+
+    it('defaults to prefix: true for palette tasty', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const tokens = palette.tasty();
+
+      expect(tokens['#primary-surface']).toBeDefined();
+      expect(tokens['#danger-surface']).toBeDefined();
+      expect(tokens['#surface']).toBeUndefined();
+    });
+
+    it('duplicates primary theme tokens without prefix (tokens)', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const tokens = palette.tokens({ primary: 'primary' });
+
+      expect(tokens.light['primary-surface']).toBeDefined();
+      expect(tokens.light['danger-surface']).toBeDefined();
+      expect(tokens.light['surface']).toBeDefined();
+      expect(tokens.light['surface']).toBe(tokens.light['primary-surface']);
+      expect(tokens.dark['surface']).toBe(tokens.dark['primary-surface']);
+    });
+
+    it('duplicates primary theme tokens without prefix (tasty)', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const tokens = palette.tasty({ primary: 'primary' });
+
+      expect(tokens['#primary-surface']).toBeDefined();
+      expect(tokens['#danger-surface']).toBeDefined();
+      expect(tokens['#surface']).toBeDefined();
+      expect(tokens['#surface']['']).toBe(tokens['#primary-surface']['']);
+    });
+
+    it('duplicates primary theme tokens without prefix (css)', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const danger = primary.extend({ hue: 23 });
+
+      const palette = glaze.palette({ primary, danger });
+      const css = palette.css({ primary: 'primary' });
+
+      expect(css.light).toMatch(/--primary-surface-color: rgb\(/);
+      expect(css.light).toMatch(/--danger-surface-color: rgb\(/);
+      expect(css.light).toMatch(/--surface-color: rgb\(/);
+    });
+
+    it('primary works with custom prefix map', () => {
+      const brand = glaze(280, 80);
+      brand.colors({ surface: { lightness: 97 } });
+
+      const accent = brand.extend({ hue: 23 });
+
+      const palette = glaze.palette({ brand, accent });
+      const tokens = palette.tokens({
+        prefix: { brand: 'b-', accent: 'a-' },
+        primary: 'brand',
+      });
+
+      expect(tokens.light['b-surface']).toBeDefined();
+      expect(tokens.light['a-surface']).toBeDefined();
+      expect(tokens.light['surface']).toBeDefined();
+      expect(tokens.light['surface']).toBe(tokens.light['b-surface']);
+    });
+
+    it('throws on invalid primary theme name', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const palette = glaze.palette({ primary });
+
+      expect(() => palette.tokens({ primary: 'nonexistent' })).toThrow(
+        /primary theme "nonexistent" not found/,
+      );
+      expect(() => palette.tasty({ primary: 'nonexistent' })).toThrow(
+        /primary theme "nonexistent" not found/,
+      );
+      expect(() => palette.css({ primary: 'nonexistent' })).toThrow(
+        /primary theme "nonexistent" not found/,
+      );
+    });
+
+    it('explicit prefix: false disables prefix for palette tokens', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const palette = glaze.palette({ primary });
+      const tokens = palette.tokens({ prefix: false });
+
+      expect(tokens.light['surface']).toBeDefined();
+      expect(tokens.light['primary-surface']).toBeUndefined();
+    });
   });
 
   describe('configure', () => {
@@ -1305,16 +1424,25 @@ describe('glaze', () => {
       expect(css.light).toMatch(/--d-surface-color: rgb\(/);
     });
 
-    it('works with palette without prefix', () => {
+    it('works with palette without prefix (explicit false)', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { lightness: 97 } });
+
+      const palette = glaze.palette({ primary });
+      const css = palette.css({ prefix: false });
+
+      expect(css.light).toMatch(/--surface-color: rgb\(/);
+      expect(css.light).not.toMatch(/--primary-/);
+    });
+
+    it('defaults to prefix: true for palette css', () => {
       const primary = glaze(280, 80);
       primary.colors({ surface: { lightness: 97 } });
 
       const palette = glaze.palette({ primary });
       const css = palette.css();
 
-      expect(css.light).toMatch(/--surface-color: rgb\(/);
-      // No prefix
-      expect(css.light).not.toMatch(/--primary-/);
+      expect(css.light).toMatch(/--primary-surface-color: rgb\(/);
     });
   });
 

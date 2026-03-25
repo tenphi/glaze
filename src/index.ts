@@ -37,6 +37,7 @@ export type {
   GlazeColorToken,
   GlazeShadowInput,
   GlazePalette,
+  GlazePaletteExportOptions,
 } from './types';
 
 // Re-export contrast solver utilities for advanced use

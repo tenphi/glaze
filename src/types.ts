@@ -391,30 +391,54 @@ export interface GlazeCssResult {
   darkContrast: string;
 }
 
+/** Options shared by palette `tokens()`, `tasty()`, and `css()` exports. */
+export interface GlazePaletteExportOptions {
+  /**
+   * Prefix mode. `true` uses `"<themeName>-"`, or provide a custom map.
+   * Defaults to `true` for palette export methods.
+   * Set to `false` explicitly to disable prefixing (last-write-wins on collisions).
+   */
+  prefix?: boolean | Record<string, string>;
+  /**
+   * Name of the primary theme. The primary theme's tokens are duplicated
+   * without prefix, providing convenient short aliases alongside the
+   * prefixed versions.
+   *
+   * @example
+   * ```ts
+   * palette.tokens({ primary: 'brand' })
+   * // → { light: { 'brand-surface': '...', 'surface': '...', 'accent-surface': '...' } }
+   * ```
+   */
+  primary?: string;
+}
+
 export interface GlazePalette {
   /**
    * Export all themes as a flat token map grouped by scheme variant.
+   * Prefix defaults to `true` — all tokens are prefixed with the theme name.
+   * Use `primary` to duplicate one theme's tokens without prefix.
    *
    * ```ts
-   * palette.tokens({ prefix: true })
-   * // → { light: { 'primary-surface': 'okhsl(...)' }, dark: { 'primary-surface': 'okhsl(...)' } }
+   * palette.tokens({ primary: 'brand' })
+   * // → { light: { 'brand-surface': '...', 'surface': '...', 'accent-surface': '...' } }
    * ```
    */
   tokens(
-    options?: GlazeJsonOptions & {
-      prefix?: boolean | Record<string, string>;
-    },
+    options?: GlazeJsonOptions & GlazePaletteExportOptions,
   ): Record<string, Record<string, string>>;
 
   /**
    * Export all themes as tasty style-to-state bindings.
    * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
-   * Spread into component styles or register as a recipe via `configure({ recipes })`.
+   * Prefix defaults to `true`. Use `primary` to duplicate one theme without prefix.
    * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
    */
-  tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
+  tasty(
+    options?: GlazeTokenOptions & { primary?: string },
+  ): Record<string, Record<string, string>>;
 
-  /** Export all themes as plain JSON. */
+  /** Export all themes as plain JSON grouped by theme name. */
   json(
     options?: GlazeJsonOptions & {
       prefix?: boolean | Record<string, string>;
@@ -422,9 +446,5 @@ export interface GlazePalette {
   ): Record<string, Record<string, Record<string, string>>>;
 
   /** Export all themes as CSS custom property declarations. */
-  css(
-    options?: GlazeCssOptions & {
-      prefix?: boolean | Record<string, string>;
-    },
-  ): GlazeCssResult;
+  css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult;
 }
