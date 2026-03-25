@@ -44,6 +44,7 @@ import type {
   GlazeJsonOptions,
   GlazeCssOptions,
   GlazeCssResult,
+  GlazePaletteExportOptions,
   GlazeColorInput,
   GlazeColorToken,
   GlazeShadowInput,
@@ -1162,29 +1163,42 @@ type PaletteInput = Record<string, GlazeTheme>;
 function resolvePrefix(
   options: { prefix?: boolean | Record<string, string> } | undefined,
   themeName: string,
+  defaultPrefix = false,
 ): string {
-  if (options?.prefix === true) {
+  const prefix = options?.prefix ?? defaultPrefix;
+  if (prefix === true) {
     return `${themeName}-`;
   }
-  if (typeof options?.prefix === 'object' && options.prefix !== null) {
-    return options.prefix[themeName] ?? `${themeName}-`;
+  if (typeof prefix === 'object' && prefix !== null) {
+    return prefix[themeName] ?? `${themeName}-`;
   }
   return '';
+}
+
+function validatePrimaryTheme(
+  primary: string | undefined,
+  themes: PaletteInput,
+): void {
+  if (primary !== undefined && !(primary in themes)) {
+    const available = Object.keys(themes).join(', ');
+    throw new Error(
+      `glaze: primary theme "${primary}" not found in palette. Available: ${available}.`,
+    );
+  }
 }
 
 function createPalette(themes: PaletteInput) {
   return {
     tokens(
-      options?: GlazeJsonOptions & {
-        prefix?: boolean | Record<string, string>;
-      },
+      options?: GlazeJsonOptions & GlazePaletteExportOptions,
     ): Record<string, Record<string, string>> {
+      validatePrimaryTheme(options?.primary, themes);
       const modes = resolveModes(options?.modes);
       const allTokens: Record<string, Record<string, string>> = {};
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
-        const prefix = resolvePrefix(options, themeName);
+        const prefix = resolvePrefix(options, themeName, true);
         const tokens = buildFlatTokenMap(
           resolved,
           prefix,
@@ -1198,12 +1212,27 @@ function createPalette(themes: PaletteInput) {
           }
           Object.assign(allTokens[variant], tokens[variant]);
         }
+
+        if (themeName === options?.primary) {
+          const unprefixed = buildFlatTokenMap(
+            resolved,
+            '',
+            modes,
+            options?.format,
+          );
+          for (const variant of Object.keys(unprefixed)) {
+            Object.assign(allTokens[variant]!, unprefixed[variant]);
+          }
+        }
       }
 
       return allTokens;
     },
 
-    tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>> {
+    tasty(
+      options?: GlazeTokenOptions & { primary?: string },
+    ): Record<string, Record<string, string>> {
+      validatePrimaryTheme(options?.primary, themes);
       const states = {
         dark: options?.states?.dark ?? globalConfig.states.dark,
         highContrast:
@@ -1215,7 +1244,7 @@ function createPalette(themes: PaletteInput) {
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
-        const prefix = resolvePrefix(options, themeName);
+        const prefix = resolvePrefix(options, themeName, true);
         const tokens = buildTokenMap(
           resolved,
           prefix,
@@ -1224,6 +1253,17 @@ function createPalette(themes: PaletteInput) {
           options?.format,
         );
         Object.assign(allTokens, tokens);
+
+        if (themeName === options?.primary) {
+          const unprefixed = buildTokenMap(
+            resolved,
+            '',
+            states,
+            modes,
+            options?.format,
+          );
+          Object.assign(allTokens, unprefixed);
+        }
       }
 
       return allTokens;
@@ -1246,11 +1286,8 @@ function createPalette(themes: PaletteInput) {
       return result;
     },
 
-    css(
-      options?: GlazeCssOptions & {
-        prefix?: boolean | Record<string, string>;
-      },
-    ): GlazeCssResult {
+    css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult {
+      validatePrimaryTheme(options?.primary, themes);
       const suffix = options?.suffix ?? '-color';
       const format = options?.format ?? 'rgb';
 
@@ -1263,7 +1300,7 @@ function createPalette(themes: PaletteInput) {
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
-        const prefix = resolvePrefix(options, themeName);
+        const prefix = resolvePrefix(options, themeName, true);
 
         const css = buildCssMap(resolved, prefix, suffix, format);
 
@@ -1275,6 +1312,20 @@ function createPalette(themes: PaletteInput) {
         ] as const) {
           if (css[key]) {
             allLines[key].push(css[key]);
+          }
+        }
+
+        if (themeName === options?.primary) {
+          const unprefixed = buildCssMap(resolved, '', suffix, format);
+          for (const key of [
+            'light',
+            'dark',
+            'lightContrast',
+            'darkContrast',
+          ] as const) {
+            if (unprefixed[key]) {
+              allLines[key].push(unprefixed[key]);
+            }
           }
         }
       }
