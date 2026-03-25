@@ -597,5 +597,5 @@ export function formatOklch(h: number, s: number, l: number): string {
   let hh = Math.atan2(b, a) * (180 / Math.PI);
   hh = constrainAngle(hh);
 
-  return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 1)})`;
+  return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 2)})`;
 }

@@ -258,8 +258,8 @@ export function findLightnessForContrast(
   } = options;
 
   const target = resolveMinContrast(contrastInput);
-  // Small overshoot absorbs floating-point rounding in the OKHSL pipeline
-  const searchTarget = target * 1.005;
+  // Overshoot absorbs rounding in the OKHSL pipeline and OKLCH formatting
+  const searchTarget = target * 1.01;
   const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
@@ -460,7 +460,7 @@ export function findValueForMixContrast(
   } = options;
 
   const target = resolveMinContrast(contrastInput);
-  const searchTarget = target * 1.005;
+  const searchTarget = target * 1.01;
   const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = luminanceAtValue(preferredValue);
