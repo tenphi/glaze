@@ -1163,7 +1163,7 @@ type PaletteInput = Record<string, GlazeTheme>;
 function resolvePrefix(
   options: { prefix?: boolean | Record<string, string> } | undefined,
   themeName: string,
-  defaultPrefix: boolean = false,
+  defaultPrefix = false,
 ): string {
   const prefix = options?.prefix ?? defaultPrefix;
   if (prefix === true) {
