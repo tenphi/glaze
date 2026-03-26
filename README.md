@@ -194,6 +194,8 @@ A single value applies to both modes. All control is local and explicit.
 'muted':  { base: 'surface', lightness: ['-35', '-50'], contrast: ['AA-large', 'AA'] }
 ```
 
+**Full lightness spectrum in HC mode:** In high-contrast variants, the `lightLightness` and `darkLightness` window constraints are bypassed entirely. Colors can reach the full 0–100 lightness range, maximizing perceivable contrast. Normal (non-HC) variants continue to use the configured windows.
+
 ## Theme Color Management
 
 ### Adding Colors
@@ -625,7 +627,7 @@ const [lo, hi] = lightLightness; // default: [10, 100]
 const mappedL = (lightness * (hi - lo)) / 100 + lo;
 ```
 
-Both `auto` and `fixed` modes use the same linear formula. `static` mode bypasses the mapping entirely.
+Both `auto` and `fixed` modes use the same linear formula. `static` mode and high-contrast variants bypass the mapping entirely (identity: `mappedL = l`).
 
 | Color | Raw L | Mapped L (default [10, 100]) |
 |---|---|---|
@@ -655,6 +657,8 @@ const mappedL = (lightness * (hi - lo)) / 100 + lo;
 | surface (L=97) | 97 | 17.4 | 92.6 |
 | accent-fill (L=52) | 52 | 53.4 | 56.6 |
 | accent-text (L=100) | 100 | 15 | 95 |
+
+In high-contrast variants, the `darkLightness` window is bypassed. Auto uses pure inversion (`100 - L`), fixed uses identity (`L`). This allows HC colors to reach the full 0–100 range.
 
 ### Saturation
 
@@ -904,8 +908,8 @@ Resolution priority (highest first):
 
 ```ts
 glaze.configure({
-  lightLightness: [10, 100],   // Light scheme lightness window [lo, hi]
-  darkLightness: [15, 95],     // Dark scheme lightness window [lo, hi]
+  lightLightness: [10, 100],   // Light scheme lightness window [lo, hi] (bypassed in HC)
+  darkLightness: [15, 95],     // Dark scheme lightness window [lo, hi] (bypassed in HC)
   darkDesaturation: 0.1,       // Saturation reduction in dark scheme (0–1)
   states: {
     dark: '@dark',             // State alias for dark mode tokens

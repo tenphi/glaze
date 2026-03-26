@@ -350,8 +350,12 @@ function topoSort(defs: ColorMap): string[] {
 // Light scheme mapping
 // ============================================================================
 
-function mapLightnessLight(l: number, mode: AdaptationMode): number {
-  if (mode === 'static') return l;
+function mapLightnessLight(
+  l: number,
+  mode: AdaptationMode,
+  isHighContrast: boolean,
+): number {
+  if (mode === 'static' || isHighContrast) return l;
   const [lo, hi] = globalConfig.lightLightness;
   return (l * (hi - lo)) / 100 + lo;
 }
@@ -360,8 +364,16 @@ function mapLightnessLight(l: number, mode: AdaptationMode): number {
 // Dark scheme mapping
 // ============================================================================
 
-function mapLightnessDark(l: number, mode: AdaptationMode): number {
+function mapLightnessDark(
+  l: number,
+  mode: AdaptationMode,
+  isHighContrast: boolean,
+): number {
   if (mode === 'static') return l;
+
+  if (isHighContrast) {
+    return mode === 'fixed' ? l : 100 - l;
+  }
 
   const [lo, hi] = globalConfig.darkLightness;
 
@@ -381,8 +393,9 @@ function mapSaturationDark(s: number, mode: AdaptationMode): number {
 function schemeLightnessRange(
   isDark: boolean,
   mode: AdaptationMode,
+  isHighContrast: boolean,
 ): [number, number] {
-  if (mode === 'static') return [0, 1];
+  if (mode === 'static' || isHighContrast) return [0, 1];
   const [lo, hi] = isDark
     ? globalConfig.darkLightness
     : globalConfig.lightLightness;
@@ -505,9 +518,9 @@ function resolveDependentColor(
       preferredL = clamp(baseL + delta, 0, 100);
     } else {
       if (isDark) {
-        preferredL = mapLightnessDark(parsed.value, mode);
+        preferredL = mapLightnessDark(parsed.value, mode, isHighContrast);
       } else {
-        preferredL = mapLightnessLight(parsed.value, mode);
+        preferredL = mapLightnessLight(parsed.value, mode, isHighContrast);
       }
     }
   }
@@ -528,7 +541,7 @@ function resolveDependentColor(
       baseVariant.l,
     );
 
-    const lightnessRange = schemeLightnessRange(isDark, mode);
+    const lightnessRange = schemeLightnessRange(isDark, mode, isHighContrast);
 
     const result = findLightnessForContrast({
       hue: effectiveHue,
@@ -604,13 +617,13 @@ function resolveColorForScheme(
   let finalSat: number;
 
   if (isDark && isRoot) {
-    finalL = mapLightnessDark(lightL, mode);
+    finalL = mapLightnessDark(lightL, mode, isHighContrast);
     finalSat = mapSaturationDark((satFactor * ctx.saturation) / 100, mode);
   } else if (isDark && !isRoot) {
     finalL = lightL;
     finalSat = mapSaturationDark((satFactor * ctx.saturation) / 100, mode);
   } else if (isRoot) {
-    finalL = mapLightnessLight(lightL, mode);
+    finalL = mapLightnessLight(lightL, mode, isHighContrast);
     finalSat = (satFactor * ctx.saturation) / 100;
   } else {
     finalL = lightL;
