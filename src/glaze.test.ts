@@ -364,6 +364,92 @@ describe('glaze', () => {
       expect(border.light.l).toBeCloseTo(0.9, 2);
       expect(border.lightContrast.l).toBeCloseTo(0.77, 2);
     });
+
+    it('bypasses lightLightness window in HC light scheme', () => {
+      glaze.configure({ lightLightness: [10, 100] });
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+        dark: { lightness: 0 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+      const dark = resolved.get('dark')!;
+
+      // Normal light: mapped — L=97 → 97*0.9+10 = 97.3
+      expect(surface.light.l).toBeCloseTo(0.973, 2);
+      // HC light: bypassed — L=97 stays 97
+      expect(surface.lightContrast.l).toBeCloseTo(0.97, 2);
+
+      // Normal light: L=0 → 0*0.9+10 = 10
+      expect(dark.light.l).toBeCloseTo(0.1, 2);
+      // HC light: L=0 stays 0
+      expect(dark.lightContrast.l).toBeCloseTo(0.0, 2);
+
+      glaze.resetConfig();
+    });
+
+    it('bypasses darkLightness window in HC dark scheme', () => {
+      glaze.configure({ darkLightness: [15, 95] });
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // Normal dark auto: (100-97)*0.8+15 = 17.4
+      expect(surface.dark.l).toBeCloseTo(0.174, 2);
+      // HC dark auto: 100-97 = 3 (full inversion, no window)
+      expect(surface.darkContrast.l).toBeCloseTo(0.03, 2);
+
+      glaze.resetConfig();
+    });
+
+    it('bypasses darkLightness window in HC dark fixed mode', () => {
+      glaze.configure({ darkLightness: [15, 95] });
+      const theme = glaze(0, 0);
+      theme.colors({
+        accent: { lightness: 52, mode: 'fixed' },
+      });
+
+      const resolved = theme.resolve();
+      const accent = resolved.get('accent')!;
+
+      // Normal dark fixed: 52*0.8+15 = 56.6
+      expect(accent.dark.l).toBeCloseTo(0.566, 2);
+      // HC dark fixed: 52 stays 52 (identity)
+      expect(accent.darkContrast.l).toBeCloseTo(0.52, 2);
+
+      glaze.resetConfig();
+    });
+
+    it('uses full [0, 1] search range for HC contrast solving', () => {
+      glaze.configure({
+        lightLightness: [10, 100],
+        darkLightness: [15, 95],
+      });
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+        text: {
+          base: 'surface',
+          lightness: ['-52', '-90'],
+          contrast: ['AAA', 'AAA'],
+        },
+      });
+
+      const resolved = theme.resolve();
+      const text = resolved.get('text')!;
+
+      // HC light: text can reach lower lightness than normal
+      // (solver can search all the way to 0 instead of 0.10)
+      expect(text.lightContrast.l).toBeLessThanOrEqual(text.light.l);
+
+      glaze.resetConfig();
+    });
   });
 
   describe('extend', () => {
