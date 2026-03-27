@@ -661,7 +661,7 @@ const mappedL = (lightness * (hi - lo)) / 100 + lo;
 | accent-fill (L=52) | 52 | 66.9 | 53.4 | 56.6 |
 | accent-text (L=100) | 100 | 15 | 15 | 95 |
 
-In high-contrast variants, the `darkLightness` window is bypassed. Auto uses the Möbius curve over the full [0, 100] range with a squared beta (`darkCurve²`) for stronger expansion. Fixed uses identity (`L`). This allows HC colors to reach the full 0–100 range.
+In high-contrast variants, the `darkLightness` window is bypassed. Auto uses the same Möbius curve over the full [0, 100] range. Fixed uses identity (`L`). This allows HC colors to reach the full 0–100 range.
 
 ### Saturation
 

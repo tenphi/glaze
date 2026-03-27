@@ -243,10 +243,9 @@ describe('glaze', () => {
       const s2 = resolved.get('surface-2')!;
 
       // HC light variant: base L=100, delta=-2 → absoluteLightL=98
-      // HC dark: t = 0.02, hcBeta = 0.25
-      // Möbius(0.02, 0.25) = 0.02 / (0.02 + 0.25*0.98) = 0.02/0.265 ≈ 0.07547
-      // darkL = 100 * 0.07547 ≈ 7.55
-      expect(s2.darkContrast.l).toBeCloseTo(0.0755, 2);
+      // HC dark: t = 0.02, Möbius(0.02, 0.5) = 0.02/0.51 ≈ 0.03922
+      // darkL = 100 * 0.03922 ≈ 3.92
+      expect(s2.darkContrast.l).toBeCloseTo(0.0392, 2);
     });
 
     it('cascading relative deltas expand gaps via darkCurve', () => {
@@ -262,14 +261,14 @@ describe('glaze', () => {
       const s2 = resolved.get('surface-2')!;
       const s3 = resolved.get('surface-3')!;
 
-      // HC dark (Möbius hcBeta=0.25): surface=0, surface-2≈7.55, surface-3≈14.29
+      // HC dark (Möbius beta=0.5): surface=0, surface-2≈3.92, surface-3≈7.69
       expect(s.darkContrast.l).toBeCloseTo(0.0, 2);
-      expect(s2.darkContrast.l).toBeCloseTo(0.0755, 2);
-      expect(s3.darkContrast.l).toBeCloseTo(0.1429, 2);
+      expect(s2.darkContrast.l).toBeCloseTo(0.0392, 2);
+      expect(s3.darkContrast.l).toBeCloseTo(0.0769, 2);
 
-      // Each gap is visible (> 5 units)
-      expect(s2.darkContrast.l - s.darkContrast.l).toBeGreaterThan(0.05);
-      expect(s3.darkContrast.l - s2.darkContrast.l).toBeGreaterThan(0.05);
+      // Each gap is visible (> 3 units)
+      expect(s2.darkContrast.l - s.darkContrast.l).toBeGreaterThan(0.03);
+      expect(s3.darkContrast.l - s2.darkContrast.l).toBeGreaterThan(0.03);
     });
   });
 
@@ -468,10 +467,9 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const surface = resolved.get('surface')!;
 
-      // HC dark auto: t = 0.03, hcBeta = 0.25
-      // f(t) = 0.03 / (0.03 + 0.25*0.97) = 0.03/0.2725 ≈ 0.11009
-      // l_d = 100 * 0.11009 ≈ 11.01
-      expect(surface.darkContrast.l).toBeCloseTo(0.1101, 2);
+      // HC dark auto: t = 0.03, Möbius(0.03, 0.5) = 0.03/0.515 ≈ 0.05825
+      // l_d = 100 * 0.05825 ≈ 5.83
+      expect(surface.darkContrast.l).toBeCloseTo(0.0583, 2);
     });
   });
 
@@ -557,8 +555,8 @@ describe('glaze', () => {
 
       // Normal dark auto (Möbius beta=0.5): t=0.03, f(t)≈0.05825, 15+80*0.05825≈19.66
       expect(surface.dark.l).toBeCloseTo(0.1966, 2);
-      // HC dark auto (Möbius hcBeta=0.25): t=0.03, f(t)≈0.11009, 100*0.11009≈11.01
-      expect(surface.darkContrast.l).toBeCloseTo(0.1101, 2);
+      // HC dark auto (Möbius beta=0.5): t=0.03, f(t)≈0.05825, 100*0.05825≈5.83
+      expect(surface.darkContrast.l).toBeCloseTo(0.0583, 2);
 
       glaze.resetConfig();
     });

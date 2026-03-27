@@ -382,7 +382,7 @@ function mapLightnessDark(
   if (isHighContrast) {
     if (mode === 'fixed') return l;
     const t = (100 - l) / 100;
-    return 100 * mobiusCurve(t, beta * beta);
+    return 100 * mobiusCurve(t, beta);
   }
 
   const [darkLo, darkHi] = globalConfig.darkLightness;
@@ -402,7 +402,7 @@ function lightMappedToDark(lightL: number, isHighContrast: boolean): number {
 
   if (isHighContrast) {
     const t = (100 - lightL) / 100;
-    return 100 * mobiusCurve(t, beta * beta);
+    return 100 * mobiusCurve(t, beta);
   }
   const [lightLo, lightHi] = globalConfig.lightLightness;
   const [darkLo, darkHi] = globalConfig.darkLightness;
