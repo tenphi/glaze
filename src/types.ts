@@ -203,6 +203,12 @@ export interface GlazeConfig {
   darkLightness?: [number, number];
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
   darkDesaturation?: number;
+  /**
+   * Power-curve exponent for dark auto-inversion (0–1).
+   * Lower values expand subtle near-white distinctions in dark mode.
+   * Set to 1 for linear (legacy) behavior. Default: 0.5.
+   */
+  darkCurve?: number;
   /** State alias names for token export. */
   states?: {
     dark?: string;
@@ -218,6 +224,7 @@ export interface GlazeConfigResolved {
   lightLightness: [number, number];
   darkLightness: [number, number];
   darkDesaturation: number;
+  darkCurve: number;
   states: {
     dark: string;
     highContrast: string;

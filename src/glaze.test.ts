@@ -215,6 +215,61 @@ describe('glaze', () => {
       // 52 + 48 = 100
       expect(text.light.l).toBeCloseTo(1.0, 2);
     });
+
+    it('relative delta applies darkCurve in normal dark auto mode', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 100 },
+        'surface-2': { base: 'surface', lightness: '-2' },
+      });
+
+      const resolved = theme.resolve();
+      const s2 = resolved.get('surface-2')!;
+
+      // lightMappedToDark(98, false): clamped=98, t = (100-98)/90 ≈ 0.02222
+      // Möbius(t, 0.5) = 0.02222 / (0.02222 + 0.5*0.97778) ≈ 0.04348
+      // darkL = 15 + 80*0.04348 ≈ 18.48
+      expect(s2.dark.l).toBeCloseTo(0.1848, 2);
+    });
+
+    it('relative delta applies darkCurve in HC dark auto mode', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 100 },
+        'surface-2': { base: 'surface', lightness: '-2' },
+      });
+
+      const resolved = theme.resolve();
+      const s2 = resolved.get('surface-2')!;
+
+      // HC light variant: base L=100, delta=-2 → absoluteLightL=98
+      // HC dark: t = 0.02, Möbius(0.02, 0.5) = 0.02/0.51 ≈ 0.03922
+      // darkL = 100 * 0.03922 ≈ 3.92
+      expect(s2.darkContrast.l).toBeCloseTo(0.0392, 2);
+    });
+
+    it('cascading relative deltas expand gaps via darkCurve', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 100 },
+        'surface-2': { base: 'surface', lightness: '-2' },
+        'surface-3': { base: 'surface-2', lightness: '-2' },
+      });
+
+      const resolved = theme.resolve();
+      const s = resolved.get('surface')!;
+      const s2 = resolved.get('surface-2')!;
+      const s3 = resolved.get('surface-3')!;
+
+      // HC dark (Möbius beta=0.5): surface=0, surface-2≈3.92, surface-3≈7.69
+      expect(s.darkContrast.l).toBeCloseTo(0.0, 2);
+      expect(s2.darkContrast.l).toBeCloseTo(0.0392, 2);
+      expect(s3.darkContrast.l).toBeCloseTo(0.0769, 2);
+
+      // Each gap is visible (> 3 units)
+      expect(s2.darkContrast.l - s.darkContrast.l).toBeGreaterThan(0.03);
+      expect(s3.darkContrast.l - s2.darkContrast.l).toBeGreaterThan(0.03);
+    });
   });
 
   describe('per-color hue', () => {
@@ -288,9 +343,10 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const surface = resolved.get('surface')!;
 
-      // Light: L=97
-      // Dark (auto, inverted): ((100-97) * (95-15)) / 100 + 15 = 3*0.8 + 15 = 17.4
-      expect(surface.dark.l).toBeCloseTo(0.174, 2);
+      // Möbius: lightL = 97*0.9+10 = 97.3, t = (100-97.3)/90 = 0.03
+      // f(t) = 0.03 / (0.03 + 0.5*0.97) = 0.03/0.515 ≈ 0.05825
+      // darkL = 15 + 80*0.05825 ≈ 19.66
+      expect(surface.dark.l).toBeCloseTo(0.1966, 2);
     });
 
     it('fixed mode maps lightness without inversion', () => {
@@ -317,6 +373,103 @@ describe('glaze', () => {
 
       expect(brand.dark.l).toBeCloseTo(brand.light.l, 4);
       expect(brand.dark.s).toBeCloseTo(brand.light.s, 4);
+    });
+  });
+
+  describe('darkCurve', () => {
+    it('matches spec example: l=98, darkCurve=0.5', () => {
+      glaze.configure({ darkCurve: 0.5 });
+      const theme = glaze(240, 5);
+      theme.colors({
+        surface: { lightness: 98 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // Möbius: lightL = 98*0.9+10 = 98.2, t = (100-98.2)/90 = 0.02
+      // f(t) = 0.02 / (0.02 + 0.5*0.98) = 0.02/0.51 ≈ 0.03922
+      // l_d = 15 + 80*0.03922 ≈ 18.14
+      expect(surface.dark.l).toBeCloseTo(0.1814, 2);
+    });
+
+    it('darkCurve: 1 produces legacy linear behavior', () => {
+      glaze.configure({ darkCurve: 1 });
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97, saturation: 0.75 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // Linear: ((100-97) * (95-15)) / 100 + 15 = 3*0.8 + 15 = 17.4
+      expect(surface.dark.l).toBeCloseTo(0.174, 2);
+    });
+
+    it('boundary: l=0 maps to l_max', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        black: { lightness: 0 },
+      });
+
+      const resolved = theme.resolve();
+      const black = resolved.get('black')!;
+
+      // t = 1, mobiusCurve(1, 0.5) = 1, l_d = 15 + 80 * 1 = 95
+      expect(black.dark.l).toBeCloseTo(0.95, 2);
+    });
+
+    it('boundary: l=100 maps to l_min', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        white: { lightness: 100 },
+      });
+
+      const resolved = theme.resolve();
+      const white = resolved.get('white')!;
+
+      // t = 0, mobiusCurve(0, 0.5) = 0, l_d = 15 + 80 * 0 = 15
+      expect(white.dark.l).toBeCloseTo(0.15, 2);
+    });
+
+    it('does not affect fixed mode', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        fill: { lightness: 52, mode: 'fixed' },
+      });
+
+      const resolved = theme.resolve();
+      const fill = resolved.get('fill')!;
+
+      // Fixed: (52 * (95-15)) / 100 + 15 = 52*0.8 + 15 = 56.6
+      expect(fill.dark.l).toBeCloseTo(0.566, 2);
+    });
+
+    it('does not affect static mode', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        brand: { lightness: 60, mode: 'static' },
+      });
+
+      const resolved = theme.resolve();
+      const brand = resolved.get('brand')!;
+
+      expect(brand.dark.l).toBeCloseTo(brand.light.l, 4);
+    });
+
+    it('applies Möbius curve in high-contrast dark mode over full range', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // HC dark auto: t = 0.03, Möbius(0.03, 0.5) = 0.03/0.515 ≈ 0.05825
+      // l_d = 100 * 0.05825 ≈ 5.83
+      expect(surface.darkContrast.l).toBeCloseTo(0.0583, 2);
     });
   });
 
@@ -400,10 +553,10 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const surface = resolved.get('surface')!;
 
-      // Normal dark auto: (100-97)*0.8+15 = 17.4
-      expect(surface.dark.l).toBeCloseTo(0.174, 2);
-      // HC dark auto: 100-97 = 3 (full inversion, no window)
-      expect(surface.darkContrast.l).toBeCloseTo(0.03, 2);
+      // Normal dark auto (Möbius beta=0.5): t=0.03, f(t)≈0.05825, 15+80*0.05825≈19.66
+      expect(surface.dark.l).toBeCloseTo(0.1966, 2);
+      // HC dark auto (Möbius beta=0.5): t=0.03, f(t)≈0.05825, 100*0.05825≈5.83
+      expect(surface.darkContrast.l).toBeCloseTo(0.0583, 2);
 
       glaze.resetConfig();
     });
@@ -809,6 +962,17 @@ describe('glaze', () => {
       glaze.configure({ darkDesaturation: 0.2 });
       const config = glaze.getConfig();
       expect(config.darkDesaturation).toBe(0.2);
+    });
+
+    it('updates dark curve', () => {
+      glaze.configure({ darkCurve: 0.7 });
+      const config = glaze.getConfig();
+      expect(config.darkCurve).toBe(0.7);
+    });
+
+    it('darkCurve defaults to 0.5', () => {
+      const config = glaze.getConfig();
+      expect(config.darkCurve).toBe(0.5);
     });
 
     it('updates state aliases', () => {

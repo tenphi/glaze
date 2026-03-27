@@ -603,7 +603,7 @@ Modes control how colors adapt across schemes:
 
 ```ts
 // Light: surface L=97, text lightness='-52' → L=45 (dark text on light bg)
-// Dark:  surface inverts to L≈14, sign flips → L=14+52=66
+// Dark:  surface inverts to L≈20 (Möbius curve), sign flips → L=20+52=72
 //        contrast solver may push further (light text on dark bg)
 ```
 
@@ -639,26 +639,29 @@ Both `auto` and `fixed` modes use the same linear formula. `static` mode and hig
 
 ### Lightness
 
-**`auto`** — inverted within the configured window:
+**`auto`** — inverted with a Möbius transformation within the configured window:
 
 ```ts
 const [lo, hi] = darkLightness; // default: [15, 95]
-const invertedL = ((100 - lightness) * (hi - lo)) / 100 + lo;
+const t = (100 - lightness) / 100;
+const invertedL = lo + (hi - lo) * t / (t + darkCurve * (1 - t)); // darkCurve default: 0.5
 ```
 
-**`fixed`** — mapped without inversion:
+The `darkCurve` parameter (default `0.5`, range 0–1) controls how much the dark-mode inversion expands lightness deltas. Lower values produce stronger expansion; `1` gives linear (legacy) behavior. Unlike a power curve, the Möbius transformation provides **proportional expansion** — small and large deltas are scaled by similar ratios, preserving the visual hierarchy of the light theme.
+
+**`fixed`** — mapped without inversion (not affected by `darkCurve`):
 
 ```ts
 const mappedL = (lightness * (hi - lo)) / 100 + lo;
 ```
 
-| Color | Light L | Auto (inverted) | Fixed (mapped) |
-|---|---|---|---|
-| surface (L=97) | 97 | 17.4 | 92.6 |
-| accent-fill (L=52) | 52 | 53.4 | 56.6 |
-| accent-text (L=100) | 100 | 15 | 95 |
+| Color | Light L | Auto (curve=0.5) | Auto (curve=1, linear) | Fixed (mapped) |
+|---|---|---|---|---|
+| surface (L=97) | 97 | 19.7 | 17.4 | 92.6 |
+| accent-fill (L=52) | 52 | 66.9 | 53.4 | 56.6 |
+| accent-text (L=100) | 100 | 15 | 15 | 95 |
 
-In high-contrast variants, the `darkLightness` window is bypassed. Auto uses pure inversion (`100 - L`), fixed uses identity (`L`). This allows HC colors to reach the full 0–100 range.
+In high-contrast variants, the `darkLightness` window is bypassed. Auto uses the same Möbius curve over the full [0, 100] range. Fixed uses identity (`L`). This allows HC colors to reach the full 0–100 range.
 
 ### Saturation
 
@@ -911,6 +914,7 @@ glaze.configure({
   lightLightness: [10, 100],   // Light scheme lightness window [lo, hi] (bypassed in HC)
   darkLightness: [15, 95],     // Dark scheme lightness window [lo, hi] (bypassed in HC)
   darkDesaturation: 0.1,       // Saturation reduction in dark scheme (0–1)
+  darkCurve: 0.5,              // Möbius beta for dark auto-inversion (0–1, lower = more expansion)
   states: {
     dark: '@dark',             // State alias for dark mode tokens
     highContrast: '@high-contrast',
