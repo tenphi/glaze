@@ -402,7 +402,7 @@ describe('glaze', () => {
       expect(brand.dark.l).toBeCloseTo(brand.light.l, 4);
     });
 
-    it('does not affect high-contrast dark mode', () => {
+    it('applies power curve in high-contrast dark mode over full range', () => {
       const theme = glaze(0, 0);
       theme.colors({
         surface: { lightness: 97 },
@@ -411,8 +411,9 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const surface = resolved.get('surface')!;
 
-      // HC dark auto: 100-97 = 3 (full inversion, no window, no curve)
-      expect(surface.darkContrast.l).toBeCloseTo(0.03, 2);
+      // HC dark auto: t = 0.03, t^0.5 = sqrt(0.03) ≈ 0.17321
+      // l_d = 100 * 0.17321 ≈ 17.32 (no window, but with curve)
+      expect(surface.darkContrast.l).toBeCloseTo(0.1732, 2);
     });
   });
 
@@ -498,8 +499,8 @@ describe('glaze', () => {
 
       // Normal dark auto: d=0.03, d^0.5≈0.17321, 15+80*0.17321≈28.86
       expect(surface.dark.l).toBeCloseTo(0.2886, 2);
-      // HC dark auto: 100-97 = 3 (full inversion, no window)
-      expect(surface.darkContrast.l).toBeCloseTo(0.03, 2);
+      // HC dark auto: t=0.03, t^0.5≈0.17321, 100*0.17321≈17.32 (no window, with curve)
+      expect(surface.darkContrast.l).toBeCloseTo(0.1732, 2);
 
       glaze.resetConfig();
     });

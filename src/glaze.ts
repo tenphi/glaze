@@ -373,7 +373,10 @@ function mapLightnessDark(
   if (mode === 'static') return l;
 
   if (isHighContrast) {
-    return mode === 'fixed' ? l : 100 - l;
+    if (mode === 'fixed') return l;
+    // auto — power-curve inversion over full [0, 100] range (no window)
+    const t = (100 - l) / 100;
+    return 100 * Math.pow(t, globalConfig.darkCurve);
   }
 
   const [darkLo, darkHi] = globalConfig.darkLightness;
