@@ -365,6 +365,11 @@ function mapLightnessLight(
 // Dark scheme mapping
 // ============================================================================
 
+function mobiusCurve(t: number, beta: number): number {
+  if (beta >= 1) return t;
+  return t / (t + beta * (1 - t));
+}
+
 function mapLightnessDark(
   l: number,
   mode: AdaptationMode,
@@ -372,11 +377,12 @@ function mapLightnessDark(
 ): number {
   if (mode === 'static') return l;
 
+  const beta = globalConfig.darkCurve;
+
   if (isHighContrast) {
     if (mode === 'fixed') return l;
-    // auto — power-curve inversion over full [0, 100] range (no window)
     const t = (100 - l) / 100;
-    return 100 * Math.pow(t, globalConfig.darkCurve);
+    return 100 * mobiusCurve(t, beta * beta);
   }
 
   const [darkLo, darkHi] = globalConfig.darkLightness;
@@ -385,24 +391,24 @@ function mapLightnessDark(
     return (l * (darkHi - darkLo)) / 100 + darkLo;
   }
 
-  // auto — cross-range inversion with power curve:
-  // lightLo → darkHi, lightHi → darkLo
   const [lightLo, lightHi] = globalConfig.lightLightness;
   const lightL = (l * (lightHi - lightLo)) / 100 + lightLo;
   const t = (lightHi - lightL) / (lightHi - lightLo);
-  return darkLo + (darkHi - darkLo) * Math.pow(t, globalConfig.darkCurve);
+  return darkLo + (darkHi - darkLo) * mobiusCurve(t, beta);
 }
 
 function lightMappedToDark(lightL: number, isHighContrast: boolean): number {
+  const beta = globalConfig.darkCurve;
+
   if (isHighContrast) {
     const t = (100 - lightL) / 100;
-    return 100 * Math.pow(t, globalConfig.darkCurve);
+    return 100 * mobiusCurve(t, beta * beta);
   }
   const [lightLo, lightHi] = globalConfig.lightLightness;
   const [darkLo, darkHi] = globalConfig.darkLightness;
   const clamped = clamp(lightL, lightLo, lightHi);
   const t = (lightHi - clamped) / (lightHi - lightLo);
-  return darkLo + (darkHi - darkLo) * Math.pow(t, globalConfig.darkCurve);
+  return darkLo + (darkHi - darkLo) * mobiusCurve(t, beta);
 }
 
 function mapSaturationDark(s: number, mode: AdaptationMode): number {
