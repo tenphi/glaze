@@ -59,6 +59,7 @@ let globalConfig: GlazeConfigResolved = {
   lightLightness: [10, 100],
   darkLightness: [15, 95],
   darkDesaturation: 0.1,
+  darkCurve: 0.5,
   states: {
     dark: '@dark',
     highContrast: '@high-contrast',
@@ -375,14 +376,18 @@ function mapLightnessDark(
     return mode === 'fixed' ? l : 100 - l;
   }
 
-  const [lo, hi] = globalConfig.darkLightness;
+  const [darkLo, darkHi] = globalConfig.darkLightness;
 
   if (mode === 'fixed') {
-    return (l * (hi - lo)) / 100 + lo;
+    return (l * (darkHi - darkLo)) / 100 + darkLo;
   }
 
-  // auto — inverted
-  return ((100 - l) * (hi - lo)) / 100 + lo;
+  // auto — cross-range inversion with power curve:
+  // lightLo → darkHi, lightHi → darkLo
+  const [lightLo, lightHi] = globalConfig.lightLightness;
+  const lightL = (l * (lightHi - lightLo)) / 100 + lightLo;
+  const t = (lightHi - lightL) / (lightHi - lightLo);
+  return darkLo + (darkHi - darkLo) * Math.pow(t, globalConfig.darkCurve);
 }
 
 function mapSaturationDark(s: number, mode: AdaptationMode): number {
@@ -541,19 +546,19 @@ function resolveDependentColor(
       baseVariant.l,
     );
 
-    const lightnessRange = schemeLightnessRange(isDark, mode, isHighContrast);
+    const windowRange = schemeLightnessRange(isDark, mode, isHighContrast);
 
     const result = findLightnessForContrast({
       hue: effectiveHue,
       saturation: effectiveSat,
       preferredLightness: clamp(
         preferredL / 100,
-        lightnessRange[0],
-        lightnessRange[1],
+        windowRange[0],
+        windowRange[1],
       ),
       baseLinearRgb,
       contrast: minCr,
-      lightnessRange,
+      lightnessRange: [0, 1],
     });
 
     return { l: result.lightness * 100, satFactor };
@@ -1449,6 +1454,7 @@ glaze.configure = function configure(config: GlazeConfig): void {
     lightLightness: config.lightLightness ?? globalConfig.lightLightness,
     darkLightness: config.darkLightness ?? globalConfig.darkLightness,
     darkDesaturation: config.darkDesaturation ?? globalConfig.darkDesaturation,
+    darkCurve: config.darkCurve ?? globalConfig.darkCurve,
     states: {
       dark: config.states?.dark ?? globalConfig.states.dark,
       highContrast:
@@ -1556,6 +1562,7 @@ glaze.resetConfig = function resetConfig(): void {
     lightLightness: [10, 100],
     darkLightness: [15, 95],
     darkDesaturation: 0.1,
+    darkCurve: 0.5,
     states: {
       dark: '@dark',
       highContrast: '@high-contrast',

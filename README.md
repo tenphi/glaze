@@ -603,7 +603,7 @@ Modes control how colors adapt across schemes:
 
 ```ts
 // Light: surface L=97, text lightness='-52' → L=45 (dark text on light bg)
-// Dark:  surface inverts to L≈14, sign flips → L=14+52=66
+// Dark:  surface inverts to L≈29 (power curve), sign flips → L=29+52=81
 //        contrast solver may push further (light text on dark bg)
 ```
 
@@ -639,24 +639,27 @@ Both `auto` and `fixed` modes use the same linear formula. `static` mode and hig
 
 ### Lightness
 
-**`auto`** — inverted within the configured window:
+**`auto`** — inverted with a power curve within the configured window:
 
 ```ts
 const [lo, hi] = darkLightness; // default: [15, 95]
-const invertedL = ((100 - lightness) * (hi - lo)) / 100 + lo;
+const d = (100 - lightness) / 100;
+const invertedL = lo + (hi - lo) * Math.pow(d, darkCurve); // darkCurve default: 0.5
 ```
 
-**`fixed`** — mapped without inversion:
+The `darkCurve` exponent (default `0.5`) expands small light-theme deltas near white into larger usable deltas in dark mode. This preserves subtle surface hierarchy (e.g. L=97 vs L=95) that would otherwise collapse to near-identical dark values. Set `darkCurve: 1` for linear (legacy) behavior.
+
+**`fixed`** — mapped without inversion (not affected by `darkCurve`):
 
 ```ts
 const mappedL = (lightness * (hi - lo)) / 100 + lo;
 ```
 
-| Color | Light L | Auto (inverted) | Fixed (mapped) |
-|---|---|---|---|
-| surface (L=97) | 97 | 17.4 | 92.6 |
-| accent-fill (L=52) | 52 | 53.4 | 56.6 |
-| accent-text (L=100) | 100 | 15 | 95 |
+| Color | Light L | Auto (curve=0.5) | Auto (curve=1, linear) | Fixed (mapped) |
+|---|---|---|---|---|
+| surface (L=97) | 97 | 28.9 | 17.4 | 92.6 |
+| accent-fill (L=52) | 52 | 70.4 | 53.4 | 56.6 |
+| accent-text (L=100) | 100 | 15 | 15 | 95 |
 
 In high-contrast variants, the `darkLightness` window is bypassed. Auto uses pure inversion (`100 - L`), fixed uses identity (`L`). This allows HC colors to reach the full 0–100 range.
 
@@ -911,6 +914,7 @@ glaze.configure({
   lightLightness: [10, 100],   // Light scheme lightness window [lo, hi] (bypassed in HC)
   darkLightness: [15, 95],     // Dark scheme lightness window [lo, hi] (bypassed in HC)
   darkDesaturation: 0.1,       // Saturation reduction in dark scheme (0–1)
+  darkCurve: 0.5,              // Power-curve exponent for dark auto-inversion (0–1)
   states: {
     dark: '@dark',             // State alias for dark mode tokens
     highContrast: '@high-contrast',

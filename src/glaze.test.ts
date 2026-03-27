@@ -288,9 +288,9 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const surface = resolved.get('surface')!;
 
-      // Light: L=97
-      // Dark (auto, inverted): ((100-97) * (95-15)) / 100 + 15 = 3*0.8 + 15 = 17.4
-      expect(surface.dark.l).toBeCloseTo(0.174, 2);
+      // Light: L=97, d = 0.03, d^0.5 = sqrt(0.03) ≈ 0.17321
+      // Dark (auto, power curve): 15 + 80 * 0.17321 ≈ 28.86
+      expect(surface.dark.l).toBeCloseTo(0.2886, 2);
     });
 
     it('fixed mode maps lightness without inversion', () => {
@@ -317,6 +317,102 @@ describe('glaze', () => {
 
       expect(brand.dark.l).toBeCloseTo(brand.light.l, 4);
       expect(brand.dark.s).toBeCloseTo(brand.light.s, 4);
+    });
+  });
+
+  describe('darkCurve', () => {
+    it('matches spec example: l=98, darkCurve=0.5', () => {
+      glaze.configure({ darkCurve: 0.5 });
+      const theme = glaze(240, 5);
+      theme.colors({
+        surface: { lightness: 98 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // d = (100 - 98) / 100 = 0.02
+      // d^0.5 = sqrt(0.02) ≈ 0.14142
+      // l_d = 15 + 80 * 0.14142 ≈ 26.31
+      expect(surface.dark.l).toBeCloseTo(0.2631, 2);
+    });
+
+    it('darkCurve: 1 produces legacy linear behavior', () => {
+      glaze.configure({ darkCurve: 1 });
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 97, saturation: 0.75 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // Linear: ((100-97) * (95-15)) / 100 + 15 = 3*0.8 + 15 = 17.4
+      expect(surface.dark.l).toBeCloseTo(0.174, 2);
+    });
+
+    it('boundary: l=0 maps to l_max', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        black: { lightness: 0 },
+      });
+
+      const resolved = theme.resolve();
+      const black = resolved.get('black')!;
+
+      // d = 1, d^0.5 = 1, l_d = 15 + 80 * 1 = 95
+      expect(black.dark.l).toBeCloseTo(0.95, 2);
+    });
+
+    it('boundary: l=100 maps to l_min', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        white: { lightness: 100 },
+      });
+
+      const resolved = theme.resolve();
+      const white = resolved.get('white')!;
+
+      // d = 0, d^0.5 = 0, l_d = 15 + 80 * 0 = 15
+      expect(white.dark.l).toBeCloseTo(0.15, 2);
+    });
+
+    it('does not affect fixed mode', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        fill: { lightness: 52, mode: 'fixed' },
+      });
+
+      const resolved = theme.resolve();
+      const fill = resolved.get('fill')!;
+
+      // Fixed: (52 * (95-15)) / 100 + 15 = 52*0.8 + 15 = 56.6
+      expect(fill.dark.l).toBeCloseTo(0.566, 2);
+    });
+
+    it('does not affect static mode', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        brand: { lightness: 60, mode: 'static' },
+      });
+
+      const resolved = theme.resolve();
+      const brand = resolved.get('brand')!;
+
+      expect(brand.dark.l).toBeCloseTo(brand.light.l, 4);
+    });
+
+    it('does not affect high-contrast dark mode', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // HC dark auto: 100-97 = 3 (full inversion, no window, no curve)
+      expect(surface.darkContrast.l).toBeCloseTo(0.03, 2);
     });
   });
 
@@ -400,8 +496,8 @@ describe('glaze', () => {
       const resolved = theme.resolve();
       const surface = resolved.get('surface')!;
 
-      // Normal dark auto: (100-97)*0.8+15 = 17.4
-      expect(surface.dark.l).toBeCloseTo(0.174, 2);
+      // Normal dark auto: d=0.03, d^0.5≈0.17321, 15+80*0.17321≈28.86
+      expect(surface.dark.l).toBeCloseTo(0.2886, 2);
       // HC dark auto: 100-97 = 3 (full inversion, no window)
       expect(surface.darkContrast.l).toBeCloseTo(0.03, 2);
 
@@ -809,6 +905,17 @@ describe('glaze', () => {
       glaze.configure({ darkDesaturation: 0.2 });
       const config = glaze.getConfig();
       expect(config.darkDesaturation).toBe(0.2);
+    });
+
+    it('updates dark curve', () => {
+      glaze.configure({ darkCurve: 0.7 });
+      const config = glaze.getConfig();
+      expect(config.darkCurve).toBe(0.7);
+    });
+
+    it('darkCurve defaults to 0.5', () => {
+      const config = glaze.getConfig();
+      expect(config.darkCurve).toBe(0.5);
     });
 
     it('updates state aliases', () => {
