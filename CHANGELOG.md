@@ -1,5 +1,17 @@
 # @tenphi/glaze
 
+## 0.8.0
+
+### Minor Changes
+
+- [#37](https://github.com/tenphi/glaze/pull/37) [`8b0b62b`](https://github.com/tenphi/glaze/commit/8b0b62b35f9ae47ae5efd1607ffc6f09f03076f6) Thanks [@tenphi](https://github.com/tenphi)! - Bypass lightLightness and darkLightness window constraints in high-contrast mode, allowing colors to use the full 0–100 lightness spectrum for increased perceivable contrast.
+
+### Patch Changes
+
+- [#39](https://github.com/tenphi/glaze/pull/39) [`f9f6def`](https://github.com/tenphi/glaze/commit/f9f6def1f55f604c278b086c4e91de8de8374199) Thanks [@tenphi](https://github.com/tenphi)! - Add `darkCurve` config option for perceptual dark-theme lightness inversion using a power curve. Expands subtle near-white distinctions in dark mode. Default `0.5`; set to `1` for legacy linear behavior. Widen contrast solver search range to `[0, 1]` so contrast targets are met regardless of dark lightness window.
+
+- [#39](https://github.com/tenphi/glaze/pull/39) [`f9f6def`](https://github.com/tenphi/glaze/commit/f9f6def1f55f604c278b086c4e91de8de8374199) Thanks [@tenphi](https://github.com/tenphi)! - Replace power-curve dark lightness mapping with Möbius transformation for proportional expansion of lightness deltas across all sizes.
+
 ## 0.7.0
 
 ### Minor Changes
