@@ -2,4 +2,4 @@
 '@tenphi/glaze': patch
 ---
 
-Apply `darkCurve` power-curve inversion in high-contrast dark mode over the full [0, 100] range, preserving subtle near-white distinctions that were previously collapsed by linear inversion.
+Apply `darkCurve` to relative lightness deltas in dark auto mode so subtle near-white differences (e.g. surface vs surface-2) are expanded by the power curve instead of collapsing to near-black.

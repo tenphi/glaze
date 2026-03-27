@@ -393,6 +393,18 @@ function mapLightnessDark(
   return darkLo + (darkHi - darkLo) * Math.pow(t, globalConfig.darkCurve);
 }
 
+function lightMappedToDark(lightL: number, isHighContrast: boolean): number {
+  if (isHighContrast) {
+    const t = (100 - lightL) / 100;
+    return 100 * Math.pow(t, globalConfig.darkCurve);
+  }
+  const [lightLo, lightHi] = globalConfig.lightLightness;
+  const [darkLo, darkHi] = globalConfig.darkLightness;
+  const clamped = clamp(lightL, lightLo, lightHi);
+  const t = (lightHi - clamped) / (lightHi - lightLo);
+  return darkLo + (darkHi - darkLo) * Math.pow(t, globalConfig.darkCurve);
+}
+
 function mapSaturationDark(s: number, mode: AdaptationMode): number {
   if (mode === 'static') return s;
   return s * (1 - globalConfig.darkDesaturation);
@@ -519,11 +531,18 @@ function resolveDependentColor(
     const parsed = parseRelativeOrAbsolute(rawValue);
 
     if (parsed.relative) {
-      let delta = parsed.value;
+      const delta = parsed.value;
       if (isDark && mode === 'auto') {
-        delta = -delta;
+        const baseLightVariant = getSchemeVariant(
+          baseResolved,
+          false,
+          isHighContrast,
+        );
+        const absoluteLightL = clamp(baseLightVariant.l * 100 + delta, 0, 100);
+        preferredL = lightMappedToDark(absoluteLightL, isHighContrast);
+      } else {
+        preferredL = clamp(baseL + delta, 0, 100);
       }
-      preferredL = clamp(baseL + delta, 0, 100);
     } else {
       if (isDark) {
         preferredL = mapLightnessDark(parsed.value, mode, isHighContrast);

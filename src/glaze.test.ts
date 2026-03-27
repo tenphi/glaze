@@ -215,6 +215,60 @@ describe('glaze', () => {
       // 52 + 48 = 100
       expect(text.light.l).toBeCloseTo(1.0, 2);
     });
+
+    it('relative delta applies darkCurve in normal dark auto mode', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 100 },
+        'surface-2': { base: 'surface', lightness: '-2' },
+      });
+
+      const resolved = theme.resolve();
+      const s2 = resolved.get('surface-2')!;
+
+      // light variant: base light L=100 → mapped to 100, delta=-2 → absoluteLightL=98
+      // lightMappedToDark(98, false): clamped=98, t = (100-98)/90 = 2/90
+      // darkL = 15 + 80 * sqrt(2/90) ≈ 15 + 80*0.14907 ≈ 26.93
+      expect(s2.dark.l).toBeCloseTo(0.2693, 2);
+    });
+
+    it('relative delta applies darkCurve in HC dark auto mode', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 100 },
+        'surface-2': { base: 'surface', lightness: '-2' },
+      });
+
+      const resolved = theme.resolve();
+      const s2 = resolved.get('surface-2')!;
+
+      // HC light variant: base L=100 (no window), delta=-2 → absoluteLightL=98
+      // HC dark auto: t = (100-98)/100 = 0.02, darkL = 100 * sqrt(0.02) ≈ 14.14
+      expect(s2.darkContrast.l).toBeCloseTo(0.1414, 2);
+    });
+
+    it('cascading relative deltas expand gaps via darkCurve', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 100 },
+        'surface-2': { base: 'surface', lightness: '-2' },
+        'surface-3': { base: 'surface-2', lightness: '-2' },
+      });
+
+      const resolved = theme.resolve();
+      const s = resolved.get('surface')!;
+      const s2 = resolved.get('surface-2')!;
+      const s3 = resolved.get('surface-3')!;
+
+      // HC dark: surface=0, surface-2≈14.14, surface-3≈20
+      expect(s.darkContrast.l).toBeCloseTo(0.0, 2);
+      expect(s2.darkContrast.l).toBeCloseTo(0.1414, 2);
+      expect(s3.darkContrast.l).toBeCloseTo(0.2, 2);
+
+      // Each gap is visible (> 5 units)
+      expect(s2.darkContrast.l - s.darkContrast.l).toBeGreaterThan(0.05);
+      expect(s3.darkContrast.l - s2.darkContrast.l).toBeGreaterThan(0.05);
+    });
   });
 
   describe('per-color hue', () => {
