@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.9.2
+
+### Patch Changes
+
+- [#46](https://github.com/tenphi/glaze/pull/46) [`85111ca`](https://github.com/tenphi/glaze/commit/85111ca53110f713d9c92090f62008cb180b13e1) Thanks [@tenphi](https://github.com/tenphi)! - Add `inherit` flag to color definitions to prevent inheritance during `extend()`
+
 ## 0.9.1
 
 ### Patch Changes
