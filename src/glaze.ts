@@ -1157,9 +1157,17 @@ function createTheme(
     extend(options: GlazeExtendOptions): GlazeTheme {
       const newHue = options.hue ?? hue;
       const newSat = options.saturation ?? saturation;
+
+      const inheritedColors: ColorMap = {};
+      for (const [name, def] of Object.entries(colorDefs)) {
+        if (def.inherit !== false) {
+          inheritedColors[name] = def;
+        }
+      }
+
       const mergedColors = options.colors
-        ? { ...colorDefs, ...options.colors }
-        : { ...colorDefs };
+        ? { ...inheritedColors, ...options.colors }
+        : { ...inheritedColors };
 
       return createTheme(newHue, newSat, mergedColors);
     },

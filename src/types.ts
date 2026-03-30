@@ -78,6 +78,12 @@ export interface RegularColorDef {
    * should not be combined (a console.warn is emitted).
    */
   opacity?: number;
+
+  /**
+   * Whether this color is inherited by child themes created via `extend()`.
+   * Default: true. Set to false to make this color local to the current theme.
+   */
+  inherit?: boolean;
 }
 
 /** Shadow tuning knobs. All values use the 0–1 scale (OKHSL). */
@@ -124,6 +130,12 @@ export interface ShadowColorDef {
   intensity: HCPair<number>;
   /** Override default tuning. Merged field-by-field with global `shadowTuning`. */
   tuning?: ShadowTuning;
+
+  /**
+   * Whether this color is inherited by child themes created via `extend()`.
+   * Default: true. Set to false to make this color local to the current theme.
+   */
+  inherit?: boolean;
 }
 
 export interface MixColorDef {
@@ -159,6 +171,12 @@ export interface MixColorDef {
    * Supports [normal, highContrast] pair.
    */
   contrast?: HCPair<MinContrast>;
+
+  /**
+   * Whether this color is inherited by child themes created via `extend()`.
+   * Default: true. Set to false to make this color local to the current theme.
+   */
+  inherit?: boolean;
 }
 
 export type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
