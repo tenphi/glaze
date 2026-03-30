@@ -391,7 +391,9 @@ function mapLightnessDark(
 ): number {
   if (mode === 'static') return l;
 
-  const beta = globalConfig.darkCurve;
+  const beta = isHighContrast
+    ? pairHC(globalConfig.darkCurve)
+    : pairNormal(globalConfig.darkCurve);
   const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark');
 
   if (mode === 'fixed') {
@@ -405,7 +407,9 @@ function mapLightnessDark(
 }
 
 function lightMappedToDark(lightL: number, isHighContrast: boolean): number {
-  const beta = globalConfig.darkCurve;
+  const beta = isHighContrast
+    ? pairHC(globalConfig.darkCurve)
+    : pairNormal(globalConfig.darkCurve);
   const [lightLo, lightHi] = lightnessWindow(isHighContrast, 'light');
   const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark');
   const clamped = clamp(lightL, lightLo, lightHi);

@@ -647,7 +647,7 @@ const t = (100 - lightness) / 100;
 const invertedL = lo + (hi - lo) * t / (t + darkCurve * (1 - t)); // darkCurve default: 0.5
 ```
 
-The `darkCurve` parameter (default `0.5`, range 0–1) controls how much the dark-mode inversion expands lightness deltas. Lower values produce stronger expansion; `1` gives linear (legacy) behavior. Unlike a power curve, the Möbius transformation provides **proportional expansion** — small and large deltas are scaled by similar ratios, preserving the visual hierarchy of the light theme.
+The `darkCurve` parameter (default `0.5`, range 0–1) controls how much the dark-mode inversion expands lightness deltas. Lower values produce stronger expansion; `1` gives linear (legacy) behavior. Accepts a `[normal, highContrast]` pair for separate HC tuning (e.g. `darkCurve: [0.5, 0.3]`); a single number applies to both. Unlike a power curve, the Möbius transformation provides **proportional expansion** — small and large deltas are scaled by similar ratios, preserving the visual hierarchy of the light theme.
 
 **`fixed`** — mapped without inversion (not affected by `darkCurve`):
 
@@ -661,7 +661,7 @@ const mappedL = (lightness * (hi - lo)) / 100 + lo;
 | accent-fill (L=52) | 52 | 66.9 | 53.4 | 56.6 |
 | accent-text (L=100) | 100 | 15 | 15 | 95 |
 
-In high-contrast variants, the `darkLightness` window is bypassed. Auto uses the same Möbius curve over the full [0, 100] range. Fixed uses identity (`L`). This allows HC colors to reach the full 0–100 range.
+In high-contrast variants, the `darkLightness` window is bypassed — auto uses the Möbius curve over the full [0, 100] range, and fixed uses identity (`L`). To use a different curve shape for HC, pass a `[normal, hc]` pair to `darkCurve` (e.g. `darkCurve: [0.5, 0.3]`).
 
 ### Saturation
 
@@ -914,7 +914,7 @@ glaze.configure({
   lightLightness: [10, 100],   // Light scheme lightness window [lo, hi] (bypassed in HC)
   darkLightness: [15, 95],     // Dark scheme lightness window [lo, hi] (bypassed in HC)
   darkDesaturation: 0.1,       // Saturation reduction in dark scheme (0–1)
-  darkCurve: 0.5,              // Möbius beta for dark auto-inversion (0–1, lower = more expansion)
+  darkCurve: 0.5,              // Möbius beta for dark auto-inversion (0–1); or [normal, hc] pair
   states: {
     dark: '@dark',             // State alias for dark mode tokens
     highContrast: '@high-contrast',
