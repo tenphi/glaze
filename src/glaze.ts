@@ -348,6 +348,20 @@ function topoSort(defs: ColorMap): string[] {
 }
 
 // ============================================================================
+// Lightness window selection
+// ============================================================================
+
+function lightnessWindow(
+  isHighContrast: boolean,
+  kind: 'light' | 'dark',
+): [number, number] {
+  if (isHighContrast) return [0, 100];
+  return kind === 'dark'
+    ? globalConfig.darkLightness
+    : globalConfig.lightLightness;
+}
+
+// ============================================================================
 // Light scheme mapping
 // ============================================================================
 
@@ -356,8 +370,8 @@ function mapLightnessLight(
   mode: AdaptationMode,
   isHighContrast: boolean,
 ): number {
-  if (mode === 'static' || isHighContrast) return l;
-  const [lo, hi] = globalConfig.lightLightness;
+  if (mode === 'static') return l;
+  const [lo, hi] = lightnessWindow(isHighContrast, 'light');
   return (l * (hi - lo)) / 100 + lo;
 }
 
@@ -378,20 +392,13 @@ function mapLightnessDark(
   if (mode === 'static') return l;
 
   const beta = globalConfig.darkCurve;
-
-  if (isHighContrast) {
-    if (mode === 'fixed') return l;
-    const t = (100 - l) / 100;
-    return 100 * mobiusCurve(t, beta);
-  }
-
-  const [darkLo, darkHi] = globalConfig.darkLightness;
+  const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark');
 
   if (mode === 'fixed') {
     return (l * (darkHi - darkLo)) / 100 + darkLo;
   }
 
-  const [lightLo, lightHi] = globalConfig.lightLightness;
+  const [lightLo, lightHi] = lightnessWindow(isHighContrast, 'light');
   const lightL = (l * (lightHi - lightLo)) / 100 + lightLo;
   const t = (lightHi - lightL) / (lightHi - lightLo);
   return darkLo + (darkHi - darkLo) * mobiusCurve(t, beta);
@@ -399,13 +406,8 @@ function mapLightnessDark(
 
 function lightMappedToDark(lightL: number, isHighContrast: boolean): number {
   const beta = globalConfig.darkCurve;
-
-  if (isHighContrast) {
-    const t = (100 - lightL) / 100;
-    return 100 * mobiusCurve(t, beta);
-  }
-  const [lightLo, lightHi] = globalConfig.lightLightness;
-  const [darkLo, darkHi] = globalConfig.darkLightness;
+  const [lightLo, lightHi] = lightnessWindow(isHighContrast, 'light');
+  const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark');
   const clamped = clamp(lightL, lightLo, lightHi);
   const t = (lightHi - clamped) / (lightHi - lightLo);
   return darkLo + (darkHi - darkLo) * mobiusCurve(t, beta);
@@ -421,10 +423,8 @@ function schemeLightnessRange(
   mode: AdaptationMode,
   isHighContrast: boolean,
 ): [number, number] {
-  if (mode === 'static' || isHighContrast) return [0, 1];
-  const [lo, hi] = isDark
-    ? globalConfig.darkLightness
-    : globalConfig.lightLightness;
+  if (mode === 'static') return [0, 1];
+  const [lo, hi] = lightnessWindow(isHighContrast, isDark ? 'dark' : 'light');
   return [lo / 100, hi / 100];
 }
 
