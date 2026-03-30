@@ -70,8 +70,8 @@ const danger  = primary.extend({ hue: 23 });
 const success = primary.extend({ hue: 157 });
 
 // Compose into a palette and export
-const palette = glaze.palette({ primary, danger, success });
-const tokens = palette.tokens({ primary: 'primary' });
+const palette = glaze.palette({ primary, danger, success }, { primary: 'primary' });
+const tokens = palette.tokens();
 // → { light: { 'primary-surface': 'okhsl(...)', 'surface': 'okhsl(...)', ... }, dark: { ... } }
 ```
 
@@ -701,6 +701,15 @@ Combine multiple themes into a single palette:
 const palette = glaze.palette({ primary, danger, success, warning });
 ```
 
+Optionally designate a primary theme at creation time:
+
+```ts
+const palette = glaze.palette(
+  { primary, danger, success, warning },
+  { primary: 'primary' },
+);
+```
+
 ### Prefix Behavior
 
 Palette export methods (`tokens()`, `tasty()`, `css()`) default to `prefix: true` — all tokens are automatically prefixed with the theme name to avoid collisions:
@@ -719,15 +728,28 @@ Custom prefix mapping:
 palette.tokens({ prefix: { primary: 'brand-', danger: 'error-' } });
 ```
 
-To disable prefixing entirely, pass `prefix: false` explicitly. Note that tokens with the same name will overwrite each other (last theme wins).
+To disable prefixing entirely, pass `prefix: false` explicitly.
+
+### Collision Detection
+
+When two themes produce the same output key (via `prefix: false`, custom prefix maps, or primary unprefixed aliases), the first-written value wins and a `console.warn` is emitted:
+
+```ts
+const palette = glaze.palette({ a, b });
+palette.tokens({ prefix: false });
+// ⚠ glaze: token "surface" from theme "b" collides with theme "a" — skipping.
+```
 
 ### Primary Theme
 
-Use the `primary` option to designate one theme as the primary. Its tokens are duplicated without prefix, providing convenient short aliases alongside the prefixed versions:
+The primary theme's tokens are duplicated without prefix, providing convenient short aliases alongside the prefixed versions. Set at palette creation to apply to all exports automatically:
 
 ```ts
-const palette = glaze.palette({ primary, danger, success });
-const tokens = palette.tokens({ primary: 'primary' });
+const palette = glaze.palette(
+  { primary, danger, success },
+  { primary: 'primary' },
+);
+const tokens = palette.tokens();
 // → {
 //   light: {
 //     'primary-surface': 'okhsl(...)',  // prefixed (all themes)
@@ -738,11 +760,18 @@ const tokens = palette.tokens({ primary: 'primary' });
 // }
 ```
 
+Override or disable per-export:
+
+```ts
+palette.tokens({ primary: 'danger' });  // use danger as primary for this call
+palette.tokens({ primary: false });     // no primary for this call
+```
+
 The `primary` option works on `tokens()`, `tasty()`, and `css()`. It combines with any prefix mode — when using a custom prefix map, primary tokens are still duplicated without prefix:
 
 ```ts
-palette.tokens({ prefix: { primary: 'p-', danger: 'd-' }, primary: 'primary' });
-// → 'p-surface' + 'surface' (alias) + 'd-surface'
+palette.tokens({ prefix: { primary: 'p-', danger: 'd-' } });
+// → 'p-surface' + 'surface' (alias from palette-level primary) + 'd-surface'
 ```
 
 An error is thrown if the primary name doesn't match any theme in the palette.
@@ -752,7 +781,11 @@ An error is thrown if the primary name doesn't match any theme in the palette.
 The `tasty()` method exports tokens in the [Tasty](https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs) style-to-state binding format — `#name` color token keys with state aliases (`''`, `@dark`, etc.):
 
 ```ts
-const tastyTokens = palette.tasty({ primary: 'primary' });
+const palette = glaze.palette(
+  { primary, danger, success },
+  { primary: 'primary' },
+);
+const tastyTokens = palette.tasty();
 // → {
 //   '#primary-surface': { '': 'okhsl(...)', '@dark': 'okhsl(...)' },
 //   '#danger-surface':  { '': 'okhsl(...)', '@dark': 'okhsl(...)' },
@@ -848,7 +881,11 @@ const css = theme.css();
 Use in a stylesheet:
 
 ```ts
-const css = palette.css({ primary: 'primary' });
+const palette = glaze.palette(
+  { primary, danger, success },
+  { primary: 'primary' },
+);
+const css = palette.css();
 
 const stylesheet = `
 :root { ${css.light} }
@@ -865,7 +902,7 @@ Options:
 | `format` | `'rgb'` | Color format (`'rgb'`, `'hsl'`, `'okhsl'`, `'oklch'`) |
 | `suffix` | `'-color'` | Suffix appended to each CSS property name |
 | `prefix` | `true` (palette) | (palette only) `true` uses `"<themeName>-"`, or provide a custom map |
-| `primary` | — | (palette only) Theme name to duplicate without prefix |
+| `primary` | inherited | (palette only) Override or disable (`false`) the palette-level primary for this call |
 
 ```ts
 // Custom suffix
@@ -876,8 +913,8 @@ theme.css({ suffix: '' });
 theme.css({ format: 'hsl' });
 // → "--surface-color: hsl(...);"
 
-// Palette with primary
-palette.css({ primary: 'primary' });
+// Palette with primary (inherited from palette creation)
+palette.css();
 // → "--primary-surface-color: rgb(...);\n--surface-color: rgb(...);\n--danger-surface-color: rgb(...);"
 ```
 
@@ -1049,17 +1086,20 @@ const success = primary.extend({ hue: 157 });
 const warning = primary.extend({ hue: 84 });
 const note    = primary.extend({ hue: 302 });
 
-const palette = glaze.palette({ primary, danger, success, warning, note });
+const palette = glaze.palette(
+  { primary, danger, success, warning, note },
+  { primary: 'primary' },
+);
 
 // Export as flat token map grouped by variant (prefix defaults to true)
-const tokens = palette.tokens({ primary: 'primary' });
+const tokens = palette.tokens();
 // tokens.light → { 'primary-surface': '...', 'surface': '...', 'danger-surface': '...' }
 
 // Export as tasty style-to-state bindings (for Tasty style system)
-const tastyTokens = palette.tasty({ primary: 'primary' });
+const tastyTokens = palette.tasty();
 
 // Export as CSS custom properties (rgb format by default)
-const css = palette.css({ primary: 'primary' });
+const css = palette.css();
 // css.light → "--primary-surface-color: rgb(...);\n--surface-color: rgb(...);\n--danger-surface-color: rgb(...);"
 
 // Standalone shadow computation
@@ -1115,7 +1155,7 @@ brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '
 | Method | Description |
 |---|---|
 | `glaze.configure(config)` | Set global configuration |
-| `glaze.palette(themes)` | Compose themes into a palette |
+| `glaze.palette(themes, options?)` | Compose themes into a palette (options: `{ primary? }`) |
 | `glaze.getConfig()` | Get current global config |
 | `glaze.resetConfig()` | Reset to defaults |
 

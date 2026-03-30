@@ -44,6 +44,7 @@ import type {
   GlazeJsonOptions,
   GlazeCssOptions,
   GlazeCssResult,
+  GlazePaletteOptions,
   GlazePaletteExportOptions,
   GlazeColorInput,
   GlazeColorToken,
@@ -1237,20 +1238,74 @@ function validatePrimaryTheme(
   }
 }
 
-function createPalette(themes: PaletteInput) {
+/**
+ * Resolve the effective primary for an export call.
+ * `false` disables, a string overrides, `undefined` inherits from palette.
+ */
+function resolveEffectivePrimary(
+  exportPrimary: string | false | undefined,
+  palettePrimary: string | undefined,
+): string | undefined {
+  if (exportPrimary === false) return undefined;
+  return exportPrimary ?? palettePrimary;
+}
+
+/**
+ * Filter a resolved color map, skipping keys already in `seen`.
+ * Warns on collision and keeps the first-written value (first-write-wins).
+ * Returns a new map containing only non-colliding entries.
+ */
+function filterCollisions(
+  resolved: Map<string, ResolvedColor>,
+  prefix: string,
+  seen: Map<string, string>,
+  themeName: string,
+  isPrimary?: boolean,
+): Map<string, ResolvedColor> {
+  const filtered = new Map<string, ResolvedColor>();
+  const label = isPrimary ? `${themeName} (primary)` : themeName;
+
+  for (const [name, color] of resolved) {
+    const key = `${prefix}${name}`;
+    if (seen.has(key)) {
+      console.warn(
+        `glaze: token "${key}" from theme "${label}" collides with theme "${seen.get(key)}" — skipping.`,
+      );
+      continue;
+    }
+    seen.set(key, label);
+    filtered.set(name, color);
+  }
+  return filtered;
+}
+
+function createPalette(
+  themes: PaletteInput,
+  paletteOptions?: GlazePaletteOptions,
+) {
+  validatePrimaryTheme(paletteOptions?.primary, themes);
+
   return {
     tokens(
       options?: GlazeJsonOptions & GlazePaletteExportOptions,
     ): Record<string, Record<string, string>> {
-      validatePrimaryTheme(options?.primary, themes);
+      const effectivePrimary = resolveEffectivePrimary(
+        options?.primary,
+        paletteOptions?.primary,
+      );
+      if (options?.primary !== undefined) {
+        validatePrimaryTheme(effectivePrimary, themes);
+      }
       const modes = resolveModes(options?.modes);
       const allTokens: Record<string, Record<string, string>> = {};
+      const seen = new Map<string, string>();
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
         const prefix = resolvePrefix(options, themeName, true);
+        const filtered = filterCollisions(resolved, prefix, seen, themeName);
         const tokens = buildFlatTokenMap(
-          resolved,
+          filtered,
           prefix,
           modes,
           options?.format,
@@ -1263,9 +1318,16 @@ function createPalette(themes: PaletteInput) {
           Object.assign(allTokens[variant], tokens[variant]);
         }
 
-        if (themeName === options?.primary) {
-          const unprefixed = buildFlatTokenMap(
+        if (themeName === effectivePrimary) {
+          const primaryFiltered = filterCollisions(
             resolved,
+            '',
+            seen,
+            themeName,
+            true,
+          );
+          const unprefixed = buildFlatTokenMap(
+            primaryFiltered,
             '',
             modes,
             options?.format,
@@ -1280,9 +1342,15 @@ function createPalette(themes: PaletteInput) {
     },
 
     tasty(
-      options?: GlazeTokenOptions & { primary?: string },
+      options?: GlazeTokenOptions & GlazePaletteExportOptions,
     ): Record<string, Record<string, string>> {
-      validatePrimaryTheme(options?.primary, themes);
+      const effectivePrimary = resolveEffectivePrimary(
+        options?.primary,
+        paletteOptions?.primary,
+      );
+      if (options?.primary !== undefined) {
+        validatePrimaryTheme(effectivePrimary, themes);
+      }
       const states = {
         dark: options?.states?.dark ?? globalConfig.states.dark,
         highContrast:
@@ -1291,12 +1359,14 @@ function createPalette(themes: PaletteInput) {
       const modes = resolveModes(options?.modes);
 
       const allTokens: Record<string, Record<string, string>> = {};
+      const seen = new Map<string, string>();
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
         const prefix = resolvePrefix(options, themeName, true);
+        const filtered = filterCollisions(resolved, prefix, seen, themeName);
         const tokens = buildTokenMap(
-          resolved,
+          filtered,
           prefix,
           states,
           modes,
@@ -1304,9 +1374,16 @@ function createPalette(themes: PaletteInput) {
         );
         Object.assign(allTokens, tokens);
 
-        if (themeName === options?.primary) {
-          const unprefixed = buildTokenMap(
+        if (themeName === effectivePrimary) {
+          const primaryFiltered = filterCollisions(
             resolved,
+            '',
+            seen,
+            themeName,
+            true,
+          );
+          const unprefixed = buildTokenMap(
+            primaryFiltered,
             '',
             states,
             modes,
@@ -1337,7 +1414,13 @@ function createPalette(themes: PaletteInput) {
     },
 
     css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult {
-      validatePrimaryTheme(options?.primary, themes);
+      const effectivePrimary = resolveEffectivePrimary(
+        options?.primary,
+        paletteOptions?.primary,
+      );
+      if (options?.primary !== undefined) {
+        validatePrimaryTheme(effectivePrimary, themes);
+      }
       const suffix = options?.suffix ?? '-color';
       const format = options?.format ?? 'rgb';
 
@@ -1347,12 +1430,14 @@ function createPalette(themes: PaletteInput) {
         lightContrast: [],
         darkContrast: [],
       };
+      const seen = new Map<string, string>();
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
         const prefix = resolvePrefix(options, themeName, true);
+        const filtered = filterCollisions(resolved, prefix, seen, themeName);
 
-        const css = buildCssMap(resolved, prefix, suffix, format);
+        const css = buildCssMap(filtered, prefix, suffix, format);
 
         for (const key of [
           'light',
@@ -1365,8 +1450,15 @@ function createPalette(themes: PaletteInput) {
           }
         }
 
-        if (themeName === options?.primary) {
-          const unprefixed = buildCssMap(resolved, '', suffix, format);
+        if (themeName === effectivePrimary) {
+          const primaryFiltered = filterCollisions(
+            resolved,
+            '',
+            seen,
+            themeName,
+            true,
+          );
+          const unprefixed = buildCssMap(primaryFiltered, '', suffix, format);
           for (const key of [
             'light',
             'dark',
@@ -1504,8 +1596,11 @@ glaze.configure = function configure(config: GlazeConfig): void {
 /**
  * Compose multiple themes into a palette.
  */
-glaze.palette = function palette(themes: PaletteInput) {
-  return createPalette(themes);
+glaze.palette = function palette(
+  themes: PaletteInput,
+  options?: GlazePaletteOptions,
+) {
+  return createPalette(themes, options);
 };
 
 /**
