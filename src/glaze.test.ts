@@ -688,6 +688,69 @@ describe('glaze', () => {
       expect(resolved.has('surface')).toBe(true);
       expect(resolved.get('fill')!.mode).toBe('fixed');
     });
+
+    it('excludes colors with inherit: false', () => {
+      const primary = glaze(280, 80);
+      primary.colors({
+        surface: { lightness: 97 },
+        internalFill: { lightness: 52, inherit: false },
+        text: { base: 'surface', contrast: 'AAA' },
+      });
+
+      const child = primary.extend({ hue: 23 });
+      expect(child.has('surface')).toBe(true);
+      expect(child.has('text')).toBe(true);
+      expect(child.has('internalFill')).toBe(false);
+    });
+
+    it('allows re-providing a non-inherited color via extend colors', () => {
+      const primary = glaze(280, 80);
+      primary.colors({
+        surface: { lightness: 97 },
+        fill: { lightness: 52, inherit: false },
+      });
+
+      const child = primary.extend({
+        hue: 23,
+        colors: {
+          fill: { lightness: 60 },
+        },
+      });
+
+      expect(child.has('fill')).toBe(true);
+      const resolved = child.resolve();
+      expect(resolved.has('fill')).toBe(true);
+    });
+
+    it('inherit: false survives export/from round-trip', () => {
+      const primary = glaze(280, 80);
+      primary.colors({
+        surface: { lightness: 97 },
+        local: { lightness: 50, inherit: false },
+      });
+
+      const exported = primary.export();
+      const restored = glaze.from(exported);
+
+      expect(restored.has('local')).toBe(true);
+
+      const child = restored.extend({ hue: 100 });
+      expect(child.has('surface')).toBe(true);
+      expect(child.has('local')).toBe(false);
+    });
+
+    it('throws when a dependent of a non-inherited color is resolved', () => {
+      const primary = glaze(280, 80);
+      primary.colors({
+        surface: { lightness: 97, inherit: false },
+        text: { base: 'surface', contrast: 'AAA' },
+      });
+
+      const child = primary.extend({ hue: 23 });
+      expect(child.has('surface')).toBe(false);
+      expect(child.has('text')).toBe(true);
+      expect(() => child.resolve()).toThrow(/non-existent base/);
+    });
   });
 
   describe('token export', () => {
