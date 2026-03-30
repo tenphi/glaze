@@ -471,6 +471,47 @@ describe('glaze', () => {
       // l_d = 100 * 0.05825 ≈ 5.83
       expect(surface.darkContrast.l).toBeCloseTo(0.0583, 2);
     });
+
+    it('accepts [normal, hc] pair for separate HC curve', () => {
+      glaze.configure({ darkCurve: [0.5, 0.3] });
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // Normal dark: beta=0.5, lightL=97.3, t=2.7/90=0.03
+      // Möbius(0.03, 0.5) = 0.03/0.515 ≈ 0.05825, l_d = 15+80*0.05825 ≈ 19.66
+      expect(surface.dark.l).toBeCloseTo(0.1966, 2);
+
+      // HC dark: beta=0.3, t=(100-97)/100=0.03
+      // Möbius(0.03, 0.3) = 0.03/(0.03+0.3*0.97) = 0.03/0.321 ≈ 0.09346
+      // l_d = 100*0.09346 ≈ 9.35
+      expect(surface.darkContrast.l).toBeCloseTo(0.0935, 2);
+
+      glaze.resetConfig();
+    });
+
+    it('single darkCurve number applies to both normal and HC', () => {
+      glaze.configure({ darkCurve: 0.5 });
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { lightness: 97 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      // Both use beta=0.5
+      // Normal dark: lightL=97.3, t=0.03, Möbius ≈ 0.05825, l_d = 15+80*0.05825 ≈ 19.66
+      expect(surface.dark.l).toBeCloseTo(0.1966, 2);
+      // HC dark: t=0.03, Möbius ≈ 0.05825, l_d = 100*0.05825 ≈ 5.83
+      expect(surface.darkContrast.l).toBeCloseTo(0.0583, 2);
+
+      glaze.resetConfig();
+    });
   });
 
   describe('dark scheme', () => {
