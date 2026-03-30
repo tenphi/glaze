@@ -399,36 +399,49 @@ export interface GlazeCssResult {
   darkContrast: string;
 }
 
-/** Options shared by palette `tokens()`, `tasty()`, and `css()` exports. */
-export interface GlazePaletteExportOptions {
-  /**
-   * Prefix mode. `true` uses `"<themeName>-"`, or provide a custom map.
-   * Defaults to `true` for palette export methods.
-   * Set to `false` explicitly to disable prefixing (last-write-wins on collisions).
-   */
-  prefix?: boolean | Record<string, string>;
+/** Options for `glaze.palette()` creation. */
+export interface GlazePaletteOptions {
   /**
    * Name of the primary theme. The primary theme's tokens are duplicated
-   * without prefix, providing convenient short aliases alongside the
-   * prefixed versions.
+   * without prefix in all exports, providing convenient short aliases
+   * alongside the prefixed versions. Can be overridden per-export.
    *
    * @example
    * ```ts
-   * palette.tokens({ primary: 'brand' })
+   * const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+   * palette.tokens()
    * // → { light: { 'brand-surface': '...', 'surface': '...', 'accent-surface': '...' } }
    * ```
    */
   primary?: string;
 }
 
+/** Options shared by palette `tokens()`, `tasty()`, and `css()` exports. */
+export interface GlazePaletteExportOptions {
+  /**
+   * Prefix mode. `true` uses `"<themeName>-"`, or provide a custom map.
+   * Defaults to `true` for palette export methods.
+   * Set to `false` explicitly to disable prefixing. Colliding keys
+   * produce a console.warn and the first-written value wins.
+   */
+  prefix?: boolean | Record<string, string>;
+  /**
+   * Override the palette-level primary theme for this export.
+   * Pass a theme name to set/change the primary, or `false` to disable it.
+   * When omitted, inherits the palette-level `primary`.
+   */
+  primary?: string | false;
+}
+
 export interface GlazePalette {
   /**
    * Export all themes as a flat token map grouped by scheme variant.
    * Prefix defaults to `true` — all tokens are prefixed with the theme name.
-   * Use `primary` to duplicate one theme's tokens without prefix.
+   * Inherits the palette-level `primary`; override per-call or pass `false` to disable.
    *
    * ```ts
-   * palette.tokens({ primary: 'brand' })
+   * const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+   * palette.tokens()
    * // → { light: { 'brand-surface': '...', 'surface': '...', 'accent-surface': '...' } }
    * ```
    */
@@ -439,11 +452,11 @@ export interface GlazePalette {
   /**
    * Export all themes as tasty style-to-state bindings.
    * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
-   * Prefix defaults to `true`. Use `primary` to duplicate one theme without prefix.
+   * Prefix defaults to `true`. Inherits the palette-level `primary`.
    * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
    */
   tasty(
-    options?: GlazeTokenOptions & { primary?: string },
+    options?: GlazeTokenOptions & GlazePaletteExportOptions,
   ): Record<string, Record<string, string>>;
 
   /** Export all themes as plain JSON grouped by theme name. */

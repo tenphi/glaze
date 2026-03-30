@@ -984,6 +984,187 @@ describe('glaze', () => {
       expect(tokens.light['surface']).toBeDefined();
       expect(tokens.light['primary-surface']).toBeUndefined();
     });
+
+    it('palette-level primary produces unprefixed tokens (tokens)', () => {
+      const brand = glaze(280, 80);
+      brand.colors({ surface: { lightness: 97 } });
+
+      const accent = brand.extend({ hue: 23 });
+
+      const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+      const tokens = palette.tokens();
+
+      expect(tokens.light['brand-surface']).toBeDefined();
+      expect(tokens.light['accent-surface']).toBeDefined();
+      expect(tokens.light['surface']).toBeDefined();
+      expect(tokens.light['surface']).toBe(tokens.light['brand-surface']);
+    });
+
+    it('palette-level primary produces unprefixed tokens (tasty)', () => {
+      const brand = glaze(280, 80);
+      brand.colors({ surface: { lightness: 97 } });
+
+      const accent = brand.extend({ hue: 23 });
+
+      const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+      const tokens = palette.tasty();
+
+      expect(tokens['#brand-surface']).toBeDefined();
+      expect(tokens['#accent-surface']).toBeDefined();
+      expect(tokens['#surface']).toBeDefined();
+      expect(tokens['#surface']['']).toBe(tokens['#brand-surface']['']);
+    });
+
+    it('palette-level primary produces unprefixed tokens (css)', () => {
+      const brand = glaze(280, 80);
+      brand.colors({ surface: { lightness: 97 } });
+
+      const accent = brand.extend({ hue: 23 });
+
+      const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+      const css = palette.css();
+
+      expect(css.light).toMatch(/--brand-surface-color: rgb\(/);
+      expect(css.light).toMatch(/--accent-surface-color: rgb\(/);
+      expect(css.light).toMatch(/--surface-color: rgb\(/);
+    });
+
+    it('per-export primary overrides palette-level primary (tokens)', () => {
+      const brand = glaze(280, 80);
+      brand.colors({ surface: { lightness: 97 } });
+
+      const accent = brand.extend({ hue: 23 });
+
+      const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+      const tokens = palette.tokens({ primary: 'accent' });
+
+      expect(tokens.light['brand-surface']).toBeDefined();
+      expect(tokens.light['accent-surface']).toBeDefined();
+      expect(tokens.light['surface']).toBeDefined();
+      expect(tokens.light['surface']).toBe(tokens.light['accent-surface']);
+    });
+
+    it('per-export primary: false disables palette-level primary', () => {
+      const brand = glaze(280, 80);
+      brand.colors({ surface: { lightness: 97 } });
+
+      const accent = brand.extend({ hue: 23 });
+
+      const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+      const tokens = palette.tokens({ primary: false });
+
+      expect(tokens.light['brand-surface']).toBeDefined();
+      expect(tokens.light['accent-surface']).toBeDefined();
+      expect(tokens.light['surface']).toBeUndefined();
+    });
+
+    it('invalid palette-level primary throws at creation time', () => {
+      const brand = glaze(280, 80);
+      brand.colors({ surface: { lightness: 97 } });
+
+      expect(() =>
+        glaze.palette({ brand }, { primary: 'nonexistent' }),
+      ).toThrow(/primary theme "nonexistent" not found/);
+    });
+
+    it('collision with prefix: false warns and skips (first-write-wins)', () => {
+      const a = glaze(280, 80);
+      a.colors({ surface: { lightness: 97 } });
+
+      const b = a.extend({ hue: 23 });
+
+      const palette = glaze.palette({ a, b });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+
+      const tokens = palette.tokens({ prefix: false });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('token "surface" from theme "b" collides'),
+      );
+      expect(tokens.light['surface']).toBeDefined();
+
+      const aOnly = glaze.palette({ a }).tokens({ prefix: false });
+      expect(tokens.light['surface']).toBe(aOnly.light['surface']);
+
+      warnSpy.mockRestore();
+    });
+
+    it('collision with prefix: false warns for tasty export too', () => {
+      const a = glaze(280, 80);
+      a.colors({ surface: { lightness: 97 } });
+
+      const b = a.extend({ hue: 23 });
+
+      const palette = glaze.palette({ a, b });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+
+      const tokens = palette.tasty({ prefix: false });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('token "surface" from theme "b" collides'),
+      );
+      expect(tokens['#surface']).toBeDefined();
+
+      const aOnly = glaze.palette({ a }).tasty({ prefix: false });
+      expect(tokens['#surface']['']).toBe(aOnly['#surface']['']);
+
+      warnSpy.mockRestore();
+    });
+
+    it('collision with prefix: false warns for css export too', () => {
+      const a = glaze(280, 80);
+      a.colors({ surface: { lightness: 97 } });
+
+      const b = a.extend({ hue: 23 });
+
+      const palette = glaze.palette({ a, b });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+
+      palette.css({ prefix: false });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('token "surface" from theme "b" collides'),
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('primary unprefixed alias does not collide when prefixed', () => {
+      const a = glaze(280, 80);
+      a.colors({ surface: { lightness: 97 } });
+
+      const b = a.extend({ hue: 23 });
+
+      const palette = glaze.palette({ a, b }, { primary: 'b' });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+
+      const tokens = palette.tokens();
+
+      expect(tokens.light['a-surface']).toBeDefined();
+      expect(tokens.light['b-surface']).toBeDefined();
+      expect(tokens.light['surface']).toBeDefined();
+      expect(tokens.light['surface']).toBe(tokens.light['b-surface']);
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+
+    it('primary with prefix: false warns on collision', () => {
+      const a = glaze(280, 80);
+      a.colors({ surface: { lightness: 97 } });
+
+      const b = a.extend({ hue: 23 });
+
+      const palette = glaze.palette({ a, b }, { primary: 'b' });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+
+      const tokens = palette.tokens({ prefix: false });
+
+      expect(tokens.light['surface']).toBeDefined();
+      expect(warnSpy).toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
   });
 
   describe('configure', () => {
@@ -2198,8 +2379,7 @@ describe('glaze', () => {
     });
 
     it('warns when contrast and opacity are combined', () => {
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
 
       const theme = glaze(280, 80);
       theme.colors({

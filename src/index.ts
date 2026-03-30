@@ -37,6 +37,7 @@ export type {
   GlazeColorToken,
   GlazeShadowInput,
   GlazePalette,
+  GlazePaletteOptions,
   GlazePaletteExportOptions,
 } from './types';
 
