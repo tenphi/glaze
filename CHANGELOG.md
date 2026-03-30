@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.9.1
+
+### Patch Changes
+
+- [#44](https://github.com/tenphi/glaze/pull/44) [`50340c4`](https://github.com/tenphi/glaze/commit/50340c4cd8f91794c19a7d452b2591a4e5a37d18) Thanks [@tenphi](https://github.com/tenphi)! - `darkCurve` now accepts a `[normal, highContrast]` pair for separate HC tuning.
+
 ## 0.9.0
 
 ### Minor Changes
