@@ -1,5 +1,17 @@
 # @tenphi/glaze
 
+## 0.9.0
+
+### Minor Changes
+
+- [#43](https://github.com/tenphi/glaze/pull/43) [`0575838`](https://github.com/tenphi/glaze/commit/057583807a0fa2469217a29a925b1b82018e55b8) Thanks [@tenphi](https://github.com/tenphi)! - Move `primary` option from per-export to `glaze.palette()` creation, add collision detection (warn + first-write-wins) across all palette export methods.
+
+### Patch Changes
+
+- [#40](https://github.com/tenphi/glaze/pull/40) [`c47cfd2`](https://github.com/tenphi/glaze/commit/c47cfd2d39268e9443bfca815ddfcc836bad58cd) Thanks [@tenphi](https://github.com/tenphi)! - Unify dark/HC lightness mapping into a single code path via `lightnessWindow` helper.
+
+- [#42](https://github.com/tenphi/glaze/pull/42) [`941338a`](https://github.com/tenphi/glaze/commit/941338ab3a75a831f2da4ce0fbeff4c1839405a9) Thanks [@tenphi](https://github.com/tenphi)! - `darkCurve` now accepts a `[normal, highContrast]` pair for separate HC tuning.
+
 ## 0.8.0
 
 ### Minor Changes
