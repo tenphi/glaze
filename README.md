@@ -776,9 +776,9 @@ palette.tokens({ prefix: { primary: 'p-', danger: 'd-' } });
 
 An error is thrown if the primary name doesn't match any theme in the palette.
 
-### Tasty Export (for [Tasty](https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs) style system)
+### Tasty Export (for [Tasty](https://tasty.style) style system)
 
-The `tasty()` method exports tokens in the [Tasty](https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs) style-to-state binding format — `#name` color token keys with state aliases (`''`, `@dark`, etc.):
+The `tasty()` method exports tokens in the [Tasty](https://tasty.style/docs) style-to-state binding format — `#name` color token keys with state aliases (`''`, `@dark`, etc.). See the [Playground](https://tasty.style/playground) for live examples of Glaze integration:
 
 ```ts
 const palette = glaze.palette(
@@ -1146,7 +1146,7 @@ brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '
 | `theme.extend(options)` | Create a child theme |
 | `theme.resolve()` | Resolve all colors |
 | `theme.tokens(options?)` | Export as flat token map grouped by variant |
-| `theme.tasty(options?)` | Export as [Tasty](https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs) style-to-state bindings |
+| `theme.tasty(options?)` | Export as [Tasty](https://tasty.style/docs) style-to-state bindings |
 | `theme.json(options?)` | Export as plain JSON |
 | `theme.css(options?)` | Export as CSS custom property declarations |
 

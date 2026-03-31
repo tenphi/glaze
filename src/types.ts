@@ -300,7 +300,7 @@ export interface GlazeColorToken {
   /**
    * Export as a tasty style-to-state binding (no color name key).
    * Uses `#name` keys and state aliases (`''`, `@dark`, etc.).
-   * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
+   * @see https://tasty.style/docs
    */
   tasty(options?: GlazeTokenOptions): Record<string, string>;
   /** Export as a flat JSON map (no color name key). */
@@ -360,7 +360,7 @@ export interface GlazeTheme {
    * Export as tasty style-to-state bindings.
    * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
    * Spread into component styles or register as a recipe via `configure({ recipes })`.
-   * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
+   * @see https://tasty.style/docs
    */
   tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
 
@@ -471,7 +471,7 @@ export interface GlazePalette {
    * Export all themes as tasty style-to-state bindings.
    * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
    * Prefix defaults to `true`. Inherits the palette-level `primary`.
-   * @see https://cube-ui-kit.vercel.app/?path=/docs/tasty-documentation--docs
+   * @see https://tasty.style/docs
    */
   tasty(
     options?: GlazeTokenOptions & GlazePaletteExportOptions,
