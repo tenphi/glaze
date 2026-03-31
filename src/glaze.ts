@@ -103,7 +103,7 @@ const DEFAULT_SHADOW_TUNING: Required<ShadowTuning> = {
   minGapTarget: 0.05,
   alphaMax: 1.0,
   bgHueBlend: 0.2,
-  darkShadowCurve: 0.5,
+  darkShadowCurve: 0.4,
 };
 
 function resolveShadowTuning(perColor?: ShadowTuning): Required<ShadowTuning> {

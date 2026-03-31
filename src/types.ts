@@ -109,7 +109,7 @@ export interface ShadowTuning {
    */
   bgHueBlend?: number;
   /**
-   * Power curve for dark-scheme shadow alpha (0-1). Default: 0.5.
+   * Power curve for dark-scheme shadow alpha (0-1). Default: 0.4.
    * Lower values compress low/mid-intensity shadows more aggressively.
    * 1.0 = no dampening (identity).
    */
