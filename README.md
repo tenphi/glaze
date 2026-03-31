@@ -390,6 +390,7 @@ Available tuning parameters:
 | `minGapTarget` | 0.05 | Target minimum gap between pigment and bg lightness |
 | `alphaMax` | 0.6 | Asymptotic maximum alpha |
 | `bgHueBlend` | 0.2 | Blend weight pulling pigment hue toward bg hue |
+| `darkShadowCurve` | 0.5 | Power curve for dark-scheme alpha (0-1). Lower = more dampening; 1 = no dampening |
 
 ### Standalone Shadow Computation
 
@@ -963,6 +964,7 @@ glaze.configure({
   shadowTuning: {              // Default tuning for all shadow colors
     alphaMax: 0.6,
     bgHueBlend: 0.2,
+    darkShadowCurve: 0.5,      // Power curve for dark-scheme alpha dampening (0-1)
   },
 });
 ```

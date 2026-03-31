@@ -108,6 +108,12 @@ export interface ShadowTuning {
    * 0 = pure fg hue, 1 = pure bg hue. Default: 0.2.
    */
   bgHueBlend?: number;
+  /**
+   * Power curve for dark-scheme shadow alpha (0-1). Default: 0.5.
+   * Lower values compress low/mid-intensity shadows more aggressively.
+   * 1.0 = no dampening (identity).
+   */
+  darkShadowCurve?: number;
 }
 
 export interface ShadowColorDef {
@@ -276,6 +282,8 @@ export interface GlazeShadowInput {
   /** Intensity 0-100. */
   intensity: number;
   tuning?: ShadowTuning;
+  /** Whether to apply dark-scheme dampening. Default: false. */
+  dark?: boolean;
 }
 
 // ============================================================================

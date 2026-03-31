@@ -103,6 +103,7 @@ const DEFAULT_SHADOW_TUNING: Required<ShadowTuning> = {
   minGapTarget: 0.05,
   alphaMax: 1.0,
   bgHueBlend: 0.2,
+  darkShadowCurve: 0.5,
 };
 
 function resolveShadowTuning(perColor?: ShadowTuning): Required<ShadowTuning> {
@@ -696,7 +697,15 @@ function resolveShadowForScheme(
     : pairNormal(def.intensity);
 
   const tuning = resolveShadowTuning(def.tuning);
-  return computeShadow(bgVariant, fgVariant, intensity, tuning);
+  const result = computeShadow(bgVariant, fgVariant, intensity, tuning);
+
+  if (isDark && tuning.darkShadowCurve < 1 && result.alpha > 0) {
+    const normalized = result.alpha / tuning.alphaMax;
+    const exponent = 1 / tuning.darkShadowCurve;
+    result.alpha = tuning.alphaMax * Math.pow(normalized, exponent);
+  }
+
+  return result;
 }
 
 function variantToLinearRgb(v: ResolvedColorVariant): LinearRgb {
@@ -1632,12 +1641,20 @@ glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
   const bg = parseOkhslInput(input.bg);
   const fg = input.fg ? parseOkhslInput(input.fg) : undefined;
   const tuning = resolveShadowTuning(input.tuning);
-  return computeShadow(
+  const result = computeShadow(
     { ...bg, alpha: 1 },
     fg ? { ...fg, alpha: 1 } : undefined,
     input.intensity,
     tuning,
   );
+
+  if (input.dark && tuning.darkShadowCurve < 1 && result.alpha > 0) {
+    const normalized = result.alpha / tuning.alphaMax;
+    const exponent = 1 / tuning.darkShadowCurve;
+    result.alpha = tuning.alphaMax * Math.pow(normalized, exponent);
+  }
+
+  return result;
 };
 
 /**

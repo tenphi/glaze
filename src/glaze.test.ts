@@ -2317,6 +2317,110 @@ describe('glaze', () => {
 
       expect(shadow.light.alpha).toBeLessThan(0.3 + 0.001);
     });
+
+    it('darkShadowCurve=1 preserves old behavior (no dampening)', () => {
+      glaze.configure({ shadowTuning: { darkShadowCurve: 1 } });
+
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+      });
+
+      const resolved = theme.resolve();
+      const shadow = resolved.get('shadow-md')!;
+
+      expect(shadow.dark.alpha).toBeGreaterThan(shadow.light.alpha * 2);
+    });
+
+    it('default darkShadowCurve dampens dark alpha', () => {
+      const themeUndampened = glaze(280, 80);
+      themeUndampened.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 12,
+          tuning: { darkShadowCurve: 1 },
+        },
+      });
+
+      const themeDampened = glaze(280, 80);
+      themeDampened.colors({
+        surface: { lightness: 95 },
+        text: { lightness: 15, base: 'surface', contrast: 'AA' },
+        'shadow-md': {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 12,
+        },
+      });
+
+      const undampened = themeUndampened.resolve().get('shadow-md')!;
+      const dampened = themeDampened.resolve().get('shadow-md')!;
+
+      expect(undampened.light.alpha).toBeCloseTo(dampened.light.alpha, 6);
+      expect(dampened.dark.alpha).toBeLessThan(undampened.dark.alpha);
+    });
+
+    it('darkShadowCurve preserves endpoints (0 and alphaMax)', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        white: { lightness: 100, mode: 'static' },
+        black: { lightness: 0, mode: 'static' },
+        'shadow-zero': {
+          type: 'shadow',
+          bg: 'white',
+          fg: 'black',
+          intensity: 0,
+        },
+        'shadow-full': {
+          type: 'shadow',
+          bg: 'white',
+          fg: 'black',
+          intensity: 100,
+        },
+      });
+
+      const resolved = theme.resolve();
+
+      expect(resolved.get('shadow-zero')!.dark.alpha).toBe(0);
+      expect(resolved.get('shadow-full')!.dark.alpha).toBeCloseTo(1.0, 6);
+    });
+
+    it('per-color darkShadowCurve override works', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { lightness: 95 },
+        'shadow-default': {
+          type: 'shadow',
+          bg: 'surface',
+          intensity: 12,
+        },
+        'shadow-aggressive': {
+          type: 'shadow',
+          bg: 'surface',
+          intensity: 12,
+          tuning: { darkShadowCurve: 0.25 },
+        },
+      });
+
+      const resolved = theme.resolve();
+      const def = resolved.get('shadow-default')!;
+      const agg = resolved.get('shadow-aggressive')!;
+
+      expect(def.light.alpha).toBeCloseTo(agg.light.alpha, 6);
+      expect(agg.dark.alpha).toBeLessThan(def.dark.alpha);
+    });
   });
 
   describe('shadow validation', () => {
