@@ -259,7 +259,7 @@ export function findLightnessForContrast(
 
   const target = resolveMinContrast(contrastInput);
   // Overshoot absorbs rounding in the OKHSL pipeline and OKLCH formatting
-  const searchTarget = target * 1.007;
+  const searchTarget = target * 1.01;
   const yBase = gamutClampedLuminance(baseLinearRgb);
 
   const yPref = cachedLuminance(hue, saturation, preferredLightness);
