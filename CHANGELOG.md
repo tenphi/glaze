@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.9.3
+
+### Patch Changes
+
+- [`762c204`](https://github.com/tenphi/glaze/commit/762c204123a237c2dd11f046f2e825315b9f351a) Thanks [@tenphi](https://github.com/tenphi)! - Unify contrast search overshoot to 1% in both lightness and mix solvers.
+
 ## 0.9.2
 
 ### Patch Changes
