@@ -444,7 +444,12 @@ const linearSrgbToOklab = (rgb: Vec3): Vec3 => {
   return transform(lms_, LMS_to_OKLab_M);
 };
 
-const oklabToOkhsl = (lab: Vec3): Vec3 => {
+/**
+ * Convert OKLab to OKHSL.
+ * Input: [L, a, b] where L: 0–1, a/b: roughly -0.5 to 0.5.
+ * Returns [h, s, l] where h: 0–360, s: 0–1, l: 0–1.
+ */
+export const oklabToOkhsl = (lab: Vec3): Vec3 => {
   const L = lab[0];
   const a = lab[1];
   const b = lab[2];
@@ -503,6 +508,42 @@ export function srgbToOkhsl(
   ];
   const oklab = linearSrgbToOklab(linear);
   return oklabToOkhsl(oklab) as [number, number, number];
+}
+
+/**
+ * Convert CSS HSL (sRGB-based) to gamma-encoded sRGB [r, g, b] in 0–1 range.
+ * h: 0–360, s: 0–1, l: 0–1.
+ *
+ * Note: CSS HSL is not the same as OKHSL — it's HSL in the sRGB color space.
+ * Use this when parsing `hsl(...)` strings before passing to `srgbToOkhsl`.
+ */
+export function hslToSrgb(
+  h: number,
+  s: number,
+  l: number,
+): [number, number, number] {
+  const hh = (((h % 360) + 360) % 360) / 360;
+  const ss = clampVal(s, 0, 1);
+  const ll = clampVal(l, 0, 1);
+
+  if (ss === 0) {
+    return [ll, ll, ll];
+  }
+
+  const q = ll < 0.5 ? ll * (1 + ss) : ll + ss - ll * ss;
+  const p = 2 * ll - q;
+
+  const hueToChannel = (t: number): number => {
+    let tt = t;
+    if (tt < 0) tt += 1;
+    if (tt > 1) tt -= 1;
+    if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+    if (tt < 1 / 2) return q;
+    if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+    return p;
+  };
+
+  return [hueToChannel(hh + 1 / 3), hueToChannel(hh), hueToChannel(hh - 1 / 3)];
 }
 
 /**

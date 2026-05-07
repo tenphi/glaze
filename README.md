@@ -265,13 +265,70 @@ Create a single color token without a full theme:
 ```ts
 const accent = glaze.color({ hue: 280, saturation: 80, lightness: 52, mode: 'fixed' });
 
-accent.resolve();  // → ResolvedColor with light/dark/lightContrast/darkContrast
-accent.token();    // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }  (tasty format)
-accent.tasty();    // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }  (same as token)
-accent.json();     // → { light: 'okhsl(...)', dark: 'okhsl(...)' }
+accent.resolve();          // → ResolvedColor with light/dark/lightContrast/darkContrast
+accent.token();            // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }  (tasty format)
+accent.tasty();            // → { '': 'okhsl(...)', '@dark': 'okhsl(...)' }  (same as token)
+accent.json();             // → { light: 'okhsl(...)', dark: 'okhsl(...)' }
+accent.css({ name: 'accent' });
+// → { light: '--accent-color: rgb(...);', dark: '--accent-color: rgb(...);', ... }
 ```
 
-Standalone colors are always root colors (no `base`/`contrast`).
+### Value Shorthand
+
+The first argument can also be a color value — Glaze extracts the seed
+hue/saturation/lightness for you. All forms support the same exports
+(`resolve / token / tasty / json / css`):
+
+```ts
+// Hex (3 or 6 digits)
+glaze.color('#26fcb2').tasty();
+
+// CSS color functions Glaze itself emits (`rgb()`, `hsl()`, `okhsl()`, `oklch()`)
+// — anything from theme.tasty()/json()/css() round-trips back in.
+glaze.color('rgb(38 252 178)').tasty();
+glaze.color('hsl(152 97% 57%)').tasty();
+glaze.color('okhsl(152 95% 74%)').tasty();
+glaze.color('oklch(0.85 0.18 152)').tasty();
+
+// OKHSL object — Glaze's native shape (h: 0–360, s/l: 0–1)
+glaze.color({ h: 152, s: 0.95, l: 0.74 }).tasty();
+
+// RGB tuple, 0–255 (same range as glaze.fromRgb)
+glaze.color([38, 252, 178]).tasty();
+```
+
+Optional second argument supplies overrides — including `base` (any color
+value), the WCAG `contrast` solver, and relative `hue` / `lightness`:
+
+```ts
+// Brand color seeded from a hex, with seed/lightness/mode overrides
+glaze.color('#26fcb2', { saturation: 80, mode: 'fixed' }).tasty();
+
+// Brand text guaranteed AAA against a brand-tinted dark surface
+glaze.color('#26fcb2', {
+  base: '#1a1a2e',           // any GlazeColorValue
+  lightness: '+48',          // relative offset from base lightness
+  contrast: 'AAA',
+  mode: 'fixed',
+}).tasty();
+```
+
+All overrides:
+
+| Option | Notes |
+|---|---|
+| `hue` | Number (absolute 0–360) or `'+N'`/`'-N'` (relative to seed) |
+| `saturation` | Override seed saturation (0–100) |
+| `lightness` | Number (absolute 0–100) or `'+N'`/`'-N'` (relative to base — requires `base`). Supports `[normal, hc]` pairs |
+| `saturationFactor` | Multiplier on seed (0–1, default 1) |
+| `mode` | `'auto'` (default) / `'fixed'` / `'static'` — see [Adaptation Modes](#adaptation-modes) |
+| `base` | Any `GlazeColorValue` — required for relative `lightness` and `contrast` |
+| `contrast` | WCAG floor against `base`. Same shape as `RegularColorDef.contrast` |
+
+Alpha components in `rgb(... / A)` / `hsl(... / A)` / `rgba(...)` / `hsla(...)` are
+parsed but the alpha channel is dropped with a `console.warn` (standalone
+colors have no opacity field — use `opacity` on a theme color if you need
+alpha). Named CSS colors (`'red'`, `'blueviolet'`) are not supported.
 
 ## From Existing Colors
 
@@ -567,7 +624,7 @@ theme.tokens({ format: 'hsl' });       // → 'hsl(270.5 45.2% 95.8%)'
 theme.tokens({ format: 'oklch' });     // → 'oklch(0.965 0.0123 280)'
 ```
 
-The `format` option works on all export methods: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `palette.tokens()`, `palette.tasty()`, `palette.json()`, `palette.css()`, and standalone `glaze.color().token()` / `.tasty()` / `.json()`.
+The `format` option works on all export methods: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `palette.tokens()`, `palette.tasty()`, `palette.json()`, `palette.css()`, and standalone `glaze.color().token()` / `.tasty()` / `.json()` / `.css()`.
 
 Colors with `alpha < 1` (shadow colors, or regular colors with `opacity`) include an alpha component:
 
@@ -1127,7 +1184,8 @@ brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '
 | `glaze.from(data)` | Create a theme from an exported configuration |
 | `glaze.fromHex(hex)` | Create a theme from a hex color (`#rgb` or `#rrggbb`) |
 | `glaze.fromRgb(r, g, b)` | Create a theme from RGB values (0–255) |
-| `glaze.color(input)` | Create a standalone color token |
+| `glaze.color(input)` | Create a standalone color token from `{ hue, saturation, lightness, ... }` |
+| `glaze.color(value, overrides?)` | Create a standalone color token from a hex string, an `rgb()` / `hsl()` / `okhsl()` / `oklch()` string, an `{ h, s, l }` OKHSL object, or an `[r, g, b]` (0–255) tuple. Overrides accept absolute or relative `hue` / `lightness`, `saturation`, `mode`, `base` (any value form), and `contrast` |
 | `glaze.shadow(input)` | Compute a standalone shadow color (returns `ResolvedColorVariant`) |
 | `glaze.format(variant, format?)` | Format any `ResolvedColorVariant` as a CSS string |
 

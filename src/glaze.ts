@@ -14,6 +14,8 @@ import {
   formatHsl,
   formatOklch,
   srgbToOkhsl,
+  hslToSrgb,
+  oklabToOkhsl,
   parseHex,
 } from './okhsl-color-math';
 import {
@@ -48,6 +50,9 @@ import type {
   GlazePaletteExportOptions,
   GlazeColorInput,
   GlazeColorToken,
+  GlazeColorValue,
+  GlazeColorOverrides,
+  GlazeColorCssOptions,
   GlazeShadowInput,
   OkhslColor,
 } from './types';
@@ -1494,64 +1499,271 @@ function createPalette(
 // Standalone color token
 // ============================================================================
 
-function createColorToken(input: GlazeColorInput): GlazeColorToken {
-  const colorDef: RegularColorDef = {
-    lightness: input.lightness,
-    saturation: input.saturationFactor,
-    mode: input.mode,
-  };
+/** Matches CSS color functions Glaze itself emits, plus their legacy alpha aliases. */
+const COLOR_FN_RE = /^(rgba?|hsla?|okhsl|oklch)\(\s*([^)]*)\s*\)$/i;
 
-  const defs: ColorMap = { __color__: colorDef };
+function parseNumberOrPercent(raw: string, percentScale: number): number {
+  if (raw.endsWith('%')) {
+    return (parseFloat(raw) / 100) * percentScale;
+  }
+  return parseFloat(raw);
+}
+
+function parseColorString(input: string): OkhslColor {
+  if (input.startsWith('#')) {
+    const rgb = parseHex(input);
+    if (!rgb) throw new Error(`glaze: invalid hex color "${input}".`);
+    const [h, s, l] = srgbToOkhsl(rgb);
+    return { h, s, l };
+  }
+
+  const m = input.match(COLOR_FN_RE);
+  if (!m) {
+    throw new Error(`glaze: unsupported color string "${input}".`);
+  }
+
+  const fn = m[1].toLowerCase();
+  const body = m[2].trim();
+
+  // Detect alpha:
+  // - Modern slash syntax:  `R G B / A`  or  `R, G, B / A`
+  // - Legacy comma syntax:  `R, G, B, A` (4 comma-separated)
+  let parts: string[];
+  let hasAlpha = false;
+
+  const slashIdx = body.indexOf('/');
+  if (slashIdx !== -1) {
+    parts = body
+      .slice(0, slashIdx)
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean);
+    hasAlpha = body.slice(slashIdx + 1).trim().length > 0;
+  } else {
+    parts = body.split(/[\s,]+/).filter(Boolean);
+    if (parts.length === 4) {
+      parts.pop();
+      hasAlpha = true;
+    }
+  }
+
+  if (hasAlpha) {
+    console.warn(
+      `glaze: alpha component dropped from "${input}" (standalone color has no opacity field).`,
+    );
+  }
+  if (parts.length !== 3) {
+    throw new Error(`glaze: expected 3 components in "${input}".`);
+  }
+
+  switch (fn) {
+    case 'rgb':
+    case 'rgba': {
+      const r = parseNumberOrPercent(parts[0], 255) / 255;
+      const g = parseNumberOrPercent(parts[1], 255) / 255;
+      const b = parseNumberOrPercent(parts[2], 255) / 255;
+      const [h, s, l] = srgbToOkhsl([r, g, b]);
+      return { h, s, l };
+    }
+    case 'hsl':
+    case 'hsla': {
+      const h = parseFloat(parts[0]);
+      const s = parseNumberOrPercent(parts[1], 1);
+      const l = parseNumberOrPercent(parts[2], 1);
+      const [oh, os, ol] = srgbToOkhsl(hslToSrgb(h, s, l));
+      return { h: oh, s: os, l: ol };
+    }
+    case 'okhsl': {
+      const h = parseFloat(parts[0]);
+      const s = parseNumberOrPercent(parts[1], 1);
+      const l = parseNumberOrPercent(parts[2], 1);
+      return { h, s, l };
+    }
+    case 'oklch': {
+      const L = parseNumberOrPercent(parts[0], 1);
+      const C = parseFloat(parts[1]);
+      const hDeg = parseFloat(parts[2]);
+      const hRad = (hDeg * Math.PI) / 180;
+      const a = C * Math.cos(hRad);
+      const b = C * Math.sin(hRad);
+      const [h, s, l] = oklabToOkhsl([L, a, b]);
+      return { h, s, l };
+    }
+  }
+  throw new Error(`glaze: unsupported color function "${fn}".`);
+}
+
+function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
+  if (typeof value === 'string') return parseColorString(value);
+  if (Array.isArray(value)) {
+    const [r, g, b] = value;
+    const [h, s, l] = srgbToOkhsl([r / 255, g / 255, b / 255]);
+    return { h, s, l };
+  }
+  return value;
+}
+
+interface ValueDefsResult {
+  seedHue: number;
+  seedSaturation: number;
+  defs: ColorMap;
+  primary: string;
+}
+
+function buildValueDefs(
+  main: OkhslColor,
+  options: GlazeColorOverrides | undefined,
+): ValueDefsResult {
+  const absoluteSeedHue =
+    typeof options?.hue === 'number' ? options.hue : main.h;
+  const seedSaturation = options?.saturation ?? main.s * 100;
+
+  const relativeHue =
+    typeof options?.hue === 'string' ? options.hue : undefined;
+
+  if (options?.base !== undefined) {
+    const baseOkhsl = extractOkhslFromValue(options.base);
+    const baseSatFactor =
+      seedSaturation > 0
+        ? Math.min((baseOkhsl.s * 100) / seedSaturation, 1)
+        : 0;
+
+    const defs: ColorMap = {
+      __base__: {
+        hue: baseOkhsl.h,
+        saturation: baseSatFactor,
+        lightness: baseOkhsl.l * 100,
+        mode: options.mode,
+      },
+      __color__: {
+        base: '__base__',
+        hue: relativeHue,
+        saturation: options.saturationFactor,
+        lightness: options.lightness ?? main.l * 100,
+        contrast: options.contrast,
+        mode: options.mode,
+      },
+    };
+    return {
+      seedHue: absoluteSeedHue,
+      seedSaturation,
+      defs,
+      primary: '__color__',
+    };
+  }
+
+  const defs: ColorMap = {
+    __color__: {
+      hue: relativeHue,
+      saturation: options?.saturationFactor,
+      lightness: options?.lightness ?? main.l * 100,
+      // Forward contrast even without base so validateColorDefs throws the
+      // expected "contrast without base" error.
+      contrast: options?.contrast,
+      mode: options?.mode,
+    },
+  };
+  return {
+    seedHue: absoluteSeedHue,
+    seedSaturation,
+    defs,
+    primary: '__color__',
+  };
+}
+
+function createColorTokenFromDefs(
+  seedHue: number,
+  seedSaturation: number,
+  defs: ColorMap,
+  primary: string,
+): GlazeColorToken {
+  const resolveStates = (options?: GlazeTokenOptions) => ({
+    dark: options?.states?.dark ?? globalConfig.states.dark,
+    highContrast:
+      options?.states?.highContrast ?? globalConfig.states.highContrast,
+  });
 
   return {
     resolve(): ResolvedColor {
-      const resolved = resolveAllColors(input.hue, input.saturation, defs);
-      return resolved.get('__color__')!;
+      const resolved = resolveAllColors(seedHue, seedSaturation, defs);
+      return resolved.get(primary)!;
     },
 
     token(options?: GlazeTokenOptions): Record<string, string> {
-      const resolved = resolveAllColors(input.hue, input.saturation, defs);
-      const states = {
-        dark: options?.states?.dark ?? globalConfig.states.dark,
-        highContrast:
-          options?.states?.highContrast ?? globalConfig.states.highContrast,
-      };
-      const modes = resolveModes(options?.modes);
+      const resolved = resolveAllColors(seedHue, seedSaturation, defs);
       const tokenMap = buildTokenMap(
         resolved,
         '',
-        states,
-        modes,
+        resolveStates(options),
+        resolveModes(options?.modes),
         options?.format,
       );
-      return tokenMap['#__color__'];
+      return tokenMap[`#${primary}`];
     },
 
     tasty(options?: GlazeTokenOptions): Record<string, string> {
-      const resolved = resolveAllColors(input.hue, input.saturation, defs);
-      const states = {
-        dark: options?.states?.dark ?? globalConfig.states.dark,
-        highContrast:
-          options?.states?.highContrast ?? globalConfig.states.highContrast,
-      };
-      const modes = resolveModes(options?.modes);
+      const resolved = resolveAllColors(seedHue, seedSaturation, defs);
       const tokenMap = buildTokenMap(
         resolved,
         '',
-        states,
-        modes,
+        resolveStates(options),
+        resolveModes(options?.modes),
         options?.format,
       );
-      return tokenMap['#__color__'];
+      return tokenMap[`#${primary}`];
     },
 
     json(options?: GlazeJsonOptions): Record<string, string> {
-      const resolved = resolveAllColors(input.hue, input.saturation, defs);
-      const modes = resolveModes(options?.modes);
-      const jsonMap = buildJsonMap(resolved, modes, options?.format);
-      return jsonMap['__color__'];
+      const resolved = resolveAllColors(seedHue, seedSaturation, defs);
+      const jsonMap = buildJsonMap(
+        resolved,
+        resolveModes(options?.modes),
+        options?.format,
+      );
+      return jsonMap[primary];
+    },
+
+    css(options: GlazeColorCssOptions): GlazeCssResult {
+      const resolved = resolveAllColors(seedHue, seedSaturation, defs);
+      const renamed = new Map<string, ResolvedColor>([
+        [options.name, resolved.get(primary)!],
+      ]);
+      return buildCssMap(
+        renamed,
+        '',
+        options.suffix ?? '-color',
+        options.format ?? 'rgb',
+      );
     },
   };
+}
+
+function createColorToken(input: GlazeColorInput): GlazeColorToken {
+  const defs: ColorMap = {
+    __color__: {
+      lightness: input.lightness,
+      saturation: input.saturationFactor,
+      mode: input.mode,
+    },
+  };
+  return createColorTokenFromDefs(
+    input.hue,
+    input.saturation,
+    defs,
+    '__color__',
+  );
+}
+
+function createColorTokenFromValue(
+  value: GlazeColorValue,
+  options?: GlazeColorOverrides,
+): GlazeColorToken {
+  const main = extractOkhslFromValue(value);
+  const { seedHue, seedSaturation, defs, primary } = buildValueDefs(
+    main,
+    options,
+  );
+  return createColorTokenFromDefs(seedHue, seedSaturation, defs, primary);
 }
 
 // ============================================================================
@@ -1618,11 +1830,41 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
   return createTheme(data.hue, data.saturation, data.colors);
 };
 
+function isStructuredColorInput(
+  input: GlazeColorInput | GlazeColorValue,
+): input is GlazeColorInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    !Array.isArray(input) &&
+    'hue' in input &&
+    'lightness' in input
+  );
+}
+
 /**
  * Create a standalone single-color token.
+ *
+ * Two overloads:
+ * - `glaze.color(input)` — structured form: `{ hue, saturation, lightness, ... }`.
+ * - `glaze.color(value, overrides?)` — value-shorthand: a hex string,
+ *   one of the CSS color functions Glaze itself emits
+ *   (`rgb()`, `hsl()`, `okhsl()`, `oklch()`), an `OkhslColor` object
+ *   `{ h, s, l }`, or an `[r, g, b]` (0–255) tuple. Optional overrides
+ *   accept absolute or relative `hue` / `lightness`, `saturation`,
+ *   `mode`, `base` (any value form), and `contrast` against the base.
  */
-glaze.color = function color(input: GlazeColorInput): GlazeColorToken {
-  return createColorToken(input);
+glaze.color = function color(
+  input: GlazeColorInput | GlazeColorValue,
+  options?: GlazeColorOverrides,
+): GlazeColorToken {
+  if (isStructuredColorInput(input)) {
+    return createColorToken(input);
+  }
+  return createColorTokenFromValue(input, options);
+} as {
+  (input: GlazeColorInput): GlazeColorToken;
+  (value: GlazeColorValue, options?: GlazeColorOverrides): GlazeColorToken;
 };
 
 /**

@@ -1,5 +1,21 @@
 import { glaze } from './glaze';
+import {
+  contrastRatioFromLuminance,
+  okhslToLinearSrgb,
+  parseHex,
+  relativeLuminanceFromLinearRgb,
+  srgbToOkhsl,
+} from './okhsl-color-math';
 import type { ResolvedColorVariant } from './types';
+
+function variantContrast(
+  a: ResolvedColorVariant,
+  b: ResolvedColorVariant,
+): number {
+  const yA = relativeLuminanceFromLinearRgb(okhslToLinearSrgb(a.h, a.s, a.l));
+  const yB = relativeLuminanceFromLinearRgb(okhslToLinearSrgb(b.h, b.s, b.l));
+  return contrastRatioFromLuminance(yA, yB);
+}
 
 describe('glaze', () => {
   beforeEach(() => {
@@ -1647,6 +1663,377 @@ describe('glaze', () => {
 
       const hslJson = color.json({ format: 'hsl' });
       expect(hslJson.light).toMatch(/^hsl\(/);
+    });
+
+    describe('value-shorthand (hex)', () => {
+      it('accepts a 6-digit hex string', () => {
+        const color = glaze.color('#26fcb2');
+        const resolved = color.resolve();
+        const [expectedH] = srgbToOkhsl(parseHex('#26fcb2')!);
+        expect(resolved.light.h).toBeCloseTo(expectedH, 1);
+        expect(resolved.light.s).toBeGreaterThan(0);
+      });
+
+      it('extracts hue/saturation/lightness from the hex', () => {
+        const rgb = parseHex('#26fcb2')!;
+        const [h, s, l] = srgbToOkhsl(rgb);
+        const resolved = glaze.color('#26fcb2', { mode: 'static' }).resolve();
+        expect(resolved.light.h).toBeCloseTo(h, 1);
+        expect(resolved.light.s).toBeCloseTo(s, 2);
+        expect(resolved.light.l).toBeCloseTo(l, 2);
+      });
+
+      it('accepts a 3-digit hex string', () => {
+        expect(() => glaze.color('#abc').resolve()).not.toThrow();
+      });
+
+      it('throws on invalid hex', () => {
+        expect(() => glaze.color('#zzz').resolve()).toThrow('invalid hex');
+      });
+
+      it('matches the structured form when seeded with the same numbers', () => {
+        const rgb = parseHex('#26fcb2')!;
+        const [h, s, l] = srgbToOkhsl(rgb);
+        const fromHex = glaze.color('#26fcb2').resolve();
+        const fromStructured = glaze
+          .color({ hue: h, saturation: s * 100, lightness: l * 100 })
+          .resolve();
+        expect(fromHex.light.h).toBeCloseTo(fromStructured.light.h, 4);
+        expect(fromHex.light.s).toBeCloseTo(fromStructured.light.s, 4);
+        expect(fromHex.light.l).toBeCloseTo(fromStructured.light.l, 4);
+      });
+    });
+
+    describe('value-shorthand (CSS color functions)', () => {
+      it('parses rgb() with modern space syntax', () => {
+        const color = glaze.color('rgb(38 252 178)', { mode: 'static' });
+        const fromHex = glaze.color('#26fcb2', { mode: 'static' });
+        const a = color.resolve().light;
+        const b = fromHex.resolve().light;
+        expect(a.h).toBeCloseTo(b.h, 1);
+        expect(a.s).toBeCloseTo(b.s, 2);
+        expect(a.l).toBeCloseTo(b.l, 2);
+      });
+
+      it('parses rgb() with legacy comma syntax', () => {
+        const color = glaze.color('rgb(38, 252, 178)', { mode: 'static' });
+        const fromHex = glaze.color('#26fcb2', { mode: 'static' });
+        expect(color.resolve().light.h).toBeCloseTo(
+          fromHex.resolve().light.h,
+          1,
+        );
+      });
+
+      it('parses rgb() with percent components', () => {
+        const color = glaze.color('rgb(100% 0% 0%)', { mode: 'static' });
+        const fromHex = glaze.color('#ff0000', { mode: 'static' });
+        expect(color.resolve().light.h).toBeCloseTo(
+          fromHex.resolve().light.h,
+          1,
+        );
+      });
+
+      it('round-trips okhsl(...) emitted by formatOkhsl', () => {
+        const seed = glaze.color('#26fcb2', { mode: 'static' });
+        const json = seed.json({ format: 'okhsl' });
+        const reparsed = glaze
+          .color(json.light, { mode: 'static' })
+          .resolve().light;
+        const original = seed.resolve().light;
+        expect(reparsed.h).toBeCloseTo(original.h, 1);
+        expect(reparsed.s).toBeCloseTo(original.s, 3);
+        expect(reparsed.l).toBeCloseTo(original.l, 3);
+      });
+
+      it('round-trips hsl(...) emitted by formatHsl', () => {
+        const seed = glaze.color('#26fcb2', { mode: 'static' });
+        const json = seed.json({ format: 'hsl' });
+        const reparsed = glaze
+          .color(json.light, { mode: 'static' })
+          .resolve().light;
+        const original = seed.resolve().light;
+        expect(reparsed.h).toBeCloseTo(original.h, 0);
+        expect(reparsed.s).toBeCloseTo(original.s, 1);
+        expect(reparsed.l).toBeCloseTo(original.l, 1);
+      });
+
+      it('round-trips oklch(...) emitted by formatOklch', () => {
+        const seed = glaze.color('#26fcb2', { mode: 'static' });
+        const json = seed.json({ format: 'oklch' });
+        const reparsed = glaze
+          .color(json.light, { mode: 'static' })
+          .resolve().light;
+        const original = seed.resolve().light;
+        expect(reparsed.h).toBeCloseTo(original.h, 0);
+        expect(reparsed.s).toBeCloseTo(original.s, 1);
+        expect(reparsed.l).toBeCloseTo(original.l, 1);
+      });
+
+      it('round-trips rgb(...) emitted by formatRgb', () => {
+        const seed = glaze.color('#26fcb2', { mode: 'static' });
+        const json = seed.json({ format: 'rgb' });
+        const reparsed = glaze
+          .color(json.light, { mode: 'static' })
+          .resolve().light;
+        const original = seed.resolve().light;
+        expect(reparsed.h).toBeCloseTo(original.h, 0);
+        expect(reparsed.s).toBeCloseTo(original.s, 1);
+        expect(reparsed.l).toBeCloseTo(original.l, 1);
+      });
+
+      it('drops alpha component with a console.warn', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {
+          /* silenced for assertion */
+        });
+        try {
+          glaze.color('rgb(38 252 178 / 0.5)', { mode: 'static' }).resolve();
+          expect(warnSpy).toHaveBeenCalledTimes(1);
+          expect(warnSpy.mock.calls[0][0]).toMatch(/alpha/);
+        } finally {
+          warnSpy.mockRestore();
+        }
+      });
+
+      it('throws on unsupported color string', () => {
+        expect(() => glaze.color('red').resolve()).toThrow(
+          /unsupported color string/,
+        );
+        expect(() => glaze.color('rebeccapurple').resolve()).toThrow(
+          /unsupported color string/,
+        );
+        expect(() => glaze.color('lab(50% 40 30)').resolve()).toThrow(
+          /unsupported color string/,
+        );
+      });
+    });
+
+    describe('value-shorthand (OKHSL object and RGB tuple)', () => {
+      it('accepts an OkhslColor object identical to structured form', () => {
+        const fromObject = glaze
+          .color({ h: 152, s: 0.95, l: 0.74 }, { mode: 'static' })
+          .resolve();
+        const fromStructured = glaze
+          .color({
+            hue: 152,
+            saturation: 95,
+            lightness: 74,
+            mode: 'static',
+          })
+          .resolve();
+        expect(fromObject.light.h).toBeCloseTo(fromStructured.light.h, 1);
+        expect(fromObject.light.s).toBeCloseTo(fromStructured.light.s, 3);
+        expect(fromObject.light.l).toBeCloseTo(fromStructured.light.l, 3);
+      });
+
+      it('accepts an [r, g, b] tuple in 0–255', () => {
+        const fromTuple = glaze
+          .color([38, 252, 178], { mode: 'static' })
+          .resolve();
+        const fromHex = glaze.color('#26fcb2', { mode: 'static' }).resolve();
+        expect(fromTuple.light.h).toBeCloseTo(fromHex.light.h, 1);
+        expect(fromTuple.light.s).toBeCloseTo(fromHex.light.s, 3);
+        expect(fromTuple.light.l).toBeCloseTo(fromHex.light.l, 3);
+      });
+    });
+
+    describe('overrides', () => {
+      it('saturation override changes seed saturation', () => {
+        const high = glaze
+          .color('#26fcb2', { saturation: 100, mode: 'static' })
+          .resolve().light;
+        const low = glaze
+          .color('#26fcb2', { saturation: 20, mode: 'static' })
+          .resolve().light;
+        expect(high.s).toBeGreaterThan(low.s);
+      });
+
+      it('mode override changes light/dark mapping', () => {
+        const fixed = glaze.color('#26fcb2', { mode: 'fixed' }).resolve();
+        const auto = glaze.color('#26fcb2', { mode: 'auto' }).resolve();
+        expect(fixed.dark.l).not.toBeCloseTo(auto.dark.l, 2);
+      });
+
+      it('lightness override sets absolute lightness', () => {
+        const resolved = glaze
+          .color('#26fcb2', { lightness: 50, mode: 'static' })
+          .resolve();
+        expect(resolved.light.l).toBeCloseTo(0.5, 2);
+      });
+
+      it('hue override sets absolute seed hue', () => {
+        const resolved = glaze
+          .color('#26fcb2', { hue: 200, mode: 'static' })
+          .resolve();
+        expect(resolved.light.h).toBeCloseTo(200, 1);
+      });
+
+      it('relative hue offset shifts from seed hue', () => {
+        const baseline = glaze.color('#26fcb2', { mode: 'static' }).resolve()
+          .light.h;
+        const shifted = glaze
+          .color('#26fcb2', { hue: '+10', mode: 'static' })
+          .resolve().light.h;
+        expect(shifted).toBeCloseTo((baseline + 10) % 360, 1);
+      });
+    });
+
+    describe('base + contrast + relative offsets', () => {
+      it('relative lightness resolves against the base', () => {
+        const baseHex = '#1a1a2e';
+        const result = glaze
+          .color('#26fcb2', {
+            base: baseHex,
+            lightness: '+48',
+            mode: 'static',
+          })
+          .resolve().light;
+        const baseRgb = parseHex(baseHex)!;
+        const [, , baseL] = srgbToOkhsl(baseRgb);
+        expect(result.l * 100).toBeCloseTo(baseL * 100 + 48, 0);
+      });
+
+      it('contrast solver meets AAA against the base in every variant', () => {
+        const color = glaze.color('#26fcb2', {
+          base: '#1a1a2e',
+          contrast: 'AAA',
+          mode: 'fixed',
+        });
+        const resolved = color.resolve();
+        const baseDefs = glaze.color('#1a1a2e', { mode: 'fixed' });
+        const baseResolved = baseDefs.resolve();
+
+        for (const variant of [
+          'light',
+          'dark',
+          'lightContrast',
+          'darkContrast',
+        ] as const) {
+          const ratio = variantContrast(
+            resolved[variant],
+            baseResolved[variant],
+          );
+          expect(ratio).toBeGreaterThanOrEqual(7 - 0.05);
+        }
+      });
+
+      it('lifts lightness above the relative anchor when AAA requires', () => {
+        const baseHex = '#7a4dbf';
+        const baseRgb = parseHex(baseHex)!;
+        const [, , baseL] = srgbToOkhsl(baseRgb);
+        const result = glaze
+          .color('#7a4dbf', {
+            base: baseHex,
+            lightness: '+10',
+            contrast: 'AAA',
+            mode: 'static',
+          })
+          .resolve().light;
+        expect(result.l * 100).toBeGreaterThan(baseL * 100 + 10);
+      });
+
+      it('throws on relative lightness without a base', () => {
+        expect(() =>
+          glaze.color('#26fcb2', { lightness: '+10' }).resolve(),
+        ).toThrow(/relative "lightness" without "base"/);
+      });
+
+      it('throws on contrast without a base', () => {
+        expect(() =>
+          glaze.color('#26fcb2', { contrast: 'AA' }).resolve(),
+        ).toThrow(/"contrast" without "base"/);
+      });
+
+      it('accepts every value form for base', () => {
+        const cases = [
+          '#1a1a2e',
+          'rgb(26 26 46)',
+          'hsl(240 28% 14%)',
+          'okhsl(286 13% 18%)',
+          'oklch(0.22 0.04 286)',
+          { h: 286, s: 0.13, l: 0.18 },
+          [26, 26, 46] as [number, number, number],
+        ];
+        for (const base of cases) {
+          expect(() =>
+            glaze.color('#26fcb2', { base, contrast: 'AA' }).resolve(),
+          ).not.toThrow();
+        }
+      });
+
+      it('high-contrast contrast pair tightens HC variants', () => {
+        const color = glaze.color('#26fcb2', {
+          base: '#1a1a2e',
+          contrast: ['AA', 'AAA'],
+          mode: 'fixed',
+        });
+        const resolved = color.resolve();
+        const base = glaze.color('#1a1a2e', { mode: 'fixed' }).resolve();
+        const lightHcRatio = variantContrast(
+          resolved.lightContrast,
+          base.lightContrast,
+        );
+        expect(lightHcRatio).toBeGreaterThanOrEqual(7 - 0.05);
+      });
+    });
+
+    describe('full export coverage from value-shorthand', () => {
+      it('resolve() returns all four scheme variants', () => {
+        const resolved = glaze.color('#26fcb2').resolve();
+        expect(resolved.light).toBeDefined();
+        expect(resolved.dark).toBeDefined();
+        expect(resolved.lightContrast).toBeDefined();
+        expect(resolved.darkContrast).toBeDefined();
+      });
+
+      it('token() / tasty() / json() work from a hex input', () => {
+        const color = glaze.color('#26fcb2', { mode: 'fixed' });
+        expect(color.token()['']).toMatch(/^okhsl\(/);
+        expect(color.tasty()['']).toMatch(/^okhsl\(/);
+        expect(color.json().light).toMatch(/^okhsl\(/);
+      });
+
+      it('css({ name }) emits --name-color declarations across variants', () => {
+        const css = glaze.color('#26fcb2').css({ name: 'brand' });
+        expect(css.light).toMatch(/^--brand-color:\s*rgb\(/);
+        expect(css.dark).toMatch(/^--brand-color:\s*rgb\(/);
+        expect(css.lightContrast).toMatch(/^--brand-color:\s*rgb\(/);
+        expect(css.darkContrast).toMatch(/^--brand-color:\s*rgb\(/);
+      });
+
+      it('css() honors suffix and format options', () => {
+        const css = glaze.color('#26fcb2').css({
+          name: 'brand',
+          suffix: '',
+          format: 'oklch',
+        });
+        expect(css.light).toMatch(/^--brand:\s*oklch\(/);
+      });
+
+      it('format option still works through the value overload', () => {
+        const color = glaze.color('#26fcb2');
+        expect(color.token({ format: 'rgb' })['']).toMatch(/^rgb\(/);
+        expect(color.tasty({ format: 'oklch' })['']).toMatch(/^oklch\(/);
+        expect(color.json({ format: 'hsl' }).light).toMatch(/^hsl\(/);
+      });
+
+      it('css() works on the structured form too', () => {
+        const css = glaze
+          .color({ hue: 152, saturation: 95, lightness: 74 })
+          .css({ name: 'brand' });
+        expect(css.light).toMatch(/^--brand-color:\s*rgb\(/);
+      });
+
+      it('exports work on a base+contrast color', () => {
+        const color = glaze.color('#26fcb2', {
+          base: '#1a1a2e',
+          contrast: 'AAA',
+          mode: 'fixed',
+        });
+        expect(color.tasty()['']).toMatch(/^okhsl\(/);
+        expect(color.css({ name: 'brand-text' }).light).toMatch(
+          /^--brand-text-color:\s*rgb\(/,
+        );
+      });
     });
   });
 

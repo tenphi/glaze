@@ -282,13 +282,76 @@ export interface GlazeShadowInput {
 // Standalone color token
 // ============================================================================
 
-/** Input for `glaze.color()` standalone factory. */
+/** Input for the structured `glaze.color()` overload. */
 export interface GlazeColorInput {
   hue: number;
   saturation: number;
   lightness: HCPair<number>;
   saturationFactor?: number;
   mode?: AdaptationMode;
+}
+
+/**
+ * Any single-color input form accepted by the value-shorthand
+ * overload of `glaze.color()`.
+ *
+ * Strings cover hex (`#rgb` / `#rrggbb`) and the four CSS color
+ * functions Glaze itself emits: `rgb()`, `hsl()`, `okhsl()`, `oklch()`.
+ * The OKHSL object form `{ h, s, l }` matches Glaze's native shape
+ * (h: 0–360, s/l: 0–1). The tuple form is `[r, g, b]` in 0–255,
+ * matching `glaze.fromRgb`'s range.
+ */
+export type GlazeColorValue = string | OkhslColor | [number, number, number];
+
+/** Optional overrides for `glaze.color(value, overrides?)`. */
+export interface GlazeColorOverrides {
+  /**
+   * Override hue. Number is absolute (0–360); `'+N'`/`'-N'` is relative
+   * to the extracted (or overridden) seed hue — same semantics as
+   * `RegularColorDef.hue`.
+   */
+  hue?: number | RelativeValue;
+  /** Override seed saturation (0–100). Default: extracted from value. */
+  saturation?: number;
+  /**
+   * Override lightness. Number is absolute (0–100); `'+N'`/`'-N'` is
+   * relative to the resolved `base` color's lightness — and therefore
+   * requires `base`. Supports HCPair for high-contrast.
+   */
+  lightness?: HCPair<number | RelativeValue>;
+  /** Saturation multiplier on the seed (0–1). Default: 1. */
+  saturationFactor?: number;
+  /** Adaptation mode. Default: 'auto'. */
+  mode?: AdaptationMode;
+
+  /**
+   * Optional base color the result is computed against. Accepts any
+   * `GlazeColorValue` (hex, color function, OKHSL object, RGB tuple).
+   * Required when using relative `lightness` or `contrast`.
+   */
+  base?: GlazeColorValue;
+  /**
+   * WCAG contrast floor against the resolved `base`. Requires `base`.
+   * Same shape as `RegularColorDef.contrast`.
+   */
+  contrast?: HCPair<MinContrast>;
+}
+
+/** Options for `GlazeColorToken.css()`. */
+export interface GlazeColorCssOptions {
+  /**
+   * Custom property base name (without leading `--`). Required.
+   * Becomes the variable identifier in the output, e.g.
+   * `name: 'brand'` → `--brand-color: …`.
+   */
+  name: string;
+  /** Output color format. Default: 'rgb' (matches `theme.css` default). */
+  format?: GlazeColorFormat;
+  /**
+   * Suffix appended to the name. Default: '-color' (matches
+   * `theme.css` default).
+   */
+  suffix?: string;
 }
 
 /** Return type for `glaze.color()`. */
@@ -305,6 +368,8 @@ export interface GlazeColorToken {
   tasty(options?: GlazeTokenOptions): Record<string, string>;
   /** Export as a flat JSON map (no color name key). */
   json(options?: GlazeJsonOptions): Record<string, string>;
+  /** Export as CSS custom property declarations grouped by scheme variant. */
+  css(options: GlazeColorCssOptions): GlazeCssResult;
 }
 
 // ============================================================================
