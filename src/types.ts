@@ -269,10 +269,18 @@ export interface GlazeThemeExport {
 
 /** Input for `glaze.shadow()` standalone factory. */
 export interface GlazeShadowInput {
-  /** Background color — hex string or OKHSL { h, s (0-1), l (0-1) }. */
-  bg: HexColor | OkhslColor;
-  /** Foreground color for tinting + intensity modulation. */
-  fg?: HexColor | OkhslColor;
+  /**
+   * Background color — accepts any `GlazeColorValue` form: hex
+   * (`#rgb` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()`
+   * / `oklch()` strings, an `OkhslColor` object, or an `[r, g, b]`
+   * (0–255) tuple. Alpha components are dropped with a warning.
+   */
+  bg: GlazeColorValue;
+  /**
+   * Foreground color for tinting + intensity modulation. Accepts the
+   * same forms as `bg`.
+   */
+  fg?: GlazeColorValue;
   /** Intensity 0-100. */
   intensity: number;
   tuning?: ShadowTuning;
@@ -289,19 +297,50 @@ export interface GlazeColorInput {
   lightness: HCPair<number>;
   saturationFactor?: number;
   mode?: AdaptationMode;
+  /**
+   * Fixed opacity (0–1). Output includes alpha in the CSS value.
+   * Combining with `contrast` is not recommended (perceived lightness
+   * becomes unpredictable) — a `console.warn` is emitted in that case.
+   */
+  opacity?: number;
+  /**
+   * Optional dependency on another color. Same semantics as
+   * `GlazeColorOverrides.base` — `contrast` and relative `lightness`
+   * anchor to the base per scheme.
+   */
+  base?: GlazeColorToken | GlazeColorValue;
+  /**
+   * WCAG contrast floor against `base`. Requires `base` to be set.
+   */
+  contrast?: HCPair<MinContrast>;
+  /**
+   * Optional human-readable name for the token. Used in error and
+   * warning messages (otherwise an internal name like `"value"` is
+   * used). Does not affect output keys.
+   */
+  name?: string;
 }
 
 /**
  * Any single-color input form accepted by the value-shorthand
  * overload of `glaze.color()`.
  *
- * Strings cover hex (`#rgb` / `#rrggbb`) and the four CSS color
- * functions Glaze itself emits: `rgb()`, `hsl()`, `okhsl()`, `oklch()`.
+ * Strings cover hex (`#rgb` / `#rrggbb` / `#rrggbbaa`, alpha dropped
+ * with a warning) and the four CSS color functions Glaze itself emits:
+ * `rgb()`, `hsl()`, `okhsl()`, `oklch()` (alpha components also dropped
+ * with a warning).
+ *
  * The OKHSL object form `{ h, s, l }` matches Glaze's native shape
- * (h: 0–360, s/l: 0–1). The tuple form is `[r, g, b]` in 0–255,
- * matching `glaze.fromRgb`'s range.
+ * (h: 0–360, s/l: 0–1). Passing 0–100 values for `s`/`l` throws with
+ * a hint to use the structured `{ hue, saturation, lightness }` form.
+ *
+ * The tuple form is `[r, g, b]` in 0–255, matching `glaze.fromRgb`'s
+ * range. Out-of-range or non-finite components throw.
  */
-export type GlazeColorValue = string | OkhslColor | [number, number, number];
+export type GlazeColorValue =
+  | string
+  | OkhslColor
+  | readonly [number, number, number];
 
 /** Optional overrides for `glaze.color(value, overrides?)`. */
 export interface GlazeColorOverrides {
@@ -315,26 +354,103 @@ export interface GlazeColorOverrides {
   saturation?: number;
   /**
    * Override lightness. Number is absolute (0–100); `'+N'`/`'-N'` is
-   * relative to the resolved `base` color's lightness — and therefore
-   * requires `base`. Supports HCPair for high-contrast.
+   * relative to the literal seed (the value passed to `glaze.color()`).
+   * Supports HCPair for high-contrast.
    */
   lightness?: HCPair<number | RelativeValue>;
   /** Saturation multiplier on the seed (0–1). Default: 1. */
   saturationFactor?: number;
-  /** Adaptation mode. Default: 'auto'. */
+  /**
+   * Adaptation mode. Defaults vary by input form:
+   * - String inputs (`'#1a1a1a'`, `'rgb(...)'`, etc.): `'auto'` (Möbius
+   *   curve — pairs with the extended dark window to invert
+   *   `#000` ↔ `#fff` between light and dark).
+   * - `OkhslColor` and `[r, g, b]` tuple inputs: `'fixed'` (linear,
+   *   preserves light lightness exactly).
+   *
+   * Pass `'fixed'` explicitly to opt a string input back into the
+   * linear, non-inverting mapping; pass `'static'` to pin the same
+   * lightness across every variant.
+   */
   mode?: AdaptationMode;
 
   /**
-   * Optional base color the result is computed against. Accepts any
-   * `GlazeColorValue` (hex, color function, OKHSL object, RGB tuple).
-   * Required when using relative `lightness` or `contrast`.
-   */
-  base?: GlazeColorValue;
-  /**
-   * WCAG contrast floor against the resolved `base`. Requires `base`.
-   * Same shape as `RegularColorDef.contrast`.
+   * WCAG contrast floor. By default solved against the literal seed
+   * (the value itself); when `base` is set, solved against the base's
+   * resolved variant per scheme. Same shape as `RegularColorDef.contrast`.
    */
   contrast?: HCPair<MinContrast>;
+
+  /**
+   * Optional dependency on another color. Accepts either a
+   * `GlazeColorToken` (returned by another `glaze.color()`) or a raw
+   * `GlazeColorValue` (hex / `rgb()` / `OkhslColor` / `[r, g, b]`),
+   * which is automatically wrapped in `glaze.color(value)`.
+   *
+   * When set:
+   * - `contrast` is solved against the base's resolved variant
+   *   per-scheme (light / dark / lightContrast / darkContrast).
+   * - Relative `lightness: '+N'` / `'-N'` is anchored to the base's
+   *   lightness per-scheme (matches theme behavior for dependent colors).
+   * - Relative `hue: '+N'` / `'-N'` still anchors to the seed (the
+   *   value passed to `glaze.color()`), not the base.
+   *
+   * The base token's `.resolve()` is called lazily on first resolve and
+   * its result is captured by reference; later mutations to the base's
+   * defining call don't apply (matches existing token snapshot semantics).
+   */
+  base?: GlazeColorToken | GlazeColorValue;
+
+  /**
+   * Fixed opacity (0–1). Output includes alpha in the CSS value.
+   * Combining with `contrast` is not recommended (perceived lightness
+   * becomes unpredictable) — a `console.warn` is emitted in that case.
+   */
+  opacity?: number;
+
+  /**
+   * Optional human-readable name for the token. Used in error and
+   * warning messages (otherwise an internal name like `"value"` is
+   * used). Does not affect output keys.
+   */
+  name?: string;
+}
+
+/**
+ * Per-call lightness-window overrides for `glaze.color()`. Mirrors
+ * the field names from `GlazeConfig`.
+ *
+ * Defaults for `glaze.color()` vary by input form, and both fields are
+ * snapshotted from `globalConfig` at color-creation time so later
+ * `glaze.configure()` calls don't retroactively change already-created
+ * tokens (and `token.export()` round-trips byte-for-byte):
+ *
+ * - **String inputs** (`'#1a1a1a'`, `'rgb(...)'`, `'okhsl(...)'`, ...):
+ *   - `lightLightness: false` — preserve input exactly.
+ *   - `darkLightness: [globalConfig.darkLightness[0], 100]` — extended
+ *     dark window so the auto-mode dark variant can Möbius-invert all
+ *     the way up to white.
+ *
+ * - **`OkhslColor` / `[r, g, b]` tuple / structured inputs**:
+ *   - `lightLightness: false` — preserve input exactly.
+ *   - `darkLightness: globalConfig.darkLightness` — same window
+ *     theme colors use, snapshotted at create time.
+ *
+ * Passing this object replaces both fields at once. To keep one
+ * field's default while overriding the other, restate the default
+ * explicitly.
+ */
+export interface GlazeColorScaling {
+  /** Light-mode lightness window. `false` (default) preserves input. */
+  lightLightness?: false | [number, number];
+  /**
+   * Dark-mode lightness window. Snapshotted from `globalConfig` at
+   * create time: extended `[globalConfig.darkLightness[0], 100]` for
+   * string inputs, plain `globalConfig.darkLightness` for object /
+   * tuple / structured inputs. Pass `false` to preserve input
+   * lightness in dark mode too.
+   */
+  darkLightness?: false | [number, number];
 }
 
 /** Options for `GlazeColorToken.css()`. */
@@ -370,6 +486,67 @@ export interface GlazeColorToken {
   json(options?: GlazeJsonOptions): Record<string, string>;
   /** Export as CSS custom property declarations grouped by scheme variant. */
   css(options: GlazeColorCssOptions): GlazeCssResult;
+  /**
+   * Serialize the token as a JSON-safe object. Captures the original
+   * input value, overrides, and scaling so it can be rehydrated via
+   * `glaze.colorFrom(...)`. `base` is recursively serialized.
+   */
+  export(): GlazeColorTokenExport;
+}
+
+/**
+ * JSON-safe serialization of a `glaze.color()` token. Pass to
+ * `glaze.colorFrom(...)` to rehydrate.
+ */
+export interface GlazeColorTokenExport {
+  /**
+   * Discriminator for the source overload that created the token.
+   * - `'value'`: created via `glaze.color(value, overrides?, scaling?)`.
+   * - `'structured'`: created via `glaze.color({ hue, saturation, ... }, scaling?)`.
+   */
+  form: 'value' | 'structured';
+  /** Original input. For `form: 'value'` this is the raw `GlazeColorValue`; for `form: 'structured'` this is the structured input. */
+  input: GlazeColorValue | GlazeColorInputExport;
+  /**
+   * Overrides recorded at creation time. `base` is recursively
+   * serialized. Only present for `form: 'value'`.
+   */
+  overrides?: GlazeColorOverridesExport;
+  /** Lightness scaling override, if any. */
+  scaling?: GlazeColorScaling;
+}
+
+/**
+ * Serializable shape of a structured `glaze.color({...})` input.
+ * Differs from `GlazeColorInput` only in that `base` is replaced by an
+ * `export` instead of a token reference.
+ */
+export interface GlazeColorInputExport {
+  hue: number;
+  saturation: number;
+  lightness: HCPair<number>;
+  saturationFactor?: number;
+  mode?: AdaptationMode;
+  opacity?: number;
+  base?: GlazeColorTokenExport | GlazeColorValue;
+  contrast?: HCPair<MinContrast>;
+  name?: string;
+}
+
+/**
+ * Serializable shape of `GlazeColorOverrides`. `base` is replaced by
+ * its export (or left as a `GlazeColorValue` if it was originally a value).
+ */
+export interface GlazeColorOverridesExport {
+  hue?: number | RelativeValue;
+  saturation?: number;
+  lightness?: HCPair<number | RelativeValue>;
+  saturationFactor?: number;
+  mode?: AdaptationMode;
+  contrast?: HCPair<MinContrast>;
+  base?: GlazeColorTokenExport | GlazeColorValue;
+  opacity?: number;
+  name?: string;
 }
 
 // ============================================================================

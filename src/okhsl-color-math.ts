@@ -549,8 +549,24 @@ export function hslToSrgb(
 /**
  * Parse a hex color string (#rgb or #rrggbb) to sRGB [r, g, b] in 0–1 range.
  * Returns null if the string is not a valid hex color.
+ *
+ * For 8-digit hex (`#rrggbbaa`) and 4-digit hex (`#rgba`) with alpha,
+ * use {@link parseHexAlpha}.
  */
 export function parseHex(hex: string): [number, number, number] | null {
+  const result = parseHexAlpha(hex);
+  if (!result || result.alpha !== undefined) return null;
+  return result.rgb;
+}
+
+/**
+ * Parse a hex color string (#rgb, #rrggbb, #rgba, or #rrggbbaa) to
+ * sRGB [r, g, b] in 0–1 range plus an optional alpha (0–1).
+ * Returns null if the string is not a valid hex color.
+ */
+export function parseHexAlpha(
+  hex: string,
+): { rgb: [number, number, number]; alpha?: number } | null {
   const h = hex.startsWith('#') ? hex.slice(1) : hex;
 
   if (h.length === 3) {
@@ -558,7 +574,16 @@ export function parseHex(hex: string): [number, number, number] | null {
     const g = parseInt(h[1] + h[1], 16);
     const b = parseInt(h[2] + h[2], 16);
     if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
-    return [r / 255, g / 255, b / 255];
+    return { rgb: [r / 255, g / 255, b / 255] };
+  }
+
+  if (h.length === 4) {
+    const r = parseInt(h[0] + h[0], 16);
+    const g = parseInt(h[1] + h[1], 16);
+    const b = parseInt(h[2] + h[2], 16);
+    const a = parseInt(h[3] + h[3], 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b) || isNaN(a)) return null;
+    return { rgb: [r / 255, g / 255, b / 255], alpha: a / 255 };
   }
 
   if (h.length === 6) {
@@ -566,7 +591,16 @@ export function parseHex(hex: string): [number, number, number] | null {
     const g = parseInt(h.slice(2, 4), 16);
     const b = parseInt(h.slice(4, 6), 16);
     if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
-    return [r / 255, g / 255, b / 255];
+    return { rgb: [r / 255, g / 255, b / 255] };
+  }
+
+  if (h.length === 8) {
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    const a = parseInt(h.slice(6, 8), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b) || isNaN(a)) return null;
+    return { rgb: [r / 255, g / 255, b / 255], alpha: a / 255 };
   }
 
   return null;
