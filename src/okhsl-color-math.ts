@@ -460,6 +460,33 @@ export const oklabToOkhsl = (lab: Vec3): Vec3 => {
     return [0, 0, toe(L)];
   }
 
+  // Lightness-extreme achromatic guard.
+  //
+  // At L → 1 (white) and L → 0 (black) the in-gamut chroma collapses to
+  // a single point: cMax, cMid, c0 all approach zero. Pure white is the
+  // most visible failure case — `linearSrgbToOklab([1, 1, 1])` leaves
+  // tiny floating-point residue in the a / b channels (`a ≈ 8e-11`,
+  // `b ≈ 3.7e-8` → `C ≈ 3.7e-8`) that's well above `EPSILON` (`1e-10`),
+  // so the chroma early-return above doesn't catch it. The chromatic
+  // path then runs, the gamut at L ≈ 1 has nowhere to put any chroma,
+  // and the saturation formula in `getCs` divides through ~zero values,
+  // producing nonsense h/s for what is physically an achromatic color
+  // (`#FFFFFF` → `okhsl(89.88 55.83% 100%)` instead of
+  // `okhsl(0 0% 100%)`).
+  //
+  // The threshold (`1e-6`) is much wider than `EPSILON` because the fp
+  // wobble in L for pure white lands at `1 - 6.5e-9` — `EPSILON = 1e-10`
+  // misses it. `1e-6` is still well below any human-perceivable
+  // difference in lightness (JNDs in OKHSL L are several orders of
+  // magnitude larger), so we don't falsely flatten any in-gamut color.
+  //
+  // Treat both extremes as achromatic. The lightness window itself is
+  // preserved through `toe(L)`.
+  const L_EXTREME_EPSILON = 1e-6;
+  if (L >= 1 - L_EXTREME_EPSILON || L <= L_EXTREME_EPSILON) {
+    return [0, 0, toe(L)];
+  }
+
   const a_ = a / C;
   const b_ = b / C;
 
