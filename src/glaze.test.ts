@@ -1617,32 +1617,67 @@ describe('glaze', () => {
       const resolved = color.resolve();
 
       expect(resolved.light.h).toBe(280);
-      // Default scaling preserves light input lightness exactly.
-      expect(resolved.light.l).toBeCloseTo(0.52, 2);
+      // Default scaling for non-string inputs maps light through
+      // globalConfig.lightLightness [10, 100]: 52 * 0.9 + 10 = 56.8.
+      expect(resolved.light.l).toBeCloseTo(0.568, 2);
     });
 
-    it('default scaling adapts dark into globalConfig.darkLightness', () => {
+    it('default scaling adapts dark via mode auto + globalConfig.darkLightness', () => {
       const color = glaze.color({ hue: 280, saturation: 80, lightness: 52 });
       const resolved = color.resolve();
 
+      // mode 'auto' + lightLightness [10, 100] + darkLightness [15, 95]:
+      // lightL = 56.8, t = (100 - 56.8) / 90 = 0.48,
+      // mobiusCurve(0.48, 0.5) ≈ 0.6486,
+      // dark.l = 15 + 80 * 0.6486 ≈ 66.89 → 0.669.
+      expect(resolved.dark.l).toBeCloseTo(0.669, 2);
+    });
+
+    it('explicit mode: fixed restores the legacy linear mapping', () => {
+      const color = glaze.color({
+        hue: 280,
+        saturation: 80,
+        lightness: 52,
+        mode: 'fixed',
+      });
+      const resolved = color.resolve();
+
+      // mode 'fixed' + lightLightness [10, 100]: 52 * 0.9 + 10 = 56.8
+      expect(resolved.light.l).toBeCloseTo(0.568, 2);
       // mode 'fixed' + darkLightness [15, 95]: 52 * 0.8 + 15 = 56.6
       expect(resolved.dark.l).toBeCloseTo(0.566, 2);
     });
 
+    it('near-white structured input inverts toward dark under the new auto default', () => {
+      const color = glaze.color({ hue: 280, saturation: 13, lightness: 80 });
+      const resolved = color.resolve();
+      // Light: (80 * 90)/100 + 10 = 82 → 0.82.
+      expect(resolved.light.l).toBeCloseTo(0.82, 2);
+      // Dark, mode 'auto':
+      //   lightL = 82, t = (100 - 82) / 90 = 0.2,
+      //   mobiusCurve(0.2, 0.5) = 0.2 / (0.2 + 0.5 * 0.8) = 0.3333,
+      //   dark = 15 + 80 * 0.3333 ≈ 41.67 → 0.417.
+      expect(resolved.dark.l).toBeCloseTo(0.417, 2);
+      // The legacy fixed mapping would have produced ~0.79 — a near-white in
+      // dark mode — which is exactly what the new default avoids.
+      expect(resolved.dark.l).toBeLessThan(0.6);
+    });
+
     it('third arg overrides the dark window', () => {
       const color = glaze.color(
-        { hue: 280, saturation: 80, lightness: 52 },
+        { hue: 280, saturation: 80, lightness: 52, mode: 'fixed' },
         { darkLightness: false },
       );
       const resolved = color.resolve();
 
-      // darkLightness: false → preserve raw lightness in dark too.
+      // mode 'fixed' + darkLightness: false → [0, 100] window:
+      // 52 * 1 + 0 = 52 → 0.52 (preserves raw lightness in dark too).
       expect(resolved.dark.l).toBeCloseTo(0.52, 2);
     });
 
-    it('third arg can opt back into a light window', () => {
+    it('third arg accepts explicit light/dark windows', () => {
       const color = glaze.color(
-        { hue: 280, saturation: 80, lightness: 52 },
+        { hue: 280, saturation: 80, lightness: 52, mode: 'fixed' },
         { lightLightness: [10, 100], darkLightness: [15, 95] },
       );
       const resolved = color.resolve();
@@ -1784,16 +1819,27 @@ describe('glaze', () => {
         expect(resolved.light.l).toBe(0);
       });
 
-      it('matches the structured form when seeded with the same numbers', () => {
+      it('matches the structured form when seeded with the same numbers and aligned scaling', () => {
         const rgb = parseHex('#26fcb2')!;
         const [h, s, l] = srgbToOkhsl(rgb);
+        // Hue and saturation are scaling-invariant — they always match
+        // between forms regardless of mode / lightness window.
         const fromHex = glaze.color('#26fcb2').resolve();
         const fromStructured = glaze
           .color({ hue: h, saturation: s * 100, lightness: l * 100 })
           .resolve();
         expect(fromHex.light.h).toBeCloseTo(fromStructured.light.h, 4);
         expect(fromHex.light.s).toBeCloseTo(fromStructured.light.s, 4);
-        expect(fromHex.light.l).toBeCloseTo(fromStructured.light.l, 4);
+        // Lightness only matches when the structured form is configured
+        // with the same scaling and mode the string form uses by default
+        // (preserve light, extended dark window).
+        const aligned = glaze
+          .color(
+            { hue: h, saturation: s * 100, lightness: l * 100 },
+            { lightLightness: false, darkLightness: [15, 100] },
+          )
+          .resolve();
+        expect(fromHex.light.l).toBeCloseTo(aligned.light.l, 4);
       });
     });
 
@@ -1917,12 +1963,22 @@ describe('glaze', () => {
         expect(fromObject.light.l).toBeCloseTo(fromStructured.light.l, 3);
       });
 
-      it('accepts an [r, g, b] tuple in 0–255', () => {
+      it('accepts an [r, g, b] tuple in 0–255 with the same seed as the hex form', () => {
         const fromTuple = glaze.color([38, 252, 178]).resolve();
         const fromHex = glaze.color('#26fcb2').resolve();
+        // Seed (hue, saturation) matches regardless of input form — both
+        // are derived from the same sRGB triple.
         expect(fromTuple.light.h).toBeCloseTo(fromHex.light.h, 1);
         expect(fromTuple.light.s).toBeCloseTo(fromHex.light.s, 3);
-        expect(fromTuple.light.l).toBeCloseTo(fromHex.light.l, 3);
+        // Lightness only matches when the tuple form is opted into the
+        // same scaling the string form uses by default.
+        const aligned = glaze
+          .color([38, 252, 178], undefined, {
+            lightLightness: false,
+            darkLightness: [15, 100],
+          })
+          .resolve();
+        expect(aligned.light.l).toBeCloseTo(fromHex.light.l, 3);
       });
 
       it('throws on OkhslColor with 0–100-scale s/l (common mistake)', () => {
@@ -1986,16 +2042,36 @@ describe('glaze', () => {
         expect(light.dark.l).toBeLessThan(light.light.l);
       });
 
-      it('OkhslColor object input keeps the old fixed default (no inversion)', () => {
+      it('OkhslColor object input adapts via mode auto + globalConfig windows', () => {
         const resolved = glaze.color({ h: 0, s: 0, l: 0 }).resolve();
-        expect(resolved.light.l).toBeCloseTo(0, 3);
+        // mode 'auto' + lightLightness [10, 100]:
+        // light.l = 0 * 0.9 + 10 = 10 → 0.10.
+        expect(resolved.light.l).toBeCloseTo(0.1, 2);
+        // mode 'auto' + dark window [15, 95]:
+        // lightL = 10, t = (100 - 10) / 90 = 1,
+        // mobiusCurve(1, 0.5) = 1, dark = 15 + 80 * 1 = 95 → 0.95.
+        expect(resolved.dark.l).toBeCloseTo(0.95, 2);
+      });
+
+      it('OkhslColor with explicit mode: fixed preserves the linear mapping', () => {
+        const resolved = glaze
+          .color({ h: 0, s: 0, l: 0 }, { mode: 'fixed' })
+          .resolve();
+        // mode 'fixed' + lightLightness [10, 100]: 0 * 0.9 + 10 = 10 → 0.10
+        expect(resolved.light.l).toBeCloseTo(0.1, 2);
         // mode 'fixed' + darkLightness [15, 95]: 0 * 0.8 + 15 = 15 → 0.15
         expect(resolved.dark.l).toBeCloseTo(0.15, 2);
       });
 
-      it('RGB tuple input keeps the old fixed default (no inversion)', () => {
+      it('RGB tuple input adapts via mode auto + globalConfig windows', () => {
         const resolved = glaze.color([0, 0, 0]).resolve();
-        expect(resolved.light.l).toBeCloseTo(0, 3);
+        expect(resolved.light.l).toBeCloseTo(0.1, 2);
+        expect(resolved.dark.l).toBeCloseTo(0.95, 2);
+      });
+
+      it('RGB tuple with explicit mode: fixed preserves the linear mapping', () => {
+        const resolved = glaze.color([0, 0, 0], { mode: 'fixed' }).resolve();
+        expect(resolved.light.l).toBeCloseTo(0.1, 2);
         expect(resolved.dark.l).toBeCloseTo(0.15, 2);
       });
 
@@ -2033,13 +2109,17 @@ describe('glaze', () => {
         const before = glaze.color({ h: 0, s: 0, l: 0 });
         glaze.configure({ darkLightness: [40, 80] });
         try {
-          // Object input snapshots `globalConfig.darkLightness = [15, 95]`,
-          // so dark.l = 0 * 0.8 + 15 = 0.15 — unchanged after `configure`.
-          expect(before.resolve().dark.l).toBeCloseTo(0.15, 2);
-          // A new token created after configure picks up the new window.
+          // Object input snapshots `globalConfig.darkLightness = [15, 95]`
+          // (and `lightLightness = [10, 100]`) at create time, so the
+          // mode-auto dark.l is unchanged after the later `configure`.
+          // lightL = 10, t = 1, mob(1, 0.5) = 1, dark = 15 + 80*1 = 95.
+          expect(before.resolve().dark.l).toBeCloseTo(0.95, 2);
+          // A new token created after configure picks up the new dark window
+          // (light window unchanged): lightL = 10, t = 1, mob = 1,
+          // dark = 40 + (80 - 40) * 1 = 80 → 0.80.
           expect(
             glaze.color({ h: 0, s: 0, l: 0 }).resolve().dark.l,
-          ).toBeCloseTo(0.4, 2);
+          ).toBeCloseTo(0.8, 2);
         } finally {
           glaze.resetConfig();
         }
@@ -2053,11 +2133,11 @@ describe('glaze', () => {
         });
         glaze.configure({ darkLightness: [40, 80] });
         try {
-          expect(before.resolve().dark.l).toBeCloseTo(0.15, 2);
+          expect(before.resolve().dark.l).toBeCloseTo(0.95, 2);
           expect(
             glaze.color({ hue: 0, saturation: 0, lightness: 0 }).resolve().dark
               .l,
-          ).toBeCloseTo(0.4, 2);
+          ).toBeCloseTo(0.8, 2);
         } finally {
           glaze.resetConfig();
         }
@@ -2085,7 +2165,11 @@ describe('glaze', () => {
       });
 
       it('relative lightness anchors to the base per-scheme', () => {
-        const bg = glaze.color({ h: 0, s: 0, l: 0.4 });
+        // Both bg and text pinned to `mode: 'fixed'` so the resolved
+        // values stay inside [0, 100] after the `+30` offset (mode 'auto'
+        // on the bg would invert dark.l toward 1, making `bg.dark.l + 0.3`
+        // clamp past 1.0 and break the per-scheme offset arithmetic).
+        const bg = glaze.color({ h: 0, s: 0, l: 0.4 }, { mode: 'fixed' });
         const text = glaze.color('#000000', {
           base: bg,
           lightness: '+30',
@@ -2093,7 +2177,7 @@ describe('glaze', () => {
         });
         const bgR = bg.resolve();
         const textR = text.resolve();
-        // Light: bg.light.l = 0.4, text.light.l = bg.light.l + 0.3 = 0.7
+        // Light: bg.light.l = 0.46 (10 + 40*0.9), text.light.l = +0.3 above.
         expect(textR.light.l).toBeCloseTo(bgR.light.l + 0.3, 2);
         // Dark: bg.dark.l is mapped per globalConfig, text.dark.l should land
         // at bg.dark.l + 0.3 (clamped).
@@ -2629,18 +2713,19 @@ describe('glaze', () => {
         expect(Array.isArray(data.scaling?.darkLightness)).toBe(true);
       });
 
-      it('value-form export of an OkhslColor input snapshots dark window', () => {
+      it('value-form export of an OkhslColor input snapshots both windows', () => {
         const tok = glaze.color({ h: 280, s: 0.5, l: 0.5 });
         const data = tok.export();
         expect(data.form).toBe('value');
-        // Object inputs snapshot `globalConfig.darkLightness` verbatim.
+        // Object inputs snapshot both `globalConfig.lightLightness` and
+        // `globalConfig.darkLightness` verbatim — same shape a theme color uses.
         expect(data.scaling).toEqual({
-          lightLightness: false,
+          lightLightness: [10, 100],
           darkLightness: [15, 95],
         });
       });
 
-      it('structured-form export snapshots dark window', () => {
+      it('structured-form export snapshots both windows', () => {
         const tok = glaze.color({
           hue: 280,
           saturation: 50,
@@ -2649,7 +2734,7 @@ describe('glaze', () => {
         const data = tok.export();
         expect(data.form).toBe('structured');
         expect(data.scaling).toEqual({
-          lightLightness: false,
+          lightLightness: [10, 100],
           darkLightness: [15, 95],
         });
       });

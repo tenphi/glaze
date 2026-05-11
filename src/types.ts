@@ -361,16 +361,17 @@ export interface GlazeColorOverrides {
   /** Saturation multiplier on the seed (0–1). Default: 1. */
   saturationFactor?: number;
   /**
-   * Adaptation mode. Defaults vary by input form:
-   * - String inputs (`'#1a1a1a'`, `'rgb(...)'`, etc.): `'auto'` (Möbius
-   *   curve — pairs with the extended dark window to invert
-   *   `#000` ↔ `#fff` between light and dark).
-   * - `OkhslColor` and `[r, g, b]` tuple inputs: `'fixed'` (linear,
-   *   preserves light lightness exactly).
+   * Adaptation mode. Defaults to `'auto'` for every input form, so
+   * colors automatically adapt between light and dark like an ordinary
+   * theme color. The default *scaling* snapshot differs by input form:
+   * string inputs preserve their light lightness and extend the dark
+   * window to `[lo, 100]` (`#000` ↔ `#fff` flip), while `OkhslColor`
+   * and `[r, g, b]` tuple inputs snapshot the full `globalConfig.
+   * lightLightness` / `globalConfig.darkLightness` windows.
    *
-   * Pass `'fixed'` explicitly to opt a string input back into the
-   * linear, non-inverting mapping; pass `'static'` to pin the same
-   * lightness across every variant.
+   * Pass `'fixed'` explicitly to opt back into the legacy linear, non-
+   * inverting mapping; pass `'static'` to pin the same lightness
+   * across every variant.
    */
   mode?: AdaptationMode;
 
@@ -432,8 +433,9 @@ export interface GlazeColorOverrides {
  *     the way up to white.
  *
  * - **`OkhslColor` / `[r, g, b]` tuple / structured inputs**:
- *   - `lightLightness: false` — preserve input exactly.
- *   - `darkLightness: globalConfig.darkLightness` — same window
+ *   - `lightLightness: globalConfig.lightLightness` — same light window
+ *     theme colors use, snapshotted at create time.
+ *   - `darkLightness: globalConfig.darkLightness` — same dark window
  *     theme colors use, snapshotted at create time.
  *
  * Passing this object replaces both fields at once. To keep one
@@ -441,7 +443,12 @@ export interface GlazeColorOverrides {
  * explicitly.
  */
 export interface GlazeColorScaling {
-  /** Light-mode lightness window. `false` (default) preserves input. */
+  /**
+   * Light-mode lightness window. Snapshotted from `globalConfig` at
+   * create time: `false` (preserve input) for string inputs, plain
+   * `globalConfig.lightLightness` for object / tuple / structured
+   * inputs. Pass `false` to preserve input lightness in light mode.
+   */
   lightLightness?: false | [number, number];
   /**
    * Dark-mode lightness window. Snapshotted from `globalConfig` at
