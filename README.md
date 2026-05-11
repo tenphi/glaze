@@ -282,27 +282,33 @@ adapt to both lightness windows. The defaults vary by input form,
 because string inputs are typically end-user values (color pickers,
 theme settings) where natural light/dark inversion is the expectation:
 
+Every input form defaults to **`mode: 'auto'`** so the resolved token
+adapts between light and dark like an ordinary theme color. The
+*scaling* snapshot taken at create time differs by input form:
+
 - **String value-shorthand** (hex, `rgb()`, `hsl()`, `okhsl()`,
   `oklch()`):
   - Light variant preserves the input lightness exactly.
   - Dark variant is **Möbius-inverted** into `[globalConfig.darkLightness[0], 100]`,
     so `glaze.color('#000')` renders as `#fff` in dark mode and
     `glaze.color('#fff')` falls to the dark `lo` floor (default `0.15`).
-  - Adaptation mode defaults to `'auto'`.
   - The dark `lo` is snapshotted from `globalConfig` at color-creation
     time, matching how an explicit `scaling.darkLightness: [lo, hi]`
     behaves.
 
 - **Object / tuple value-shorthand** (`{ h, s, l }`, `[r, g, b]`) and
   the **structured form** (`{ hue, saturation, lightness, ... }`):
-  - Light variant preserves the input lightness exactly.
-  - Dark variant is linearly mapped into `globalConfig.darkLightness`
-    (default `[15, 95]`), snapshotted at color-creation time so later
+  - Both light and dark variants are mapped through
+    `globalConfig.lightLightness` / `globalConfig.darkLightness`
+    (defaults `[10, 100]` / `[15, 95]`) — the same windows a theme color
+    uses. With the `'auto'` default the dark variant is Möbius-inverted
+    into that dark window, so a near-white seed lands at a near-dark
+    dark variant.
+  - Both windows are snapshotted at color-creation time so later
     `glaze.configure()` calls don't retroactively change exported tokens.
-  - Adaptation mode defaults to `'fixed'` (linear, no Möbius curve).
 
-To opt back into the old fixed-linear default for string inputs, pass
-either `{ mode: 'fixed' }` as the second arg, or supply an explicit
+To opt back into the legacy fixed-linear default (no Möbius inversion),
+pass `{ mode: 'fixed' }` as the second arg, or supply an explicit
 `scaling` as the third arg (see [Lightness scaling](#lightness-scaling)).
 
 ```ts
@@ -373,7 +379,7 @@ All overrides:
 | `saturation` | Override seed saturation (0–100) |
 | `lightness` | Number (absolute 0–100) or `'+N'`/`'-N'`. Without `base`, relative is anchored to the literal seed; with `base`, anchored to `base`'s lightness per scheme. Supports `[normal, hc]` pairs |
 | `saturationFactor` | Multiplier on seed (0–1, default 1) |
-| `mode` | `'auto'` (default for string inputs) / `'fixed'` (default for object / tuple / structured inputs) / `'static'` — see [Adaptation Modes](#adaptation-modes) |
+| `mode` | `'auto'` (default for every input form) / `'fixed'` / `'static'` — see [Adaptation Modes](#adaptation-modes) |
 | `contrast` | WCAG floor. Without `base`, anchored to the literal seed; with `base`, solved per scheme against `base`'s resolved variant. Same shape as `RegularColorDef.contrast`. When the target can't be physically met, `glaze` emits a `console.warn` and returns the closest passing variant |
 | `base` | Another `glaze.color()` token **or** a raw `GlazeColorValue` (hex / `rgb()` / `OkhslColor` / `[r, g, b]`). Raw values are auto-wrapped via `glaze.color(value)` so they pick up the same auto-invert defaults as an explicit wrap. When set, `contrast` and relative `lightness` anchor to it per scheme; relative `hue` still anchors to the seed |
 | `opacity` | Fixed alpha 0–1 applied to every variant. Surfaces in `rgb(... / A)`, `okhsl(... / A)`, etc. Combining with `contrast` is not recommended (perceived lightness becomes unpredictable) — `glaze` emits a `console.warn` |
@@ -1423,7 +1429,7 @@ brand.colors({ surface: { lightness: 97 }, text: { base: 'surface', lightness: '
 | `glaze.fromHex(hex)` | Create a theme from a hex color (`#rgb` or `#rrggbb`) |
 | `glaze.fromRgb(r, g, b)` | Create a theme from RGB values (0–255) |
 | `glaze.color(input, scaling?)` | Create a standalone color token from `{ hue, saturation, lightness, opacity?, contrast?, base?, name?, ... }`. Optional `scaling` overrides the lightness windows |
-| `glaze.color(value, overrides?, scaling?)` | Create a standalone color token from a hex string (3/6/8 digits), an `rgb()` / `hsl()` / `okhsl()` / `oklch()` string, an `{ h, s, l }` OKHSL object, or an `[r, g, b]` (0–255) tuple. Overrides accept absolute or relative `hue` / `lightness`, `saturation`, `mode`, `contrast`, `opacity`, `name`, and `base` (a `GlazeColorToken` or any `GlazeColorValue`; raw values are auto-wrapped). When `base` is set, `contrast` and relative `lightness` are anchored to the base per scheme — see [Pairing Colors](#pairing-colors). String inputs default to `mode: 'auto'` with the dark window extended to upper `100`; object / tuple inputs default to `mode: 'fixed'`. |
+| `glaze.color(value, overrides?, scaling?)` | Create a standalone color token from a hex string (3/6/8 digits), an `rgb()` / `hsl()` / `okhsl()` / `oklch()` string, an `{ h, s, l }` OKHSL object, or an `[r, g, b]` (0–255) tuple. Overrides accept absolute or relative `hue` / `lightness`, `saturation`, `mode`, `contrast`, `opacity`, `name`, and `base` (a `GlazeColorToken` or any `GlazeColorValue`; raw values are auto-wrapped). When `base` is set, `contrast` and relative `lightness` are anchored to the base per scheme — see [Pairing Colors](#pairing-colors). Every input form defaults to `mode: 'auto'`; string inputs additionally preserve light lightness exactly and extend the dark window to `[lo, 100]`, while object / tuple / structured inputs snapshot both windows from `globalConfig.lightLightness` / `globalConfig.darkLightness`. |
 | `glaze.colorFrom(data)` | Rehydrate a `glaze.color()` token from a `.export()` snapshot. Inverse of `token.export()` — see [Persisting Standalone Colors](#persisting-standalone-colors) |
 | `glaze.shadow(input)` | Compute a standalone shadow color (returns `ResolvedColorVariant`). `bg` / `fg` accept any `GlazeColorValue` form |
 | `glaze.format(variant, format?)` | Format any `ResolvedColorVariant` as a CSS string |

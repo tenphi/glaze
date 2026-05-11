@@ -81,16 +81,25 @@ const STANDALONE_BASE = 'externalBase';
  * retroactively change the resolved variants of an already-created
  * token (matches the documented "frozen at create time" semantics).
  *
- * String value-shorthand inputs use an extended dark window
+ * String value-shorthand inputs preserve their light lightness exactly
+ * (`lightLightness: false`) and use an extended dark window
  * `[globalConfig.darkLightness[0], 100]` so a totally-black input can
- * Möbius-invert to totally-white in dark mode; object / tuple /
- * structured inputs use `globalConfig.darkLightness` verbatim.
+ * Möbius-invert to totally-white in dark mode. Object / tuple /
+ * structured inputs snapshot both windows from `globalConfig` verbatim
+ * so they behave like an ordinary theme color (auto-adapted on both
+ * sides).
  */
-function defaultStandaloneScaling(extendDark: boolean): GlazeColorScaling {
-  const [lo, hi] = globalConfig.darkLightness;
+function defaultStandaloneScaling(isString: boolean): GlazeColorScaling {
+  if (isString) {
+    const [darkLo] = globalConfig.darkLightness;
+    return {
+      lightLightness: false,
+      darkLightness: [darkLo, 100],
+    };
+  }
   return {
-    lightLightness: false,
-    darkLightness: extendDark ? [lo, 100] : [lo, hi],
+    lightLightness: globalConfig.lightLightness,
+    darkLightness: globalConfig.darkLightness,
   };
 }
 
@@ -1963,10 +1972,11 @@ interface ValueDefsResult {
  * Build the `ColorMap` for a value-shorthand `glaze.color()` call.
  *
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
- * for string inputs (Möbius-inverted dark variant — pairs with the
+ * across every value-shorthand form. String inputs pair with the
  * extended dark window so a totally-black input renders as totally-white
- * in dark mode) and `mode: 'fixed'` for `OkhslColor` / RGB-tuple inputs
- * (linear, no inversion).
+ * in dark mode; `OkhslColor` / RGB-tuple inputs auto-adapt into the
+ * snapshotted `globalConfig.lightLightness` / `globalConfig.darkLightness`
+ * windows.
  *
  * When the user requests `contrast` or relative `lightness`, a hidden
  * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
@@ -1976,7 +1986,6 @@ interface ValueDefsResult {
 function buildStandaloneValueDefs(
   main: OkhslColor,
   options: GlazeColorOverrides | undefined,
-  inputIsString: boolean,
 ): ValueDefsResult {
   const seedHue = typeof options?.hue === 'number' ? options.hue : main.h;
   const seedSaturation = options?.saturation ?? main.s * 100;
@@ -2008,7 +2017,7 @@ function buildStandaloneValueDefs(
     saturation: options?.saturationFactor,
     lightness: lightnessOption ?? main.l * 100,
     contrast: options?.contrast,
-    mode: options?.mode ?? (inputIsString ? 'auto' : 'fixed'),
+    mode: options?.mode ?? 'auto',
     opacity: options?.opacity,
     base: hasExternalBase
       ? STANDALONE_BASE
@@ -2200,7 +2209,7 @@ function createColorToken(
     [primary]: {
       lightness: input.lightness,
       saturation: input.saturationFactor,
-      mode: input.mode ?? 'fixed',
+      mode: input.mode ?? 'auto',
       contrast: input.contrast,
       opacity: input.opacity,
       base: hasExternalBase
@@ -2220,8 +2229,9 @@ function createColorToken(
   }
 
   // Structured form uses the same snapshotted default as object / tuple
-  // value-shorthand: light preserved, dark linearly mapped into a
-  // create-time copy of `globalConfig.darkLightness`.
+  // value-shorthand: both light and dark windows come from `globalConfig`,
+  // captured at create time. With the default `mode: 'auto'` this matches
+  // the behavior of an ordinary theme color (Möbius-inverted in dark).
   const effectiveScaling: GlazeColorScaling =
     scaling ?? defaultStandaloneScaling(false);
 
@@ -2253,14 +2263,14 @@ function createColorTokenFromValue(
   const { seedHue, seedSaturation, defs, primary } = buildStandaloneValueDefs(
     main,
     options,
-    inputIsString,
   );
   // Default scaling is snapshotted from `globalConfig` at create time:
   //   - String inputs (typical end-user values from a color picker / theme
   //     setting) default to "light preserves input, dark Möbius-inverts up
   //     to 100" so the natural `#000` ↔ `#fff` flip works out of the box.
-  //   - Object / tuple inputs default to `globalConfig.darkLightness` for
-  //     dark — same windows as the structured form.
+  //   - Object / tuple inputs default to the full `globalConfig.lightLightness`
+  //     / `globalConfig.darkLightness` windows — same as a theme color and
+  //     same as the structured form.
   // Both forms freeze the windows at create time so later `glaze.configure()`
   // calls don't retroactively change exported tokens.
   const effectiveScaling: GlazeColorScaling =
@@ -2472,17 +2482,23 @@ function isStructuredColorInput(
  *   emits (`rgb()`, `hsl()`, `okhsl()`, `oklch()`), an `OkhslColor`
  *   object `{ h, s, l }` (0–1 ranges), or an `[r, g, b]` (0–255) tuple.
  *
- * Defaults vary by input form:
- * - String value-shorthand: `mode: 'auto'` with snapshotted scaling
- *   `{ lightLightness: false, darkLightness: [globalConfig.darkLightness[0], 100] }`.
- *   Light preserves the input exactly; dark Möbius-inverts up to 100, so
- *   `glaze.color('#000')` renders as `#fff` in dark mode (and
- *   `glaze.color('#fff')` falls to the dark `lo` floor).
- * - `OkhslColor` object / RGB-tuple value-shorthand: `mode: 'fixed'`
- *   with `scaling: { lightLightness: false }` — light preserves the
- *   input; dark linearly maps into `globalConfig.darkLightness`.
- * - Structured form (`{ hue, saturation, lightness, ... }`):
- *   `mode: 'fixed'`; both windows come from `globalConfig`.
+ * Defaults: every input form defaults to `mode: 'auto'` so colors
+ * automatically adapt between light and dark like an ordinary theme
+ * color. The scaling snapshot taken at create time differs by input
+ * form:
+ * - String value-shorthand: `{ lightLightness: false, darkLightness:
+ *   [globalConfig.darkLightness[0], 100] }`. Light preserves the input
+ *   exactly; dark Möbius-inverts up to 100, so `glaze.color('#000')`
+ *   renders as `#fff` in dark mode (and `glaze.color('#fff')` falls to
+ *   the dark `lo` floor).
+ * - `OkhslColor` object / RGB-tuple / structured value-shorthand:
+ *   `{ lightLightness: globalConfig.lightLightness, darkLightness:
+ *   globalConfig.darkLightness }` — both windows come straight from
+ *   `globalConfig`, so the resulting token behaves like a theme color.
+ *
+ * Pass `{ mode: 'fixed' }` to opt back into the legacy linear, non-
+ * inverting mapping, or `{ mode: 'static' }` to pin the same lightness
+ * across every variant.
  *
  * Relative `lightness: '+N'` and `contrast: <ratio>` are anchored to
  * the literal seed (the value passed in) by default, pinned at
