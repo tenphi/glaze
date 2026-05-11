@@ -113,7 +113,12 @@ jobs:
           title: 'chore: version packages'
           commit: 'chore: version packages'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The default `GITHUB_TOKEN` is insufficient inside the `release`
+          # environment for the `@changesets/changelog-github` GraphQL
+          # lookups (returns an HTML error page) and for the Git push the
+          # action performs. Use a fine-grained PAT with `contents: write`
+          # and `pull-requests: write` scopes on this repo. See AGENTS.md.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
       - name: Create GitHub Release
