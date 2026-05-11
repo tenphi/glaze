@@ -1754,6 +1754,36 @@ describe('glaze', () => {
         expect(() => glaze.color('#zzz').resolve()).toThrow('invalid hex');
       });
 
+      it('returns achromatic okhsl for pure white (#FFFFFF)', () => {
+        // Regression: at L = 1 the in-gamut chroma collapses to a point
+        // and floating-point residue in the OKLab a / b channels for
+        // [1, 1, 1] survived the `C < EPSILON` shortcut, sending the
+        // chromatic saturation formula through near-zero divisors and
+        // producing `okhsl(89.88 55.83% 100%)` for what should be a
+        // strictly achromatic color.
+        const [h, s, l] = srgbToOkhsl([1, 1, 1]);
+        expect(s).toBe(0);
+        expect(h).toBe(0);
+        expect(l).toBeCloseTo(1, 6);
+
+        const resolved = glaze.color('#FFFFFF').resolve();
+        expect(resolved.light.s).toBe(0);
+        expect(resolved.light.h).toBe(0);
+        expect(resolved.light.l).toBeCloseTo(1, 6);
+      });
+
+      it('returns achromatic okhsl for pure black (#000000)', () => {
+        const [h, s, l] = srgbToOkhsl([0, 0, 0]);
+        expect(s).toBe(0);
+        expect(h).toBe(0);
+        expect(l).toBe(0);
+
+        const resolved = glaze.color('#000000').resolve();
+        expect(resolved.light.s).toBe(0);
+        expect(resolved.light.h).toBe(0);
+        expect(resolved.light.l).toBe(0);
+      });
+
       it('matches the structured form when seeded with the same numbers', () => {
         const rgb = parseHex('#26fcb2')!;
         const [h, s, l] = srgbToOkhsl(rgb);
