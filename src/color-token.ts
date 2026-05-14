@@ -1,0 +1,828 @@
+/**
+ * Standalone single-color tokens (`glaze.color()` / `glaze.colorFrom()`).
+ *
+ * Owns the value-shorthand parser (hex, `rgb()` / `hsl()` / `okhsl()` /
+ * `oklch()`, OkhslColor object, [r, g, b] tuple), the structured-input
+ * validator, the two factory paths (value vs structured), and the
+ * JSON-safe export / rehydration round-trip.
+ *
+ * Standalone tokens snapshot the relevant `globalConfig` fields at
+ * create time so later `configure()` calls do not retroactively change
+ * exported tokens — the snapshot is captured eagerly in
+ * `defaultStandaloneScaling()`. The token's resolved variants are then
+ * memoized on first `.resolve()` / `.token()` / ... call.
+ */
+
+import { getConfig } from './config';
+import {
+  hslToSrgb,
+  oklabToOkhsl,
+  parseHexAlpha,
+  srgbToOkhsl,
+} from './okhsl-color-math';
+import { isAbsoluteLightness, pairNormal } from './hc-pair';
+import { resolveAllColors } from './resolver';
+import {
+  buildCssMap,
+  buildJsonMap,
+  buildTokenMap,
+  resolveModes,
+} from './formatters';
+import type {
+  ColorMap,
+  GlazeColorCssOptions,
+  GlazeColorInput,
+  GlazeColorInputExport,
+  GlazeColorOverrides,
+  GlazeColorOverridesExport,
+  GlazeColorScaling,
+  GlazeColorToken,
+  GlazeColorTokenExport,
+  GlazeColorValue,
+  GlazeCssResult,
+  GlazeJsonOptions,
+  GlazeTokenOptions,
+  OkhslColor,
+  RegularColorDef,
+  ResolvedColor,
+} from './types';
+
+// ============================================================================
+// Standalone color constants
+// ============================================================================
+
+/** Internal name of the user-facing standalone color in the synthesized def map. */
+const STANDALONE_VALUE = 'value';
+/** Internal name of the hidden static-anchor seed used for relative lightness / contrast. */
+const STANDALONE_SEED = 'seed';
+/** Internal name of an externally-resolved `GlazeColorToken` injected as a base reference. */
+const STANDALONE_BASE = 'externalBase';
+
+/** Reserved internal names that user-supplied `name` must not collide with. */
+const RESERVED_STANDALONE_NAMES = new Set([
+  STANDALONE_VALUE,
+  STANDALONE_SEED,
+  STANDALONE_BASE,
+]);
+
+/**
+ * Build the create-time scaling snapshot used when the caller did not
+ * pass an explicit `scaling`. All windows are snapshotted from the
+ * current `globalConfig` so later `glaze.configure()` calls don't
+ * retroactively change the resolved variants of an already-created
+ * token (matches the documented "frozen at create time" semantics).
+ *
+ * String value-shorthand inputs preserve their light lightness exactly
+ * (`lightLightness: false`) and use an extended dark window
+ * `[globalConfig.darkLightness[0], 100]` so a totally-black input can
+ * Möbius-invert to totally-white in dark mode. Object / tuple /
+ * structured inputs snapshot both windows from `globalConfig` verbatim
+ * so they behave like an ordinary theme color (auto-adapted on both
+ * sides).
+ */
+function defaultStandaloneScaling(isString: boolean): GlazeColorScaling {
+  const cfg = getConfig();
+  if (isString) {
+    const [darkLo] = cfg.darkLightness;
+    return {
+      lightLightness: false,
+      darkLightness: [darkLo, 100],
+    };
+  }
+  return {
+    lightLightness: cfg.lightLightness,
+    darkLightness: cfg.darkLightness,
+  };
+}
+
+/**
+ * Discriminate a `GlazeColorToken` from a raw `GlazeColorValue`.
+ * Used to widen `base?` so it accepts either a token reference or a
+ * raw value (auto-wrapped into `glaze.color(value)`).
+ */
+export function isGlazeColorToken(
+  candidate: GlazeColorToken | GlazeColorValue,
+): candidate is GlazeColorToken {
+  return (
+    typeof candidate === 'object' &&
+    candidate !== null &&
+    !Array.isArray(candidate) &&
+    'resolve' in candidate &&
+    typeof (candidate as { resolve?: unknown }).resolve === 'function'
+  );
+}
+
+export function isStructuredColorInput(
+  input: GlazeColorInput | GlazeColorValue,
+): input is GlazeColorInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    !Array.isArray(input) &&
+    'hue' in input &&
+    'lightness' in input
+  );
+}
+
+// ============================================================================
+// Color string parsing
+// ============================================================================
+
+/**
+ * Matches the CSS color functions Glaze itself emits (`rgb()`, `hsl()`,
+ * `okhsl()`, `oklch()`) plus their legacy alpha aliases (`rgba()`, `hsla()`).
+ *
+ * Only bare numeric components are supported. Named colors (`red`),
+ * relative-color syntax (`from <color> ...`), and angle units other
+ * than bare degrees (`deg` is the only suffix tolerated by `parseFloat`)
+ * are out of scope.
+ */
+const COLOR_FN_RE = /^(rgba?|hsla?|okhsl|oklch)\(\s*([^)]*)\s*\)$/i;
+
+function parseNumberOrPercent(raw: string, percentScale: number): number {
+  if (raw.endsWith('%')) {
+    return (parseFloat(raw) / 100) * percentScale;
+  }
+  return parseFloat(raw);
+}
+
+/**
+ * Split the body of a CSS color function into its components and detect
+ * whether an alpha channel was present.
+ *
+ * Handles both modern slash syntax (`R G B / A` or `R, G, B / A`) and
+ * legacy comma syntax (`R, G, B, A`). The alpha value itself is discarded
+ * by the caller — standalone Glaze colors have no opacity field.
+ */
+function splitColorBody(body: string): {
+  components: string[];
+  hadAlpha: boolean;
+} {
+  const slashIdx = body.indexOf('/');
+  if (slashIdx !== -1) {
+    const components = body
+      .slice(0, slashIdx)
+      .trim()
+      .split(/[\s,]+/)
+      .filter(Boolean);
+    const hadAlpha = body.slice(slashIdx + 1).trim().length > 0;
+    return { components, hadAlpha };
+  }
+
+  const components = body.split(/[\s,]+/).filter(Boolean);
+  if (components.length === 4) {
+    components.pop();
+    return { components, hadAlpha: true };
+  }
+  return { components, hadAlpha: false };
+}
+
+function warnDroppedAlpha(input: string): void {
+  console.warn(
+    `glaze: alpha component dropped from "${input}" (standalone color has no opacity field).`,
+  );
+}
+
+function parseColorString(input: string): OkhslColor {
+  if (input.startsWith('#')) {
+    const parsed = parseHexAlpha(input);
+    if (!parsed) throw new Error(`glaze: invalid hex color "${input}".`);
+    if (parsed.alpha !== undefined) warnDroppedAlpha(input);
+    const [h, s, l] = srgbToOkhsl(parsed.rgb);
+    return { h, s, l };
+  }
+
+  const m = input.match(COLOR_FN_RE);
+  if (!m) {
+    throw new Error(`glaze: unsupported color string "${input}".`);
+  }
+
+  const fn = m[1].toLowerCase();
+  const { components, hadAlpha } = splitColorBody(m[2].trim());
+
+  if (hadAlpha) warnDroppedAlpha(input);
+  if (components.length !== 3) {
+    throw new Error(`glaze: expected 3 components in "${input}".`);
+  }
+
+  switch (fn) {
+    case 'rgb':
+    case 'rgba': {
+      const r = parseNumberOrPercent(components[0], 255) / 255;
+      const g = parseNumberOrPercent(components[1], 255) / 255;
+      const b = parseNumberOrPercent(components[2], 255) / 255;
+      const [h, s, l] = srgbToOkhsl([r, g, b]);
+      return { h, s, l };
+    }
+    case 'hsl':
+    case 'hsla': {
+      const h = parseFloat(components[0]);
+      const s = parseNumberOrPercent(components[1], 1);
+      const l = parseNumberOrPercent(components[2], 1);
+      const [oh, os, ol] = srgbToOkhsl(hslToSrgb(h, s, l));
+      return { h: oh, s: os, l: ol };
+    }
+    case 'okhsl': {
+      const h = parseFloat(components[0]);
+      const s = parseNumberOrPercent(components[1], 1);
+      const l = parseNumberOrPercent(components[2], 1);
+      return { h, s, l };
+    }
+    case 'oklch': {
+      const L = parseNumberOrPercent(components[0], 1);
+      // Per CSS Color 4: chroma percent maps `100% → 0.4`.
+      const C = parseNumberOrPercent(components[1], 0.4);
+      const hDeg = parseFloat(components[2]);
+      const hRad = (hDeg * Math.PI) / 180;
+      const a = C * Math.cos(hRad);
+      const b = C * Math.sin(hRad);
+      const [h, s, l] = oklabToOkhsl([L, a, b]);
+      return { h, s, l };
+    }
+  }
+  throw new Error(`glaze: unsupported color function "${fn}".`);
+}
+
+// ============================================================================
+// Input validation
+// ============================================================================
+
+/**
+ * Validate a user-supplied `OkhslColor`. Catches the common 0-100 vs 0-1
+ * confusion (the structured form uses 0-100, OKHSL objects use 0-1).
+ */
+function validateOkhslColor(value: OkhslColor): void {
+  const { h, s, l } = value;
+  if (!Number.isFinite(h) || !Number.isFinite(s) || !Number.isFinite(l)) {
+    throw new Error('glaze.color: OkhslColor h/s/l must be finite numbers.');
+  }
+  if (s > 1.5 || l > 1.5) {
+    throw new Error(
+      'glaze.color: OkhslColor s/l must be in 0–1 range. Did you mean the structured form { hue, saturation, lightness } (which uses 0–100)?',
+    );
+  }
+}
+
+/** Validate a user-supplied `[r, g, b]` tuple in 0-255. */
+function validateRgbTuple(value: readonly [number, number, number]): void {
+  for (const n of value) {
+    if (!Number.isFinite(n) || n < 0 || n > 255) {
+      throw new Error(
+        `glaze.color: RGB tuple components must be finite numbers in 0–255 (got [${value.join(', ')}]).`,
+      );
+    }
+  }
+}
+
+/**
+ * Validate a user-supplied `opacity` override on `glaze.color()`.
+ * Must be a finite number in `0..=1`.
+ */
+function validateStandaloneOpacity(value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error(
+      `glaze.color: opacity must be a finite number in 0–1 (got ${value}).`,
+    );
+  }
+}
+
+/**
+ * Validate a structured `GlazeColorInput`. Range-checks the `hue` /
+ * `saturation` / `lightness` numerics (and any HC-pair second value)
+ * before the resolver sees them so out-of-range or non-finite inputs
+ * fail with a helpful, top-level error rather than producing a
+ * NaN-laden token. `opacity` is checked here too so all input
+ * validation lives in one place.
+ */
+function validateStructuredInput(input: GlazeColorInput): void {
+  if (!Number.isFinite(input.hue)) {
+    throw new Error(
+      `glaze.color: structured hue must be a finite number (got ${input.hue}).`,
+    );
+  }
+  if (
+    !Number.isFinite(input.saturation) ||
+    input.saturation < 0 ||
+    input.saturation > 100
+  ) {
+    throw new Error(
+      `glaze.color: structured saturation must be a finite number in 0–100 (got ${input.saturation}).`,
+    );
+  }
+  const checkLightness = (value: number, label: string): void => {
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      throw new Error(
+        `glaze.color: structured ${label} must be a finite number in 0–100 (got ${value}).`,
+      );
+    }
+  };
+  if (Array.isArray(input.lightness)) {
+    checkLightness(input.lightness[0], 'lightness[normal]');
+    checkLightness(input.lightness[1], 'lightness[hc]');
+  } else {
+    checkLightness(input.lightness, 'lightness');
+  }
+  if (input.saturationFactor !== undefined) {
+    if (
+      !Number.isFinite(input.saturationFactor) ||
+      input.saturationFactor < 0 ||
+      input.saturationFactor > 1
+    ) {
+      throw new Error(
+        `glaze.color: structured saturationFactor must be a finite number in 0–1 (got ${input.saturationFactor}).`,
+      );
+    }
+  }
+  if (input.opacity !== undefined) validateStandaloneOpacity(input.opacity);
+}
+
+/**
+ * Validate a user-supplied `name` override. Rejects empty / whitespace-only
+ * strings and names colliding with `glaze`'s reserved internal sentinels.
+ */
+function validateStandaloneName(name: string): void {
+  if (typeof name !== 'string' || name.trim() === '') {
+    throw new Error(
+      'glaze.color: name must be a non-empty string. ' +
+        'Omit `name` if you do not want to set a debug label.',
+    );
+  }
+  if (RESERVED_STANDALONE_NAMES.has(name)) {
+    const reserved = [...RESERVED_STANDALONE_NAMES]
+      .map((n) => `"${n}"`)
+      .join(', ');
+    throw new Error(
+      `glaze.color: name "${name}" is reserved (used internally). ` +
+        `Reserved names are: ${reserved}. Pick a different name.`,
+    );
+  }
+}
+
+/**
+ * Extract an OKHSL color from any `GlazeColorValue` form. Also used by
+ * `glaze.shadow()` so all shadow inputs (hex, color functions, OKHSL,
+ * RGB tuple) go through one parser.
+ */
+export function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
+  if (typeof value === 'string') return parseColorString(value);
+  if (Array.isArray(value)) {
+    const tuple = value as readonly [number, number, number];
+    validateRgbTuple(tuple);
+    const [r, g, b] = tuple;
+    const [h, s, l] = srgbToOkhsl([r / 255, g / 255, b / 255]);
+    return { h, s, l };
+  }
+  validateOkhslColor(value as OkhslColor);
+  return value as OkhslColor;
+}
+
+// ============================================================================
+// Factory: shared helpers
+// ============================================================================
+
+interface ValueDefsResult {
+  seedHue: number;
+  seedSaturation: number;
+  defs: ColorMap;
+  primary: string;
+}
+
+/**
+ * Build the `ColorMap` for a value-shorthand `glaze.color()` call.
+ *
+ * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
+ * across every value-shorthand form. String inputs pair with the
+ * extended dark window so a totally-black input renders as totally-white
+ * in dark mode; `OkhslColor` / RGB-tuple inputs auto-adapt into the
+ * snapshotted `globalConfig.lightLightness` / `globalConfig.darkLightness`
+ * windows.
+ *
+ * When the user requests `contrast` or relative `lightness`, a hidden
+ * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
+ * the seed pinned to the literal user-provided color across all four
+ * variants, so the contrast solver always anchors against it.
+ */
+function buildStandaloneValueDefs(
+  main: OkhslColor,
+  options: GlazeColorOverrides | undefined,
+): ValueDefsResult {
+  const seedHue = typeof options?.hue === 'number' ? options.hue : main.h;
+  const seedSaturation = options?.saturation ?? main.s * 100;
+  const relativeHue =
+    typeof options?.hue === 'string' ? options.hue : undefined;
+
+  const lightnessOption = options?.lightness;
+  const hasExternalBase = options?.base !== undefined;
+  // Seed-anchor synthesis only kicks in when the user did NOT supply their
+  // own base — in that case `contrast` and relative `lightness` anchor to
+  // the literal seed via the hidden `STANDALONE_SEED` def.
+  const needsSeedAnchor =
+    !hasExternalBase &&
+    (options?.contrast !== undefined ||
+      (lightnessOption !== undefined && !isAbsoluteLightness(lightnessOption)));
+
+  if (options?.opacity !== undefined)
+    validateStandaloneOpacity(options.opacity);
+
+  // User-supplied `name` becomes the def key (and surfaces in error / warn
+  // messages). It must not collide with internal reserved names; we throw
+  // a clear error rather than silently shadowing them.
+  const userName = options?.name;
+  if (userName !== undefined) validateStandaloneName(userName);
+  const primary = userName ?? STANDALONE_VALUE;
+
+  const valueDef: RegularColorDef = {
+    hue: relativeHue,
+    saturation: options?.saturationFactor,
+    lightness: lightnessOption ?? main.l * 100,
+    contrast: options?.contrast,
+    mode: options?.mode ?? 'auto',
+    opacity: options?.opacity,
+    base: hasExternalBase
+      ? STANDALONE_BASE
+      : needsSeedAnchor
+        ? STANDALONE_SEED
+        : undefined,
+  };
+
+  const defs: ColorMap = { [primary]: valueDef };
+
+  if (needsSeedAnchor) {
+    // `saturation: 1` is the default factor; combined with seedSaturation
+    // = main.s * 100, the seed renders at exactly the user-provided color.
+    defs[STANDALONE_SEED] = {
+      hue: main.h,
+      saturation: 1,
+      lightness: main.l * 100,
+      mode: 'static',
+    };
+  }
+
+  return {
+    seedHue,
+    seedSaturation,
+    defs,
+    primary,
+  };
+}
+
+function createColorTokenFromDefs(
+  seedHue: number,
+  seedSaturation: number,
+  defs: ColorMap,
+  primary: string,
+  effectiveScaling: GlazeColorScaling,
+  baseToken: GlazeColorToken | undefined,
+  exportData: () => GlazeColorTokenExport,
+): GlazeColorToken {
+  // Cache the resolve result across token / tasty / json / css / resolve calls.
+  // The base token's `.resolve()` is called lazily on first resolve and the
+  // result is captured by reference, so subsequent base mutations don't apply
+  // (matches the existing snapshot semantics for `scaling.darkLightness`).
+  let cached: Map<string, ResolvedColor> | undefined;
+  const resolveOnce = (): Map<string, ResolvedColor> => {
+    if (cached) return cached;
+    const externalBases = baseToken
+      ? new Map([[STANDALONE_BASE, baseToken.resolve()]])
+      : undefined;
+    cached = resolveAllColors(
+      seedHue,
+      seedSaturation,
+      defs,
+      effectiveScaling,
+      externalBases,
+    );
+    return cached;
+  };
+
+  const resolveStates = (options?: GlazeTokenOptions) => {
+    const cfg = getConfig();
+    return {
+      dark: options?.states?.dark ?? cfg.states.dark,
+      highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
+    };
+  };
+
+  const tokenLike = (options?: GlazeTokenOptions): Record<string, string> => {
+    const tokenMap = buildTokenMap(
+      resolveOnce(),
+      '',
+      resolveStates(options),
+      resolveModes(options?.modes),
+      options?.format,
+    );
+    return tokenMap[`#${primary}`];
+  };
+
+  return {
+    resolve(): ResolvedColor {
+      return resolveOnce().get(primary)!;
+    },
+
+    token: tokenLike,
+    tasty: tokenLike,
+
+    json(options?: GlazeJsonOptions): Record<string, string> {
+      const jsonMap = buildJsonMap(
+        resolveOnce(),
+        resolveModes(options?.modes),
+        options?.format,
+      );
+      return jsonMap[primary];
+    },
+
+    css(options: GlazeColorCssOptions): GlazeCssResult {
+      const renamed = new Map<string, ResolvedColor>([
+        [options.name, resolveOnce().get(primary)!],
+      ]);
+      return buildCssMap(
+        renamed,
+        '',
+        options.suffix ?? '-color',
+        options.format ?? 'rgb',
+      );
+    },
+
+    export: exportData,
+  };
+}
+
+/**
+ * Resolve `base` (which may be a token reference or a raw color value)
+ * into a `GlazeColorToken`. Raw values are auto-wrapped via
+ * `glaze.color(value)` so they pick up the same auto-invert defaults as
+ * an explicit wrap. Returns `undefined` when no base is provided.
+ */
+function resolveBaseToken(
+  base: GlazeColorToken | GlazeColorValue | undefined,
+): GlazeColorToken | undefined {
+  if (base === undefined) return undefined;
+  if (isGlazeColorToken(base)) return base;
+  return createColorTokenFromValue(base, undefined, undefined);
+}
+
+// ============================================================================
+// Factory: structured input
+// ============================================================================
+
+export function createColorToken(
+  input: GlazeColorInput,
+  scaling: GlazeColorScaling | undefined,
+): GlazeColorToken {
+  validateStructuredInput(input);
+
+  const userName = input.name;
+  if (userName !== undefined) validateStandaloneName(userName);
+  const primary = userName ?? STANDALONE_VALUE;
+
+  const baseToken = resolveBaseToken(input.base);
+  const hasExternalBase = baseToken !== undefined;
+  // Mirror value-form behavior: when `contrast` is provided without an
+  // external base, synthesize a hidden static seed so contrast anchors
+  // against the input's own normal-mode lightness.
+  const needsSeedAnchor = !hasExternalBase && input.contrast !== undefined;
+
+  const defs: ColorMap = {
+    [primary]: {
+      lightness: input.lightness,
+      saturation: input.saturationFactor,
+      mode: input.mode ?? 'auto',
+      contrast: input.contrast,
+      opacity: input.opacity,
+      base: hasExternalBase
+        ? STANDALONE_BASE
+        : needsSeedAnchor
+          ? STANDALONE_SEED
+          : undefined,
+    },
+  };
+
+  if (needsSeedAnchor) {
+    defs[STANDALONE_SEED] = {
+      lightness: pairNormal(input.lightness),
+      saturation: 1,
+      mode: 'static',
+    };
+  }
+
+  // Structured form uses the same snapshotted default as object / tuple
+  // value-shorthand: both light and dark windows come from `globalConfig`,
+  // captured at create time. With the default `mode: 'auto'` this matches
+  // the behavior of an ordinary theme color (Möbius-inverted in dark).
+  const effectiveScaling: GlazeColorScaling =
+    scaling ?? defaultStandaloneScaling(false);
+
+  const exportData = (): GlazeColorTokenExport => ({
+    form: 'structured',
+    input: buildStructuredInputExport(input),
+    scaling: effectiveScaling,
+  });
+
+  return createColorTokenFromDefs(
+    input.hue,
+    input.saturation,
+    defs,
+    primary,
+    effectiveScaling,
+    baseToken,
+    exportData,
+  );
+}
+
+// ============================================================================
+// Factory: value-shorthand input
+// ============================================================================
+
+export function createColorTokenFromValue(
+  value: GlazeColorValue,
+  options: GlazeColorOverrides | undefined,
+  scaling: GlazeColorScaling | undefined,
+): GlazeColorToken {
+  const inputIsString = typeof value === 'string';
+  const main = extractOkhslFromValue(value);
+  const baseToken = resolveBaseToken(options?.base);
+  const { seedHue, seedSaturation, defs, primary } = buildStandaloneValueDefs(
+    main,
+    options,
+  );
+  // Default scaling is snapshotted from `globalConfig` at create time:
+  //   - String inputs (typical end-user values from a color picker / theme
+  //     setting) default to "light preserves input, dark Möbius-inverts up
+  //     to 100" so the natural `#000` ↔ `#fff` flip works out of the box.
+  //   - Object / tuple inputs default to the full `globalConfig.lightLightness`
+  //     / `globalConfig.darkLightness` windows — same as a theme color and
+  //     same as the structured form.
+  // Both forms freeze the windows at create time so later `glaze.configure()`
+  // calls don't retroactively change exported tokens.
+  const effectiveScaling: GlazeColorScaling =
+    scaling ?? defaultStandaloneScaling(inputIsString);
+
+  const exportData = (): GlazeColorTokenExport => ({
+    form: 'value',
+    input: value,
+    ...(options !== undefined
+      ? { overrides: buildOverridesExport(options) }
+      : {}),
+    scaling: effectiveScaling,
+  });
+
+  return createColorTokenFromDefs(
+    seedHue,
+    seedSaturation,
+    defs,
+    primary,
+    effectiveScaling,
+    baseToken,
+    exportData,
+  );
+}
+
+// ============================================================================
+// Export / rehydrate
+// ============================================================================
+
+/**
+ * Build a JSON-safe snapshot of `GlazeColorOverrides`. `base` is
+ * recursively serialized when it was originally a token; raw values are
+ * preserved as-is so `glaze.colorFrom(...)` round-trips them.
+ */
+function buildOverridesExport(
+  options: GlazeColorOverrides,
+): GlazeColorOverridesExport {
+  const out: GlazeColorOverridesExport = {};
+  if (options.hue !== undefined) out.hue = options.hue;
+  if (options.saturation !== undefined) out.saturation = options.saturation;
+  if (options.lightness !== undefined) out.lightness = options.lightness;
+  if (options.saturationFactor !== undefined) {
+    out.saturationFactor = options.saturationFactor;
+  }
+  if (options.mode !== undefined) out.mode = options.mode;
+  if (options.contrast !== undefined) out.contrast = options.contrast;
+  if (options.opacity !== undefined) out.opacity = options.opacity;
+  if (options.name !== undefined) out.name = options.name;
+  if (options.base !== undefined) {
+    out.base = isGlazeColorToken(options.base)
+      ? options.base.export()
+      : options.base;
+  }
+  return out;
+}
+
+function buildStructuredInputExport(
+  input: GlazeColorInput,
+): GlazeColorInputExport {
+  const out: GlazeColorInputExport = {
+    hue: input.hue,
+    saturation: input.saturation,
+    lightness: input.lightness,
+  };
+  if (input.saturationFactor !== undefined) {
+    out.saturationFactor = input.saturationFactor;
+  }
+  if (input.mode !== undefined) out.mode = input.mode;
+  if (input.opacity !== undefined) out.opacity = input.opacity;
+  if (input.contrast !== undefined) out.contrast = input.contrast;
+  if (input.name !== undefined) out.name = input.name;
+  if (input.base !== undefined) {
+    out.base = isGlazeColorToken(input.base) ? input.base.export() : input.base;
+  }
+  return out;
+}
+
+/**
+ * Discriminate a `GlazeColorTokenExport` from a raw `GlazeColorValue`.
+ * `GlazeColorTokenExport` always has a `form` field set to either
+ * `'value'` or `'structured'`; raw values never do.
+ */
+function isExportedToken(
+  candidate: GlazeColorTokenExport | GlazeColorValue,
+): candidate is GlazeColorTokenExport {
+  return (
+    typeof candidate === 'object' &&
+    candidate !== null &&
+    !Array.isArray(candidate) &&
+    'form' in candidate &&
+    ((candidate as GlazeColorTokenExport).form === 'value' ||
+      (candidate as GlazeColorTokenExport).form === 'structured')
+  );
+}
+
+function rehydrateOverrides(
+  data: GlazeColorOverridesExport,
+): GlazeColorOverrides {
+  const out: GlazeColorOverrides = {};
+  if (data.hue !== undefined) out.hue = data.hue;
+  if (data.saturation !== undefined) out.saturation = data.saturation;
+  if (data.lightness !== undefined) out.lightness = data.lightness;
+  if (data.saturationFactor !== undefined) {
+    out.saturationFactor = data.saturationFactor;
+  }
+  if (data.mode !== undefined) out.mode = data.mode;
+  if (data.contrast !== undefined) out.contrast = data.contrast;
+  if (data.opacity !== undefined) out.opacity = data.opacity;
+  if (data.name !== undefined) out.name = data.name;
+  if (data.base !== undefined) {
+    out.base = isExportedToken(data.base)
+      ? colorFromExport(data.base)
+      : data.base;
+  }
+  return out;
+}
+
+function rehydrateStructuredInput(
+  data: GlazeColorInputExport,
+): GlazeColorInput {
+  const out: GlazeColorInput = {
+    hue: data.hue,
+    saturation: data.saturation,
+    lightness: data.lightness,
+  };
+  if (data.saturationFactor !== undefined) {
+    out.saturationFactor = data.saturationFactor;
+  }
+  if (data.mode !== undefined) out.mode = data.mode;
+  if (data.opacity !== undefined) out.opacity = data.opacity;
+  if (data.contrast !== undefined) out.contrast = data.contrast;
+  if (data.name !== undefined) out.name = data.name;
+  if (data.base !== undefined) {
+    out.base = isExportedToken(data.base)
+      ? colorFromExport(data.base)
+      : data.base;
+  }
+  return out;
+}
+
+/**
+ * Rehydrate a token from its `.export()` snapshot. Recursively rebuilds
+ * any base dependency. Inverse of `GlazeColorToken.export()`.
+ */
+export function colorFromExport(data: GlazeColorTokenExport): GlazeColorToken {
+  // Shape guard: rehydration takes untrusted JSON (localStorage, URL,
+  // remote API), so a corrupted blob shouldn't blow up deep inside the
+  // resolver with confusing errors.
+  if (data === null || typeof data !== 'object') {
+    throw new Error(
+      `glaze.colorFrom: expected an object from token.export(), got ${data === null ? 'null' : typeof data}.`,
+    );
+  }
+  if (data.form !== 'value' && data.form !== 'structured') {
+    throw new Error(
+      `glaze.colorFrom: invalid "form" field — expected "value" or "structured" (got ${JSON.stringify((data as { form?: unknown }).form)}).`,
+    );
+  }
+  if (data.input === undefined) {
+    throw new Error(
+      `glaze.colorFrom: missing "input" field — expected the original ${data.form === 'value' ? 'GlazeColorValue' : 'GlazeColorInput'}.`,
+    );
+  }
+
+  if (data.form === 'value') {
+    const value = data.input as GlazeColorValue;
+    const overrides = data.overrides
+      ? rehydrateOverrides(data.overrides)
+      : undefined;
+    return createColorTokenFromValue(value, overrides, data.scaling);
+  }
+  const input = rehydrateStructuredInput(data.input as GlazeColorInputExport);
+  return createColorToken(input, data.scaling);
+}
