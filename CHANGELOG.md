@@ -1,5 +1,30 @@
 # @tenphi/glaze
 
+## 0.11.1
+
+### Patch Changes
+
+- [#56](https://github.com/tenphi/glaze/pull/56) [`978bf60`](https://github.com/tenphi/glaze/commit/978bf60540c47387d2ae3f6cafdcb23bd992cbe4) Thanks [@tenphi](https://github.com/tenphi)! - Restructure documentation into focused README, API, methodology, and migration guides.
+
+- [#56](https://github.com/tenphi/glaze/pull/56) [`978bf60`](https://github.com/tenphi/glaze/commit/978bf60540c47387d2ae3f6cafdcb23bd992cbe4) Thanks [@tenphi](https://github.com/tenphi)! - Internal refactor: split the 2636-line `src/glaze.ts` into focused, flat
+  modules (`config`, `hc-pair`, `shadow`, `warnings`, `scheme-mapping`,
+  `validation`, `resolver`, `formatters`, `theme`, `palette`,
+  `color-token`) and dedupe a few parallel structures:
+  - The resolver's four-pass loop is now a single `runPass()` + `seedField()`
+    helper called four times.
+  - The palette `tokens` / `tasty` / `css` exporters share a
+    `buildPaletteOutput()` driver instead of duplicating the
+    per-theme loop / prefix resolution / collision filtering /
+    primary-duplication logic.
+  - The default-config literal is no longer duplicated between module
+    init and `resetConfig()`; both call a shared `defaultConfig()`.
+  - `theme` exports now cache the resolve result and invalidate it on
+    any def mutation or `configure()` / `resetConfig()` call (via a
+    new `configVersion` counter), so back-to-back exports don't
+    re-run the four-pass resolver.
+
+  No public API or behavior changes.
+
 ## 0.11.0
 
 ### Minor Changes
