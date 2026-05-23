@@ -41,6 +41,12 @@ export interface FindLightnessForContrastOptions {
   epsilon?: number;
   /** Maximum binary-search iterations per branch. Default: 14. */
   maxIterations?: number;
+  /**
+   * When both branches fail to meet contrast, try flipping
+   * the lightness around the center of the search range.
+   * Default: false (no flip). Set true for auto-flip behavior.
+   */
+  flip?: boolean;
 }
 
 export interface FindLightnessForContrastResult {
@@ -52,6 +58,8 @@ export interface FindLightnessForContrastResult {
   met: boolean;
   /** Which branch was selected. */
   branch: 'lighter' | 'darker' | 'preferred';
+  /** Whether the result was auto-flipped to the opposite direction. */
+  flipped?: boolean;
 }
 
 // ============================================================================
@@ -344,6 +352,35 @@ export function findLightnessForContrast(
   }
 
   candidates.sort((a, b) => b.contrast - a.contrast);
+
+  // Auto-flip: when both branches fail and flip is enabled,
+  // try the opposite lightness direction by mirroring around
+  // the center of the search range.
+  if (candidates.length > 0 && options.flip) {
+    const best = candidates[0];
+    const center = (minL + maxL) / 2;
+    const flippedLightness = Math.max(
+      minL,
+      Math.min(maxL, 2 * center - best.lightness),
+    );
+
+    // Re-solve with the flipped lightness as preferred.
+    const flippedResult = findLightnessForContrast({
+      hue,
+      saturation,
+      preferredLightness: flippedLightness,
+      baseLinearRgb,
+      contrast: contrastInput,
+      lightnessRange: [minL, maxL],
+      epsilon,
+      maxIterations,
+    });
+
+    if (flippedResult.met) {
+      return { ...flippedResult, branch: flippedResult.branch, flipped: true };
+    }
+  }
+
   return candidates[0];
 }
 
@@ -370,6 +407,12 @@ export interface FindValueForMixContrastOptions {
   epsilon?: number;
   /** Maximum binary-search iterations per branch. Default: 20. */
   maxIterations?: number;
+  /**
+   * When both branches fail to meet contrast, try flipping
+   * the mix value around the center of [0, 1].
+   * Default: false (no flip). Set true for auto-flip behavior.
+   */
+  flip?: boolean;
 }
 
 export interface FindValueForMixContrastResult {
@@ -379,6 +422,8 @@ export interface FindValueForMixContrastResult {
   contrast: number;
   /** Whether the target was reached. */
   met: boolean;
+  /** Whether the result was auto-flipped to the opposite direction. */
+  flipped?: boolean;
 }
 
 /**
@@ -453,6 +498,7 @@ export function findValueForMixContrast(
   const {
     preferredValue,
     baseLinearRgb,
+    targetLinearRgb,
     contrast: contrastInput,
     luminanceAtValue,
     epsilon = 1e-4,
@@ -546,6 +592,29 @@ export function findValueForMixContrast(
   }
 
   candidates.sort((a, b) => b.contrast - a.contrast);
+
+  // Auto-flip: when both branches fail and flip is enabled,
+  // try the opposite mix value by mirroring around 0.5.
+  if (candidates.length > 0 && options.flip) {
+    const best = candidates[0];
+    const flippedValue = Math.max(0, Math.min(1, 2 * 0.5 - best.lightness));
+
+    // Re-solve with the flipped value as preferred.
+    const flippedResult = findValueForMixContrast({
+      preferredValue: flippedValue,
+      baseLinearRgb,
+      targetLinearRgb,
+      contrast: contrastInput,
+      luminanceAtValue,
+      epsilon,
+      maxIterations,
+    });
+
+    if (flippedResult.met) {
+      return { ...flippedResult, flipped: true };
+    }
+  }
+
   return {
     value: candidates[0].lightness,
     contrast: candidates[0].contrast,

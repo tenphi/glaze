@@ -28,6 +28,7 @@ export function defaultConfig(): GlazeConfigResolved {
       dark: true,
       highContrast: false,
     },
+    autoFlip: true,
   };
 }
 
@@ -75,6 +76,7 @@ export function configure(config: GlazeConfig): void {
         config.modes?.highContrast ?? globalConfig.modes.highContrast,
     },
     shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
+    autoFlip: config.autoFlip ?? globalConfig.autoFlip,
   };
 }
 
