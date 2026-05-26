@@ -194,6 +194,12 @@ function resolveDependentColor(
     );
 
     const autoFlip = ctx.autoFlip ?? getConfig().autoFlip;
+    let initialDirection: 'lighter' | 'darker' | undefined;
+    if (preferredL < baseL) {
+      initialDirection = 'darker';
+    } else if (preferredL > baseL) {
+      initialDirection = 'lighter';
+    }
 
     const result = findLightnessForContrast({
       hue: effectiveHue,
@@ -206,6 +212,7 @@ function resolveDependentColor(
       baseLinearRgb,
       contrast: minCr,
       lightnessRange: [0, 1],
+      initialDirection,
       flip: autoFlip,
     });
 

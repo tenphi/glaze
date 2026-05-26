@@ -240,15 +240,14 @@ export interface GlazeConfig {
   /**
    * Automatically flip lightness direction when contrast can't be met.
    *
-   * When enabled (default `true`), the solver searches the natural
-   * direction first (the side whose extreme has higher contrast against
-   * the base). If that direction can't reach the target, it tries the
-   * opposite direction and uses it when it passes. If neither side
-   * passes, the lightness is pinned to the natural-direction extreme
-   * and a warning is emitted.
+   * When enabled (default `true`), the solver searches the requested
+   * lightness direction first. If that direction can't reach the target,
+   * it tries the opposite direction and uses it when it passes. If neither
+   * side passes, the lightness is pinned to the requested-direction
+   * extreme and a warning is emitted.
    *
    * Set to `false` for strict "no flip" behavior. The opposite
-   * direction is never considered: if the natural direction can't
+   * direction is never considered: if the requested direction can't
    * meet the target, the lightness is pinned to its extreme (never
    * falls back to the originally requested lightness).
    */

@@ -42,10 +42,18 @@ export interface FindLightnessForContrastOptions {
   /** Maximum binary-search iterations per branch. Default: 14. */
   maxIterations?: number;
   /**
+   * Preferred search direction before auto-flip is considered.
+   *
+   * Theme resolution sets this from the requested lightness relative to
+   * the base color so `autoFlip: false` preserves the authored direction.
+   * When omitted, the solver falls back to the side whose extreme has
+   * higher contrast against the base.
+   */
+  initialDirection?: 'lighter' | 'darker';
+  /**
    * Auto-flip lightness direction when contrast can't be met.
    *
-   * When `true`, the solver searches the initial direction first
-   * (the side with higher contrast against the base). If that side
+   * When `true`, the solver searches the initial direction first. If that side
    * doesn't reach the target, it tries the opposite direction and
    * uses it when it passes. If neither side passes, it returns the
    * extreme lightness of the initial direction.
@@ -298,15 +306,16 @@ export function findLightnessForContrast(
 
   const [minL, maxL] = lightnessRange;
 
-  // Initial direction: the side whose extreme has higher contrast
-  // against the base — that's the "natural" direction the solver explores
-  // first to meet the target. The opposite direction is only considered
-  // when `flip` is enabled; the fallback extreme also lives on the
-  // initial side.
+  // Initial direction: caller-provided when the authored lightness hint
+  // matters, otherwise the side whose extreme has higher contrast against
+  // the base. The opposite direction is only considered when `flip` is
+  // enabled; the fallback extreme also lives on the initial side.
   const canDarker = preferredLightness > minL;
   const canLighter = preferredLightness < maxL;
   let initialIsDarker: boolean;
-  if (canDarker && !canLighter) {
+  if (options.initialDirection !== undefined) {
+    initialIsDarker = options.initialDirection === 'darker';
+  } else if (canDarker && !canLighter) {
     initialIsDarker = true;
   } else if (!canDarker && canLighter) {
     initialIsDarker = false;
@@ -703,7 +712,10 @@ export function findValueForMixContrast(
 
   // Failure: pin to the initial direction's extreme.
   const extreme = initialIsLower ? 0 : 1;
-  const crExtreme = contrastRatioFromLuminance(luminanceAtValue(extreme), yBase);
+  const crExtreme = contrastRatioFromLuminance(
+    luminanceAtValue(extreme),
+    yBase,
+  );
   return {
     value: extreme,
     contrast: crExtreme,
