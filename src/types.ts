@@ -237,6 +237,21 @@ export interface GlazeConfig {
   modes?: GlazeOutputModes;
   /** Default tuning for all shadow colors. Per-color tuning merges field-by-field. */
   shadowTuning?: ShadowTuning;
+  /**
+   * Automatically flip lightness direction when contrast can't be met.
+   *
+   * When enabled (default `true`), the solver searches the requested
+   * lightness direction first. If that direction can't reach the target,
+   * it tries the opposite direction and uses it when it passes. If neither
+   * side passes, the lightness is pinned to the requested-direction
+   * extreme and a warning is emitted.
+   *
+   * Set to `false` for strict "no flip" behavior. The opposite
+   * direction is never considered: if the requested direction can't
+   * meet the target, the lightness is pinned to its extreme (never
+   * falls back to the originally requested lightness).
+   */
+  autoFlip?: boolean;
 }
 
 export interface GlazeConfigResolved {
@@ -250,6 +265,7 @@ export interface GlazeConfigResolved {
   };
   modes: Required<GlazeOutputModes>;
   shadowTuning?: ShadowTuning;
+  autoFlip: boolean;
 }
 
 // ============================================================================
@@ -521,6 +537,13 @@ export interface GlazeColorTokenExport {
   overrides?: GlazeColorOverridesExport;
   /** Lightness scaling override, if any. */
   scaling?: GlazeColorScaling;
+  /**
+   * Auto-flip setting snapshotted at creation time from
+   * `globalConfig.autoFlip`. Only present when it differs from the
+   * global default (`true`). Rehydrated tokens use this value instead
+   * of whatever is current in `globalConfig`.
+   */
+  autoFlip?: boolean;
 }
 
 /**

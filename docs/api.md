@@ -240,6 +240,8 @@ type MinContrast = number | 'AA' | 'AAA' | 'AA-large' | 'AAA-large';
 
 You can also pass any numeric ratio directly (e.g., `contrast: 4.5`, `contrast: 11`). The constraint is applied independently for each scheme — if the `lightness` already satisfies the floor it's kept, otherwise the solver adjusts lightness until the target is met.
 
+By default, `autoFlip` lets the solver cross to the opposite side of the base color when the requested lightness direction cannot satisfy contrast. Set `glaze.configure({ autoFlip: false })` to keep strict directionality: unmet colors pin to that direction's 0 or 100 lightness extreme instead of falling back to the original requested value.
+
 **Full lightness spectrum in HC mode:** in high-contrast variants the `lightLightness` and `darkLightness` window constraints are bypassed entirely. Colors can reach the full 0–100 range, maximizing perceivable contrast.
 
 #### Per-color hue override
@@ -931,6 +933,7 @@ glaze.configure({
 | `modes.dark` | `true` | Include dark variants in exports. |
 | `modes.highContrast` | `false` | Include HC variants. |
 | `shadowTuning` | `undefined` | Default tuning for all shadow colors. Per-color tuning merges field-by-field. |
+| `autoFlip` | `true` | When solving `contrast`, allow the solver to switch away from the requested lightness direction if that side can't meet the target. With `false`, only the requested direction is considered; unmet contrasts pin the lightness to that direction's extreme (and emit a warning). |
 
 | Method | Description |
 |---|---|
@@ -1070,5 +1073,7 @@ import {
 | `lightnessRange` | `[0, 1]` | Search bounds. |
 | `epsilon` | `1e-4` | Convergence threshold. |
 | `maxIterations` | `14` | Max binary-search iterations per branch. |
+| `initialDirection` | higher-contrast side | Direction to search first (`'lighter'` or `'darker'`). Theme resolution sets this from the requested lightness relative to the base color. |
+| `flip` | `false` | When `true`, try the opposite direction if the initial one doesn't meet the target. When `false`, only the initial direction is searched — unmet contrasts pin the result to that direction's extreme. |
 
-Result: `{ lightness, contrast, met, branch: 'lighter' | 'darker' | 'preferred' }`.
+Result: `{ lightness, contrast, met, branch: 'lighter' | 'darker' | 'preferred', flipped? }`. `flipped: true` indicates the initial direction failed and the opposite direction satisfied the target.

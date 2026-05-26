@@ -10,6 +10,8 @@ The default theme is what most components consume — its tokens are emitted unp
 
 You design the default theme once, and `extend()` propagates that design across every status hue.
 
+Every color definition has an **`inherit`** flag (default: `true`) controlling whether it flows into child themes via `extend()`. Set `inherit: false` to scope a color to its parent theme only — this is how sibling themes stay lean, carrying only the tokens they actually need.
+
 ## Hue / saturation seeds
 
 Declare hues as named constants up top, plus a single shared seed saturation:
@@ -123,15 +125,15 @@ The disabled chip + label pair uses `mode: 'auto'` and **explicit numeric contra
 ```ts
 'disabled-surface': {
   base: 'surface', lightness: '-1', saturation: 0.2,
-  contrast: [1.1, 1.2], inherit: false,
+  contrast: [1.5, 2], inherit: false,
 },
 'disabled-surface-text': {
-  base: 'surface', lightness: '-1', saturation: 0.3,
-  contrast: [2, 2.5], inherit: false,
+  base: 'disabled-surface', lightness: '+1', saturation: 0.3,
+  contrast: 3, inherit: false,
 },
 ```
 
-These tokens *anchor a perceived ratio against `surface`*, so the disabled state resolves to the same numbers in light, dark, and HC (chip ≈ 1.4 vs surface, label ≈ 2.0, text-on-chip ≈ 1.4). An alpha-tinted overlay would have asymmetric behavior — composited alpha against a near-white light surface produces a much weaker chip than the same overlay against a near-dark dark surface, and the disabled state would stop *looking* disabled in one of the schemes.
+Each token anchors to its immediate parent surface — `*-surface` contrasts against the root `surface`, while `*-surface-text` contrasts against its own chip (`disabled-surface`). This keeps the disabled state self-contained and resolves to consistent ratios in light, dark, and HC (chip ≈ 1.5–2× vs surface, label ≈ 3× on chip). An alpha-tinted overlay would have asymmetric behavior — composited alpha against a near-white light surface produces a much weaker chip than the same overlay against a near-dark dark surface, and the disabled state would stop *looking* disabled in one of the schemes.
 
 The general rule: when a color needs to *feel the same across schemes*, anchor it with `mode: 'auto'` + a numeric contrast against a surface, not with a preset.
 
@@ -143,7 +145,9 @@ The general rule: when a color needs to *feel the same across schemes*, anchor i
 },
 ```
 
-`mode: 'fixed'` skips the dark-scheme Möbius inversion and only does a linear window mapping, so `surface-inverse` reads as a dark surface in *every* scheme — light, dark, and HC. Use it for tooltips, code blocks, popovers with their own dark theme. Pair with `#white` for foreground text.
+`mode: 'fixed'` skips the dark-scheme Möbius inversion and only does a linear window mapping, so `surface-inverse` reads as a dark surface in *every* scheme — light, dark, and HC. In high-contrast variants the window is bypassed entirely (identity), so the color stays at its raw lightness across all four schemes.
+
+Use it for tooltips, code blocks, popovers with their own dark theme. Pair with `#white` for foreground text.
 
 This is the canonical "I want this color to stay recognizable" pattern. The other `mode: 'fixed'` use is the entire accent system below.
 
@@ -197,6 +201,8 @@ Mirrors the neutral disabled pair from above but with higher saturation so the c
 },
 ```
 
+The HC pair `[1.4, 1.3]` is intentionally *lower* in high-contrast mode — the tinted chip naturally gains more contrast against `surface` when the lightness window bypasses (identity mapping), so we loosen the constraint to leave room for stronger text-on-chip contrast. The text token uses `contrast: 1.51`, which is the maximum value that stays below Glaze's auto-flip threshold (the solver would otherwise invert the color past the midpoint, producing a result on the wrong side of its base). This keeps the label legible without flipping into an unexpected hue.
+
 These are inherited (no `inherit: false`), so each colored sibling theme automatically emits `<theme>-accent-disabled-surface` and `<theme>-accent-disabled-surface-text`. PRIMARY-style disabled buttons stay tinted with the active theme's hue (danger-tinted danger button, success-tinted success button), preserving brand identity even in the disabled state.
 
 ## Per-color hue overrides (code highlighting)
@@ -206,7 +212,7 @@ The `code-*` tokens use **absolute `hue` numbers** regardless of the seed. Each 
 ```ts
 'code-comment': { base: 'surface', hue: 280,        saturation: 0.1, lightness: '-1', contrast: [4.5, 7], inherit: false },
 'code-keyword': { base: 'surface', hue: 348,        saturation: 1,   lightness: '-1', contrast: [5, 7.5], inherit: false },
-'code-string':  { base: 'surface', hue: PURPLE_HUE, saturation: 1,   lightness: '-1', contrast: [4.5, 7], inherit: false },
+'code-string':  { base: 'surface', hue: SUCCESS_HUE, saturation: 1, lightness: '-1', contrast: [4.5, 7], inherit: false },
 // …code-punctuation, code-number, code-function, code-attribute follow the same shape
 ```
 

@@ -26,6 +26,7 @@ import {
   parseRelativeOrAbsolute,
   resolveEffectiveHue,
 } from './hc-pair';
+import { getConfig } from './config';
 import {
   computeShadow,
   circularLerp,
@@ -65,6 +66,12 @@ export interface ResolveContext {
    * still adapting dark to `globalConfig.darkLightness`.
    */
   scaling?: GlazeColorScaling;
+  /**
+   * Whether to auto-flip lightness direction when contrast can't be met.
+   * Read from global config at resolve time; overridable per-call via
+   * the context for standalone tokens that snapshot it at creation.
+   */
+  autoFlip?: boolean;
 }
 
 type ResolvedField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
@@ -186,6 +193,14 @@ function resolveDependentColor(
       ctx.scaling,
     );
 
+    const autoFlip = ctx.autoFlip ?? getConfig().autoFlip;
+    let initialDirection: 'lighter' | 'darker' | undefined;
+    if (preferredL < baseL) {
+      initialDirection = 'darker';
+    } else if (preferredL > baseL) {
+      initialDirection = 'lighter';
+    }
+
     const result = findLightnessForContrast({
       hue: effectiveHue,
       saturation: effectiveSat,
@@ -197,6 +212,8 @@ function resolveDependentColor(
       baseLinearRgb,
       contrast: minCr,
       lightnessRange: [0, 1],
+      initialDirection,
+      flip: autoFlip,
     });
 
     if (!result.met) {
@@ -388,12 +405,15 @@ function resolveMixForScheme(
       };
     }
 
+    const autoFlip = ctx.autoFlip ?? getConfig().autoFlip;
+
     const result = findValueForMixContrast({
       preferredValue: t,
       baseLinearRgb: baseLinear,
       targetLinearRgb: targetLinear,
       contrast: minCr,
       luminanceAtValue: luminanceAt,
+      flip: autoFlip,
     });
     t = result.value;
   }
@@ -488,16 +508,19 @@ export function resolveAllColors(
   defs: ColorMap,
   scaling?: GlazeColorScaling,
   externalBases?: Map<string, ResolvedColor>,
+  overrideAutoFlip?: boolean,
 ): Map<string, ResolvedColor> {
   validateColorDefs(defs, externalBases);
   const order = topoSort(defs);
 
+  const cfg = getConfig();
   const ctx: ResolveContext = {
     hue,
     saturation,
     defs,
     resolved: new Map(),
     scaling,
+    autoFlip: overrideAutoFlip ?? cfg.autoFlip,
   };
 
   // Pre-seed externally-resolved bases. The per-pass loops iterate only

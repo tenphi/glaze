@@ -474,6 +474,7 @@ function createColorTokenFromDefs(
   effectiveScaling: GlazeColorScaling,
   baseToken: GlazeColorToken | undefined,
   exportData: () => GlazeColorTokenExport,
+  autoFlip: boolean,
 ): GlazeColorToken {
   // Cache the resolve result across token / tasty / json / css / resolve calls.
   // The base token's `.resolve()` is called lazily on first resolve and the
@@ -491,6 +492,7 @@ function createColorTokenFromDefs(
       defs,
       effectiveScaling,
       externalBases,
+      autoFlip,
     );
     return cached;
   };
@@ -568,6 +570,7 @@ function resolveBaseToken(
 export function createColorToken(
   input: GlazeColorInput,
   scaling: GlazeColorScaling | undefined,
+  overrideAutoFlip?: boolean,
 ): GlazeColorToken {
   validateStructuredInput(input);
 
@@ -612,10 +615,13 @@ export function createColorToken(
   const effectiveScaling: GlazeColorScaling =
     scaling ?? defaultStandaloneScaling(false);
 
+  const autoFlip = overrideAutoFlip ?? getConfig().autoFlip;
+
   const exportData = (): GlazeColorTokenExport => ({
     form: 'structured',
     input: buildStructuredInputExport(input),
     scaling: effectiveScaling,
+    autoFlip,
   });
 
   return createColorTokenFromDefs(
@@ -626,6 +632,7 @@ export function createColorToken(
     effectiveScaling,
     baseToken,
     exportData,
+    autoFlip,
   );
 }
 
@@ -637,6 +644,7 @@ export function createColorTokenFromValue(
   value: GlazeColorValue,
   options: GlazeColorOverrides | undefined,
   scaling: GlazeColorScaling | undefined,
+  overrideAutoFlip?: boolean,
 ): GlazeColorToken {
   const inputIsString = typeof value === 'string';
   const main = extractOkhslFromValue(value);
@@ -657,6 +665,8 @@ export function createColorTokenFromValue(
   const effectiveScaling: GlazeColorScaling =
     scaling ?? defaultStandaloneScaling(inputIsString);
 
+  const autoFlip = overrideAutoFlip ?? getConfig().autoFlip;
+
   const exportData = (): GlazeColorTokenExport => ({
     form: 'value',
     input: value,
@@ -664,6 +674,7 @@ export function createColorTokenFromValue(
       ? { overrides: buildOverridesExport(options) }
       : {}),
     scaling: effectiveScaling,
+    autoFlip,
   });
 
   return createColorTokenFromDefs(
@@ -674,6 +685,7 @@ export function createColorTokenFromValue(
     effectiveScaling,
     baseToken,
     exportData,
+    autoFlip,
   );
 }
 
@@ -821,8 +833,20 @@ export function colorFromExport(data: GlazeColorTokenExport): GlazeColorToken {
     const overrides = data.overrides
       ? rehydrateOverrides(data.overrides)
       : undefined;
-    return createColorTokenFromValue(value, overrides, data.scaling);
+    // Snapshot autoFlip at rehydration time so the exported token
+    // preserves its original behavior regardless of globalConfig changes.
+    const cfg = getConfig();
+    const effectiveAutoFlip = data.autoFlip ?? cfg.autoFlip;
+    return createColorTokenFromValue(
+      value,
+      overrides,
+      data.scaling,
+      effectiveAutoFlip,
+    );
   }
   const input = rehydrateStructuredInput(data.input as GlazeColorInputExport);
-  return createColorToken(input, data.scaling);
+  // Same snapshot semantics for structured inputs.
+  const cfg = getConfig();
+  const effectiveAutoFlip = data.autoFlip ?? cfg.autoFlip;
+  return createColorToken(input, data.scaling, effectiveAutoFlip);
 }

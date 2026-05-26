@@ -41,6 +41,30 @@ export interface FindLightnessForContrastOptions {
   epsilon?: number;
   /** Maximum binary-search iterations per branch. Default: 14. */
   maxIterations?: number;
+  /**
+   * Preferred search direction before auto-flip is considered.
+   *
+   * Theme resolution sets this from the requested lightness relative to
+   * the base color so `autoFlip: false` preserves the authored direction.
+   * When omitted, the solver falls back to the side whose extreme has
+   * higher contrast against the base.
+   */
+  initialDirection?: 'lighter' | 'darker';
+  /**
+   * Auto-flip lightness direction when contrast can't be met.
+   *
+   * When `true`, the solver searches the initial direction first. If that side
+   * doesn't reach the target, it tries the opposite direction and
+   * uses it when it passes. If neither side passes, it returns the
+   * extreme lightness of the initial direction.
+   *
+   * When `false`, only the initial direction is considered. If it
+   * doesn't reach the target, the result is pinned to the initial
+   * direction's extreme — never to the original preferred lightness.
+   *
+   * Default: false.
+   */
+  flip?: boolean;
 }
 
 export interface FindLightnessForContrastResult {
@@ -52,6 +76,12 @@ export interface FindLightnessForContrastResult {
   met: boolean;
   /** Which branch was selected. */
   branch: 'lighter' | 'darker' | 'preferred';
+  /**
+   * Whether the result was auto-flipped to the opposite direction.
+   * Only set when the initial direction failed and the opposite
+   * direction satisfied the target.
+   */
+  flipped?: boolean;
 }
 
 // ============================================================================
@@ -276,8 +306,37 @@ export function findLightnessForContrast(
 
   const [minL, maxL] = lightnessRange;
 
-  const darkerResult =
-    preferredLightness > minL
+  // Initial direction: caller-provided when the authored lightness hint
+  // matters, otherwise the side whose extreme has higher contrast against
+  // the base. The opposite direction is only considered when `flip` is
+  // enabled; the fallback extreme also lives on the initial side.
+  const canDarker = preferredLightness > minL;
+  const canLighter = preferredLightness < maxL;
+  let initialIsDarker: boolean;
+  if (options.initialDirection !== undefined) {
+    initialIsDarker = options.initialDirection === 'darker';
+  } else if (canDarker && !canLighter) {
+    initialIsDarker = true;
+  } else if (!canDarker && canLighter) {
+    initialIsDarker = false;
+  } else if (!canDarker && !canLighter) {
+    // Degenerate range — preferred == minL == maxL. Nothing to search.
+    return {
+      lightness: preferredLightness,
+      contrast: crPref,
+      met: false,
+      branch: 'preferred',
+    };
+  } else {
+    const yMinExt = cachedLuminance(hue, saturation, minL);
+    const yMaxExt = cachedLuminance(hue, saturation, maxL);
+    const crMinExt = contrastRatioFromLuminance(yMinExt, yBase);
+    const crMaxExt = contrastRatioFromLuminance(yMaxExt, yBase);
+    initialIsDarker = crMinExt >= crMaxExt;
+  }
+
+  const searchInitial = () =>
+    initialIsDarker
       ? searchBranch(
           hue,
           saturation,
@@ -289,10 +348,20 @@ export function findLightnessForContrast(
           maxIterations,
           preferredLightness,
         )
-      : null;
+      : searchBranch(
+          hue,
+          saturation,
+          preferredLightness,
+          maxL,
+          yBase,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          preferredLightness,
+        );
 
-  const lighterResult =
-    preferredLightness < maxL
+  const searchOpposite = () =>
+    initialIsDarker
       ? searchBranch(
           hue,
           saturation,
@@ -304,47 +373,80 @@ export function findLightnessForContrast(
           maxIterations,
           preferredLightness,
         )
-      : null;
+      : searchBranch(
+          hue,
+          saturation,
+          minL,
+          preferredLightness,
+          yBase,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          preferredLightness,
+        );
 
-  // Re-check met against the original target (not the bumped searchTarget)
-  if (darkerResult) darkerResult.met = darkerResult.contrast >= target;
-  if (lighterResult) lighterResult.met = lighterResult.contrast >= target;
+  const initialBranchName: 'darker' | 'lighter' = initialIsDarker
+    ? 'darker'
+    : 'lighter';
+  const oppositeBranchName: 'darker' | 'lighter' = initialIsDarker
+    ? 'lighter'
+    : 'darker';
 
-  const darkerPasses = darkerResult?.met ?? false;
-  const lighterPasses = lighterResult?.met ?? false;
+  const initialResult = searchInitial();
+  initialResult.met = initialResult.contrast >= target;
 
-  if (darkerPasses && lighterPasses) {
-    const darkerDist = Math.abs(darkerResult!.lightness - preferredLightness);
-    const lighterDist = Math.abs(lighterResult!.lightness - preferredLightness);
-    if (darkerDist <= lighterDist) {
-      return { ...darkerResult!, branch: 'darker' };
+  // Initial direction passes — use it (closest passing point in that
+  // direction). When auto-flip is enabled we also consider the opposite
+  // direction in case it produces a result closer to `preferredLightness`.
+  if (initialResult.met && !options.flip) {
+    return { ...initialResult, branch: initialBranchName };
+  }
+
+  if (options.flip) {
+    const canOpposite = initialIsDarker ? canLighter : canDarker;
+    const oppositeResult = canOpposite ? searchOpposite() : null;
+    if (oppositeResult) oppositeResult.met = oppositeResult.contrast >= target;
+
+    if (initialResult.met && oppositeResult?.met) {
+      const initialDist = Math.abs(
+        initialResult.lightness - preferredLightness,
+      );
+      const oppositeDist = Math.abs(
+        oppositeResult.lightness - preferredLightness,
+      );
+      if (initialDist <= oppositeDist) {
+        return { ...initialResult, branch: initialBranchName };
+      }
+      return {
+        ...oppositeResult,
+        branch: oppositeBranchName,
+        flipped: true,
+      };
     }
-    return { ...lighterResult!, branch: 'lighter' };
+
+    if (initialResult.met) {
+      return { ...initialResult, branch: initialBranchName };
+    }
+
+    if (oppositeResult?.met) {
+      return {
+        ...oppositeResult,
+        branch: oppositeBranchName,
+        flipped: true,
+      };
+    }
   }
 
-  if (darkerPasses) {
-    return { ...darkerResult!, branch: 'darker' };
-  }
-
-  if (lighterPasses) {
-    return { ...lighterResult!, branch: 'lighter' };
-  }
-
-  const candidates: (BranchResult & { branch: 'darker' | 'lighter' })[] = [];
-  if (darkerResult) candidates.push({ ...darkerResult, branch: 'darker' });
-  if (lighterResult) candidates.push({ ...lighterResult, branch: 'lighter' });
-
-  if (candidates.length === 0) {
-    return {
-      lightness: preferredLightness,
-      contrast: crPref,
-      met: false,
-      branch: 'preferred',
-    };
-  }
-
-  candidates.sort((a, b) => b.contrast - a.contrast);
-  return candidates[0];
+  // Failure: pin to the initial direction's extreme.
+  const extreme = initialIsDarker ? minL : maxL;
+  const yExtreme = cachedLuminance(hue, saturation, extreme);
+  const crExtreme = contrastRatioFromLuminance(yExtreme, yBase);
+  return {
+    lightness: extreme,
+    contrast: crExtreme,
+    met: false,
+    branch: initialBranchName,
+  };
 }
 
 // ============================================================================
@@ -370,6 +472,22 @@ export interface FindValueForMixContrastOptions {
   epsilon?: number;
   /** Maximum binary-search iterations per branch. Default: 20. */
   maxIterations?: number;
+  /**
+   * Auto-flip mix direction when contrast can't be met.
+   *
+   * When `true`, the solver searches the initial direction first
+   * (the side whose extreme has higher contrast against the base).
+   * If that side doesn't reach the target, it tries the opposite
+   * direction and uses it when it passes. If neither side passes,
+   * it returns the extreme mix value of the initial direction.
+   *
+   * When `false`, only the initial direction is considered. If it
+   * doesn't reach the target, the result is pinned to the initial
+   * direction's extreme — never to the original preferred value.
+   *
+   * Default: false.
+   */
+  flip?: boolean;
 }
 
 export interface FindValueForMixContrastResult {
@@ -379,6 +497,12 @@ export interface FindValueForMixContrastResult {
   contrast: number;
   /** Whether the target was reached. */
   met: boolean;
+  /**
+   * Whether the result was auto-flipped to the opposite direction.
+   * Only set when the initial direction failed and the opposite
+   * direction satisfied the target.
+   */
+  flipped?: boolean;
 }
 
 /**
@@ -470,8 +594,26 @@ export function findValueForMixContrast(
     return { value: preferredValue, contrast: crPref, met: true };
   }
 
-  const darkerResult =
-    preferredValue > 0
+  // Initial direction: the side whose extreme has higher contrast
+  // against the base. Auto-flip considers the opposite side only when
+  // this side fails; the fallback extreme also lives on this side.
+  const canLower = preferredValue > 0;
+  const canUpper = preferredValue < 1;
+  let initialIsLower: boolean;
+  if (canLower && !canUpper) {
+    initialIsLower = true;
+  } else if (!canLower && canUpper) {
+    initialIsLower = false;
+  } else if (!canLower && !canUpper) {
+    return { value: preferredValue, contrast: crPref, met: false };
+  } else {
+    const crLowerExt = contrastRatioFromLuminance(luminanceAtValue(0), yBase);
+    const crUpperExt = contrastRatioFromLuminance(luminanceAtValue(1), yBase);
+    initialIsLower = crLowerExt >= crUpperExt;
+  }
+
+  const searchInitial = () =>
+    initialIsLower
       ? searchMixBranch(
           0,
           preferredValue,
@@ -482,10 +624,19 @@ export function findValueForMixContrast(
           preferredValue,
           luminanceAtValue,
         )
-      : null;
+      : searchMixBranch(
+          preferredValue,
+          1,
+          yBase,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          preferredValue,
+          luminanceAtValue,
+        );
 
-  const lighterResult =
-    preferredValue < 1
+  const searchOpposite = () =>
+    initialIsLower
       ? searchMixBranch(
           preferredValue,
           1,
@@ -496,59 +647,78 @@ export function findValueForMixContrast(
           preferredValue,
           luminanceAtValue,
         )
-      : null;
+      : searchMixBranch(
+          0,
+          preferredValue,
+          yBase,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          preferredValue,
+          luminanceAtValue,
+        );
 
-  if (darkerResult) darkerResult.met = darkerResult.contrast >= target;
-  if (lighterResult) lighterResult.met = lighterResult.contrast >= target;
+  const initialResult = searchInitial();
+  initialResult.met = initialResult.contrast >= target;
 
-  const darkerPasses = darkerResult?.met ?? false;
-  const lighterPasses = lighterResult?.met ?? false;
+  if (initialResult.met && !options.flip) {
+    return {
+      value: initialResult.lightness,
+      contrast: initialResult.contrast,
+      met: true,
+    };
+  }
 
-  if (darkerPasses && lighterPasses) {
-    const darkerDist = Math.abs(darkerResult!.lightness - preferredValue);
-    const lighterDist = Math.abs(lighterResult!.lightness - preferredValue);
-    if (darkerDist <= lighterDist) {
+  if (options.flip) {
+    const canOpposite = initialIsLower ? canUpper : canLower;
+    const oppositeResult = canOpposite ? searchOpposite() : null;
+    if (oppositeResult) oppositeResult.met = oppositeResult.contrast >= target;
+
+    if (initialResult.met && oppositeResult?.met) {
+      const initialDist = Math.abs(initialResult.lightness - preferredValue);
+      const oppositeDist = Math.abs(oppositeResult.lightness - preferredValue);
+      if (initialDist <= oppositeDist) {
+        return {
+          value: initialResult.lightness,
+          contrast: initialResult.contrast,
+          met: true,
+        };
+      }
       return {
-        value: darkerResult!.lightness,
-        contrast: darkerResult!.contrast,
+        value: oppositeResult.lightness,
+        contrast: oppositeResult.contrast,
+        met: true,
+        flipped: true,
+      };
+    }
+
+    if (initialResult.met) {
+      return {
+        value: initialResult.lightness,
+        contrast: initialResult.contrast,
         met: true,
       };
     }
-    return {
-      value: lighterResult!.lightness,
-      contrast: lighterResult!.contrast,
-      met: true,
-    };
+
+    if (oppositeResult?.met) {
+      return {
+        value: oppositeResult.lightness,
+        contrast: oppositeResult.contrast,
+        met: true,
+        flipped: true,
+      };
+    }
   }
 
-  if (darkerPasses) {
-    return {
-      value: darkerResult!.lightness,
-      contrast: darkerResult!.contrast,
-      met: true,
-    };
-  }
-
-  if (lighterPasses) {
-    return {
-      value: lighterResult!.lightness,
-      contrast: lighterResult!.contrast,
-      met: true,
-    };
-  }
-
-  const candidates: (BranchResult & { branch: string })[] = [];
-  if (darkerResult) candidates.push({ ...darkerResult, branch: 'lower' });
-  if (lighterResult) candidates.push({ ...lighterResult, branch: 'upper' });
-
-  if (candidates.length === 0) {
-    return { value: preferredValue, contrast: crPref, met: false };
-  }
-
-  candidates.sort((a, b) => b.contrast - a.contrast);
+  // Failure: pin to the initial direction's extreme.
+  const extreme = initialIsLower ? 0 : 1;
+  const crExtreme = contrastRatioFromLuminance(
+    luminanceAtValue(extreme),
+    yBase,
+  );
   return {
-    value: candidates[0].lightness,
-    contrast: candidates[0].contrast,
-    met: candidates[0].met,
+    value: extreme,
+    contrast: crExtreme,
+    met: false,
   };
 }
