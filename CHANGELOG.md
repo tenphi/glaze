@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.11.2
+
+### Patch Changes
+
+- [#58](https://github.com/tenphi/glaze/pull/58) [`9fdb6bb`](https://github.com/tenphi/glaze/commit/9fdb6bbbed6f9aa44d3d2eade8fc0ce468655269) Thanks [@tenphi](https://github.com/tenphi)! - Respect authored lightness direction when contrast auto-flip is disabled.
+
 ## 0.11.1
 
 ### Patch Changes
