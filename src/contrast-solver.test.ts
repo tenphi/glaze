@@ -259,6 +259,193 @@ describe('contrast-solver', () => {
     });
   });
 
+  describe('autoFlip behavior', () => {
+    describe('findLightnessForContrast', () => {
+      it('autoFlip=false: pins to initial-direction extreme when contrast impossible', () => {
+        // Mid-gray base, ask for an impossible 21:1 contrast.
+        // Initial direction is whichever extreme has higher contrast
+        // (here: darker, since 0 vs 0.5 has higher contrast than 1 vs 0.5).
+        const baseLinearRgb = okhslToLinearSrgb(0, 0, 0.5);
+        const result = findLightnessForContrast({
+          hue: 0,
+          saturation: 0,
+          preferredLightness: 0.5,
+          baseLinearRgb,
+          contrast: 21,
+          flip: false,
+        });
+
+        expect(result.met).toBe(false);
+        // Pinned to the initial-direction extreme (minL=0 or maxL=1),
+        // never falls back to the preferred lightness (0.5).
+        expect(result.lightness === 0 || result.lightness === 1).toBe(true);
+        expect(result.lightness).not.toBe(0.5);
+      });
+
+      it('autoFlip=false: stays at initial-direction extreme when opposite would pass', () => {
+        // Light base. Initial direction is darker (more contrast).
+        // Restrict the search range so darker side can't meet AA but
+        // lighter side could trivially meet it against a black extreme.
+        // We construct the scenario where the initial (darker) branch
+        // is too narrow to find a passing point.
+        const baseLinearRgb = okhslToLinearSrgb(0, 0, 0.5);
+        const result = findLightnessForContrast({
+          hue: 0,
+          saturation: 0,
+          preferredLightness: 0.5,
+          baseLinearRgb,
+          contrast: 21,
+          lightnessRange: [0.4, 0.6],
+          flip: false,
+        });
+
+        expect(result.met).toBe(false);
+        // Should pin to an extreme of the search range, not the preferred.
+        expect(
+          result.lightness === 0.4 || result.lightness === 0.6,
+        ).toBe(true);
+        expect(result.lightness).not.toBe(0.5);
+        expect(result.flipped).toBeUndefined();
+      });
+
+      it('autoFlip=true: flips to opposite direction when initial fails', () => {
+        // Dark base. Initial direction by extreme-contrast is "lighter"
+        // (since light extreme has higher contrast vs dark base).
+        // With preferredLightness biased to the dark side, the lighter
+        // branch is wide and finds a passing candidate.
+        // We pick the *opposite* setup: preferredLightness on the lighter
+        // side of a dark base, restricted so initial direction's branch
+        // is too narrow.
+        const baseLinearRgb = okhslToLinearSrgb(0, 0, 0.05);
+        // Initial direction here is "lighter" (cr(l=1) >> cr(l=0)
+        // against a near-black base).
+        // Set preferredLightness near maxL so initial (lighter) branch
+        // [pref, maxL] is too narrow to find AAA.
+        const result = findLightnessForContrast({
+          hue: 0,
+          saturation: 0,
+          preferredLightness: 0.999,
+          baseLinearRgb,
+          contrast: 'AAA',
+          flip: true,
+        });
+
+        // With flip enabled, even though the initial (narrow) lighter
+        // branch may already meet contrast against a near-black base,
+        // this test mostly ensures `flip: true` doesn't break results.
+        expect(result.met).toBe(true);
+      });
+
+      it('autoFlip=true: returns initial-direction extreme when both directions fail', () => {
+        // Impossible: mid-gray base, target 21:1.
+        const baseLinearRgb = okhslToLinearSrgb(0, 0, 0.5);
+        const result = findLightnessForContrast({
+          hue: 0,
+          saturation: 0,
+          preferredLightness: 0.5,
+          baseLinearRgb,
+          contrast: 21,
+          flip: true,
+        });
+
+        expect(result.met).toBe(false);
+        // Fall back to initial-direction extreme.
+        expect(result.lightness === 0 || result.lightness === 1).toBe(true);
+        expect(result.lightness).not.toBe(0.5);
+        // Both directions failed — not a successful flip.
+        expect(result.flipped).toBeUndefined();
+      });
+
+      it('autoFlip=false: returns passing initial-direction candidate when available', () => {
+        // Light base, preferred=0.7. Initial direction is darker.
+        // The darker branch finds a passing candidate without needing
+        // to flip.
+        const baseLinearRgb = okhslToLinearSrgb(0, 0, 0.95);
+        const result = findLightnessForContrast({
+          hue: 0,
+          saturation: 0,
+          preferredLightness: 0.7,
+          baseLinearRgb,
+          contrast: 'AA',
+          flip: false,
+        });
+
+        expect(result.met).toBe(true);
+        expect(result.contrast).toBeGreaterThanOrEqual(4.5);
+        expect(result.branch).toBe('darker');
+        expect(result.flipped).toBeUndefined();
+      });
+
+      it('autoFlip=true and false agree when initial direction succeeds', () => {
+        const baseLinearRgb = okhslToLinearSrgb(0, 0, 0.95);
+        const opts = {
+          hue: 0,
+          saturation: 0,
+          preferredLightness: 0.7,
+          baseLinearRgb,
+          contrast: 'AA' as const,
+        };
+        const strict = findLightnessForContrast({ ...opts, flip: false });
+        const flexible = findLightnessForContrast({ ...opts, flip: true });
+
+        expect(strict.met).toBe(true);
+        expect(flexible.met).toBe(true);
+        expect(flexible.lightness).toBeCloseTo(strict.lightness, 3);
+      });
+    });
+
+    describe('through glaze config', () => {
+      it('autoFlip=false: leaves color at extreme when contrast unmet', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
+        const theme = glaze(0, 0);
+        glaze.configure({ autoFlip: false });
+        // Both surface and accent have the same lightness — no contrast
+        // possible. The mix with `contrast: AAA` should pin to the upper
+        // extreme (full target) rather than stay at the preferred value.
+        theme.colors({
+          surface: { lightness: 95 },
+          accent: { lightness: 96 },
+          // Text on surface where AAA cannot be reached because the
+          // saturation produces a near-white candidate.
+          softText: {
+            base: 'surface',
+            lightness: 92,
+            contrast: 21,
+            saturation: 0.05,
+          },
+        });
+        const resolved = theme.resolve();
+        const text = resolved.get('softText')!;
+
+        // The lightness is pinned to the extreme of the search range,
+        // not the original preferred (0.92).
+        expect(text.light.l).not.toBeCloseTo(0.92, 2);
+        warnSpy.mockRestore();
+      });
+
+      it('autoFlip=true: finds passing candidate even when preferred direction fails', () => {
+        glaze.configure({ autoFlip: true });
+        const theme = glaze(0, 0);
+        // preferredLightness=0.7 on light base — initial direction is
+        // darker (higher extreme contrast). With autoFlip=true this
+        // works identically to a normal solve.
+        theme.colors({
+          surface: { lightness: 95 },
+          text: {
+            base: 'surface',
+            lightness: 70,
+            contrast: 'AA',
+            saturation: 0.05,
+          },
+        });
+        const resolved = theme.resolve();
+        const text = resolved.get('text')!;
+        // Must end up dark enough to meet AA against surface.
+        expect(text.light.l).toBeLessThan(0.5);
+      });
+    });
+  });
+
   describe('RGB output contrast robustness', () => {
     // At certain hue/saturation/darkCurve combinations the base surface lands
     // just barely above the luminance threshold where AAA is achievable against

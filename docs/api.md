@@ -931,6 +931,7 @@ glaze.configure({
 | `modes.dark` | `true` | Include dark variants in exports. |
 | `modes.highContrast` | `false` | Include HC variants. |
 | `shadowTuning` | `undefined` | Default tuning for all shadow colors. Per-color tuning merges field-by-field. |
+| `autoFlip` | `true` | When solving `contrast`, allow the solver to switch lightness direction if the natural side can't meet the target. With `false`, only the natural direction is considered; unmet contrasts pin the lightness to that direction's extreme (and emit a warning). |
 
 | Method | Description |
 |---|---|
@@ -1070,5 +1071,6 @@ import {
 | `lightnessRange` | `[0, 1]` | Search bounds. |
 | `epsilon` | `1e-4` | Convergence threshold. |
 | `maxIterations` | `14` | Max binary-search iterations per branch. |
+| `flip` | `false` | When `true`, try the opposite direction if the natural one doesn't meet the target. When `false`, only the natural direction is searched — unmet contrasts pin the result to that direction's extreme. |
 
-Result: `{ lightness, contrast, met, branch: 'lighter' | 'darker' | 'preferred' }`.
+Result: `{ lightness, contrast, met, branch: 'lighter' | 'darker' | 'preferred', flipped? }`. `flipped: true` indicates the natural direction failed and the opposite direction satisfied the target.
