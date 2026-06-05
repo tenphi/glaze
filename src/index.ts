@@ -17,6 +17,8 @@ export type {
   GlazeOutputModes,
   HexColor,
   OkhslColor,
+  RgbColor,
+  OklchColor,
   RegularColorDef,
   ShadowColorDef,
   ShadowTuning,

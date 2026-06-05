@@ -308,7 +308,8 @@ glaze.color(value: GlazeColorValue, overrides?: GlazeColorOverrides, scaling?: G
 | `okhsl()` | `'okhsl(152 95% 74%)'` | Glaze's own emit format. Alpha dropped with warning. |
 | `oklch()` | `'oklch(0.85 0.18 152)'` | Glaze's own emit format. Alpha dropped with warning. |
 | `OkhslColor` object | `{ h: 152, s: 0.95, l: 0.74 }` | Glaze's native shape (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l` throws with a hint to use the structured form. |
-| RGB tuple | `[38, 252, 178]` | 0–255, same range as `glaze.fromRgb`. |
+| `RgbColor` object | `{ r: 38, g: 252, b: 178 }` | sRGB 0–255. RGB tuple `[r, g, b]` is not supported — use this object form. |
+| `OklchColor` object | `{ l: 0.85, c: 0.18, h: 152 }` | OKLCh (L/C: 0–1, H: degrees), same semantics as `oklch()` strings. |
 
 `GlazeColorInput` (the structured input) is `{ hue, saturation, lightness, ... }`:
 
@@ -330,11 +331,11 @@ Named CSS colors (`'red'`, `'blueviolet'`) are not supported.
 
 Every input form defaults to `mode: 'auto'` so the resolved token adapts between light and dark like an ordinary theme color. The *scaling* snapshot taken at create time differs by input form:
 
-- **String value-shorthand** (`'#000'`, `'rgb(...)'`, etc.):
+- **Value-shorthand** (hex, `rgb()` / `hsl()` / `okhsl()` / `oklch()` strings, `{ r, g, b }`, `{ h, s, l }`, `{ l, c, h }`):
   - Light variant preserves the input lightness exactly (`lightLightness: false`).
-  - Dark variant is Möbius-inverted into `[globalConfig.darkLightness[0], 100]`, so `glaze.color('#000')` renders as `#fff` in dark mode and `glaze.color('#fff')` falls to the dark `lo` floor (default `0.15`).
-- **Object / tuple / structured inputs**:
-  - Both light and dark variants are mapped through `globalConfig.lightLightness` / `globalConfig.darkLightness` (defaults `[10, 100]` / `[15, 95]`) — the same windows a theme color uses.
+  - Dark variant uses `globalConfig.darkLightness` (default `[15, 95]`), snapshotted at create time.
+- **Structured input** (`{ hue, saturation, lightness, ... }`):
+  - Both variants use `globalConfig.lightLightness` / `globalConfig.darkLightness` (defaults `[10, 100]` / `[15, 95]`) — same as a theme color.
 - All windows are **snapshotted at color-creation time** so later `glaze.configure()` calls don't retroactively change exported tokens. `token.export()` round-trips byte-for-byte.
 
 To opt back into the legacy fixed-linear default (no Möbius inversion), pass `{ mode: 'fixed' }` as the second arg, or supply an explicit `scaling` (see [`GlazeColorScaling`](#glazecolorscaling)).
@@ -359,10 +360,10 @@ Overrides for the value-shorthand overload's second argument:
 
 Per-call lightness-window override. Mirrors `GlazeConfig`'s field names:
 
-| Key | Default for string input | Default for object / tuple / structured input | Effect |
+| Key | Default for value-shorthand | Default for structured input | Effect |
 |---|---|---|---|
 | `lightLightness` | `false` | `globalConfig.lightLightness` (snapshotted) | `false` = preserve input. Pass `[lo, hi]` to opt into a remap window. |
-| `darkLightness` | `[globalConfig.darkLightness[0], 100]` (snapshotted) | `globalConfig.darkLightness` (snapshotted) | `false` = preserve input in dark too. Pass `[lo, hi]` to override the window. |
+| `darkLightness` | `globalConfig.darkLightness` (snapshotted) | `globalConfig.darkLightness` (snapshotted) | `false` = preserve input in dark too. Pass `[lo, hi]` to override the window (e.g. `[15, 100]` for a `#000` → white dark flip). |
 
 Passing `scaling` is **all-or-nothing** — both fields are replaced. To keep one field's default while overriding the other, restate the default explicitly.
 
@@ -370,10 +371,10 @@ Passing `scaling` is **all-or-nothing** — both fields are replaced. To keep on
 // Preserve raw lightness in dark mode too
 glaze.color('#26fcb2', undefined, { darkLightness: false });
 
-// Opt back into a theme-style window
-glaze.color('#26fcb2', undefined, {
+// Opt into theme-style light remap + extended dark (e.g. #000 → white in dark)
+glaze.color('#000000', undefined, {
   lightLightness: [10, 100],
-  darkLightness: [15, 95],
+  darkLightness: [15, 100],
 });
 
 // Structured form takes scaling as the second positional arg

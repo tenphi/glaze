@@ -46,6 +46,20 @@ export interface OkhslColor {
   l: number;
 }
 
+/** sRGB components in 0–255 (value-shorthand object form). */
+export interface RgbColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+/** OKLCh components matching CSS `oklch(L C H)` (L/C: 0–1, H: degrees). */
+export interface OklchColor {
+  l: number;
+  c: number;
+  h: number;
+}
+
 export interface RegularColorDef {
   /**
    * Lightness value (0–100).
@@ -288,8 +302,8 @@ export interface GlazeShadowInput {
   /**
    * Background color — accepts any `GlazeColorValue` form: hex
    * (`#rgb` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()`
-   * / `oklch()` strings, an `OkhslColor` object, or an `[r, g, b]`
-   * (0–255) tuple. Alpha components are dropped with a warning.
+   * / `oklch()` strings, or literal objects (`{ r, g, b }`, `{ h, s, l }`,
+   * `{ l, c, h }`). Alpha components are dropped with a warning.
    */
   bg: GlazeColorValue;
   /**
@@ -346,17 +360,13 @@ export interface GlazeColorInput {
  * `rgb()`, `hsl()`, `okhsl()`, `oklch()` (alpha components also dropped
  * with a warning).
  *
- * The OKHSL object form `{ h, s, l }` matches Glaze's native shape
- * (h: 0–360, s/l: 0–1). Passing 0–100 values for `s`/`l` throws with
- * a hint to use the structured `{ hue, saturation, lightness }` form.
- *
- * The tuple form is `[r, g, b]` in 0–255, matching `glaze.fromRgb`'s
- * range. Out-of-range or non-finite components throw.
+ * Literal object forms:
+ * - `{ h, s, l }` — OKHSL (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l`
+ *   throws with a hint to use the structured form.
+ * - `{ r, g, b }` — sRGB 0–255.
+ * - `{ l, c, h }` — OKLCh (L/C: 0–1, H: degrees), same as `oklch()` strings.
  */
-export type GlazeColorValue =
-  | string
-  | OkhslColor
-  | readonly [number, number, number];
+export type GlazeColorValue = string | OkhslColor | RgbColor | OklchColor;
 
 /** Optional overrides for `glaze.color(value, overrides?)`. */
 export interface GlazeColorOverrides {
@@ -379,11 +389,11 @@ export interface GlazeColorOverrides {
   /**
    * Adaptation mode. Defaults to `'auto'` for every input form, so
    * colors automatically adapt between light and dark like an ordinary
-   * theme color. The default *scaling* snapshot differs by input form:
-   * string inputs preserve their light lightness and extend the dark
-   * window to `[lo, 100]` (`#000` ↔ `#fff` flip), while `OkhslColor`
-   * and `[r, g, b]` tuple inputs snapshot the full `globalConfig.
-   * lightLightness` / `globalConfig.darkLightness` windows.
+   * theme color. All value-shorthand inputs (strings and literal objects)
+   * preserve light lightness (`lightLightness: false`) and snapshot
+   * `globalConfig.darkLightness` on the dark side. Only the structured
+   * `{ hue, saturation, lightness }` form also snapshots
+   * `globalConfig.lightLightness`.
    *
    * Pass `'fixed'` explicitly to opt back into the legacy linear, non-
    * inverting mapping; pass `'static'` to pin the same lightness
@@ -401,7 +411,7 @@ export interface GlazeColorOverrides {
   /**
    * Optional dependency on another color. Accepts either a
    * `GlazeColorToken` (returned by another `glaze.color()`) or a raw
-   * `GlazeColorValue` (hex / `rgb()` / `OkhslColor` / `[r, g, b]`),
+   * `GlazeColorValue` (hex / CSS strings / `{ r, g, b }` / `{ h, s, l }` / …),
    * which is automatically wrapped in `glaze.color(value)`.
    *
    * When set:
@@ -442,17 +452,14 @@ export interface GlazeColorOverrides {
  * `glaze.configure()` calls don't retroactively change already-created
  * tokens (and `token.export()` round-trips byte-for-byte):
  *
- * - **String inputs** (`'#1a1a1a'`, `'rgb(...)'`, `'okhsl(...)'`, ...):
+ * - **Value-shorthand** (hex / `rgb()` / `hsl()` / `okhsl()` / `oklch()`
+ *   strings, `{ r, g, b }`, `{ h, s, l }`, `{ l, c, h }`):
  *   - `lightLightness: false` — preserve input exactly.
- *   - `darkLightness: [globalConfig.darkLightness[0], 100]` — extended
- *     dark window so the auto-mode dark variant can Möbius-invert all
- *     the way up to white.
+ *   - `darkLightness: globalConfig.darkLightness` — snapshotted at create time.
  *
- * - **`OkhslColor` / `[r, g, b]` tuple / structured inputs**:
- *   - `lightLightness: globalConfig.lightLightness` — same light window
- *     theme colors use, snapshotted at create time.
- *   - `darkLightness: globalConfig.darkLightness` — same dark window
- *     theme colors use, snapshotted at create time.
+ * - **Structured inputs** (`{ hue, saturation, lightness, ... }`):
+ *   - `lightLightness: globalConfig.lightLightness` — theme light window.
+ *   - `darkLightness: globalConfig.darkLightness` — theme dark window.
  *
  * Passing this object replaces both fields at once. To keep one
  * field's default while overriding the other, restate the default
@@ -460,18 +467,16 @@ export interface GlazeColorOverrides {
  */
 export interface GlazeColorScaling {
   /**
-   * Light-mode lightness window. Snapshotted from `globalConfig` at
-   * create time: `false` (preserve input) for string inputs, plain
-   * `globalConfig.lightLightness` for object / tuple / structured
-   * inputs. Pass `false` to preserve input lightness in light mode.
+   * Light-mode lightness window. Snapshotted at create time: `false`
+   * (preserve input) for value-shorthand inputs; plain
+   * `globalConfig.lightLightness` for structured inputs only. Pass
+   * `false` to preserve input lightness in light mode.
    */
   lightLightness?: false | [number, number];
   /**
    * Dark-mode lightness window. Snapshotted from `globalConfig` at
-   * create time: extended `[globalConfig.darkLightness[0], 100]` for
-   * string inputs, plain `globalConfig.darkLightness` for object /
-   * tuple / structured inputs. Pass `false` to preserve input
-   * lightness in dark mode too.
+   * create time for value-shorthand and structured inputs. Pass `false`
+   * to preserve input lightness in dark mode too.
    */
   darkLightness?: false | [number, number];
 }

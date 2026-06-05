@@ -2,7 +2,7 @@
  * Standalone single-color tokens (`glaze.color()` / `glaze.colorFrom()`).
  *
  * Owns the value-shorthand parser (hex, `rgb()` / `hsl()` / `okhsl()` /
- * `oklch()`, OkhslColor object, [r, g, b] tuple), the structured-input
+ * `oklch()`, `{ r, g, b }`, `{ h, s, l }`, `{ l, c, h }`), the structured-input
  * validator, the two factory paths (value vs structured), and the
  * JSON-safe export / rehydration round-trip.
  *
@@ -43,6 +43,8 @@ import type {
   GlazeJsonOptions,
   GlazeTokenOptions,
   OkhslColor,
+  OklchColor,
+  RgbColor,
   RegularColorDef,
   ResolvedColor,
 } from './types';
@@ -66,29 +68,26 @@ const RESERVED_STANDALONE_NAMES = new Set([
 ]);
 
 /**
- * Build the create-time scaling snapshot used when the caller did not
- * pass an explicit `scaling`. All windows are snapshotted from the
- * current `globalConfig` so later `glaze.configure()` calls don't
- * retroactively change the resolved variants of an already-created
- * token (matches the documented "frozen at create time" semantics).
- *
- * String value-shorthand inputs preserve their light lightness exactly
- * (`lightLightness: false`) and use an extended dark window
- * `[globalConfig.darkLightness[0], 100]` so a totally-black input can
- * Möbius-invert to totally-white in dark mode. Object / tuple /
- * structured inputs snapshot both windows from `globalConfig` verbatim
- * so they behave like an ordinary theme color (auto-adapted on both
- * sides).
+ * Create-time scaling for all value-shorthand `glaze.color()` inputs.
+ * Light lightness is preserved (`lightLightness: false`); dark uses the
+ * theme window from `globalConfig.darkLightness`, snapshotted at create
+ * time so later `configure()` does not retroactively change tokens.
  */
-function defaultStandaloneScaling(isString: boolean): GlazeColorScaling {
+function defaultValueShorthandScaling(): GlazeColorScaling {
   const cfg = getConfig();
-  if (isString) {
-    const [darkLo] = cfg.darkLightness;
-    return {
-      lightLightness: false,
-      darkLightness: [darkLo, 100],
-    };
-  }
+  return {
+    lightLightness: false,
+    darkLightness: cfg.darkLightness,
+  };
+}
+
+/**
+ * Create-time scaling for structured `glaze.color({ hue, saturation,
+ * lightness, ... })`. Both windows come from `globalConfig` so the
+ * token behaves like an ordinary theme color on light and dark sides.
+ */
+function defaultStructuredScaling(): GlazeColorScaling {
+  const cfg = getConfig();
   return {
     lightLightness: cfg.lightLightness,
     darkLightness: cfg.darkLightness,
@@ -263,15 +262,49 @@ function validateOkhslColor(value: OkhslColor): void {
   }
 }
 
-/** Validate a user-supplied `[r, g, b]` tuple in 0-255. */
-function validateRgbTuple(value: readonly [number, number, number]): void {
-  for (const n of value) {
+/** Validate a user-supplied `{ r, g, b }` object in 0–255. */
+function validateRgbColor(value: RgbColor): void {
+  for (const key of ['r', 'g', 'b'] as const) {
+    const n = value[key];
     if (!Number.isFinite(n) || n < 0 || n > 255) {
       throw new Error(
-        `glaze.color: RGB tuple components must be finite numbers in 0–255 (got [${value.join(', ')}]).`,
+        `glaze.color: RgbColor ${key} must be a finite number in 0–255 (got ${n}).`,
       );
     }
   }
+}
+
+/** Validate a user-supplied `{ l, c, h }` OKLCh object. */
+function validateOklchColor(value: OklchColor): void {
+  const { l, c, h } = value;
+  if (!Number.isFinite(l) || !Number.isFinite(c) || !Number.isFinite(h)) {
+    throw new Error('glaze.color: OklchColor l/c/h must be finite numbers.');
+  }
+  if (l > 1.5 || c > 1.5) {
+    throw new Error(
+      'glaze.color: OklchColor l/c must be in 0–1 range (matching oklch() strings).',
+    );
+  }
+}
+
+function oklchComponentsToOkhsl(
+  l: number,
+  c: number,
+  hDeg: number,
+): OkhslColor {
+  const hRad = (hDeg * Math.PI) / 180;
+  const a = c * Math.cos(hRad);
+  const b = c * Math.sin(hRad);
+  const [h, s, outL] = oklabToOkhsl([l, a, b]);
+  return { h, s, l: outL };
+}
+
+function isRgbColorObject(value: object): value is RgbColor {
+  return 'r' in value && 'g' in value && 'b' in value;
+}
+
+function isOklchColorObject(value: object): value is OklchColor {
+  return 'c' in value && 'l' in value && 'h' in value;
 }
 
 /**
@@ -361,19 +394,30 @@ function validateStandaloneName(name: string): void {
 /**
  * Extract an OKHSL color from any `GlazeColorValue` form. Also used by
  * `glaze.shadow()` so all shadow inputs (hex, color functions, OKHSL,
- * RGB tuple) go through one parser.
+ * literal objects) go through one parser.
  */
 export function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
   if (typeof value === 'string') return parseColorString(value);
   if (Array.isArray(value)) {
-    const tuple = value as readonly [number, number, number];
-    validateRgbTuple(tuple);
-    const [r, g, b] = tuple;
-    const [h, s, l] = srgbToOkhsl([r / 255, g / 255, b / 255]);
+    throw new Error(
+      'glaze.color: RGB tuple [r, g, b] is no longer supported — use { r, g, b } instead.',
+    );
+  }
+  if (isRgbColorObject(value)) {
+    validateRgbColor(value);
+    const [h, s, l] = srgbToOkhsl([
+      value.r / 255,
+      value.g / 255,
+      value.b / 255,
+    ]);
     return { h, s, l };
   }
-  validateOkhslColor(value as OkhslColor);
-  return value as OkhslColor;
+  if (isOklchColorObject(value)) {
+    validateOklchColor(value);
+    return oklchComponentsToOkhsl(value.l, value.c, value.h);
+  }
+  validateOkhslColor(value);
+  return value;
 }
 
 // ============================================================================
@@ -391,11 +435,9 @@ interface ValueDefsResult {
  * Build the `ColorMap` for a value-shorthand `glaze.color()` call.
  *
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
- * across every value-shorthand form. String inputs pair with the
- * extended dark window so a totally-black input renders as totally-white
- * in dark mode; `OkhslColor` / RGB-tuple inputs auto-adapt into the
- * snapshotted `globalConfig.lightLightness` / `globalConfig.darkLightness`
- * windows.
+ * across every value-shorthand form, using the snapshotted
+ * `globalConfig.darkLightness` window (light lightness preserved via
+ * `lightLightness: false`).
  *
  * When the user requests `contrast` or relative `lightness`, a hidden
  * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
@@ -608,12 +650,11 @@ export function createColorToken(
     };
   }
 
-  // Structured form uses the same snapshotted default as object / tuple
-  // value-shorthand: both light and dark windows come from `globalConfig`,
-  // captured at create time. With the default `mode: 'auto'` this matches
-  // the behavior of an ordinary theme color (Möbius-inverted in dark).
+  // Structured form snapshots both lightness windows from `globalConfig`
+  // at create time. With the default `mode: 'auto'` this matches an
+  // ordinary theme color (Möbius-inverted in dark).
   const effectiveScaling: GlazeColorScaling =
-    scaling ?? defaultStandaloneScaling(false);
+    scaling ?? defaultStructuredScaling();
 
   const autoFlip = overrideAutoFlip ?? getConfig().autoFlip;
 
@@ -646,24 +687,14 @@ export function createColorTokenFromValue(
   scaling: GlazeColorScaling | undefined,
   overrideAutoFlip?: boolean,
 ): GlazeColorToken {
-  const inputIsString = typeof value === 'string';
   const main = extractOkhslFromValue(value);
   const baseToken = resolveBaseToken(options?.base);
   const { seedHue, seedSaturation, defs, primary } = buildStandaloneValueDefs(
     main,
     options,
   );
-  // Default scaling is snapshotted from `globalConfig` at create time:
-  //   - String inputs (typical end-user values from a color picker / theme
-  //     setting) default to "light preserves input, dark Möbius-inverts up
-  //     to 100" so the natural `#000` ↔ `#fff` flip works out of the box.
-  //   - Object / tuple inputs default to the full `globalConfig.lightLightness`
-  //     / `globalConfig.darkLightness` windows — same as a theme color and
-  //     same as the structured form.
-  // Both forms freeze the windows at create time so later `glaze.configure()`
-  // calls don't retroactively change exported tokens.
   const effectiveScaling: GlazeColorScaling =
-    scaling ?? defaultStandaloneScaling(inputIsString);
+    scaling ?? defaultValueShorthandScaling();
 
   const autoFlip = overrideAutoFlip ?? getConfig().autoFlip;
 
