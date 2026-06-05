@@ -95,22 +95,16 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
  *   lightness-window override.
  * - `glaze.color(value, overrides?, scaling?)` — value-shorthand: a hex
  *   string (3/6/8 digits), one of the CSS color functions Glaze itself
- *   emits (`rgb()`, `hsl()`, `okhsl()`, `oklch()`), an `OkhslColor`
- *   object `{ h, s, l }` (0–1 ranges), or an `[r, g, b]` (0–255) tuple.
+ *   emits (`rgb()`, `hsl()`, `okhsl()`, `oklch()`), or literal objects
+ *   `{ r, g, b }` (0–255), `{ h, s, l }` (OKHSL 0–1), `{ l, c, h }`
+ *   (OKLCh, matching `oklch()` strings).
  *
- * Defaults: every input form defaults to `mode: 'auto'` so colors
- * automatically adapt between light and dark like an ordinary theme
- * color. The scaling snapshot taken at create time differs by input
- * form:
- * - String value-shorthand: `{ lightLightness: false, darkLightness:
- *   [globalConfig.darkLightness[0], 100] }`. Light preserves the input
- *   exactly; dark Möbius-inverts up to 100, so `glaze.color('#000')`
- *   renders as `#fff` in dark mode (and `glaze.color('#fff')` falls to
- *   the dark `lo` floor).
- * - `OkhslColor` object / RGB-tuple / structured value-shorthand:
- *   `{ lightLightness: globalConfig.lightLightness, darkLightness:
- *   globalConfig.darkLightness }` — both windows come straight from
- *   `globalConfig`, so the resulting token behaves like a theme color.
+ * Defaults: every input form defaults to `mode: 'auto'`. Value-shorthand
+ * (strings and literal objects) snapshots `{ lightLightness: false,
+ * darkLightness: globalConfig.darkLightness }` — light preserves the
+ * input; dark uses the theme window. Structured `{ hue, saturation,
+ * lightness, ... }` snapshots both `globalConfig` windows like a theme
+ * color.
  *
  * Pass `{ mode: 'fixed' }` to opt back into the legacy linear, non-
  * inverting mapping, or `{ mode: 'static' }` to pin the same lightness
@@ -153,7 +147,7 @@ glaze.color = function color(
  *
  * Both `bg` and `fg` accept any `GlazeColorValue` form: hex (`#rgb` /
  * `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` / `oklch()`
- * strings, `OkhslColor` objects, or `[r, g, b]` (0–255) tuples.
+ * strings, or `{ r, g, b }` / `{ h, s, l }` / `{ l, c, h }` objects.
  */
 glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
   const bg = extractOkhslFromValue(input.bg as GlazeColorValue);
