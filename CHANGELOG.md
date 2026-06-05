@@ -1,5 +1,19 @@
 # @tenphi/glaze
 
+## 0.12.0
+
+### Minor Changes
+
+- [#60](https://github.com/tenphi/glaze/pull/60) [`5fef8c5`](https://github.com/tenphi/glaze/commit/5fef8c54c592f92f13008502a718c2f78a728045) Thanks [@tenphi](https://github.com/tenphi)! - **Breaking:** `glaze.color()` value-shorthand changes:
+  - **Removed** RGB tuple `[r, g, b]` — use `{ r, g, b }` instead.
+  - **Added** `RgbColor` (`{ r, g, b }`) and `OklchColor` (`{ l, c, h }`) object inputs (also accepted by `glaze.shadow()`).
+  - **Unified scaling** for all value-shorthand (strings and literal objects): `lightLightness: false`, `darkLightness: globalConfig.darkLightness` (snapshotted). Strings no longer use the extended `[darkLo, 100]` dark window — the default `#000` → white dark flip is gone unless you pass explicit `scaling: { darkLightness: [lo, 100] }`.
+  - Object/tuple value-shorthand no longer remap light lightness through `globalConfig.lightLightness` (structured `{ hue, saturation, lightness }` still does). Opt back in with `scaling: { lightLightness: [10, 100], ... }`.
+
+### Patch Changes
+
+- [#58](https://github.com/tenphi/glaze/pull/58) [`9fdb6bb`](https://github.com/tenphi/glaze/commit/9fdb6bbbed6f9aa44d3d2eade8fc0ce468655269) Thanks [@tenphi](https://github.com/tenphi)! - Respect authored lightness direction when contrast auto-flip is disabled.
+
 ## 0.11.1
 
 ### Patch Changes
