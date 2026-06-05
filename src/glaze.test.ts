@@ -1973,9 +1973,7 @@ describe('glaze', () => {
       });
 
       it('accepts { l, c, h } matching oklch() string form', () => {
-        const fromObject = glaze
-          .color({ l: 0.85, c: 0.18, h: 152 })
-          .resolve();
+        const fromObject = glaze.color({ l: 0.85, c: 0.18, h: 152 }).resolve();
         const fromString = glaze.color('oklch(0.85 0.18 152)').resolve();
         expect(fromObject.light.h).toBeCloseTo(fromString.light.h, 1);
         expect(fromObject.light.s).toBeCloseTo(fromString.light.s, 3);
@@ -2007,9 +2005,9 @@ describe('glaze', () => {
       });
 
       it('throws on out-of-range { r, g, b } components', () => {
-        expect(() =>
-          glaze.color({ r: 300, g: -10, b: 999 }).resolve(),
-        ).toThrow(/0–255/);
+        expect(() => glaze.color({ r: 300, g: -10, b: 999 }).resolve()).toThrow(
+          /0–255/,
+        );
         expect(() => glaze.color({ r: NaN, g: 0, b: 0 }).resolve()).toThrow(
           /0–255/,
         );

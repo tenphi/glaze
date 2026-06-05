@@ -366,11 +366,7 @@ export interface GlazeColorInput {
  * - `{ r, g, b }` — sRGB 0–255.
  * - `{ l, c, h }` — OKLCh (L/C: 0–1, H: degrees), same as `oklch()` strings.
  */
-export type GlazeColorValue =
-  | string
-  | OkhslColor
-  | RgbColor
-  | OklchColor;
+export type GlazeColorValue = string | OkhslColor | RgbColor | OklchColor;
 
 /** Optional overrides for `glaze.color(value, overrides?)`. */
 export interface GlazeColorOverrides {

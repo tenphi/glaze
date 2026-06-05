@@ -287,7 +287,11 @@ function validateOklchColor(value: OklchColor): void {
   }
 }
 
-function oklchComponentsToOkhsl(l: number, c: number, hDeg: number): OkhslColor {
+function oklchComponentsToOkhsl(
+  l: number,
+  c: number,
+  hDeg: number,
+): OkhslColor {
   const hRad = (hDeg * Math.PI) / 180;
   const a = c * Math.cos(hRad);
   const b = c * Math.sin(hRad);
