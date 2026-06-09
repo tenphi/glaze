@@ -5,6 +5,10 @@
  * turns a `ColorMap` into a fully resolved `ResolvedColor` per name.
  * Owns the per-scheme resolve helpers for regular, shadow, and mix
  * color defs.
+ *
+ * Every function receives a single `GlazeConfigResolved` so the full
+ * per-instance config (including overrides) is available without
+ * re-reading the global singleton mid-resolve.
  */
 
 import {
@@ -26,7 +30,6 @@ import {
   parseRelativeOrAbsolute,
   resolveEffectiveHue,
 } from './hc-pair';
-import { getConfig } from './config';
 import {
   computeShadow,
   circularLerp,
@@ -47,7 +50,7 @@ import type {
   AdaptationMode,
   ColorDef,
   ColorMap,
-  GlazeColorScaling,
+  GlazeConfigResolved,
   MixColorDef,
   RegularColorDef,
   ResolvedColor,
@@ -60,18 +63,8 @@ export interface ResolveContext {
   saturation: number;
   defs: ColorMap;
   resolved: Map<string, ResolvedColor>;
-  /**
-   * Optional per-resolve scaling overrides for the lightness windows.
-   * Used by `glaze.color()` to preserve light input by default while
-   * still adapting dark to `globalConfig.darkLightness`.
-   */
-  scaling?: GlazeColorScaling;
-  /**
-   * Whether to auto-flip lightness direction when contrast can't be met.
-   * Read from global config at resolve time; overridable per-call via
-   * the context for standalone tokens that snapshot it at creation.
-   */
-  autoFlip?: boolean;
+  /** Fully-merged effective config for this resolve pass. */
+  config: GlazeConfigResolved;
 }
 
 type ResolvedField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
@@ -146,7 +139,7 @@ function resolveDependentColor(
         preferredL = lightMappedToDark(
           absoluteLightL,
           isHighContrast,
-          ctx.scaling,
+          ctx.config,
         );
       } else {
         preferredL = clamp(baseL + delta, 0, 100);
@@ -157,14 +150,14 @@ function resolveDependentColor(
           parsed.value,
           mode,
           isHighContrast,
-          ctx.scaling,
+          ctx.config,
         );
       } else {
         preferredL = mapLightnessLight(
           parsed.value,
           mode,
           isHighContrast,
-          ctx.scaling,
+          ctx.config,
         );
       }
     }
@@ -177,7 +170,7 @@ function resolveDependentColor(
       : pairNormal(rawContrast);
 
     const effectiveSat = isDark
-      ? mapSaturationDark((satFactor * ctx.saturation) / 100, mode)
+      ? mapSaturationDark((satFactor * ctx.saturation) / 100, mode, ctx.config)
       : (satFactor * ctx.saturation) / 100;
 
     const baseLinearRgb = okhslToLinearSrgb(
@@ -190,10 +183,9 @@ function resolveDependentColor(
       isDark,
       mode,
       isHighContrast,
-      ctx.scaling,
+      ctx.config,
     );
 
-    const autoFlip = ctx.autoFlip ?? getConfig().autoFlip;
     let initialDirection: 'lighter' | 'darker' | undefined;
     if (preferredL < baseL) {
       initialDirection = 'darker';
@@ -213,7 +205,7 @@ function resolveDependentColor(
       contrast: minCr,
       lightnessRange: [0, 1],
       initialDirection,
-      flip: autoFlip,
+      flip: ctx.config.autoFlip,
     });
 
     if (!result.met) {
@@ -270,13 +262,21 @@ function resolveColorForScheme(
   let finalSat: number;
 
   if (isDark && isRoot) {
-    finalL = mapLightnessDark(lightL, mode, isHighContrast, ctx.scaling);
-    finalSat = mapSaturationDark((satFactor * ctx.saturation) / 100, mode);
+    finalL = mapLightnessDark(lightL, mode, isHighContrast, ctx.config);
+    finalSat = mapSaturationDark(
+      (satFactor * ctx.saturation) / 100,
+      mode,
+      ctx.config,
+    );
   } else if (isDark && !isRoot) {
     finalL = lightL;
-    finalSat = mapSaturationDark((satFactor * ctx.saturation) / 100, mode);
+    finalSat = mapSaturationDark(
+      (satFactor * ctx.saturation) / 100,
+      mode,
+      ctx.config,
+    );
   } else if (isRoot) {
-    finalL = mapLightnessLight(lightL, mode, isHighContrast, ctx.scaling);
+    finalL = mapLightnessLight(lightL, mode, isHighContrast, ctx.config);
     finalSat = (satFactor * ctx.saturation) / 100;
   } else {
     finalL = lightL;
@@ -310,7 +310,7 @@ function resolveShadowForScheme(
     ? pairHC(def.intensity)
     : pairNormal(def.intensity);
 
-  const tuning = resolveShadowTuning(def.tuning);
+  const tuning = resolveShadowTuning(def.tuning, ctx.config.shadowTuning);
   return computeShadow(bgVariant, fgVariant, intensity, tuning);
 }
 
@@ -405,15 +405,13 @@ function resolveMixForScheme(
       };
     }
 
-    const autoFlip = ctx.autoFlip ?? getConfig().autoFlip;
-
     const result = findValueForMixContrast({
       preferredValue: t,
       baseLinearRgb: baseLinear,
       targetLinearRgb: targetLinear,
       contrast: minCr,
       luminanceAtValue: luminanceAt,
-      flip: autoFlip,
+      flip: ctx.config.autoFlip,
     });
     t = result.value;
   }
@@ -506,21 +504,18 @@ export function resolveAllColors(
   hue: number,
   saturation: number,
   defs: ColorMap,
-  scaling?: GlazeColorScaling,
+  config: GlazeConfigResolved,
   externalBases?: Map<string, ResolvedColor>,
-  overrideAutoFlip?: boolean,
 ): Map<string, ResolvedColor> {
   validateColorDefs(defs, externalBases);
   const order = topoSort(defs);
 
-  const cfg = getConfig();
   const ctx: ResolveContext = {
     hue,
     saturation,
     defs,
     resolved: new Map(),
-    scaling,
-    autoFlip: overrideAutoFlip ?? cfg.autoFlip,
+    config,
   };
 
   // Pre-seed externally-resolved bases. The per-pass loops iterate only

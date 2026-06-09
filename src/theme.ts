@@ -1,13 +1,17 @@
 /**
  * Theme factory.
  *
- * Wraps a hue/saturation seed and a mutable `ColorMap`, and exposes
- * `tokens()` / `tasty()` / `json()` / `css()` / `resolve()` / `export()`
- * / `extend()`. Caches the last resolve result so successive exports
- * with the same defs and config don't re-run the four-pass resolver.
+ * Wraps a hue/saturation seed, a mutable `ColorMap`, and an optional
+ * per-theme `GlazeConfigOverride`. Exposes `tokens()` / `tasty()` /
+ * `json()` / `css()` / `resolve()` / `export()` / `extend()`.
+ *
+ * The per-theme config override is **merged over the live global config at
+ * resolve time** so the theme still reacts to later `configure()` calls
+ * for fields it didn't override. The merged config is memoized by
+ * `configVersion` to avoid rebuilding it on every export call.
  */
 
-import { getConfig, getConfigVersion } from './config';
+import { getConfig, getConfigVersion, mergeConfig } from './config';
 import {
   buildCssMap,
   buildFlatTokenMap,
@@ -21,6 +25,8 @@ import type {
   ColorMap,
   GlazeCssOptions,
   GlazeCssResult,
+  GlazeConfigOverride,
+  GlazeConfigResolved,
   GlazeExtendOptions,
   GlazeJsonOptions,
   GlazeTheme,
@@ -33,19 +39,28 @@ export function createTheme(
   hue: number,
   saturation: number,
   initialColors?: ColorMap,
+  configOverride?: GlazeConfigOverride,
 ): GlazeTheme {
   let colorDefs: ColorMap = initialColors ? { ...initialColors } : {};
 
   let cache: {
     map: Map<string, ResolvedColor>;
     version: number;
+    effectiveConfig: GlazeConfigResolved;
   } | null = null;
+
+  function getEffectiveConfig(): GlazeConfigResolved {
+    const version = getConfigVersion();
+    if (cache && cache.version === version) return cache.effectiveConfig;
+    return mergeConfig(getConfig(), configOverride);
+  }
 
   function resolveCached(): Map<string, ResolvedColor> {
     const version = getConfigVersion();
     if (cache && cache.version === version) return cache.map;
-    const map = resolveAllColors(hue, saturation, colorDefs);
-    cache = { map, version };
+    const effectiveConfig = mergeConfig(getConfig(), configOverride);
+    const map = resolveAllColors(hue, saturation, colorDefs, effectiveConfig);
+    cache = { map, version, effectiveConfig };
     return map;
   }
 
@@ -96,11 +111,13 @@ export function createTheme(
     },
 
     export(): GlazeThemeExport {
-      return {
+      const out: GlazeThemeExport = {
         hue,
         saturation,
         colors: { ...colorDefs },
       };
+      if (configOverride !== undefined) out.config = configOverride;
+      return out;
     },
 
     extend(options: GlazeExtendOptions): GlazeTheme {
@@ -118,7 +135,13 @@ export function createTheme(
         ? { ...inheritedColors, ...options.colors }
         : { ...inheritedColors };
 
-      return createTheme(newHue, newSat, mergedColors);
+      // Child inherits the parent override then merges in the per-extend override.
+      const mergedConfigOverride: GlazeConfigOverride | undefined =
+        configOverride || options.config
+          ? { ...(configOverride ?? {}), ...(options.config ?? {}) }
+          : undefined;
+
+      return createTheme(newHue, newSat, mergedColors, mergedConfigOverride);
     },
 
     resolve(): Map<string, ResolvedColor> {
@@ -134,7 +157,7 @@ export function createTheme(
     },
 
     tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>> {
-      const cfg = getConfig();
+      const cfg = getEffectiveConfig();
       const states = {
         dark: options?.states?.dark ?? cfg.states.dark,
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,

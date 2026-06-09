@@ -1,46 +1,43 @@
 /**
  * Light / dark scheme lightness mappings.
  *
- * Owns the active lightness window selection (with per-call scaling
- * overrides and high-contrast handling), the Möbius curve used by the
- * `'auto'` dark adaptation, and the saturation-desaturation reducer
- * for dark mode.
+ * Owns the active lightness window selection (from a resolved effective
+ * config passed in), the Möbius curve used by the `'auto'` dark
+ * adaptation, and the saturation-desaturation reducer for dark mode.
+ *
+ * All functions take a `GlazeConfigResolved` so the full config
+ * (including per-instance overrides) is available without re-reading
+ * the global singleton inside the resolver.
  */
 
 import { clamp, pairHC, pairNormal } from './hc-pair';
-import { getConfig } from './config';
-import type { AdaptationMode, GlazeColorScaling } from './types';
+import type { AdaptationMode, GlazeConfigResolved } from './types';
 
 /**
  * Resolve the active lightness window for a scheme.
- * - HC variants always return `[0, 100]` (existing behavior, predates per-call overrides).
- * - Otherwise, per-call `scaling` (e.g. from `glaze.color()`'s third arg) wins;
- *   `false` is interpreted as `[0, 100]` (no remap). Falls back to `globalConfig.*Lightness`.
+ * - HC variants always return `[0, 100]` (no clamping in high-contrast).
+ * - `false` (= "no clamping") is treated as `[0, 100]`.
+ * - Otherwise uses the window from the resolved effective config.
  */
 export function lightnessWindow(
   isHighContrast: boolean,
   kind: 'light' | 'dark',
-  scaling?: GlazeColorScaling,
+  config: GlazeConfigResolved,
 ): [number, number] {
   if (isHighContrast) return [0, 100];
-  if (scaling) {
-    const override =
-      kind === 'dark' ? scaling.darkLightness : scaling.lightLightness;
-    if (override === false) return [0, 100];
-    if (override !== undefined) return override;
-  }
-  const cfg = getConfig();
-  return kind === 'dark' ? cfg.darkLightness : cfg.lightLightness;
+  const win = kind === 'dark' ? config.darkLightness : config.lightLightness;
+  if (win === false) return [0, 100];
+  return win;
 }
 
 export function mapLightnessLight(
   l: number,
   mode: AdaptationMode,
   isHighContrast: boolean,
-  scaling?: GlazeColorScaling,
+  config: GlazeConfigResolved,
 ): number {
   if (mode === 'static') return l;
-  const [lo, hi] = lightnessWindow(isHighContrast, 'light', scaling);
+  const [lo, hi] = lightnessWindow(isHighContrast, 'light', config);
   return (l * (hi - lo)) / 100 + lo;
 }
 
@@ -53,21 +50,20 @@ export function mapLightnessDark(
   l: number,
   mode: AdaptationMode,
   isHighContrast: boolean,
-  scaling?: GlazeColorScaling,
+  config: GlazeConfigResolved,
 ): number {
   if (mode === 'static') return l;
 
-  const cfg = getConfig();
   const beta = isHighContrast
-    ? pairHC(cfg.darkCurve)
-    : pairNormal(cfg.darkCurve);
-  const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark', scaling);
+    ? pairHC(config.darkCurve)
+    : pairNormal(config.darkCurve);
+  const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark', config);
 
   if (mode === 'fixed') {
     return (l * (darkHi - darkLo)) / 100 + darkLo;
   }
 
-  const [lightLo, lightHi] = lightnessWindow(isHighContrast, 'light', scaling);
+  const [lightLo, lightHi] = lightnessWindow(isHighContrast, 'light', config);
   const lightL = (l * (lightHi - lightLo)) / 100 + lightLo;
   const t = (lightHi - lightL) / (lightHi - lightLo);
   return darkLo + (darkHi - darkLo) * mobiusCurve(t, beta);
@@ -76,35 +72,38 @@ export function mapLightnessDark(
 export function lightMappedToDark(
   lightL: number,
   isHighContrast: boolean,
-  scaling?: GlazeColorScaling,
+  config: GlazeConfigResolved,
 ): number {
-  const cfg = getConfig();
   const beta = isHighContrast
-    ? pairHC(cfg.darkCurve)
-    : pairNormal(cfg.darkCurve);
-  const [lightLo, lightHi] = lightnessWindow(isHighContrast, 'light', scaling);
-  const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark', scaling);
+    ? pairHC(config.darkCurve)
+    : pairNormal(config.darkCurve);
+  const [lightLo, lightHi] = lightnessWindow(isHighContrast, 'light', config);
+  const [darkLo, darkHi] = lightnessWindow(isHighContrast, 'dark', config);
   const clamped = clamp(lightL, lightLo, lightHi);
   const t = (lightHi - clamped) / (lightHi - lightLo);
   return darkLo + (darkHi - darkLo) * mobiusCurve(t, beta);
 }
 
-export function mapSaturationDark(s: number, mode: AdaptationMode): number {
+export function mapSaturationDark(
+  s: number,
+  mode: AdaptationMode,
+  config: GlazeConfigResolved,
+): number {
   if (mode === 'static') return s;
-  return s * (1 - getConfig().darkDesaturation);
+  return s * (1 - config.darkDesaturation);
 }
 
 export function schemeLightnessRange(
   isDark: boolean,
   mode: AdaptationMode,
   isHighContrast: boolean,
-  scaling?: GlazeColorScaling,
+  config: GlazeConfigResolved,
 ): [number, number] {
   if (mode === 'static') return [0, 1];
   const [lo, hi] = lightnessWindow(
     isHighContrast,
     isDark ? 'dark' : 'light',
-    scaling,
+    config,
   );
   return [lo / 100, hi / 100];
 }
