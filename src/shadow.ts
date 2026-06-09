@@ -8,7 +8,6 @@
  */
 
 import { clamp } from './hc-pair';
-import { getConfig } from './config';
 import type {
   ColorDef,
   MixColorDef,
@@ -37,8 +36,8 @@ export const DEFAULT_SHADOW_TUNING: Required<ShadowTuning> = {
 
 export function resolveShadowTuning(
   perColor?: ShadowTuning,
+  globalTuning?: ShadowTuning,
 ): Required<ShadowTuning> {
-  const globalTuning = getConfig().shadowTuning;
   return {
     ...DEFAULT_SHADOW_TUNING,
     ...globalTuning,

@@ -8,7 +8,11 @@
  * their original behavior across later `configure()` calls.
  */
 
-import type { GlazeConfig, GlazeConfigResolved } from './types';
+import type {
+  GlazeConfig,
+  GlazeConfigOverride,
+  GlazeConfigResolved,
+} from './types';
 
 /**
  * Build a fresh defaults object. Called from module init and from
@@ -83,4 +87,33 @@ export function configure(config: GlazeConfig): void {
 export function resetConfig(): void {
   configVersion++;
   globalConfig = defaultConfig();
+}
+
+/**
+ * Merge a per-instance config override over a base resolved config.
+ * Only fields present in `override` are replaced; others fall through
+ * from `base`. `false` for lightness windows passes through as-is
+ * (treated as `[0, 100]` by `lightnessWindow()` in scheme-mapping).
+ */
+export function mergeConfig(
+  base: GlazeConfigResolved,
+  override?: GlazeConfigOverride,
+): GlazeConfigResolved {
+  if (!override) return base;
+  return {
+    lightLightness:
+      override.lightLightness !== undefined
+        ? override.lightLightness
+        : base.lightLightness,
+    darkLightness:
+      override.darkLightness !== undefined
+        ? override.darkLightness
+        : base.darkLightness,
+    darkDesaturation: override.darkDesaturation ?? base.darkDesaturation,
+    darkCurve: override.darkCurve ?? base.darkCurve,
+    states: base.states,
+    modes: base.modes,
+    shadowTuning: override.shadowTuning ?? base.shadowTuning,
+    autoFlip: override.autoFlip ?? base.autoFlip,
+  };
 }

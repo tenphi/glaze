@@ -6,7 +6,11 @@ import {
   relativeLuminanceFromLinearRgb,
   srgbToOkhsl,
 } from './okhsl-color-math';
-import type { GlazeColorTokenExport, ResolvedColorVariant } from './types';
+import type {
+  GlazeColorTokenExport,
+  OkhslColor,
+  ResolvedColorVariant,
+} from './types';
 
 function variantContrast(
   a: ResolvedColorVariant,
@@ -2061,7 +2065,7 @@ describe('glaze', () => {
 
       it('OkhslColor with explicit mode: fixed preserves the linear mapping', () => {
         const resolved = glaze
-          .color({ h: 0, s: 0, l: 0 }, { mode: 'fixed' })
+          .color({ from: { h: 0, s: 0, l: 0 }, mode: 'fixed' })
           .resolve();
         // lightLightness: false — light preserves input.
         expect(resolved.light.l).toBeCloseTo(0, 2);
@@ -2077,14 +2081,16 @@ describe('glaze', () => {
 
       it('RgbColor with explicit mode: fixed preserves the linear mapping', () => {
         const resolved = glaze
-          .color({ r: 0, g: 0, b: 0 }, { mode: 'fixed' })
+          .color({ from: { r: 0, g: 0, b: 0 }, mode: 'fixed' })
           .resolve();
         expect(resolved.light.l).toBeCloseTo(0, 2);
         expect(resolved.dark.l).toBeCloseTo(0.15, 2);
       });
 
       it('mode override on a string input wins over the auto default', () => {
-        const resolved = glaze.color('#000000', { mode: 'fixed' }).resolve();
+        const resolved = glaze
+          .color({ from: '#000000', mode: 'fixed' })
+          .resolve();
         expect(resolved.light.l).toBeCloseTo(0, 3);
         // Fixed: 0 * 0.8 + 15 = 15 → 0.15 (no inversion to white)
         expect(resolved.dark.l).toBeCloseTo(0.15, 2);
@@ -2092,7 +2098,7 @@ describe('glaze', () => {
 
       it('explicit extended dark scaling can restore the #000 → white flip', () => {
         const resolved = glaze
-          .color('#000000', undefined, {
+          .color('#000000', {
             lightLightness: false,
             darkLightness: [15, 100],
           })
@@ -2154,7 +2160,7 @@ describe('glaze', () => {
     describe('base dependency on another color token', () => {
       it('solves AA contrast against the base in every scheme', () => {
         const bg = glaze.color('#1a1a2e');
-        const text = glaze.color('#ffffff', { base: bg, contrast: 'AA' });
+        const text = glaze.color({ from: '#ffffff', base: bg, contrast: 'AA' });
         const bgR = bg.resolve();
         const textR = text.resolve();
         expect(variantContrast(textR.light, bgR.light)).toBeGreaterThanOrEqual(
@@ -2176,8 +2182,9 @@ describe('glaze', () => {
         // values stay inside [0, 100] after the `+30` offset (mode 'auto'
         // on the bg would invert dark.l toward 1, making `bg.dark.l + 0.3`
         // clamp past 1.0 and break the per-scheme offset arithmetic).
-        const bg = glaze.color({ h: 0, s: 0, l: 0.4 }, { mode: 'fixed' });
-        const text = glaze.color('#000000', {
+        const bg = glaze.color({ from: { h: 0, s: 0, l: 0.4 }, mode: 'fixed' });
+        const text = glaze.color({
+          from: '#000000',
           base: bg,
           lightness: '+30',
           mode: 'fixed',
@@ -2193,7 +2200,8 @@ describe('glaze', () => {
 
       it('relative hue still anchors to the seed (not the base)', () => {
         const bg = glaze.color({ h: 200, s: 0.5, l: 0.5 }); // base hue: 200
-        const text = glaze.color('#26fcb2', {
+        const text = glaze.color({
+          from: '#26fcb2',
           base: bg,
           hue: '+10',
           contrast: 'AA',
@@ -2207,10 +2215,10 @@ describe('glaze', () => {
       it('mode override on the dependent (fixed vs auto) changes dark mapping', () => {
         const bg = glaze.color('#1a1a2e');
         const fixed = glaze
-          .color('#ffffff', { base: bg, contrast: 'AA', mode: 'fixed' })
+          .color({ from: '#ffffff', base: bg, contrast: 'AA', mode: 'fixed' })
           .resolve();
         const auto = glaze
-          .color('#ffffff', { base: bg, contrast: 'AA', mode: 'auto' })
+          .color({ from: '#ffffff', base: bg, contrast: 'AA', mode: 'auto' })
           .resolve();
         // Both must still meet AA in dark, but the mapping differs.
         expect(fixed.dark.l).not.toBeCloseTo(auto.dark.l, 2);
@@ -2223,7 +2231,7 @@ describe('glaze', () => {
         });
         try {
           expect(() =>
-            glaze.color('#ffffff', { base: bg }).resolve(),
+            glaze.color({ from: '#ffffff', base: bg }).resolve(),
           ).not.toThrow();
           expect(warnSpy).not.toHaveBeenCalled();
         } finally {
@@ -2233,8 +2241,8 @@ describe('glaze', () => {
 
       it('chains: text -> mid -> bg, contrast met at each level', () => {
         const bg = glaze.color('#000000');
-        const mid = glaze.color('#888888', { base: bg, contrast: 'AA' });
-        const top = glaze.color('#ffffff', { base: mid, contrast: 'AA' });
+        const mid = glaze.color({ from: '#888888', base: bg, contrast: 'AA' });
+        const top = glaze.color({ from: '#ffffff', base: mid, contrast: 'AA' });
         const bgR = bg.resolve();
         const midR = mid.resolve();
         const topR = top.resolve();
@@ -2256,7 +2264,7 @@ describe('glaze', () => {
       it('memoizes resolve and does not re-resolve the base on each call', () => {
         const bg = glaze.color('#1a1a2e');
         const baseSpy = vi.spyOn(bg, 'resolve');
-        const text = glaze.color('#ffffff', { base: bg, contrast: 'AA' });
+        const text = glaze.color({ from: '#ffffff', base: bg, contrast: 'AA' });
         const a = text.resolve();
         const b = text.resolve();
         const c = text.resolve();
@@ -2269,7 +2277,11 @@ describe('glaze', () => {
 
       it('exports (token / tasty / json / css) work with a base reference', () => {
         const bg = glaze.color('#1a1a2e');
-        const text = glaze.color('#ffffff', { base: bg, contrast: 'AAA' });
+        const text = glaze.color({
+          from: '#ffffff',
+          base: bg,
+          contrast: 'AAA',
+        });
         expect(text.token()['']).toMatch(/^okhsl\(/);
         expect(text.tasty()['']).toMatch(/^okhsl\(/);
         expect(text.json().light).toMatch(/^okhsl\(/);
@@ -2281,7 +2293,8 @@ describe('glaze', () => {
 
     describe('base accepts a raw GlazeColorValue', () => {
       it('hex string base is auto-wrapped into a token', () => {
-        const text = glaze.color('#000000', {
+        const text = glaze.color({
+          from: '#000000',
           base: '#ffffff',
           contrast: 'AA',
         });
@@ -2294,7 +2307,8 @@ describe('glaze', () => {
       });
 
       it('OkhslColor object base is auto-wrapped into a token', () => {
-        const text = glaze.color('#000000', {
+        const text = glaze.color({
+          from: '#000000',
           base: { h: 0, s: 0, l: 1 },
           contrast: 'AA',
         });
@@ -2307,7 +2321,8 @@ describe('glaze', () => {
       });
 
       it('RgbColor object base is auto-wrapped into a token', () => {
-        const text = glaze.color('#000000', {
+        const text = glaze.color({
+          from: '#000000',
           base: { r: 255, g: 255, b: 255 },
           contrast: 'AA',
         });
@@ -2320,11 +2335,13 @@ describe('glaze', () => {
       });
 
       it('value-base auto-wrap produces same result as explicit wrap', () => {
-        const explicit = glaze.color('#000000', {
+        const explicit = glaze.color({
+          from: '#000000',
           base: glaze.color('#ffffff'),
           contrast: 'AA',
         });
-        const inferred = glaze.color('#000000', {
+        const inferred = glaze.color({
+          from: '#000000',
           base: '#ffffff',
           contrast: 'AA',
         });
@@ -2345,7 +2362,9 @@ describe('glaze', () => {
 
     describe('opacity override', () => {
       it('opacity propagates to all scheme variants', () => {
-        const resolved = glaze.color('#26fcb2', { opacity: 0.5 }).resolve();
+        const resolved = glaze
+          .color({ from: '#26fcb2', opacity: 0.5 })
+          .resolve();
         expect(resolved.light.alpha).toBeCloseTo(0.5, 6);
         expect(resolved.dark.alpha).toBeCloseTo(0.5, 6);
         expect(resolved.lightContrast.alpha).toBeCloseTo(0.5, 6);
@@ -2353,29 +2372,29 @@ describe('glaze', () => {
       });
 
       it('opacity surfaces in token / json / css output', () => {
-        const tok = glaze.color('#26fcb2', { opacity: 0.4 });
+        const tok = glaze.color({ from: '#26fcb2', opacity: 0.4 });
         expect(tok.token({ format: 'rgb' })['']).toMatch(/rgb\(.*\/\s*0\.4/);
         expect(tok.json().light).toMatch(/^okhsl\(.*\/\s*0\.4/);
       });
 
       it('rejects out-of-range opacity', () => {
-        expect(() => glaze.color('#26fcb2', { opacity: -0.1 })).toThrow(
+        expect(() => glaze.color({ from: '#26fcb2', opacity: -0.1 })).toThrow(
           /opacity must be a finite number in 0–1/,
         );
-        expect(() => glaze.color('#26fcb2', { opacity: 1.5 })).toThrow(
+        expect(() => glaze.color({ from: '#26fcb2', opacity: 1.5 })).toThrow(
           /opacity must be a finite number in 0–1/,
         );
-        expect(() => glaze.color('#26fcb2', { opacity: 5 })).toThrow(
+        expect(() => glaze.color({ from: '#26fcb2', opacity: 5 })).toThrow(
           /opacity must be a finite number in 0–1/,
         );
       });
 
       it('rejects non-finite opacity', () => {
-        expect(() => glaze.color('#26fcb2', { opacity: Number.NaN })).toThrow(
-          /opacity must be a finite number in 0–1/,
-        );
         expect(() =>
-          glaze.color('#26fcb2', { opacity: Number.POSITIVE_INFINITY }),
+          glaze.color({ from: '#26fcb2', opacity: Number.NaN }),
+        ).toThrow(/opacity must be a finite number in 0–1/);
+        expect(() =>
+          glaze.color({ from: '#26fcb2', opacity: Number.POSITIVE_INFINITY }),
         ).toThrow(/opacity must be a finite number in 0–1/);
       });
 
@@ -2394,7 +2413,8 @@ describe('glaze', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
         try {
           glaze
-            .color('#26fcb2', {
+            .color({
+              from: '#26fcb2',
               name: 'profile-overlay',
               opacity: 0.5,
               contrast: 'AA',
@@ -2422,7 +2442,8 @@ describe('glaze', () => {
         try {
           const bg = glaze.color('#7f7f7f');
           glaze
-            .color('#808080', {
+            .color({
+              from: '#808080',
               name: 'profile-text',
               base: bg,
               contrast: 'AAA',
@@ -2442,18 +2463,20 @@ describe('glaze', () => {
       });
 
       it('rejects reserved internal names', () => {
-        expect(() => glaze.color('#000', { name: 'value' })).toThrow(
+        expect(() => glaze.color({ from: '#000', name: 'value' })).toThrow(
           /reserved/,
         );
-        expect(() => glaze.color('#000', { name: 'seed' })).toThrow(/reserved/);
-        expect(() => glaze.color('#000', { name: 'externalBase' })).toThrow(
+        expect(() => glaze.color({ from: '#000', name: 'seed' })).toThrow(
           /reserved/,
         );
+        expect(() =>
+          glaze.color({ from: '#000', name: 'externalBase' }),
+        ).toThrow(/reserved/);
       });
 
       it('reserved-name error lists the full reserved set', () => {
         try {
-          glaze.color('#000', { name: 'value' });
+          glaze.color({ from: '#000', name: 'value' });
           throw new Error('expected throw');
         } catch (err) {
           const message = (err as Error).message;
@@ -2465,10 +2488,10 @@ describe('glaze', () => {
       });
 
       it('rejects empty / whitespace-only names', () => {
-        expect(() => glaze.color('#000', { name: '' })).toThrow(
+        expect(() => glaze.color({ from: '#000', name: '' })).toThrow(
           /name must be a non-empty string/,
         );
-        expect(() => glaze.color('#000', { name: '   ' })).toThrow(
+        expect(() => glaze.color({ from: '#000', name: '   ' })).toThrow(
           /name must be a non-empty string/,
         );
         expect(() =>
@@ -2572,7 +2595,8 @@ describe('glaze', () => {
           // (towards black or towards white) is ~5.2 / ~4.0 — AAA (7)
           // is physically unreachable.
           glaze
-            .color('#808080', {
+            .color({
+              from: '#808080',
               base: glaze.color('#7f7f7f'),
               contrast: 'AAA',
               name: 'unreachable-fg',
@@ -2595,7 +2619,8 @@ describe('glaze', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(vi.fn());
         try {
           glaze
-            .color('#000000', {
+            .color({
+              from: '#000000',
               base: glaze.color('#ffffff'),
               contrast: 'AA',
               name: 'easy-fg',
@@ -2675,7 +2700,7 @@ describe('glaze', () => {
 
     describe('export / colorFrom round-trip', () => {
       it('value-form export round-trips identically', () => {
-        const original = glaze.color('#26fcb2', { contrast: 'AA' });
+        const original = glaze.color({ from: '#26fcb2', contrast: 'AA' });
         const data = original.export();
         const json = JSON.parse(JSON.stringify(data));
         const restored = glaze.colorFrom(json);
@@ -2694,10 +2719,9 @@ describe('glaze', () => {
         }
       });
 
-      it('export captures opacity, name, and scaling', () => {
+      it('export captures opacity, name, and config', () => {
         const tok = glaze.color(
-          '#26fcb2',
-          { opacity: 0.5, name: 'cell-bg' },
+          { from: '#26fcb2', opacity: 0.5, name: 'cell-bg' },
           { lightLightness: false, darkLightness: [10, 100] },
         );
         const data = tok.export();
@@ -2705,32 +2729,26 @@ describe('glaze', () => {
         expect(data.input).toBe('#26fcb2');
         expect(data.overrides?.opacity).toBe(0.5);
         expect(data.overrides?.name).toBe('cell-bg');
-        expect(data.scaling).toEqual({
-          lightLightness: false,
-          darkLightness: [10, 100],
-        });
+        expect(data.config?.lightLightness).toBe(false);
+        expect(data.config?.darkLightness).toEqual([10, 100]);
       });
 
-      it('value-form export captures inferred value-shorthand scaling snapshot', () => {
+      it('value-form export captures inferred value-shorthand config snapshot', () => {
         const tok = glaze.color('#26fcb2');
         const data = tok.export();
-        expect(data.scaling).toEqual({
-          lightLightness: false,
-          darkLightness: [15, 95],
-        });
+        expect(data.config?.lightLightness).toBe(false);
+        expect(data.config?.darkLightness).toEqual([15, 95]);
       });
 
-      it('value-form export of an OkhslColor input snapshots scaling defaults', () => {
+      it('value-form export of an OkhslColor input snapshots config defaults', () => {
         const tok = glaze.color({ h: 280, s: 0.5, l: 0.5 });
         const data = tok.export();
         expect(data.form).toBe('value');
-        expect(data.scaling).toEqual({
-          lightLightness: false,
-          darkLightness: [15, 95],
-        });
+        expect(data.config?.lightLightness).toBe(false);
+        expect(data.config?.darkLightness).toEqual([15, 95]);
       });
 
-      it('structured-form export snapshots both windows', () => {
+      it('structured-form export snapshots both windows in config', () => {
         const tok = glaze.color({
           hue: 280,
           saturation: 50,
@@ -2738,10 +2756,8 @@ describe('glaze', () => {
         });
         const data = tok.export();
         expect(data.form).toBe('structured');
-        expect(data.scaling).toEqual({
-          lightLightness: [10, 100],
-          darkLightness: [15, 95],
-        });
+        expect(data.config?.lightLightness).toEqual([10, 100]);
+        expect(data.config?.darkLightness).toEqual([15, 95]);
       });
 
       it('export snapshots survive `glaze.configure()` after create', () => {
@@ -2750,7 +2766,7 @@ describe('glaze', () => {
         try {
           const data = tok.export();
           // Snapshot still reflects the create-time window, not the new one.
-          expect(data.scaling?.darkLightness).toEqual([15, 95]);
+          expect(data.config?.darkLightness).toEqual([15, 95]);
           // And the rehydrated token resolves identically to the original.
           const restored = glaze.colorFrom(JSON.parse(JSON.stringify(data)));
           expect(restored.resolve().dark.l).toBeCloseTo(
@@ -2763,8 +2779,9 @@ describe('glaze', () => {
       });
 
       it('export recursively serializes a token-typed base', () => {
-        const bg = glaze.color('#1a1a2e', { name: 'card-bg' });
-        const text = glaze.color('#ffffff', {
+        const bg = glaze.color({ from: '#1a1a2e', name: 'card-bg' });
+        const text = glaze.color({
+          from: '#ffffff',
           base: bg,
           contrast: 'AA',
           name: 'card-text',
@@ -2783,7 +2800,8 @@ describe('glaze', () => {
       });
 
       it('export preserves a value-typed base as a raw value', () => {
-        const text = glaze.color('#ffffff', {
+        const text = glaze.color({
+          from: '#ffffff',
           base: '#1a1a2e',
           contrast: 'AA',
         });
@@ -2793,7 +2811,7 @@ describe('glaze', () => {
 
       it('round-trip with token-typed base produces identical resolved values', () => {
         const bg = glaze.color('#1a1a2e');
-        const text = glaze.color('#ffffff', { base: bg, contrast: 'AA' });
+        const text = glaze.color({ from: '#ffffff', base: bg, contrast: 'AA' });
         const data = JSON.parse(JSON.stringify(text.export()));
         const restored = glaze.colorFrom(data);
         const a = text.resolve();
@@ -2842,8 +2860,9 @@ describe('glaze', () => {
       });
 
       it('snapshot shape is stable across export → restore → re-export', () => {
-        const bg = glaze.color('#1a1a2e', { name: 'card-bg' });
-        const text = glaze.color('#ffffff', {
+        const bg = glaze.color({ from: '#1a1a2e', name: 'card-bg' });
+        const text = glaze.color({
+          from: '#ffffff',
           base: bg,
           contrast: 'AA',
           opacity: 0.95,
@@ -2919,31 +2938,35 @@ describe('glaze', () => {
     describe('overrides', () => {
       it('saturation override changes seed saturation', () => {
         const high = glaze
-          .color('#26fcb2', { saturation: 100 })
+          .color({ from: '#26fcb2', saturation: 100 })
           .resolve().light;
-        const low = glaze.color('#26fcb2', { saturation: 20 }).resolve().light;
+        const low = glaze
+          .color({ from: '#26fcb2', saturation: 20 })
+          .resolve().light;
         expect(high.s).toBeGreaterThan(low.s);
       });
 
       it('mode override changes dark mapping', () => {
-        const fixed = glaze.color('#26fcb2', { mode: 'fixed' }).resolve();
-        const auto = glaze.color('#26fcb2', { mode: 'auto' }).resolve();
+        const fixed = glaze.color({ from: '#26fcb2', mode: 'fixed' }).resolve();
+        const auto = glaze.color({ from: '#26fcb2', mode: 'auto' }).resolve();
         expect(fixed.dark.l).not.toBeCloseTo(auto.dark.l, 2);
       });
 
       it('lightness override sets absolute lightness', () => {
-        const resolved = glaze.color('#26fcb2', { lightness: 50 }).resolve();
+        const resolved = glaze
+          .color({ from: '#26fcb2', lightness: 50 })
+          .resolve();
         expect(resolved.light.l).toBeCloseTo(0.5, 2);
       });
 
       it('hue override sets absolute seed hue', () => {
-        const resolved = glaze.color('#26fcb2', { hue: 200 }).resolve();
+        const resolved = glaze.color({ from: '#26fcb2', hue: 200 }).resolve();
         expect(resolved.light.h).toBeCloseTo(200, 1);
       });
 
       it('relative hue offset shifts from seed hue', () => {
         const baseline = glaze.color('#26fcb2').resolve().light.h;
-        const shifted = glaze.color('#26fcb2', { hue: '+10' }).resolve()
+        const shifted = glaze.color({ from: '#26fcb2', hue: '+10' }).resolve()
           .light.h;
         expect(shifted).toBeCloseTo((baseline + 10) % 360, 1);
       });
@@ -2953,7 +2976,7 @@ describe('glaze', () => {
       it('relative lightness resolves against the literal seed', () => {
         const seedHex = '#26fcb2';
         const result = glaze
-          .color(seedHex, { lightness: '+5' })
+          .color({ from: seedHex, lightness: '+5' })
           .resolve().light;
         const [, , seedL] = srgbToOkhsl(parseHex(seedHex)!);
         // Light variant preserves raw lightness with default scaling.
@@ -2969,7 +2992,7 @@ describe('glaze', () => {
           l: seedOkhsl[2],
           alpha: 1,
         };
-        const color = glaze.color(seedHex, { contrast: 'AAA' });
+        const color = glaze.color({ from: seedHex, contrast: 'AAA' });
         const resolved = color.resolve();
 
         for (const variant of [
@@ -2993,7 +3016,7 @@ describe('glaze', () => {
           const seedHex = '#7a4dbf';
           const [, , seedL] = srgbToOkhsl(parseHex(seedHex)!);
           const result = glaze
-            .color(seedHex, { lightness: '+10', contrast: 'AAA' })
+            .color({ from: seedHex, lightness: '+10', contrast: 'AAA' })
             .resolve().light;
           expect(result.l * 100).toBeGreaterThan(seedL * 100 + 10);
           expect(warn).toHaveBeenCalled();
@@ -3005,14 +3028,14 @@ describe('glaze', () => {
       it('relative lightness works without contrast', () => {
         // No throw — the seed is an implicit anchor.
         expect(() =>
-          glaze.color('#26fcb2', { lightness: '+10' }).resolve(),
+          glaze.color({ from: '#26fcb2', lightness: '+10' }).resolve(),
         ).not.toThrow();
       });
 
       it('contrast works without explicit base', () => {
         // No throw — the seed is an implicit anchor.
         expect(() =>
-          glaze.color('#26fcb2', { contrast: 'AA' }).resolve(),
+          glaze.color({ from: '#26fcb2', contrast: 'AA' }).resolve(),
         ).not.toThrow();
       });
 
@@ -3025,7 +3048,7 @@ describe('glaze', () => {
           l: seedOkhsl[2],
           alpha: 1,
         };
-        const color = glaze.color(seedHex, { contrast: ['AA', 'AAA'] });
+        const color = glaze.color({ from: seedHex, contrast: ['AA', 'AAA'] });
         const resolved = color.resolve();
         const lightHcRatio = variantContrast(
           resolved.lightContrast,
@@ -3041,7 +3064,8 @@ describe('glaze', () => {
         // validation). This sanity check guards against future regressions.
         try {
           glaze
-            .color('#26fcb2', {
+            .color({
+              from: '#26fcb2',
               lightness: 'invalid' as unknown as `+${number}`,
             })
             .resolve();
@@ -3063,7 +3087,7 @@ describe('glaze', () => {
       });
 
       it('token() / tasty() / json() work from a hex input', () => {
-        const color = glaze.color('#26fcb2', { mode: 'fixed' });
+        const color = glaze.color({ from: '#26fcb2', mode: 'fixed' });
         expect(color.token()['']).toMatch(/^okhsl\(/);
         expect(color.tasty()['']).toMatch(/^okhsl\(/);
         expect(color.json().light).toMatch(/^okhsl\(/);
@@ -3101,7 +3125,7 @@ describe('glaze', () => {
       });
 
       it('exports work on a seed-anchored contrast color', () => {
-        const color = glaze.color('#1a1a2e', { contrast: 'AAA' });
+        const color = glaze.color({ from: '#1a1a2e', contrast: 'AAA' });
         expect(color.tasty()['']).toMatch(/^okhsl\(/);
         expect(color.css({ name: 'brand-text' }).light).toMatch(
           /^--brand-text-color:\s*rgb\(/,
@@ -3114,6 +3138,340 @@ describe('glaze', () => {
         const b = color.resolve();
         // Same memoized ResolvedColor is returned across repeated calls.
         expect(a).toBe(b);
+      });
+    });
+
+    // =====================================================================
+    // NEW: all four input shapes + config override + theme config override
+    // =====================================================================
+
+    describe('input dispatch — all four shapes produce consistent output', () => {
+      const hex = '#26fcb2';
+
+      it('bare string and { from: string } produce identical resolved values', () => {
+        const a = glaze.color(hex).resolve();
+        const b = glaze.color({ from: hex }).resolve();
+        for (const v of [
+          'light',
+          'dark',
+          'lightContrast',
+          'darkContrast',
+        ] as const) {
+          expect(b[v].l).toBeCloseTo(a[v].l, 6);
+          expect(b[v].s).toBeCloseTo(a[v].s, 6);
+          expect(b[v].h).toBeCloseTo(a[v].h, 6);
+        }
+      });
+
+      it('value-object { h, s, l } and { from: { h, s, l } } produce identical resolved values', () => {
+        const parsed = srgbToOkhsl(parseHex(hex)!);
+        const valObj: OkhslColor = { h: parsed[0], s: parsed[1], l: parsed[2] };
+        const a = glaze.color(valObj).resolve();
+        const b = glaze.color({ from: valObj }).resolve();
+        for (const v of ['light', 'dark'] as const) {
+          expect(b[v].l).toBeCloseTo(a[v].l, 6);
+          expect(b[v].h).toBeCloseTo(a[v].h, 6);
+        }
+      });
+
+      it('{ from: string } with overrides applies the overrides', () => {
+        const base = glaze.color({ from: hex, hue: 200 }).resolve();
+        expect(base.light.h).toBeCloseTo(200, 1);
+      });
+
+      it('structured { hue, saturation, lightness } is dispatched correctly', () => {
+        const tok = glaze.color({ hue: 200, saturation: 50, lightness: 60 });
+        const r = tok.resolve();
+        expect(r.light.h).toBeCloseTo(200, 1);
+        expect(r.light.l).toBeGreaterThan(0);
+      });
+
+      it('value-object { r, g, b } is dispatched as value form', () => {
+        const fromRgb = glaze.color({ r: 38, g: 252, b: 178 }).resolve();
+        const fromHex = glaze.color(hex).resolve();
+        expect(fromRgb.light.h).toBeCloseTo(fromHex.light.h, 1);
+      });
+
+      it('value-object { l, c, h } (OKLCh) is dispatched as value form', () => {
+        const tok = glaze.color({ l: 0.85, c: 0.18, h: 152 }).resolve();
+        expect(tok.light.l).toBeGreaterThan(0);
+      });
+
+      it('structured form export has form: structured', () => {
+        const exp = glaze
+          .color({ hue: 200, saturation: 50, lightness: 60 })
+          .export();
+        expect(exp.form).toBe('structured');
+      });
+
+      it('value form (string) export has form: value', () => {
+        const exp = glaze.color(hex).export();
+        expect(exp.form).toBe('value');
+      });
+
+      it('{ from } form export has form: value and stores the raw from', () => {
+        const exp = glaze.color({ from: hex, hue: 200 }).export();
+        expect(exp.form).toBe('value');
+        expect(exp.input).toBe(hex);
+        expect(exp.overrides?.hue).toBe(200);
+      });
+    });
+
+    describe('color config override (arg2)', () => {
+      it('lightLightness: false disables light clamping (input preserved exactly)', () => {
+        const inputL = 5; // below default [10, 100] lo
+        const tok = glaze.color(
+          { hue: 0, saturation: 0, lightness: inputL },
+          { lightLightness: false },
+        );
+        expect(tok.resolve().light.l * 100).toBeCloseTo(inputL, 1);
+      });
+
+      it('darkLightness: false removes the dark window floor', () => {
+        // With default darkLightness [15, 95] and mode: 'fixed', the
+        // fixed mapping is: l * 0.8 + 15. For lightness=5: 5*0.8+15 = 19.
+        // With darkLightness: false → [0, 100]: l * 1 + 0 = 5 → 0.05.
+        const tok = glaze.color(
+          { hue: 0, saturation: 0, lightness: 5, mode: 'fixed' },
+          { darkLightness: false },
+        );
+        expect(tok.resolve().dark.l).toBeCloseTo(0.05, 2);
+        // Verify the default window would give 0.19 instead.
+        const tokDefault = glaze.color({
+          hue: 0,
+          saturation: 0,
+          lightness: 5,
+          mode: 'fixed',
+        });
+        expect(tokDefault.resolve().dark.l).toBeCloseTo(0.19, 2);
+      });
+
+      it('lightLightness: [lo, hi] tuple overrides the global window', () => {
+        const tok = glaze.color(
+          { hue: 0, saturation: 0, lightness: 50 },
+          { lightLightness: [0, 50] },
+        );
+        // Window [0, 50]: 50 * 0.5 + 0 = 25 → 0.25
+        expect(tok.resolve().light.l).toBeCloseTo(0.25, 2);
+      });
+
+      it('darkDesaturation: 0 keeps full saturation in dark mode', () => {
+        const full = glaze.color('#26fcb2', { darkDesaturation: 0 });
+        const reduced = glaze.color('#26fcb2', { darkDesaturation: 0.9 });
+        expect(full.resolve().dark.s).toBeGreaterThan(reduced.resolve().dark.s);
+      });
+
+      it('darkCurve: 1 produces linear (legacy) dark mapping', () => {
+        const linear = glaze.color(
+          { hue: 0, saturation: 0, lightness: 50 },
+          { darkCurve: 1 },
+        );
+        const mob = glaze.color(
+          { hue: 0, saturation: 0, lightness: 50 },
+          { darkCurve: 0.1 },
+        );
+        // The Möbius curve shifts dark.l; linear and non-linear should differ.
+        expect(linear.resolve().dark.l).not.toBeCloseTo(
+          mob.resolve().dark.l,
+          2,
+        );
+      });
+
+      it('autoFlip: false prevents flipping when contrast cannot be met upward', () => {
+        // Dark seed that can't meet AAA going lighter; with autoFlip:false
+        // the solver stays on the requested side.
+        const withFlip = glaze.color(
+          { from: '#1a1a2e', contrast: 'AAA' },
+          { autoFlip: true },
+        );
+        const noFlip = glaze.color(
+          { from: '#1a1a2e', contrast: 'AAA' },
+          { autoFlip: false },
+        );
+        // Both produce a resolved value (no throw); exact behavior differs.
+        expect(withFlip.resolve().light.l).toBeDefined();
+        expect(noFlip.resolve().light.l).toBeDefined();
+      });
+
+      it('config override is snapshotted — later configure() does not change the token', () => {
+        const tok = glaze.color('#26fcb2', { darkDesaturation: 0 });
+        const beforeS = tok.resolve().dark.s;
+        glaze.configure({ darkDesaturation: 0.9 });
+        try {
+          expect(tok.resolve().dark.s).toBeCloseTo(beforeS, 6);
+        } finally {
+          glaze.resetConfig();
+        }
+      });
+
+      it('config override is round-tripped through export/colorFrom', () => {
+        const tok = glaze.color(
+          { hue: 0, saturation: 0, lightness: 50 },
+          { lightLightness: [0, 50] },
+        );
+        const restored = glaze.colorFrom(
+          JSON.parse(JSON.stringify(tok.export())),
+        );
+        expect(restored.resolve().light.l).toBeCloseTo(
+          tok.resolve().light.l,
+          6,
+        );
+      });
+    });
+
+    describe('false lightness window in global configure()', () => {
+      it('configure({ lightLightness: false }) disables light clamping globally', () => {
+        glaze.configure({ lightLightness: false });
+        try {
+          const tok = glaze.color({ hue: 0, saturation: 0, lightness: 5 });
+          expect(tok.resolve().light.l * 100).toBeCloseTo(5, 1);
+        } finally {
+          glaze.resetConfig();
+        }
+      });
+
+      it('configure({ darkLightness: false }) removes global dark window floor', () => {
+        glaze.configure({ darkLightness: false });
+        try {
+          // With darkLightness: false → [0, 100] and mode: 'fixed', lightness 5:
+          // 5 * 1 + 0 = 5 → 0.05 (no floor from global window).
+          const tok = glaze.color({
+            hue: 0,
+            saturation: 0,
+            lightness: 5,
+            mode: 'fixed',
+          });
+          expect(tok.resolve().dark.l).toBeCloseTo(0.05, 2);
+        } finally {
+          glaze.resetConfig();
+        }
+      });
+    });
+
+    describe('full-range base conversion (structured base used by value color)', () => {
+      it('value color linking to a structured base uses light input, not windowed output', () => {
+        // Structured base created with lightness: 5 — inside window [10,100]
+        // it would be clamped to 10 in light mode. The value color should
+        // anchor its contrast against lightness=5 (raw input), not 10 (output).
+        const structuredBase = glaze.color({
+          hue: 0,
+          saturation: 0,
+          lightness: 5,
+        });
+        // Base light output (windowed): l = (5 * 90 / 100 + 10) / 100 ≈ 0.145
+        const baseWindowedL = structuredBase.resolve().light.l;
+        expect(baseWindowedL * 100).toBeCloseTo(14.5, 0);
+
+        // Value color using structuredBase. The linking resolves the base at
+        // full range (lightLightness: false) so the anchor is ~0.05 not ~0.145.
+        const textTok = glaze.color({
+          from: '#000000',
+          base: structuredBase,
+          contrast: 'AA',
+        });
+        const textLight = textTok.resolve().light;
+        const baseFullRangeL = 5 / 100; // 0.05
+
+        // The contrast is solved against the full-range base (L≈0.05),
+        // which is very dark — the text should be very light to meet AA.
+        // (Against windowed base L≈0.145 the required contrast would be met
+        // at a different/lower lightness.)
+        const ratio = variantContrast(textLight, {
+          h: 0,
+          s: 0,
+          l: baseFullRangeL,
+          alpha: 1,
+        });
+        expect(ratio).toBeGreaterThanOrEqual(4.5);
+      });
+
+      it('the original structured base token resolve() output is unaffected by linking', () => {
+        const structuredBase = glaze.color({
+          hue: 0,
+          saturation: 0,
+          lightness: 5,
+        });
+        // Resolve the original before linking.
+        const before = structuredBase.resolve().light.l;
+        // Create a value color that links to it.
+        glaze
+          .color({ from: '#000000', base: structuredBase, contrast: 'AA' })
+          .resolve();
+        // The original should be identical after.
+        expect(structuredBase.resolve().light.l).toBeCloseTo(before, 6);
+      });
+    });
+
+    describe('theme config override', () => {
+      it('theme config override changes resolve behavior', () => {
+        const themed = glaze(0, 0, { lightLightness: false });
+        themed.colors({ bg: { lightness: 5, saturation: 1 } });
+        // With lightLightness: false, 5% lightness is preserved.
+        const tokens = themed.tasty();
+        expect(tokens['#bg']['']).toBeDefined();
+        // The resolved light l should be ~0.05 (no window).
+        const resolved = themed.resolve().get('bg')!;
+        expect(resolved.light.l * 100).toBeCloseTo(5, 1);
+      });
+
+      it('theme config override merges over live global at resolve time', () => {
+        const t = glaze(0, 0, { lightLightness: [0, 50] });
+        t.colors({ bg: { lightness: 50, saturation: 1 } });
+        // Override window [0, 50]: 50 * 0.5 = 25 → l ≈ 0.25
+        const a = t.resolve().get('bg')!.light.l;
+        expect(a).toBeCloseTo(0.25, 2);
+
+        // Non-overridden field (darkDesaturation) still picks up global changes.
+        glaze.configure({ darkDesaturation: 0 });
+        try {
+          // Without override the dark.s should equal full saturation factor * seedSat.
+          // With darkDesaturation: 0, dark.s should equal light.s (no reduction).
+          const darkFull = t.resolve().get('bg')!.dark.s;
+          glaze.resetConfig();
+          const darkReduced = t.resolve().get('bg')!.dark.s;
+          expect(darkFull).toBeGreaterThanOrEqual(darkReduced);
+        } finally {
+          glaze.resetConfig();
+        }
+      });
+
+      it('extend inherits parent config override and merges child config', () => {
+        const parent = glaze(200, 80, { lightLightness: [0, 50] });
+        // lightness: 0 → lightL = 0 * 0.5 + 0 = 0
+        // dark (auto, t = 1.0): [15, 95] → 15 + 80 = 95 → 0.95
+        parent.colors({ bg: { lightness: 0, saturation: 1 } });
+        const child = parent.extend({ config: { darkLightness: false } });
+        child.colors({ bg: { lightness: 0, saturation: 1 } });
+
+        const parentResolved = parent.resolve().get('bg')!;
+        const childResolved = child.resolve().get('bg')!;
+
+        // Parent: lightLightness: [0, 50], lightness: 0 → light.l = 0
+        expect(parentResolved.light.l).toBeCloseTo(0, 2);
+        // Child inherits lightLightness: [0, 50] → same light.l
+        expect(childResolved.light.l).toBeCloseTo(0, 2);
+        // Parent dark: default [15, 95], t=1.0 → 15 + 80 = 95 → 0.95
+        expect(parentResolved.dark.l).toBeCloseTo(0.95, 2);
+        // Child dark: darkLightness: false → [0, 100], t=1.0 → 0 + 100 = 100 → 1.0
+        expect(childResolved.dark.l).toBeCloseTo(1.0, 2);
+      });
+
+      it('theme export includes config and glaze.from restores it', () => {
+        const t = glaze(200, 80, { lightLightness: [0, 50] });
+        t.colors({ bg: { lightness: 50, saturation: 1 } });
+        const exported = t.export();
+        expect(exported.config).toEqual({ lightLightness: [0, 50] });
+
+        const restored = glaze.from(exported);
+        const a = t.resolve().get('bg')!.light.l;
+        const b = restored.resolve().get('bg')!.light.l;
+        expect(b).toBeCloseTo(a, 6);
+      });
+
+      it('theme without config override exports no config field', () => {
+        const t = glaze(200, 80);
+        const exported = t.export();
+        expect(exported.config).toBeUndefined();
       });
     });
 

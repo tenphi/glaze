@@ -25,8 +25,8 @@ Full reference for every public method, option, and type exported by `@tenphi/gl
 
 | Method | Description |
 |---|---|
-| `glaze(hue, saturation?)` | Create a theme from hue (0–360) and saturation (0–100). Default saturation: `100`. |
-| `glaze({ hue, saturation })` | Create a theme from an options object. |
+| `glaze(hue, saturation?, config?)` | Create a theme from hue (0–360) and saturation (0–100). Optional `config` overrides the global config for this theme. |
+| `glaze({ hue, saturation }, config?)` | Create a theme from an options object, with optional per-theme config override. |
 | `glaze.from(data)` | Create a theme from an exported configuration (`theme.export()` snapshot). |
 | `glaze.fromHex(hex)` | Create a theme from a hex color (`#rgb` or `#rrggbb`). Extracts hue and saturation. |
 | `glaze.fromRgb(r, g, b)` | Create a theme from RGB values (0–255). Extracts hue and saturation. |
@@ -37,7 +37,12 @@ const b = glaze({ hue: 280, saturation: 80 });
 const c = glaze.fromHex('#7a4dbf');
 const d = glaze.fromRgb(122, 77, 191);
 const e = glaze.from(a.export());
+
+// Per-theme config override:
+const rawTheme = glaze(280, 80, { lightLightness: false, darkLightness: false });
 ```
+
+The optional `config` parameter is a `GlazeConfigOverride` — see [Per-instance config override](#per-instance-config-override).
 
 ---
 
@@ -81,13 +86,16 @@ const def = theme.color('surface');                              // get
 
 ### `theme.extend(options)`
 
-Creates a new theme inheriting all color definitions, optionally replacing the hue / saturation seed and merging in per-theme overrides:
+Creates a new theme inheriting all color definitions, optionally replacing the hue / saturation seed, color overrides, and config:
 
 ```ts
 const danger = primary.extend({
   hue: 23,
   colors: { 'accent-fill': { lightness: 48, mode: 'fixed' } },
 });
+
+// Inherit parent's config override and tighten the dark window further:
+const highSat = base.extend({ config: { darkLightness: [10, 100] } });
 ```
 
 `GlazeExtendOptions`:
@@ -97,6 +105,7 @@ const danger = primary.extend({
 | `hue` | `number` | Replace the hue seed. Defaults to the parent's hue. |
 | `saturation` | `number` | Replace the saturation seed. Defaults to the parent's saturation. |
 | `colors` | `ColorMap` | Per-theme overrides (additive merge over the inherited map). |
+| `config` | `GlazeConfigOverride` | Config override for the child. Shallow-merged with the parent's override — child fields win. |
 
 Colors marked with `inherit: false` on the parent are **not** copied into the child.
 
@@ -289,20 +298,30 @@ See [Mix colors](#mix-colors) below.
 
 ## Standalone color tokens
 
-`glaze.color()` creates a single color token without a full theme. Two overloads:
+`glaze.color()` creates a single color token without a full theme.
 
 ```ts
-glaze.color(input: GlazeColorInput, scaling?: GlazeColorScaling): GlazeColorToken;
-glaze.color(value: GlazeColorValue, overrides?: GlazeColorOverrides, scaling?: GlazeColorScaling): GlazeColorToken;
+// arg1: the color (four shapes — see below)
+// arg2: optional config override (GlazeConfigOverride — see below)
+glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: GlazeConfigOverride): GlazeColorToken;
 ```
 
 ### Input forms
 
-`GlazeColorValue` (the value-shorthand input) accepts:
+`glaze.color()` accepts **four input shapes**, discriminated by structure:
+
+| Shape | Example | Notes |
+|---|---|---|
+| **Bare string** | `'#26fcb2'` | Hex or CSS color function (`rgb()`, `hsl()`, `okhsl()`, `oklch()`). |
+| **Value object** | `{ h: 152, s: 0.95, l: 0.74 }` | OKHSL, `{ r, g, b }` (sRGB 0–255), or `{ l, c, h }` (OKLCh). |
+| **`{ from, ...overrides }`** | `{ from: '#1a1a2e', base: bg, contrast: 'AA' }` | Value + color overrides in one object. |
+| **Structured** | `{ hue: 152, saturation: 95, lightness: 74 }` | Full theme-style token (hue/saturation/lightness all in 0–100). |
+
+`GlazeColorValue` (bare string or value-object forms) accepts:
 
 | Form | Example | Notes |
 |---|---|---|
-| Hex | `'#26fcb2'`, `'#26fcb2ff'`, `'#abc'` | 3, 6, or 8 digits. Alpha components are dropped with a `console.warn` — use `opacity` instead. |
+| Hex | `'#26fcb2'`, `'#26fcb2ff'`, `'#abc'` | 3, 6, or 8 digits. Alpha is dropped with a `console.warn` — use `opacity` instead. |
 | `rgb()` | `'rgb(38 252 178)'`, `'rgb(38 252 178 / 0.8)'` | Modern space syntax. Alpha dropped with warning. |
 | `hsl()` | `'hsl(152 97% 57%)'` | Modern space syntax. Alpha dropped with warning. |
 | `okhsl()` | `'okhsl(152 95% 74%)'` | Glaze's own emit format. Alpha dropped with warning. |
@@ -311,7 +330,7 @@ glaze.color(value: GlazeColorValue, overrides?: GlazeColorOverrides, scaling?: G
 | `RgbColor` object | `{ r: 38, g: 252, b: 178 }` | sRGB 0–255. RGB tuple `[r, g, b]` is not supported — use this object form. |
 | `OklchColor` object | `{ l: 0.85, c: 0.18, h: 152 }` | OKLCh (L/C: 0–1, H: degrees), same semantics as `oklch()` strings. |
 
-`GlazeColorInput` (the structured input) is `{ hue, saturation, lightness, ... }`:
+`GlazeColorInput` (structured form) is `{ hue, saturation, lightness, ... }`:
 
 | Field | Type | Description |
 |---|---|---|
@@ -322,63 +341,49 @@ glaze.color(value: GlazeColorValue, overrides?: GlazeColorOverrides, scaling?: G
 | `mode` | `AdaptationMode` | Default: `'auto'`. |
 | `opacity` | `number` | Fixed alpha 0–1. |
 | `base` | `GlazeColorToken \| GlazeColorValue` | Optional dependency. See [Pairing colors](#pairing-colors). |
-| `contrast` | `HCPair<MinContrast>` | WCAG floor against `base` (requires `base`). |
+| `contrast` | `HCPair<MinContrast>` | WCAG floor against `base`. Without `base`, anchored to the literal seed. |
 | `name` | `string` | Debug label for warnings; doesn't change output keys. Reserved names (`'value'`, `'seed'`, `'externalBase'`) are rejected. |
+
+`GlazeFromInput` (from form) is `{ from: GlazeColorValue, ...colorOverrides }`:
+
+| Field | Notes |
+|---|---|
+| `from` | **Required.** The source color value — same forms as `GlazeColorValue`. |
+| `hue` | Number (absolute 0–360) or `'+N'`/`'-N'` (relative to seed, never to `base`). |
+| `saturation` | Override seed saturation (0–100). |
+| `lightness` | Number (absolute 0–100) or `'+N'`/`'-N'`. Without `base`, relative anchors to the seed; with `base`, anchors to `base`'s lightness per scheme. |
+| `saturationFactor` | Multiplier on the seed (0–1). |
+| `mode` | `'auto'` (default) / `'fixed'` / `'static'`. |
+| `contrast` | WCAG floor. Without `base`, anchored to the literal seed; with `base`, solved per scheme. |
+| `base` | `GlazeColorToken` or raw `GlazeColorValue`. See [Pairing colors](#pairing-colors). |
+| `opacity` | Fixed alpha 0–1. Combining with `contrast` is not recommended — `console.warn` is emitted. |
+| `name` | Debug label only — surfaces in warnings/errors. Does not change output keys. |
 
 Named CSS colors (`'red'`, `'blueviolet'`) are not supported.
 
 ### Defaults
 
-Every input form defaults to `mode: 'auto'` so the resolved token adapts between light and dark like an ordinary theme color. The *scaling* snapshot taken at create time differs by input form:
+Every input form defaults to `mode: 'auto'` so the resolved token adapts between light and dark like an ordinary theme color. The config snapshot taken at create time differs by input form:
 
-- **Value-shorthand** (hex, `rgb()` / `hsl()` / `okhsl()` / `oklch()` strings, `{ r, g, b }`, `{ h, s, l }`, `{ l, c, h }`):
+- **Value-shorthand** (bare strings, value objects, and `{ from, ...overrides }`):
   - Light variant preserves the input lightness exactly (`lightLightness: false`).
-  - Dark variant uses `globalConfig.darkLightness` (default `[15, 95]`), snapshotted at create time.
+  - All other config fields (`darkLightness`, `darkDesaturation`, `darkCurve`, `autoFlip`) snapshot from `globalConfig` at create time.
 - **Structured input** (`{ hue, saturation, lightness, ... }`):
-  - Both variants use `globalConfig.lightLightness` / `globalConfig.darkLightness` (defaults `[10, 100]` / `[15, 95]`) — same as a theme color.
-- All windows are **snapshotted at color-creation time** so later `glaze.configure()` calls don't retroactively change exported tokens. `token.export()` round-trips byte-for-byte.
-
-To opt back into the legacy fixed-linear default (no Möbius inversion), pass `{ mode: 'fixed' }` as the second arg, or supply an explicit `scaling` (see [`GlazeColorScaling`](#glazecolorscaling)).
-
-### `GlazeColorOverrides`
-
-Overrides for the value-shorthand overload's second argument:
-
-| Option | Notes |
-|---|---|
-| `hue` | Number (absolute 0–360) or `'+N'`/`'-N'` (relative to seed — never to `base`). |
-| `saturation` | Override seed saturation (0–100). |
-| `lightness` | Number (absolute 0–100) or `'+N'`/`'-N'`. Without `base`, relative is anchored to the literal seed; with `base`, anchored to `base`'s lightness per scheme. Supports `[normal, hc]` pairs. |
-| `saturationFactor` | Multiplier on the seed (0–1). Default: `1`. |
-| `mode` | `'auto'` (default for every input form) / `'fixed'` / `'static'`. |
-| `contrast` | WCAG floor. Without `base`, anchored to the literal seed; with `base`, solved per scheme against `base`'s resolved variant. When the target can't be met, a `console.warn` is emitted and the closest passing variant is returned. |
-| `base` | `GlazeColorToken` **or** raw `GlazeColorValue`. Raw values are auto-wrapped via `glaze.color(value)`. When set, `contrast` and relative `lightness` anchor to it per scheme; relative `hue` still anchors to the seed. |
-| `opacity` | Fixed alpha 0–1 applied to every variant. Combining with `contrast` is not recommended — `console.warn` is emitted. |
-| `name` | Debug label only — surfaces in `console.warn` / Error messages. Does not change output keys. |
-
-### `GlazeColorScaling`
-
-Per-call lightness-window override. Mirrors `GlazeConfig`'s field names:
-
-| Key | Default for value-shorthand | Default for structured input | Effect |
-|---|---|---|---|
-| `lightLightness` | `false` | `globalConfig.lightLightness` (snapshotted) | `false` = preserve input. Pass `[lo, hi]` to opt into a remap window. |
-| `darkLightness` | `globalConfig.darkLightness` (snapshotted) | `globalConfig.darkLightness` (snapshotted) | `false` = preserve input in dark too. Pass `[lo, hi]` to override the window (e.g. `[15, 100]` for a `#000` → white dark flip). |
-
-Passing `scaling` is **all-or-nothing** — both fields are replaced. To keep one field's default while overriding the other, restate the default explicitly.
+  - Both lightness windows snapshot from `globalConfig` at create time (same as a theme color).
+- All fields are **snapshotted at color-creation time** — later `glaze.configure()` calls don't retroactively change existing tokens.
 
 ```ts
-// Preserve raw lightness in dark mode too
-glaze.color('#26fcb2', undefined, { darkLightness: false });
+// Bare string — adapts automatically
+glaze.color('#26fcb2')
 
-// Opt into theme-style light remap + extended dark (e.g. #000 → white in dark)
-glaze.color('#000000', undefined, {
-  lightLightness: [10, 100],
-  darkLightness: [15, 100],
-});
+// Value-object — same behavior
+glaze.color({ h: 152, s: 0.95, l: 0.74 })
 
-// Structured form takes scaling as the second positional arg
-glaze.color({ hue: 152, saturation: 95, lightness: 74 }, { darkLightness: false });
+// From form — value + color overrides
+glaze.color({ from: '#1a1a2e', hue: '+20', contrast: 'AA' })
+
+// Structured form — explicit hue/saturation/lightness (0–100)
+glaze.color({ hue: 152, saturation: 95, lightness: 74 })
 ```
 
 ### Token methods
@@ -394,12 +399,71 @@ A `GlazeColorToken` exposes:
 | `token.css({ name, format?, suffix? })` | CSS custom property declarations grouped by scheme variant. `name` is **required** and becomes the variable identifier (`'brand'` → `--brand-color`). Defaults: `format: 'rgb'`, `suffix: '-color'` (matches `theme.css`). |
 | `token.export()` | JSON-safe snapshot — pass to `glaze.colorFrom(...)` to rehydrate. |
 
-### `glaze.colorFrom(data)`
+### Per-instance config override
 
-Inverse of `token.export()`. Captures the original input value, all overrides (with any `base` token recursively serialized), and the effective `scaling` so later `glaze.configure()` calls don't change exported tokens.
+The optional `config` second argument (`GlazeConfigOverride`) overrides the resolve-relevant global config fields for a single token or theme. Fields that are omitted fall through to the live global config at create time (and are snapshotted). Pass `false` for a lightness window to disable clamping entirely — equivalent to `[0, 100]`.
+
+`GlazeConfigOverride`:
+
+| Field | Default (from global) | Description |
+|---|---|---|
+| `lightLightness` | `[10, 100]` | Light window `[lo, hi]` or `false` (disable clamping = `[0, 100]`). |
+| `darkLightness` | `[15, 95]` | Dark window `[lo, hi]` or `false` (disable clamping). |
+| `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
+| `darkCurve` | `0.5` | Möbius beta for dark `auto`-inversion (0–1). Accepts `[normal, hc]` pair. |
+| `autoFlip` | `true` | When solving `contrast`, allow the solver to switch lightness direction if the requested side can't meet the target. |
+| `shadowTuning` | `undefined` | Default shadow tuning (meaningful for themes; harmless on color tokens). |
+
+Config overrides apply to both `glaze.color()` tokens and `glaze()` themes:
 
 ```ts
-const text = glaze.color('#1a1a1a', { contrast: 'AA' });
+// Standalone color — preserve raw lightness in both schemes
+glaze.color('#26fcb2', { darkLightness: false })
+
+// Restore the #000 → white dark flip (full dark range)
+glaze.color('#000000', {
+  lightLightness: false,
+  darkLightness: [15, 100],
+})
+
+// Structured form with config override
+glaze.color({ hue: 152, saturation: 95, lightness: 74 }, { darkLightness: false })
+
+// Theme with config override
+const rawTheme = glaze(280, 80, { lightLightness: false })
+```
+
+The override is **snapshotted at create time** so later `glaze.configure()` calls don't change already-created tokens or themes (for non-overridden fields, the snapshot captured the global value at creation time; for themes, non-overridden fields are re-read from the live global at resolve time — see [Theme config override](#theme-config-override)).
+
+### Theme config override
+
+When a theme is created with a `GlazeConfigOverride`, the override is **merged over the live global config at resolve time**. This means:
+
+- Fields you overrode are fixed — `glaze.configure()` can't change them for this theme.
+- Fields you didn't override still react to later `glaze.configure()` calls.
+
+```ts
+const t = glaze(280, 80, { lightLightness: [0, 50] });
+t.colors({ text: { lightness: 50, saturation: 1 } });
+// text.light.l ≈ 0.25 — always, regardless of global lightLightness changes.
+// text.dark.s reacts to glaze.configure({ darkDesaturation }) since it's not overridden.
+```
+
+`extend` inherits the parent's override and shallow-merges the child's:
+
+```ts
+const child = t.extend({ config: { darkLightness: false } });
+// child: lightLightness: [0, 50] (inherited) + darkLightness: false (added)
+```
+
+`theme.export()` includes `config`; `glaze.from(data)` restores it.
+
+### `glaze.colorFrom(data)`
+
+Inverse of `token.export()`. The exported snapshot includes the original input, all overrides (with any `base` token recursively serialized), and the full effective config — so later `glaze.configure()` calls don't change rehydrated tokens.
+
+```ts
+const text = glaze.color({ from: '#1a1a1a', contrast: 'AA' });
 const data = text.export();
 const restored = glaze.colorFrom(data);
 // restored.resolve() === text.resolve() byte-for-byte
@@ -415,17 +479,17 @@ Set `base` to anchor a standalone color to another standalone color or raw value
 const bg = glaze.color('#1a1a2e');
 
 // Text guaranteed AA against `bg` in every scheme.
-const text = glaze.color('#ffffff', { base: bg, contrast: 'AA' });
+const text = glaze.color({ from: '#ffffff', base: bg, contrast: 'AA' });
 
 // Border 8 lightness units lighter than `bg` in each scheme.
-const border = glaze.color('#000000', {
+const border = glaze.color({ from: '#000000',
   base: bg,
   lightness: '+8',
   mode: 'fixed',
 });
 
 // Raw-value base — Glaze auto-wraps it via `glaze.color(value)`.
-const text2 = glaze.color('#ffffff', { base: '#1a1a2e', contrast: 'AA' });
+const text2 = glaze.color({ from: '#ffffff', base: '#1a1a2e', contrast: 'AA' });
 ```
 
 Behavior with `base`:
@@ -435,15 +499,15 @@ Behavior with `base`:
 - Relative `hue: '+N'` / `'-N'` still anchors to the **seed** (the value passed to `glaze.color()`), not the base.
 - `mode` works as a per-pair knob.
 - The base token's `.resolve()` is called lazily on the first resolve of the dependent and the result is captured by reference; later mutations to the base don't apply.
-- Raw-value bases inherit the same string-vs-object scaling defaults. To skip auto-invert on the base, wrap it yourself: `base: glaze.color(value, undefined, { darkLightness: false })`.
+- **Structured bases are resolved at full range for linking math**: when a value/`from` color links to a base created via the structured form, the contrast/lightness anchor uses the raw input lightness (not the windowed output). This ensures the anchor matches what you intended, not what the light window remapped it to. The base's own `.resolve()` output is unaffected.
 - When the contrast target is physically unreachable, `glaze` emits a single `console.warn` per `(name, scheme, target)` triple and returns the closest passing variant. Use the `name` override to make the warning identifiable.
 
 Chains compose:
 
 ```ts
 const bg = glaze.color('#000000');
-const surface = glaze.color('#222222', { base: bg, contrast: 'AAA' });
-const text = glaze.color('#ffffff', { base: surface, contrast: 'AA' });
+const surface = glaze.color({ from: '#222222', base: bg, contrast: 'AAA' });
+const text = glaze.color({ from: '#ffffff', base: surface, contrast: 'AA' });
 ```
 
 ### `name` is a debug label
@@ -902,10 +966,10 @@ S_dark = S_light * (1 - darkDesaturation) // default: 0.1
 
 ```ts
 glaze.configure({
-  lightLightness: [10, 100],
-  darkLightness: [15, 95],
+  lightLightness: [10, 100],   // or false to disable clamping
+  darkLightness: [15, 95],     // or false to disable clamping
   darkDesaturation: 0.1,
-  darkCurve: 0.5,                   // or [normal, hc] pair
+  darkCurve: 0.5,              // or [normal, hc] pair
   states: {
     dark: '@dark',
     highContrast: '@high-contrast',
@@ -925,8 +989,8 @@ glaze.configure({
 
 | Field | Default | Description |
 |---|---|---|
-| `lightLightness` | `[10, 100]` | Light scheme lightness window `[lo, hi]`. Bypassed in HC. |
-| `darkLightness` | `[15, 95]` | Dark scheme lightness window. Bypassed in HC. |
+| `lightLightness` | `[10, 100]` | Light scheme lightness window `[lo, hi]`, or `false` to disable clamping (equivalent to `[0, 100]`). Bypassed in HC. |
+| `darkLightness` | `[15, 95]` | Dark scheme lightness window, or `false` to disable clamping. Bypassed in HC. |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
 | `darkCurve` | `0.5` | Möbius beta for dark `auto`-inversion (0–1). Accepts `[normal, hc]` pair. |
 | `states.dark` | `'@dark'` | State alias for dark mode tokens (Tasty export). |
@@ -942,7 +1006,7 @@ glaze.configure({
 | `glaze.getConfig()` | Snapshot the current resolved config (shallow copy). |
 | `glaze.resetConfig()` | Reset to defaults (also bumps the version counter). |
 
-Standalone `glaze.color()` tokens snapshot the relevant fields at create time, so later `configure()` calls don't change already-created tokens.
+Standalone `glaze.color()` tokens snapshot the resolve-relevant fields at create time, so later `configure()` calls don't change already-created tokens. Themes merge the live global at resolve time for fields not overridden via `GlazeConfigOverride`.
 
 ---
 
@@ -974,8 +1038,10 @@ Resolution priority (highest first):
 
 | Condition | Behavior |
 |---|---|
-| `contrast` without `base` | Validation error |
-| Relative `lightness` without `base` | Validation error |
+| `contrast` without `base` in a **theme** color | Validation error |
+| Relative `lightness` without `base` in a **theme** color | Validation error |
+| `contrast` without `base` in `glaze.color()` | Anchors against the literal seed (no error) |
+| Relative `lightness` without `base` in `glaze.color()` | Anchors against the literal seed (no error) |
 | `lightness` resolves outside 0–100 | Clamp silently |
 | `saturation` outside 0–1 | Clamp silently |
 | Circular `base` references | Validation error |

@@ -14,6 +14,7 @@
 import { parseHex, srgbToOkhsl } from './okhsl-color-math';
 import {
   configure as configureImpl,
+  getConfig,
   resetConfig as resetConfigImpl,
   snapshotConfig,
 } from './config';
@@ -22,7 +23,6 @@ import {
   createColorToken,
   createColorTokenFromValue,
   extractOkhslFromValue,
-  isStructuredColorInput,
 } from './color-token';
 import { formatVariant } from './formatters';
 import { computeShadow, resolveShadowTuning } from './shadow';
@@ -31,13 +31,13 @@ import { createTheme } from './theme';
 import type {
   GlazeColorFormat,
   GlazeColorInput,
-  GlazeColorOverrides,
-  GlazeColorScaling,
   GlazeColorToken,
   GlazeColorTokenExport,
   GlazeColorValue,
   GlazeConfig,
+  GlazeConfigOverride,
   GlazeConfigResolved,
+  GlazeFromInput,
   GlazePalette,
   GlazePaletteOptions,
   GlazeShadowInput,
@@ -51,21 +51,35 @@ type PaletteInput = Record<string, GlazeTheme>;
 /**
  * Create a single-hue glaze theme.
  *
+ * An optional `config` override can be supplied to customize the resolve
+ * behavior for this theme (lightness windows, dark curve, etc.). The
+ * override is **merged over the live global config at resolve time** —
+ * the theme still reacts to later `configure()` calls for fields it
+ * didn't override.
+ *
  * @example
  * ```ts
- * const primary = glaze({ hue: 280, saturation: 80 });
- * // or shorthand:
  * const primary = glaze(280, 80);
+ * // or shorthand:
+ * const primary = glaze({ hue: 280, saturation: 80 });
+ * // with config override:
+ * const raw = glaze(280, 80, { lightLightness: false });
  * ```
  */
 export function glaze(
   hueOrOptions: number | { hue: number; saturation: number },
   saturation?: number,
+  config?: GlazeConfigOverride,
 ): GlazeTheme {
   if (typeof hueOrOptions === 'number') {
-    return createTheme(hueOrOptions, saturation ?? 100);
+    return createTheme(hueOrOptions, saturation ?? 100, undefined, config);
   }
-  return createTheme(hueOrOptions.hue, hueOrOptions.saturation);
+  return createTheme(
+    hueOrOptions.hue,
+    hueOrOptions.saturation,
+    undefined,
+    config,
+  );
 }
 
 /** Configure global glaze settings. */
@@ -83,63 +97,73 @@ glaze.palette = function palette(
 
 /** Create a theme from a serialized export. */
 glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
-  return createTheme(data.hue, data.saturation, data.colors);
+  return createTheme(data.hue, data.saturation, data.colors, data.config);
 };
 
 /**
  * Create a standalone single-color token.
  *
- * Two overloads:
- * - `glaze.color(input, scaling?)` — structured form:
- *   `{ hue, saturation, lightness, ... }` plus an optional per-call
- *   lightness-window override.
- * - `glaze.color(value, overrides?, scaling?)` — value-shorthand: a hex
- *   string (3/6/8 digits), one of the CSS color functions Glaze itself
- *   emits (`rgb()`, `hsl()`, `okhsl()`, `oklch()`), or literal objects
- *   `{ r, g, b }` (0–255), `{ h, s, l }` (OKHSL 0–1), `{ l, c, h }`
- *   (OKLCh, matching `oklch()` strings).
+ * **arg1 — the color** (four accepted shapes, discriminated by structure):
  *
- * Defaults: every input form defaults to `mode: 'auto'`. Value-shorthand
- * (strings and literal objects) snapshots `{ lightLightness: false,
- * darkLightness: globalConfig.darkLightness }` — light preserves the
- * input; dark uses the theme window. Structured `{ hue, saturation,
- * lightness, ... }` snapshots both `globalConfig` windows like a theme
- * color.
+ * | Shape | Example | Notes |
+ * |---|---|---|
+ * | Bare string | `'#26fcb2'`, `'rgb(38 252 178)'` | Hex or CSS color function |
+ * | Value object | `{ h: 152, s: 0.95, l: 0.74 }` | OKHSL, `{r,g,b}`, `{l,c,h}` |
+ * | `{ from, ...overrides }` | `{ from: '#fff', base: bg, contrast: 'AA' }` | Value + color overrides |
+ * | Structured | `{ hue: 152, saturation: 95, lightness: 74 }` | Full theme-style token |
  *
- * Pass `{ mode: 'fixed' }` to opt back into the legacy linear, non-
- * inverting mapping, or `{ mode: 'static' }` to pin the same lightness
- * across every variant.
+ * **arg2 — config override** (optional, all shapes):
+ * Overrides the resolve-relevant global config fields for this token.
+ * Fields that are omitted fall through to the live global config at
+ * create time (and are snapshotted). Pass `false` for a lightness window
+ * to disable clamping entirely.
  *
- * Relative `lightness: '+N'` and `contrast: <ratio>` are anchored to
- * the literal seed (the value passed in) by default, pinned at
- * `mode: 'static'` across all four variants. Pass `overrides.base` (a
- * `GlazeColorToken`) to anchor `contrast` and relative `lightness`
- * against another color's resolved variant per scheme instead. Relative
- * `hue: '+N'` always anchors to the seed.
+ * ```ts
+ * // Bare string — no overrides
+ * glaze.color('#26fcb2')
  *
- * Alpha components in `rgba()` / `hsla()` / slash-alpha syntax and
- * 8-digit hex are parsed but dropped with a `console.warn`.
+ * // From form — value + color overrides
+ * glaze.color({ from: '#fff', base: bg, contrast: 'AA' })
+ *
+ * // Structured form — full theme-style token
+ * glaze.color({ hue: 152, saturation: 95, lightness: 74 })
+ *
+ * // Config override on any form
+ * glaze.color('#26fcb2', { darkLightness: false, autoFlip: false })
+ * glaze.color({ from: '#fff', base: bg }, { darkCurve: 0.3 })
+ * ```
+ *
+ * Defaults: every form defaults to `mode: 'auto'`. Value-shorthand forms
+ * (bare strings and value objects) preserve light lightness exactly
+ * (`lightLightness: false` internally). Structured form snapshots both
+ * lightness windows from `globalConfig` at create time.
+ *
+ * Relative `lightness: '+N'` and `contrast` anchor to the literal seed by
+ * default; when `base` is set they anchor to the base's resolved variant
+ * per scheme. Relative `hue: '+N'` always anchors to the seed, not the base.
  */
 glaze.color = function color(
-  input: GlazeColorInput | GlazeColorValue,
-  arg2?: GlazeColorOverrides | GlazeColorScaling,
-  arg3?: GlazeColorScaling,
+  input: GlazeFromInput | GlazeColorInput | GlazeColorValue,
+  config?: GlazeConfigOverride,
 ): GlazeColorToken {
-  if (isStructuredColorInput(input)) {
-    return createColorToken(input, arg2 as GlazeColorScaling | undefined);
+  if (typeof input === 'string') {
+    return createColorTokenFromValue(input, undefined, config);
   }
-  return createColorTokenFromValue(
-    input,
-    arg2 as GlazeColorOverrides | undefined,
-    arg3,
-  );
-} as {
-  (input: GlazeColorInput, scaling?: GlazeColorScaling): GlazeColorToken;
-  (
-    value: GlazeColorValue,
-    overrides?: GlazeColorOverrides,
-    scaling?: GlazeColorScaling,
-  ): GlazeColorToken;
+
+  // Object inputs — discriminate by key presence
+  const obj = input as object;
+
+  if ('from' in obj) {
+    const { from, ...overrides } = input as GlazeFromInput;
+    return createColorTokenFromValue(from, overrides, config);
+  }
+
+  if ('hue' in obj) {
+    return createColorToken(input as GlazeColorInput, config);
+  }
+
+  // Value-object: { h, s, l }, { r, g, b }, or { l, c, h }
+  return createColorTokenFromValue(input as GlazeColorValue, undefined, config);
 };
 
 /**
@@ -154,7 +178,8 @@ glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
   const fg = input.fg
     ? extractOkhslFromValue(input.fg as GlazeColorValue)
     : undefined;
-  const tuning = resolveShadowTuning(input.tuning);
+  const cfg = getConfig();
+  const tuning = resolveShadowTuning(input.tuning, cfg.shadowTuning);
   return computeShadow(
     { ...bg, alpha: 1 },
     fg ? { ...fg, alpha: 1 } : undefined,
@@ -198,12 +223,12 @@ glaze.fromRgb = function fromRgb(r: number, g: number, b: number): GlazeTheme {
  *
  * The snapshot is a plain JSON-safe object containing the original
  * input value, overrides (with any `base` token recursively serialized),
- * and the captured scaling. The reconstructed token is identical in
- * behavior to the original at the time of export.
+ * and the effective config snapshot. The reconstructed token is identical
+ * in behavior to the original at the time of export.
  *
  * @example
  * ```ts
- * const text = glaze.color('#1a1a1a', { contrast: 'AA' });
+ * const text = glaze.color({ from: '#1a1a1a', contrast: 'AA' });
  * const data = text.export();           // JSON-safe
  * localStorage.setItem('text', JSON.stringify(data));
  * // ...later...

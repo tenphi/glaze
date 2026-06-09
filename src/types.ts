@@ -228,11 +228,17 @@ export interface ResolvedColor {
 // Configuration
 // ============================================================================
 
+/**
+ * Lightness window value. A `[lo, hi]` tuple (0–100) or `false` to disable
+ * clamping entirely (equivalent to `[0, 100]`).
+ */
+export type LightnessWindow = false | [number, number];
+
 export interface GlazeConfig {
-  /** Light scheme lightness window [lo, hi]. Default: [10, 100]. */
-  lightLightness?: [number, number];
-  /** Dark scheme lightness window [lo, hi]. Default: [15, 95]. */
-  darkLightness?: [number, number];
+  /** Light scheme lightness window [lo, hi]. Default: [10, 100]. Pass `false` to disable clamping. */
+  lightLightness?: LightnessWindow;
+  /** Dark scheme lightness window [lo, hi]. Default: [15, 95]. Pass `false` to disable clamping. */
+  darkLightness?: LightnessWindow;
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
   darkDesaturation?: number;
   /**
@@ -269,8 +275,8 @@ export interface GlazeConfig {
 }
 
 export interface GlazeConfigResolved {
-  lightLightness: [number, number];
-  darkLightness: [number, number];
+  lightLightness: LightnessWindow;
+  darkLightness: LightnessWindow;
   darkDesaturation: number;
   darkCurve: HCPair<number>;
   states: {
@@ -282,6 +288,31 @@ export interface GlazeConfigResolved {
   autoFlip: boolean;
 }
 
+/**
+ * Per-instance config override for `glaze.color()` and `glaze()` themes.
+ * Fields that are set take priority over the live global config. Fields
+ * that are omitted fall through to the live global at resolve time.
+ *
+ * `false` for a lightness window disables clamping (equivalent to `[0, 100]`).
+ */
+export interface GlazeConfigOverride {
+  /** Light scheme lightness window, or `false` to disable clamping. */
+  lightLightness?: LightnessWindow;
+  /** Dark scheme lightness window, or `false` to disable clamping. */
+  darkLightness?: LightnessWindow;
+  /** Saturation reduction factor for dark scheme (0–1). */
+  darkDesaturation?: number;
+  /** Möbius beta for dark auto-inversion. Accepts [normal, hc] pair. */
+  darkCurve?: HCPair<number>;
+  /** Whether to auto-flip lightness when contrast can't be met. */
+  autoFlip?: boolean;
+  /**
+   * Shadow tuning defaults. Only meaningful for themes; harmless on
+   * standalone color tokens.
+   */
+  shadowTuning?: ShadowTuning;
+}
+
 // ============================================================================
 // Serialization
 // ============================================================================
@@ -291,6 +322,8 @@ export interface GlazeThemeExport {
   hue: number;
   saturation: number;
   colors: ColorMap;
+  /** Per-theme config override, if any. */
+  config?: GlazeConfigOverride;
 }
 
 // ============================================================================
@@ -368,7 +401,7 @@ export interface GlazeColorInput {
  */
 export type GlazeColorValue = string | OkhslColor | RgbColor | OklchColor;
 
-/** Optional overrides for `glaze.color(value, overrides?)`. */
+/** Color overrides for the `from` and value-shorthand inputs. */
 export interface GlazeColorOverrides {
   /**
    * Override hue. Number is absolute (0–360); `'+N'`/`'-N'` is relative
@@ -421,6 +454,11 @@ export interface GlazeColorOverrides {
    *   lightness per-scheme (matches theme behavior for dependent colors).
    * - Relative `hue: '+N'` / `'-N'` still anchors to the seed (the
    *   value passed to `glaze.color()`), not the base.
+   * - When the base was created via the structured form (with explicit
+   *   `hue`/`saturation`/`lightness`), it is resolved at full range
+   *   (`lightLightness: false`) for the linking math — ensuring the
+   *   contrast/lightness anchor matches the input lightness, not the
+   *   windowed output. The base's own `.resolve()` output is unaffected.
    *
    * The base token's `.resolve()` is called lazily on first resolve and
    * its result is captured by reference; later mutations to the base's
@@ -444,41 +482,17 @@ export interface GlazeColorOverrides {
 }
 
 /**
- * Per-call lightness-window overrides for `glaze.color()`. Mirrors
- * the field names from `GlazeConfig`.
+ * Object input for `glaze.color()` that carries a raw color value plus
+ * optional color overrides in the same object.
  *
- * Defaults for `glaze.color()` vary by input form, and both fields are
- * snapshotted from `globalConfig` at color-creation time so later
- * `glaze.configure()` calls don't retroactively change already-created
- * tokens (and `token.export()` round-trips byte-for-byte):
- *
- * - **Value-shorthand** (hex / `rgb()` / `hsl()` / `okhsl()` / `oklch()`
- *   strings, `{ r, g, b }`, `{ h, s, l }`, `{ l, c, h }`):
- *   - `lightLightness: false` — preserve input exactly.
- *   - `darkLightness: globalConfig.darkLightness` — snapshotted at create time.
- *
- * - **Structured inputs** (`{ hue, saturation, lightness, ... }`):
- *   - `lightLightness: globalConfig.lightLightness` — theme light window.
- *   - `darkLightness: globalConfig.darkLightness` — theme dark window.
- *
- * Passing this object replaces both fields at once. To keep one
- * field's default while overriding the other, restate the default
- * explicitly.
+ * ```ts
+ * glaze.color({ from: '#1a1a2e', base: bg, contrast: 'AA' })
+ * glaze.color({ from: { r: 38, g: 252, b: 178 }, lightness: '+10' })
+ * ```
  */
-export interface GlazeColorScaling {
-  /**
-   * Light-mode lightness window. Snapshotted at create time: `false`
-   * (preserve input) for value-shorthand inputs; plain
-   * `globalConfig.lightLightness` for structured inputs only. Pass
-   * `false` to preserve input lightness in light mode.
-   */
-  lightLightness?: false | [number, number];
-  /**
-   * Dark-mode lightness window. Snapshotted from `globalConfig` at
-   * create time for value-shorthand and structured inputs. Pass `false`
-   * to preserve input lightness in dark mode too.
-   */
-  darkLightness?: false | [number, number];
+export interface GlazeFromInput extends GlazeColorOverrides {
+  /** The source color value. Accepts the same forms as a bare `GlazeColorValue`. */
+  from: GlazeColorValue;
 }
 
 /** Options for `GlazeColorToken.css()`. */
@@ -516,7 +530,7 @@ export interface GlazeColorToken {
   css(options: GlazeColorCssOptions): GlazeCssResult;
   /**
    * Serialize the token as a JSON-safe object. Captures the original
-   * input value, overrides, and scaling so it can be rehydrated via
+   * input value, overrides, and config so it can be rehydrated via
    * `glaze.colorFrom(...)`. `base` is recursively serialized.
    */
   export(): GlazeColorTokenExport;
@@ -529,8 +543,8 @@ export interface GlazeColorToken {
 export interface GlazeColorTokenExport {
   /**
    * Discriminator for the source overload that created the token.
-   * - `'value'`: created via `glaze.color(value, overrides?, scaling?)`.
-   * - `'structured'`: created via `glaze.color({ hue, saturation, ... }, scaling?)`.
+   * - `'value'`: created via `glaze.color(value)` or `glaze.color({ from, ...overrides })`.
+   * - `'structured'`: created via `glaze.color({ hue, saturation, ... })`.
    */
   form: 'value' | 'structured';
   /** Original input. For `form: 'value'` this is the raw `GlazeColorValue`; for `form: 'structured'` this is the structured input. */
@@ -540,15 +554,14 @@ export interface GlazeColorTokenExport {
    * serialized. Only present for `form: 'value'`.
    */
   overrides?: GlazeColorOverridesExport;
-  /** Lightness scaling override, if any. */
-  scaling?: GlazeColorScaling;
   /**
-   * Auto-flip setting snapshotted at creation time from
-   * `globalConfig.autoFlip`. Only present when it differs from the
-   * global default (`true`). Rehydrated tokens use this value instead
-   * of whatever is current in `globalConfig`.
+   * Effective config snapshot at creation time — captures the merged
+   * result of the global config + any per-call override at the moment
+   * the token was created. Only fields that differ from their
+   * post-merge defaults are present. Used by `glaze.colorFrom()` to
+   * reproduce deterministic behavior across `configure()` calls.
    */
-  autoFlip?: boolean;
+  config?: GlazeConfigOverride;
 }
 
 /**
@@ -652,6 +665,8 @@ export interface GlazeExtendOptions {
   hue?: number;
   saturation?: number;
   colors?: ColorMap;
+  /** Config override for the child theme. Merged with the parent's override. */
+  config?: GlazeConfigOverride;
 }
 
 // ============================================================================

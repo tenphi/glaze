@@ -6,14 +6,15 @@
  * validator, the two factory paths (value vs structured), and the
  * JSON-safe export / rehydration round-trip.
  *
- * Standalone tokens snapshot the relevant `globalConfig` fields at
- * create time so later `configure()` calls do not retroactively change
- * exported tokens — the snapshot is captured eagerly in
- * `defaultStandaloneScaling()`. The token's resolved variants are then
- * memoized on first `.resolve()` / `.token()` / ... call.
+ * Standalone tokens snapshot the full effective config at create time
+ * so later `configure()` calls do not retroactively change exported
+ * tokens. The snapshot is built eagerly in
+ * `buildValueFormConfigOverride()` / `buildStructuredConfigOverride()`.
+ * The token's resolved variants are then memoized on first
+ * `.resolve()` / `.token()` / ... call.
  */
 
-import { getConfig } from './config';
+import { defaultConfig, getConfig, mergeConfig } from './config';
 import {
   hslToSrgb,
   oklabToOkhsl,
@@ -35,11 +36,12 @@ import type {
   GlazeColorInputExport,
   GlazeColorOverrides,
   GlazeColorOverridesExport,
-  GlazeColorScaling,
   GlazeColorToken,
   GlazeColorTokenExport,
   GlazeColorValue,
   GlazeCssResult,
+  GlazeConfigOverride,
+  GlazeConfigResolved,
   GlazeJsonOptions,
   GlazeTokenOptions,
   OkhslColor,
@@ -67,60 +69,72 @@ const RESERVED_STANDALONE_NAMES = new Set([
   STANDALONE_BASE,
 ]);
 
+// ============================================================================
+// Effective config snapshots
+// ============================================================================
+
 /**
- * Create-time scaling for all value-shorthand `glaze.color()` inputs.
- * Light lightness is preserved (`lightLightness: false`); dark uses the
- * theme window from `globalConfig.darkLightness`, snapshotted at create
- * time so later `configure()` does not retroactively change tokens.
+ * Build the per-token effective config override for a value-form color.
+ *
+ * Light window defaults to `false` (preserve input lightness exactly).
+ * All other fields snapshot from global at create time. User override
+ * fields win over all defaults.
  */
-function defaultValueShorthandScaling(): GlazeColorScaling {
+function buildValueFormConfigOverride(
+  userOverride?: GlazeConfigOverride,
+): GlazeConfigOverride {
   const cfg = getConfig();
   return {
-    lightLightness: false,
-    darkLightness: cfg.darkLightness,
+    lightLightness:
+      userOverride?.lightLightness !== undefined
+        ? userOverride.lightLightness
+        : false,
+    darkLightness:
+      userOverride?.darkLightness !== undefined
+        ? userOverride.darkLightness
+        : cfg.darkLightness,
+    darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
+    darkCurve: userOverride?.darkCurve ?? cfg.darkCurve,
+    autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
+    shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
   };
 }
 
 /**
- * Create-time scaling for structured `glaze.color({ hue, saturation,
- * lightness, ... })`. Both windows come from `globalConfig` so the
- * token behaves like an ordinary theme color on light and dark sides.
+ * Build the per-token effective config override for a structured-form color.
+ *
+ * Both light and dark windows snapshot from global at create time.
+ * User override fields win.
  */
-function defaultStructuredScaling(): GlazeColorScaling {
+function buildStructuredConfigOverride(
+  userOverride?: GlazeConfigOverride,
+): GlazeConfigOverride {
   const cfg = getConfig();
   return {
-    lightLightness: cfg.lightLightness,
-    darkLightness: cfg.darkLightness,
+    lightLightness:
+      userOverride?.lightLightness !== undefined
+        ? userOverride.lightLightness
+        : cfg.lightLightness,
+    darkLightness:
+      userOverride?.darkLightness !== undefined
+        ? userOverride.darkLightness
+        : cfg.darkLightness,
+    darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
+    darkCurve: userOverride?.darkCurve ?? cfg.darkCurve,
+    autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
+    shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
   };
 }
 
 /**
- * Discriminate a `GlazeColorToken` from a raw `GlazeColorValue`.
- * Used to widen `base?` so it accepts either a token reference or a
- * raw value (auto-wrapped into `glaze.color(value)`).
+ * Build the `GlazeConfigResolved` to pass to `resolveAllColors` from a
+ * snapshot override. Uses `defaultConfig()` as the base so all required
+ * fields are present; the snapshot fields win.
  */
-export function isGlazeColorToken(
-  candidate: GlazeColorToken | GlazeColorValue,
-): candidate is GlazeColorToken {
-  return (
-    typeof candidate === 'object' &&
-    candidate !== null &&
-    !Array.isArray(candidate) &&
-    'resolve' in candidate &&
-    typeof (candidate as { resolve?: unknown }).resolve === 'function'
-  );
-}
-
-export function isStructuredColorInput(
-  input: GlazeColorInput | GlazeColorValue,
-): input is GlazeColorInput {
-  return (
-    typeof input === 'object' &&
-    input !== null &&
-    !Array.isArray(input) &&
-    'hue' in input &&
-    'lightness' in input
-  );
+function resolvedConfigFromOverride(
+  override: GlazeConfigOverride,
+): GlazeConfigResolved {
+  return mergeConfig(defaultConfig(), override);
 }
 
 // ============================================================================
@@ -435,9 +449,7 @@ interface ValueDefsResult {
  * Build the `ColorMap` for a value-shorthand `glaze.color()` call.
  *
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
- * across every value-shorthand form, using the snapshotted
- * `globalConfig.darkLightness` window (light lightness preserved via
- * `lightLightness: false`).
+ * across every value-shorthand form.
  *
  * When the user requests `contrast` or relative `lightness`, a hidden
  * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
@@ -466,9 +478,6 @@ function buildStandaloneValueDefs(
   if (options?.opacity !== undefined)
     validateStandaloneOpacity(options.opacity);
 
-  // User-supplied `name` becomes the def key (and surfaces in error / warn
-  // messages). It must not collide with internal reserved names; we throw
-  // a clear error rather than silently shadowing them.
   const userName = options?.name;
   if (userName !== undefined) validateStandaloneName(userName);
   const primary = userName ?? STANDALONE_VALUE;
@@ -490,8 +499,6 @@ function buildStandaloneValueDefs(
   const defs: ColorMap = { [primary]: valueDef };
 
   if (needsSeedAnchor) {
-    // `saturation: 1` is the default factor; combined with seedSaturation
-    // = main.s * 100, the seed renders at exactly the user-provided color.
     defs[STANDALONE_SEED] = {
       hue: main.h,
       saturation: 1,
@@ -513,15 +520,11 @@ function createColorTokenFromDefs(
   seedSaturation: number,
   defs: ColorMap,
   primary: string,
-  effectiveScaling: GlazeColorScaling,
+  effectiveConfig: GlazeConfigResolved,
   baseToken: GlazeColorToken | undefined,
   exportData: () => GlazeColorTokenExport,
-  autoFlip: boolean,
 ): GlazeColorToken {
   // Cache the resolve result across token / tasty / json / css / resolve calls.
-  // The base token's `.resolve()` is called lazily on first resolve and the
-  // result is captured by reference, so subsequent base mutations don't apply
-  // (matches the existing snapshot semantics for `scaling.darkLightness`).
   let cached: Map<string, ResolvedColor> | undefined;
   const resolveOnce = (): Map<string, ResolvedColor> => {
     if (cached) return cached;
@@ -532,9 +535,8 @@ function createColorTokenFromDefs(
       seedHue,
       seedSaturation,
       defs,
-      effectiveScaling,
+      effectiveConfig,
       externalBases,
-      autoFlip,
     );
     return cached;
   };
@@ -592,10 +594,30 @@ function createColorTokenFromDefs(
 }
 
 /**
+ * When a value/`from` color links to a base that was created via the
+ * structured form (with explicit `hue`/`saturation`/`lightness`), resolve
+ * that base with `lightLightness: false` for the linking math so the
+ * contrast/lightness anchor matches the input lightness — not the
+ * windowed output. The original base token's `.resolve()` is unaffected.
+ */
+function toLinkingBase(
+  base: GlazeColorToken | undefined,
+): GlazeColorToken | undefined {
+  if (!base) return undefined;
+  const exp = base.export();
+  if (exp.form !== 'structured') return base;
+  const linkingConfig: GlazeConfigOverride = {
+    ...(exp.config ?? {}),
+    lightLightness: false,
+  };
+  return colorFromExport({ ...exp, config: linkingConfig });
+}
+
+/**
  * Resolve `base` (which may be a token reference or a raw color value)
  * into a `GlazeColorToken`. Raw values are auto-wrapped via
- * `glaze.color(value)` so they pick up the same auto-invert defaults as
- * an explicit wrap. Returns `undefined` when no base is provided.
+ * `createColorTokenFromValue` so they pick up the same auto-invert
+ * defaults as an explicit wrap. Returns `undefined` when no base is provided.
  */
 function resolveBaseToken(
   base: GlazeColorToken | GlazeColorValue | undefined,
@@ -605,14 +627,28 @@ function resolveBaseToken(
   return createColorTokenFromValue(base, undefined, undefined);
 }
 
+/**
+ * Discriminate a `GlazeColorToken` from a raw `GlazeColorValue`.
+ */
+export function isGlazeColorToken(
+  candidate: GlazeColorToken | GlazeColorValue,
+): candidate is GlazeColorToken {
+  return (
+    typeof candidate === 'object' &&
+    candidate !== null &&
+    !Array.isArray(candidate) &&
+    'resolve' in candidate &&
+    typeof (candidate as { resolve?: unknown }).resolve === 'function'
+  );
+}
+
 // ============================================================================
 // Factory: structured input
 // ============================================================================
 
 export function createColorToken(
   input: GlazeColorInput,
-  scaling: GlazeColorScaling | undefined,
-  overrideAutoFlip?: boolean,
+  configOverride?: GlazeConfigOverride,
 ): GlazeColorToken {
   validateStructuredInput(input);
 
@@ -622,9 +658,6 @@ export function createColorToken(
 
   const baseToken = resolveBaseToken(input.base);
   const hasExternalBase = baseToken !== undefined;
-  // Mirror value-form behavior: when `contrast` is provided without an
-  // external base, synthesize a hidden static seed so contrast anchors
-  // against the input's own normal-mode lightness.
   const needsSeedAnchor = !hasExternalBase && input.contrast !== undefined;
 
   const defs: ColorMap = {
@@ -650,19 +683,13 @@ export function createColorToken(
     };
   }
 
-  // Structured form snapshots both lightness windows from `globalConfig`
-  // at create time. With the default `mode: 'auto'` this matches an
-  // ordinary theme color (Möbius-inverted in dark).
-  const effectiveScaling: GlazeColorScaling =
-    scaling ?? defaultStructuredScaling();
-
-  const autoFlip = overrideAutoFlip ?? getConfig().autoFlip;
+  const effectiveConfigOverride = buildStructuredConfigOverride(configOverride);
+  const effectiveConfig = resolvedConfigFromOverride(effectiveConfigOverride);
 
   const exportData = (): GlazeColorTokenExport => ({
     form: 'structured',
     input: buildStructuredInputExport(input),
-    scaling: effectiveScaling,
-    autoFlip,
+    config: effectiveConfigOverride,
   });
 
   return createColorTokenFromDefs(
@@ -670,10 +697,9 @@ export function createColorToken(
     input.saturation,
     defs,
     primary,
-    effectiveScaling,
+    effectiveConfig,
     baseToken,
     exportData,
-    autoFlip,
   );
 }
 
@@ -684,19 +710,21 @@ export function createColorToken(
 export function createColorTokenFromValue(
   value: GlazeColorValue,
   options: GlazeColorOverrides | undefined,
-  scaling: GlazeColorScaling | undefined,
-  overrideAutoFlip?: boolean,
+  configOverride: GlazeConfigOverride | undefined,
 ): GlazeColorToken {
   const main = extractOkhslFromValue(value);
-  const baseToken = resolveBaseToken(options?.base);
+  const rawBaseToken = resolveBaseToken(options?.base);
+  // For linking math, structured bases are re-resolved at full range
+  // (lightLightness: false) so contrast/lightness anchors use the
+  // input lightness, not the windowed output.
+  const linkingBase = toLinkingBase(rawBaseToken);
   const { seedHue, seedSaturation, defs, primary } = buildStandaloneValueDefs(
     main,
     options,
   );
-  const effectiveScaling: GlazeColorScaling =
-    scaling ?? defaultValueShorthandScaling();
 
-  const autoFlip = overrideAutoFlip ?? getConfig().autoFlip;
+  const effectiveConfigOverride = buildValueFormConfigOverride(configOverride);
+  const effectiveConfig = resolvedConfigFromOverride(effectiveConfigOverride);
 
   const exportData = (): GlazeColorTokenExport => ({
     form: 'value',
@@ -704,8 +732,7 @@ export function createColorTokenFromValue(
     ...(options !== undefined
       ? { overrides: buildOverridesExport(options) }
       : {}),
-    scaling: effectiveScaling,
-    autoFlip,
+    config: effectiveConfigOverride,
   });
 
   return createColorTokenFromDefs(
@@ -713,10 +740,9 @@ export function createColorTokenFromValue(
     seedSaturation,
     defs,
     primary,
-    effectiveScaling,
-    baseToken,
+    effectiveConfig,
+    linkingBase,
     exportData,
-    autoFlip,
   );
 }
 
@@ -774,8 +800,6 @@ function buildStructuredInputExport(
 
 /**
  * Discriminate a `GlazeColorTokenExport` from a raw `GlazeColorValue`.
- * `GlazeColorTokenExport` always has a `form` field set to either
- * `'value'` or `'structured'`; raw values never do.
  */
 function isExportedToken(
   candidate: GlazeColorTokenExport | GlazeColorValue,
@@ -838,11 +862,12 @@ function rehydrateStructuredInput(
 /**
  * Rehydrate a token from its `.export()` snapshot. Recursively rebuilds
  * any base dependency. Inverse of `GlazeColorToken.export()`.
+ *
+ * The stored `config` field contains the full effective config override
+ * snapshotted at creation time, so the rehydrated token is deterministic
+ * regardless of subsequent `glaze.configure()` calls.
  */
 export function colorFromExport(data: GlazeColorTokenExport): GlazeColorToken {
-  // Shape guard: rehydration takes untrusted JSON (localStorage, URL,
-  // remote API), so a corrupted blob shouldn't blow up deep inside the
-  // resolver with confusing errors.
   if (data === null || typeof data !== 'object') {
     throw new Error(
       `glaze.colorFrom: expected an object from token.export(), got ${data === null ? 'null' : typeof data}.`,
@@ -864,20 +889,11 @@ export function colorFromExport(data: GlazeColorTokenExport): GlazeColorToken {
     const overrides = data.overrides
       ? rehydrateOverrides(data.overrides)
       : undefined;
-    // Snapshot autoFlip at rehydration time so the exported token
-    // preserves its original behavior regardless of globalConfig changes.
-    const cfg = getConfig();
-    const effectiveAutoFlip = data.autoFlip ?? cfg.autoFlip;
-    return createColorTokenFromValue(
-      value,
-      overrides,
-      data.scaling,
-      effectiveAutoFlip,
-    );
+    // The stored `config` contains the full effective snapshot — pass it
+    // directly so the rehydrated token reproduces identical behavior.
+    return createColorTokenFromValue(value, overrides, data.config);
   }
+
   const input = rehydrateStructuredInput(data.input as GlazeColorInputExport);
-  // Same snapshot semantics for structured inputs.
-  const cfg = getConfig();
-  const effectiveAutoFlip = data.autoFlip ?? cfg.autoFlip;
-  return createColorToken(input, data.scaling, effectiveAutoFlip);
+  return createColorToken(input, data.config);
 }
