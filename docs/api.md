@@ -447,8 +447,8 @@ The optional `config` second argument (`GlazeConfigOverride`) overrides the reso
 
 | Field | Default (from global) | Description |
 |---|---|---|
-| `lightTone` | `[13, 100]` | Light tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
-| `darkTone` | `[10, 95]` | Dark tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
+| `lightTone` | `[10, 100]` | Light tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
+| `darkTone` | `[15, 95]` | Dark tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
 | `saturationTaper` | `0.15` | Saturation taper strength toward the tone extremes (0–1). |
 | `autoFlip` | `true` | Default for each color's `flip`: when solving `contrast` (or applying a relative `tone` that overshoots), allow crossing to the opposite side instead of clamping. |
@@ -954,7 +954,7 @@ The mapping is now a single tone pipeline; there is no Möbius curve. See [`docs
 An authored tone (0–100) is remapped into the `lightTone` window. The window's `lo`/`hi` are OKHSL-lightness endpoints (0–100); the tone is positioned within the window's tone interval and converted to a final OKHSL lightness. `static` mode and HC variants use the full range.
 
 ```
-window      = lightTone               // default [13, 100]
+window      = lightTone               // default [10, 100]
 finalTone   = remap(authorTone, window)
 finalL      = fromTone(finalTone)     // OKHSL lightness
 ```
@@ -964,7 +964,7 @@ finalL      = fromTone(finalTone)     // OKHSL lightness
 **`auto`** — invert the tone, then remap into the dark window:
 
 ```
-window    = darkTone                  // default [10, 95]
+window    = darkTone                  // default [15, 95]
 inverted  = 100 - authorTone
 finalTone = remap(inverted, window)
 ```
@@ -999,8 +999,8 @@ S_dark = S_light * (1 - darkDesaturation) // default: 0.1
 
 ```ts
 glaze.configure({
-  lightTone: [13, 100], // [lo, hi]; or { lo, hi, eps } / false to disable clamping
-  darkTone: [10, 95],   // [lo, hi]; or { lo, hi, eps } / false to disable clamping
+  lightTone: [10, 100], // [lo, hi]; or { lo, hi, eps } / false to disable clamping
+  darkTone: [15, 95],   // [lo, hi]; or { lo, hi, eps } / false to disable clamping
   darkDesaturation: 0.1,
   saturationTaper: 0.15,
   states: {
@@ -1024,8 +1024,8 @@ A `ToneWindow` is `[lo, hi]` (OKHSL-lightness endpoints, reference eps — the c
 
 | Field | Default | Description |
 |---|---|---|
-| `lightTone` | `[13, 100]` | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
-| `darkTone` | `[10, 95]` | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
+| `lightTone` | `[10, 100]` | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
+| `darkTone` | `[15, 95]` | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
 | `saturationTaper` | `0.15` | Saturation taper strength toward the tone extremes (0–1). `0` disables. |
 | `states.dark` | `'@dark'` | State alias for dark mode tokens (Tasty export). |

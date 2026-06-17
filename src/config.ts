@@ -20,8 +20,8 @@ import type {
  */
 export function defaultConfig(): GlazeConfigResolved {
   return {
-    lightTone: { lo: 13, hi: 100, eps: 0.05 },
-    darkTone: { lo: 10, hi: 95, eps: 0.05 },
+    lightTone: { lo: 10, hi: 100, eps: 0.05 },
+    darkTone: { lo: 15, hi: 95, eps: 0.05 },
     darkDesaturation: 0.1,
     saturationTaper: 0.15,
     states: {

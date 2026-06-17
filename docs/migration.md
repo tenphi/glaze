@@ -32,8 +32,8 @@ The lightness windows became tone windows, and `darkCurve` was removed (no curve
 glaze.configure({ lightLightness: [10, 100], darkLightness: [15, 95], darkCurve: 0.5 });
 // after
 glaze.configure({
-  lightTone: [13, 100],
-  darkTone: [10, 95],
+  lightTone: [10, 100],
+  darkTone: [15, 95],
   // darkCurve removed; saturationTaper: 0.15 is the new gentle-extremes knob
 });
 ```

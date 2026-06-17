@@ -138,17 +138,17 @@ renders in every scheme.
 
 ## Calibrated constants (defaults)
 
-Chosen so light mode tracks the previous pipeline closely while the axis stays
-contrast-uniform; the dark window is a clean default rather than a curve fit
-(the old Möbius curve was intentionally non-uniform, which is what we are
-replacing). The windows were calibrated by minimizing RMSE against the legacy
-light/dark lightness mapping over the authored 0–100 range, with `eps` pinned to
-the reference value `0.05` so the tone axis stays WCAG-uniform.
+Chosen as clean defaults that keep light mode close to the previous pipeline
+while the axis stays contrast-uniform (the old Möbius curve was intentionally
+non-uniform, which is what we are replacing). The light floor sits at `lo = 10`
+and the dark floor at `lo = 15`, so neither scheme bottoms out darker than the
+legacy pipeline produced. `eps` is pinned to the reference value `0.05` so the
+tone axis stays WCAG-uniform.
 
 | Config | lo | hi | eps |
 |---|---|---|---|
-| `lightTone` | 13 | 100 | 0.05 |
-| `darkTone` | 10 | 95 | 0.05 |
+| `lightTone` | 10 | 100 | 0.05 |
+| `darkTone` | 15 | 95 | 0.05 |
 
 A window is authored as `[lo, hi]` (reference eps — the common form),
 `{ lo, hi, eps }` (advanced: explicit per-mode render curvature), or `false`

@@ -313,9 +313,9 @@ export type ToneWindow =
   | { lo: number; hi: number; eps: number };
 
 export interface GlazeConfig {
-  /** Light scheme tone window — `[lo, hi]` (default `[13, 100]`), `{ lo, hi, eps }` for advanced eps tuning, or `false` to disable clamping. */
+  /** Light scheme tone window — `[lo, hi]` (default `[10, 100]`), `{ lo, hi, eps }` for advanced eps tuning, or `false` to disable clamping. */
   lightTone?: ToneWindow;
-  /** Dark scheme tone window — `[lo, hi]` (default `[10, 95]`), `{ lo, hi, eps }`, or `false` to disable clamping. */
+  /** Dark scheme tone window — `[lo, hi]` (default `[15, 95]`), `{ lo, hi, eps }`, or `false` to disable clamping. */
   darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
   darkDesaturation?: number;

@@ -56,7 +56,7 @@ describe('glaze', () => {
       const surface = theme.resolve().get('surface')!;
       expect(surface).toBeDefined();
       expect(surface.light.h).toBe(280);
-      // tone 97, light window [13,100]: ~0.966
+      // tone 97, light window [10,100]: ~0.966
       expect(llOf(surface.light)).toBeCloseTo(0.966, 2);
       // 0.75 * 80/100 = 0.6, lightly tapered near the top of the range.
       expect(surface.light.s).toBeGreaterThan(0.5);
@@ -108,8 +108,8 @@ describe('glaze', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97 } });
       theme.colors({ surface: { tone: 50 } });
-      // tone 50, light window [13,100]
-      expect(llOf(theme.resolve().get('surface')!.light)).toBeCloseTo(0.526, 2);
+      // tone 50, light window [10,100]
+      expect(llOf(theme.resolve().get('surface')!.light)).toBeCloseTo(0.515, 2);
     });
   });
 
@@ -236,9 +236,9 @@ describe('glaze', () => {
       const s2 = r.get('s2')!;
       const s3 = r.get('s3')!;
       // dark mapped lightnesses from the new pipeline
-      expect(llOf(s.dark)).toBeCloseTo(0.1, 2);
-      expect(llOf(s2.dark)).toBeCloseTo(0.1224, 2);
-      expect(llOf(s3.dark)).toBeCloseTo(0.1429, 2);
+      expect(llOf(s.dark)).toBeCloseTo(0.15, 2);
+      expect(llOf(s2.dark)).toBeCloseTo(0.1678, 2);
+      expect(llOf(s3.dark)).toBeCloseTo(0.1846, 2);
       // each gap is visible
       expect(llOf(s2.dark) - llOf(s.dark)).toBeGreaterThan(0.01);
       expect(llOf(s3.dark) - llOf(s2.dark)).toBeGreaterThan(0.01);
@@ -283,7 +283,7 @@ describe('glaze', () => {
       theme.colors({ floor: { tone: 'min' } });
       const floor = theme.resolve().get('floor')!;
       // 'min' = author tone 0 → light window lo
-      expect(llOf(floor.light)).toBeCloseTo(0.13, 2);
+      expect(llOf(floor.light)).toBeCloseTo(0.1, 2);
     });
 
     it("'max' inverts to the darkest tone in dark under mode 'auto'", () => {
@@ -291,7 +291,7 @@ describe('glaze', () => {
       theme.colors({ ceil: { tone: 'max' } });
       const ceil = theme.resolve().get('ceil')!;
       // author 100 inverts to 0 → dark window lo (darkest)
-      expect(llOf(ceil.dark)).toBeCloseTo(0.1, 2);
+      expect(llOf(ceil.dark)).toBeCloseTo(0.15, 2);
       expect(llOf(ceil.dark)).toBeLessThan(llOf(ceil.light));
     });
 
@@ -449,7 +449,7 @@ describe('glaze', () => {
       const theme = glaze(0, 0);
       theme.colors({ black: { tone: 0 } });
       const black = theme.resolve().get('black')!;
-      expect(llOf(black.light)).toBeCloseTo(0.13, 2); // light lo
+      expect(llOf(black.light)).toBeCloseTo(0.1, 2); // light lo
       expect(llOf(black.dark)).toBeCloseTo(0.95, 2); // dark hi
     });
 
@@ -458,7 +458,7 @@ describe('glaze', () => {
       theme.colors({ white: { tone: 100 } });
       const white = theme.resolve().get('white')!;
       expect(llOf(white.light)).toBeCloseTo(1.0, 2); // light hi
-      expect(llOf(white.dark)).toBeCloseTo(0.1, 2); // dark lo
+      expect(llOf(white.dark)).toBeCloseTo(0.15, 2); // dark lo
     });
 
     it('high-contrast uses the full range [0, 100]', () => {
@@ -673,7 +673,7 @@ describe('glaze', () => {
       const child = base.extend({ hue: 23 });
       child.colors({ surface: { tone: 50 } });
       expect(llOf(base.resolve().get('surface')!.light)).toBeCloseTo(0.966, 2);
-      expect(llOf(child.resolve().get('surface')!.light)).toBeCloseTo(0.526, 2);
+      expect(llOf(child.resolve().get('surface')!.light)).toBeCloseTo(0.515, 2);
     });
   });
 
@@ -771,13 +771,13 @@ describe('glaze', () => {
       glaze.resetConfig();
       const theme = glaze(0, 0);
       theme.colors({ white: { tone: 100 } });
-      expect(llOf(theme.resolve().get('white')!.dark)).toBeCloseTo(0.1, 2);
+      expect(llOf(theme.resolve().get('white')!.dark)).toBeCloseTo(0.15, 2);
     });
 
     it('getConfig reflects the live tone windows', () => {
       const cfg = glaze.getConfig();
-      expect(cfg.lightTone).toEqual({ lo: 13, hi: 100, eps: 0.05 });
-      expect(cfg.darkTone).toEqual({ lo: 10, hi: 95, eps: 0.05 });
+      expect(cfg.lightTone).toEqual({ lo: 10, hi: 100, eps: 0.05 });
+      expect(cfg.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
       expect(cfg.saturationTaper).toBe(0.15);
     });
   });
@@ -891,7 +891,7 @@ describe('glaze', () => {
       const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
       const resolved = color.resolve();
       expect(resolved.light.h).toBe(280);
-      // structured form snapshots the light window [13,100]
+      // structured form snapshots the light window [10,100]
       expect(llOf(resolved.light)).toBeGreaterThan(0.4);
       expect(llOf(resolved.light)).toBeLessThan(0.7);
     });
@@ -899,8 +899,12 @@ describe('glaze', () => {
     it('structured input adapts dark via mode auto', () => {
       const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
       const resolved = color.resolve();
-      // auto inverts: tone 52 → near mid, dark stays mid-ish but distinct
-      expect(resolved.dark.t).toBeCloseTo(1 - resolved.light.t, 1);
+      // auto inverts the author tone before remapping into the dark window.
+      // The light [10,100] and dark [15,95] windows are asymmetric, so dark
+      // only approximately mirrors light around mid-tone.
+      expect(Math.abs(resolved.dark.t - (1 - resolved.light.t))).toBeLessThan(
+        0.1,
+      );
     });
 
     it('explicit mode: fixed keeps tone order without inversion', () => {
@@ -960,7 +964,7 @@ describe('glaze', () => {
       it('totally-white hex falls to the dark lo floor in dark (auto)', () => {
         const resolved = glaze.color('#ffffff').resolve();
         expect(llOf(resolved.light)).toBeCloseTo(1, 3);
-        expect(llOf(resolved.dark)).toBeCloseTo(0.1, 2);
+        expect(llOf(resolved.dark)).toBeCloseTo(0.15, 2);
       });
 
       it('mode: fixed preserves the linear dark mapping for #000', () => {
@@ -968,15 +972,15 @@ describe('glaze', () => {
           .color({ from: '#000000', mode: 'fixed' })
           .resolve();
         expect(llOf(resolved.light)).toBeCloseTo(0, 3);
-        // fixed: tone 0 maps to dark lo = 0.1
-        expect(llOf(resolved.dark)).toBeCloseTo(0.1, 2);
+        // fixed: tone 0 maps to dark lo = 0.15
+        expect(llOf(resolved.dark)).toBeCloseTo(0.15, 2);
       });
 
       it('snapshots the dark window at create time', () => {
         const before = glaze.color('#ffffff');
         glaze.configure({ darkTone: { lo: 40, hi: 80, eps: 0.05 } });
         try {
-          expect(llOf(before.resolve().dark)).toBeCloseTo(0.1, 2);
+          expect(llOf(before.resolve().dark)).toBeCloseTo(0.15, 2);
           expect(llOf(glaze.color('#ffffff').resolve().dark)).toBeCloseTo(
             0.4,
             2,
@@ -1114,7 +1118,7 @@ describe('glaze', () => {
       it('value-form snapshots the tone-window config (light=false, dark default)', () => {
         const data: GlazeColorTokenExport = glaze.color('#26fcb2').export();
         expect(data.config?.lightTone).toBe(false);
-        expect(data.config?.darkTone).toEqual({ lo: 10, hi: 95, eps: 0.05 });
+        expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
       });
 
       it('structured-form snapshots both tone windows', () => {
@@ -1122,8 +1126,8 @@ describe('glaze', () => {
           .color({ hue: 280, saturation: 50, tone: 50 })
           .export();
         expect(data.form).toBe('structured');
-        expect(data.config?.lightTone).toEqual({ lo: 13, hi: 100, eps: 0.05 });
-        expect(data.config?.darkTone).toEqual({ lo: 10, hi: 95, eps: 0.05 });
+        expect(data.config?.lightTone).toEqual({ lo: 10, hi: 100, eps: 0.05 });
+        expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
       });
 
       it('export snapshots survive configure() after create', () => {
@@ -1131,7 +1135,7 @@ describe('glaze', () => {
         glaze.configure({ darkTone: { lo: 40, hi: 80, eps: 0.05 } });
         try {
           const data = tok.export();
-          expect(data.config?.darkTone).toEqual({ lo: 10, hi: 95, eps: 0.05 });
+          expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
           const restored = glaze.colorFrom(JSON.parse(JSON.stringify(data)));
           expect(restored.resolve().dark.t).toBeCloseTo(
             tok.resolve().dark.t,
@@ -1150,7 +1154,10 @@ describe('glaze', () => {
         });
         expect(llOf(color.resolve().dark)).toBeCloseTo(0.3, 2);
         // global default is untouched
-        expect(llOf(glaze.color('#ffffff').resolve().dark)).toBeCloseTo(0.1, 2);
+        expect(llOf(glaze.color('#ffffff').resolve().dark)).toBeCloseTo(
+          0.15,
+          2,
+        );
       });
 
       it('false light window in global configure preserves input lightness', () => {
