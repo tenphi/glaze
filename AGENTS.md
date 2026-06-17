@@ -4,7 +4,7 @@
 
 - **Package:** `@tenphi/glaze`
 - **Repository:** [https://github.com/tenphi/glaze](https://github.com/tenphi/glaze)
-- **Description:** Zero-dependency, OKHSL-based color theme generator with WCAG contrast solving for light, dark, and high-contrast schemes.
+- **Description:** Zero-dependency color theme generator built on OKHST (OKHSL with a contrast-uniform **tone** axis), with WCAG + APCA contrast solving for light, dark, and high-contrast schemes.
 - **Runtime:** Node >= 20, browsers, edge. Pure math, no I/O.
 - **Output formats:** ESM + CJS, with full `.d.ts`.
 
@@ -13,7 +13,7 @@
 ```
 glaze/
 ├── src/                       Source
-├── docs/                      Long-form docs (api / methodology / migration)
+├── docs/                      Long-form docs (okhst / api / methodology / migration)
 ├── assets/                    Logo + brand assets
 ├── scripts/                   Repo helpers
 ├── README.md                  Compact intro
@@ -35,17 +35,17 @@ glaze/
 | [src/theme.ts](src/theme.ts) | Single-theme factory (`createTheme`). Owns the mutable `ColorMap`, the `resolve()` cache (versioned against `getConfigVersion()`), and the `tokens` / `tasty` / `json` / `css` / `extend` / `export` methods. |
 | [src/palette.ts](src/palette.ts) | Multi-theme composition (`createPalette`). Shared per-theme driver `buildPaletteOutput` handles prefix resolution, primary duplication, collision filtering. Used by `tokens` / `tasty` / `css`; `json` skips it (no collision logic). |
 | [src/color-token.ts](src/color-token.ts) | Standalone `glaze.color()` tokens. Owns the value-shorthand parser (hex 3/6/8, `rgb()` / `hsl()` / `okhsl()` / `oklch()`, `{ r, g, b }`, `{ h, s, l }`, `{ l, c, h }`), the structured-input validator, the two factory paths, value/structured scaling snapshots, and the JSON-safe export / `glaze.colorFrom` rehydrate round-trip. |
-| [src/resolver.ts](src/resolver.ts) | Four-pass solver (light → light-HC → dark → dark-HC). Per-scheme branches for regular, shadow, and mix defs; integrates the contrast solver and the scheme-mapping helpers. Pre-seeds externally-resolved bases for `glaze.color({ base })`. |
-| [src/scheme-mapping.ts](src/scheme-mapping.ts) | Active lightness window selection (with per-call `scaling` overrides + HC bypass), Möbius dark-inversion curve, dark desaturation, scheme-aware lightness range for the contrast solver. |
-| [src/contrast-solver.ts](src/contrast-solver.ts) | Binary-search WCAG solver. Public API: `findLightnessForContrast`, `findValueForMixContrast`, `resolveMinContrast`. |
-| [src/shadow.ts](src/shadow.ts) | Shadow + mix def predicates (`isShadowDef`, `isMixDef`), default `ShadowTuning`, tuning merge, the actual `computeShadow` math (hue blend, saturation cap, lightness clamp, `tanh` alpha curve), and `circularLerp` for hue. |
-| [src/hc-pair.ts](src/hc-pair.ts) | Tiny shared helpers: HC-pair selection (`pairNormal` / `pairHC`), absolute-vs-relative lightness discrimination, `clamp`, hue resolution (`resolveEffectiveHue`), relative-value parsing. |
+| [src/resolver.ts](src/resolver.ts) | Four-pass solver (light → light-HC → dark → dark-HC). Stores canonical tone (`t`) in variants; per-scheme branches for regular, shadow, and mix defs; integrates the contrast solver, the OKHST tone helpers, and the saturation taper. Converts to/from OKHSL lightness only at the mix/shadow edges. Pre-seeds externally-resolved bases for `glaze.color({ base })`. |
+| [src/okhst.ts](src/okhst.ts) | The OKHST tone layer. `REF_EPS`, tone↔lightness transfers (`toTone`/`fromTone`, `toneFromY`/`yFromTone`), OKHST↔OKHSL conversions, `variantToOkhsl` (tone→lightness at render), `normalizeToneWindow` (`[lo,hi]` / `{lo,hi,eps}` / `false` → `{lo,hi,eps}`), `mapToneForScheme` (scheme inversion + window remap, HC bypass), `saturationEnvelope` (extreme taper), and `schemeToneRange` for the solver. Replaces the old Möbius `scheme-mapping.ts`. |
+| [src/contrast-solver.ts](src/contrast-solver.ts) | Tone-based binary-search solver for WCAG **and** APCA. Public API: `findToneForContrast`, `findValueForMixContrast`, `resolveContrastForMode`, `resolveMinContrast`, `apcaContrast`. Closed-form WCAG seed + tone search. |
+| [src/shadow.ts](src/shadow.ts) | Shadow + mix def predicates (`isShadowDef`, `isMixDef`), default `ShadowTuning`, tuning merge, the actual `computeShadow` math (hue blend, saturation cap, lightness clamp, `tanh` alpha curve) operating on OKHSL lightness at the edge, and `circularLerp` for hue. |
+| [src/hc-pair.ts](src/hc-pair.ts) | Tiny shared helpers: HC-pair selection (`pairNormal` / `pairHC`), tone-value parsing (`parseToneValue` for absolute / relative / `'max'`/`'min'` extremes, `isExtremeTone`), root-tone discrimination (`isAbsoluteTone`, now incl. extremes), `clamp`, hue resolution (`resolveEffectiveHue`), relative-value parsing. |
 | [src/formatters.ts](src/formatters.ts) | Variant→string dispatch (`okhsl` / `rgb` / `hsl` / `oklch`) and the four token-map shapes Glaze emits: `buildTokenMap` (Tasty `#name` keys + state aliases), `buildFlatTokenMap` (per-variant maps), `buildJsonMap` (per-color JSON), `buildCssMap` (CSS custom-property declarations). Also the `resolveModes` helper used everywhere. |
 | [src/okhsl-color-math.ts](src/okhsl-color-math.ts) | OKHSL ↔ linear-sRGB ↔ gamma-sRGB ↔ OKLab conversions, hex parsing (3/6/8 digits), gamut clamping, and the `formatOkhsl` / `formatRgb` / `formatHsl` / `formatOklch` writers. The only file with the actual color science. |
 | [src/config.ts](src/config.ts) | Global config singleton. `defaultConfig()` is the one source of truth for defaults; `configure()` mutates the live object and bumps a monotonic `configVersion` so theme caches invalidate. `snapshotConfig()` powers `glaze.getConfig()`. |
 | [src/validation.ts](src/validation.ts) | `validateColorDefs` (missing references, shadow-bg-cannot-be-shadow, mix-cannot-target-shadow, contrast-without-base, relative-without-base, etc.) + `topoSort` so the resolver processes each color after its dependencies. |
 | [src/warnings.ts](src/warnings.ts) | Deduped contrast-unmet warnings. Caps cache at 256 entries to keep dev-server output bounded. |
-| [src/types.ts](src/types.ts) | All public TypeScript types: `HCPair`, `MinContrast`, `RelativeValue`, `AdaptationMode`, `ColorDef` discriminated union, `GlazeConfig`, `GlazeTheme`, `GlazePalette`, `GlazeColorToken`, `GlazeColorScaling`, the `*Export` shapes, etc. |
+| [src/types.ts](src/types.ts) | All public TypeScript types: `HCPair`, `MinContrast`, `ContrastSpec`, `RelativeValue`, `ExtremeValue` (`'max'`/`'min'`), `ToneValue`, `AdaptationMode`, `OkhstColor`, `ToneWindow` (`[lo,hi]` \| `{lo,hi,eps}` \| `false`), `ColorDef` discriminated union (with `tone` + `flip`), `GlazeConfig` (with `lightTone` / `darkTone` / `saturationTaper` / `autoFlip`), `GlazeTheme`, `GlazePalette`, `GlazeColorToken`, the `*Export` shapes, etc. `ResolvedColorVariant` stores `{ h, s, t, alpha }`. |
 | `src/glaze.test.ts` | Main test suite — covers the factory surface, resolver behavior, palette composition, shadow/mix algorithms, and the standalone color token round-trip. |
 | `src/contrast-solver.test.ts` | Tests for the binary-search solver in isolation. |
 
@@ -53,6 +53,7 @@ glaze/
 
 | File | Description |
 |---|---|
+| [docs/okhst.md](docs/okhst.md) | The OKHST color model spec — tone math, `REF_EPS`, the T↔L invariant, the scheme pipeline, calibrated window defaults, saturation taper, the contrast metric, and the APCA verification step. Source of truth for the color model. |
 | [docs/api.md](docs/api.md) | Full API reference. Every method, every option, every type. Reads as a lookup, not a tutorial. |
 | [docs/methodology.md](docs/methodology.md) | Palette design methodology — how to build a palette from scratch. Covers naming conventions, surface ladders, the accent anchor pattern, contrast-driven disabled chips, shadows, and `extend` composition. |
 | [docs/migration.md](docs/migration.md) | Migration & integration guide — choosing an export shape, wiring tokens into Tasty / CSS / JSON, prefix-map strategies, migrating from a legacy color system, and common pitfalls. |

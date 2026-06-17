@@ -1,9 +1,9 @@
 /**
  * OKHSL color math primitives for the glaze theme generator.
  *
- * Provides bidirectional OKHSL ↔ sRGB conversion, relative luminance
- * computation for WCAG 2 contrast calculations, and multi-format output
- * (okhsl, rgb, hsl, oklch).
+ * Provides bidirectional OKHSL ↔ sRGB conversion, luminance computation
+ * for both contrast metrics (WCAG 2 relative luminance and APCA screen
+ * luminance `Ys`), and multi-format output (okhsl, rgb, hsl, oklch).
  */
 
 type Vec3 = [number, number, number];
@@ -70,10 +70,16 @@ const EPSILON = 1e-10;
 // ============================================================================
 
 const constrainAngle = (angle: number): number => ((angle % 360) + 360) % 360;
-const toe = (x: number): number =>
+/**
+ * OKHSL toe function: maps OKLab lightness L to perceptual lightness l.
+ * Exported for the OKHST tone transfers in `okhst.ts`.
+ */
+export const toe = (x: number): number =>
   0.5 *
   (K3 * x - K1 + Math.sqrt((K3 * x - K1) * (K3 * x - K1) + 4 * K2 * K3 * x));
-const toeInv = (x: number): number => (x ** 2 + K1 * x) / (K3 * (x + K2));
+/** Inverse OKHSL toe: maps perceptual lightness l back to OKLab lightness L. */
+export const toeInv = (x: number): number =>
+  (x ** 2 + K1 * x) / (K3 * (x + K2));
 const dot3 = (a: Vec3, b: Vec3): number =>
   a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dotXY = (a: [number, number], b: [number, number]): number =>
@@ -432,6 +438,29 @@ export function gamutClampedLuminance(
     Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
   );
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Compute APCA screen luminance (`Ys`) from linear sRGB.
+ *
+ * APCA does not use the WCAG piecewise sRGB EOTF; it defines its own
+ * luminance as `0.2126·R^2.4 + 0.7152·G^2.4 + 0.0722·B^2.4` over the
+ * gamma-encoded (display) channels with a simple 2.4 exponent. The APCA
+ * soft-clamp threshold in `apcaContrast` is calibrated against this basis,
+ * so the solver must feed it `Ys`, not WCAG relative luminance. Channels
+ * are gamut-clamped to [0, 1] first, matching `gamutClampedLuminance`.
+ */
+export function apcaLuminanceFromLinearRgb(
+  linearRgb: [number, number, number],
+): number {
+  const r = Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0])));
+  const g = Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1])));
+  const b = Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2])));
+  return (
+    0.2126 * Math.pow(r, 2.4) +
+    0.7152 * Math.pow(g, 2.4) +
+    0.0722 * Math.pow(b, 2.4)
+  );
 }
 
 // ============================================================================

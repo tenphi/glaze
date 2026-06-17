@@ -2,12 +2,12 @@
  * Color graph validation and topological sort.
  *
  * `validateColorDefs` rejects bad references (missing / shadow-referencing /
- * base/contrast/lightness mismatches) and detects cycles before the
+ * base/contrast/tone mismatches) and detects cycles before the
  * resolver runs. `topoSort` orders defs so each color is processed after
  * its base / bg / fg / target dependencies.
  */
 
-import { isAbsoluteLightness } from './hc-pair';
+import { isAbsoluteTone } from './hc-pair';
 import { isMixDef, isShadowDef } from './shadow';
 import type { ColorMap, RegularColorDef, ResolvedColor } from './types';
 
@@ -79,12 +79,12 @@ export function validateColorDefs(
     }
 
     if (
-      regDef.lightness !== undefined &&
-      !isAbsoluteLightness(regDef.lightness) &&
+      regDef.tone !== undefined &&
+      !isAbsoluteTone(regDef.tone) &&
       !regDef.base
     ) {
       throw new Error(
-        `glaze: color "${name}" has relative "lightness" without "base".`,
+        `glaze: color "${name}" has relative "tone" without "base".`,
       );
     }
 
@@ -104,15 +104,15 @@ export function validateColorDefs(
       );
     }
 
-    if (!isAbsoluteLightness(regDef.lightness) && regDef.base === undefined) {
+    if (!isAbsoluteTone(regDef.tone) && regDef.base === undefined) {
       throw new Error(
-        `glaze: color "${name}" must have either absolute "lightness" (root) or "base" (dependent).`,
+        `glaze: color "${name}" must have either absolute "tone" (root) or "base" (dependent).`,
       );
     }
 
     if (regDef.contrast !== undefined && regDef.opacity !== undefined) {
       console.warn(
-        `glaze: color "${name}" has both "contrast" and "opacity". Opacity makes perceived lightness unpredictable.`,
+        `glaze: color "${name}" has both "contrast" and "opacity". Opacity makes perceived tone unpredictable.`,
       );
     }
   }

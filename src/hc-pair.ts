@@ -1,11 +1,11 @@
 /**
  * Small shared helpers used across the resolver pipeline:
  * - HC-pair selection (`pairNormal` / `pairHC`)
- * - Absolute / relative lightness discrimination
+ * - Absolute / relative / extreme tone discrimination
  * - Generic numeric helpers (`clamp`, hue resolution, relative-value parsing)
  */
 
-import type { HCPair, RelativeValue } from './types';
+import type { ExtremeValue, HCPair, RelativeValue, ToneValue } from './types';
 
 export function pairNormal<T>(p: HCPair<T>): T {
   return Array.isArray(p) ? p[0] : p;
@@ -17,6 +17,11 @@ export function pairHC<T>(p: HCPair<T>): T {
 
 export function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
+}
+
+/** Whether a tone value is an extreme keyword (`'max'` / `'min'`). */
+export function isExtremeTone(value: ToneValue): value is ExtremeValue {
+  return value === 'max' || value === 'min';
 }
 
 /**
@@ -31,6 +36,23 @@ export function parseRelativeOrAbsolute(value: number | RelativeValue): {
     return { value, relative: false };
   }
   return { value: parseFloat(value), relative: true };
+}
+
+/**
+ * Parse a tone value into a normalized shape.
+ * - `'max'` / `'min'` → `{ kind: 'extreme', value: 100 | 0 }` (an absolute
+ *   author tone before scheme mapping — `'max'` is 100, `'min'` is 0).
+ * - `'+N'` / `'-N'` → `{ kind: 'relative', value: ±N }`.
+ * - number → `{ kind: 'absolute', value }`.
+ */
+export function parseToneValue(value: ToneValue): {
+  kind: 'absolute' | 'relative' | 'extreme';
+  value: number;
+} {
+  if (value === 'max') return { kind: 'extreme', value: 100 };
+  if (value === 'min') return { kind: 'extreme', value: 0 };
+  if (typeof value === 'number') return { kind: 'absolute', value };
+  return { kind: 'relative', value: parseFloat(value) };
 }
 
 /**
@@ -50,13 +72,12 @@ export function resolveEffectiveHue(
 }
 
 /**
- * Check whether a lightness value represents an absolute root definition
- * (i.e. a number, not a relative string).
+ * Check whether a tone value represents an absolute root definition
+ * (i.e. a number, not a relative string). Extreme keywords (`'max'` /
+ * `'min'`) also count — they need no base.
  */
-export function isAbsoluteLightness(
-  lightness: HCPair<number | RelativeValue> | undefined,
-): boolean {
-  if (lightness === undefined) return false;
-  const normal = Array.isArray(lightness) ? lightness[0] : lightness;
-  return typeof normal === 'number';
+export function isAbsoluteTone(tone: HCPair<ToneValue> | undefined): boolean {
+  if (tone === undefined) return false;
+  const normal = Array.isArray(tone) ? tone[0] : tone;
+  return typeof normal === 'number' || isExtremeTone(normal);
 }

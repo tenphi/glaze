@@ -11,10 +11,20 @@ import { clamp } from './hc-pair';
 import type {
   ColorDef,
   MixColorDef,
-  ResolvedColorVariant,
   ShadowColorDef,
   ShadowTuning,
 } from './types';
+
+/**
+ * OKHSL-lightness variant shape used by the shadow math. The resolver
+ * converts the OKHST-stored variants to this shape at the shadow edge.
+ */
+export interface OkhslShadowVariant {
+  h: number;
+  s: number;
+  l: number;
+  alpha: number;
+}
 
 export function isShadowDef(def: ColorDef): def is ShadowColorDef {
   return (def as ShadowColorDef).type === 'shadow';
@@ -75,11 +85,11 @@ function computeRefT(tuning: Required<ShadowTuning>): number {
 }
 
 export function computeShadow(
-  bg: ResolvedColorVariant,
-  fg: ResolvedColorVariant | undefined,
+  bg: OkhslShadowVariant,
+  fg: OkhslShadowVariant | undefined,
   intensity: number,
   tuning: Required<ShadowTuning>,
-): ResolvedColorVariant {
+): OkhslShadowVariant {
   const EPSILON = 1e-6;
   const clampedIntensity = clamp(intensity, 0, 100);
   const contrastWeight = fg ? Math.abs(bg.l - fg.l) : 1;

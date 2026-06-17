@@ -20,8 +20,9 @@ Glaze generates robust **light**, **dark**, and **high-contrast** color schemes 
 
 ## Features
 
-- **OKHSL color space** — perceptually uniform hue and saturation
-- **WCAG 2 contrast solving** — automatic lightness adjustment to meet AA/AAA targets
+- **OKHST color space** — OKHSL with a contrast-uniform **tone** axis (equal tone steps give equal contrast). See [`docs/okhst.md`](docs/okhst.md).
+- **WCAG 2 + APCA contrast solving** — automatic tone adjustment to meet a WCAG ratio or APCA Lc floor
+- **Unified dark mode** — one tone space for light, dark, and high-contrast; dark is a single `100 − t` inversion, no fitted curve
 - **Mix colors** — blend two colors with OKHSL or sRGB interpolation, opaque or transparent, with optional contrast solving
 - **Shadow colors** — OKHSL-native shadow computation with automatic alpha, fg/bg tinting, and per-scheme adaptation
 - **Light + Dark + High-Contrast** — all schemes from one definition
@@ -56,11 +57,11 @@ import { glaze } from '@tenphi/glaze';
 const primary = glaze(280, 80);
 
 primary.colors({
-  surface:        { lightness: 97, saturation: 0.75 },
-  text:           { base: 'surface', lightness: '-52', contrast: 'AAA' },
-  border:         { base: 'surface', lightness: ['-7', '-20'], contrast: 'AA-large' },
-  'accent-fill':  { lightness: 52, mode: 'fixed' },
-  'accent-text':  { base: 'accent-fill', lightness: '+48', contrast: 'AA', mode: 'fixed' },
+  surface:        { tone: 97, saturation: 0.75 },
+  text:           { base: 'surface', tone: '-52', contrast: 'AAA' },
+  border:         { base: 'surface', tone: ['-7', '-20'], contrast: 'AA-large' },
+  'accent-fill':  { tone: 52, mode: 'fixed' },
+  'accent-text':  { base: 'accent-fill', tone: 'max', mode: 'fixed' },
   'shadow-md':    { type: 'shadow', bg: 'surface', fg: 'text', intensity: 10 },
 });
 
@@ -80,9 +81,10 @@ const tokens = palette.tokens();
 ## Concepts at a glance
 
 1. **Theme = one hue/saturation seed.** Status themes are siblings created via `extend()` — they inherit every color definition and only swap the seed.
-2. **Every color is explicit.** A color is either a *root* (absolute `lightness`) or *dependent* (`base` + relative offset and/or `contrast`). No implicit roles.
-3. **WCAG `contrast` is a floor, not a target.** The solver only widens a color's lightness when the requested position fails the requested ratio.
-4. **Light, dark, and high-contrast come from one definition.** `mode` (`auto` / `fixed` / `static`) picks how each color adapts; `lightness` / `contrast` / `intensity` / `value` accept an optional `[normal, hc]` pair for explicit high-contrast tuning.
+2. **Every color is explicit.** A color is either a *root* (absolute `tone`, or `'max'`/`'min'` for an extreme) or *dependent* (`base` + relative offset and/or `contrast`). No implicit roles.
+3. **Tone is contrast-uniform.** `tone` (0–100) replaces OKHSL lightness: equal tone steps give equal WCAG contrast, so ramps are even by construction. See [`docs/okhst.md`](docs/okhst.md).
+4. **`contrast` is a floor, not a target.** A bare number/preset is WCAG; `{ wcag }` / `{ apca }` selects the metric. The solver only shifts a color's tone when the requested position fails the requested floor.
+5. **Light, dark, and high-contrast come from one definition.** `mode` (`auto` / `fixed` / `static`) picks how each color adapts; `tone` / `contrast` / `intensity` / `value` accept an optional `[normal, hc]` pair for explicit high-contrast tuning.
 
 ## Documentation
 

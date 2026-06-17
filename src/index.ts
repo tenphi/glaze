@@ -1,8 +1,9 @@
 /**
- * Glaze — OKHSL-based color theme generator.
+ * Glaze — OKHST color theme generator.
  *
- * Generates robust light, dark, and high-contrast color schemes
- * from a hue/saturation seed with WCAG contrast solving.
+ * Generates robust light, dark, and high-contrast color schemes from a
+ * hue/saturation seed on a contrast-uniform tone axis, with WCAG + APCA
+ * contrast solving.
  */
 
 export { glaze } from './glaze';
@@ -11,15 +12,19 @@ export { glaze } from './glaze';
 export type {
   HCPair,
   MinContrast,
+  ContrastSpec,
   RelativeValue,
+  ExtremeValue,
+  ToneValue,
   AdaptationMode,
   GlazeColorFormat,
   GlazeOutputModes,
   HexColor,
   OkhslColor,
+  OkhstColor,
   RgbColor,
   OklchColor,
-  LightnessWindow,
+  ToneWindow,
   RegularColorDef,
   ShadowColorDef,
   ShadowTuning,
@@ -55,17 +60,32 @@ export type {
 
 // Re-export contrast solver utilities for advanced use
 export {
-  findLightnessForContrast,
+  findToneForContrast,
   findValueForMixContrast,
   resolveMinContrast,
+  resolveContrastForMode,
+  apcaContrast,
 } from './contrast-solver';
 export type {
   ContrastPreset,
-  FindLightnessForContrastOptions,
-  FindLightnessForContrastResult,
+  ResolvedContrast,
+  FindToneForContrastOptions,
+  FindToneForContrastResult,
   FindValueForMixContrastOptions,
   FindValueForMixContrastResult,
 } from './contrast-solver';
+
+// Re-export OKHST tone utilities for advanced use
+export {
+  toTone,
+  fromTone,
+  toneFromY,
+  yFromTone,
+  okhstToOkhsl,
+  okhslToOkhst,
+  variantToOkhsl,
+  REF_EPS,
+} from './okhst';
 
 // Re-export color math for advanced use
 export {

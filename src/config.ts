@@ -20,10 +20,10 @@ import type {
  */
 export function defaultConfig(): GlazeConfigResolved {
   return {
-    lightLightness: [10, 100],
-    darkLightness: [15, 95],
+    lightTone: { lo: 10, hi: 100, eps: 0.05 },
+    darkTone: { lo: 15, hi: 95, eps: 0.05 },
     darkDesaturation: 0.1,
-    darkCurve: 0.5,
+    saturationTaper: 0.15,
     states: {
       dark: '@dark',
       highContrast: '@high-contrast',
@@ -65,10 +65,10 @@ export function snapshotConfig(): GlazeConfigResolved {
 export function configure(config: GlazeConfig): void {
   configVersion++;
   globalConfig = {
-    lightLightness: config.lightLightness ?? globalConfig.lightLightness,
-    darkLightness: config.darkLightness ?? globalConfig.darkLightness,
+    lightTone: config.lightTone ?? globalConfig.lightTone,
+    darkTone: config.darkTone ?? globalConfig.darkTone,
     darkDesaturation: config.darkDesaturation ?? globalConfig.darkDesaturation,
-    darkCurve: config.darkCurve ?? globalConfig.darkCurve,
+    saturationTaper: config.saturationTaper ?? globalConfig.saturationTaper,
     states: {
       dark: config.states?.dark ?? globalConfig.states.dark,
       highContrast:
@@ -92,8 +92,8 @@ export function resetConfig(): void {
 /**
  * Merge a per-instance config override over a base resolved config.
  * Only fields present in `override` are replaced; others fall through
- * from `base`. `false` for lightness windows passes through as-is
- * (treated as `[0, 100]` by `lightnessWindow()` in scheme-mapping).
+ * from `base`. `false` for tone windows passes through as-is
+ * (treated as the full range by `activeWindow()` in okhst.ts).
  */
 export function mergeConfig(
   base: GlazeConfigResolved,
@@ -101,16 +101,12 @@ export function mergeConfig(
 ): GlazeConfigResolved {
   if (!override) return base;
   return {
-    lightLightness:
-      override.lightLightness !== undefined
-        ? override.lightLightness
-        : base.lightLightness,
-    darkLightness:
-      override.darkLightness !== undefined
-        ? override.darkLightness
-        : base.darkLightness,
+    lightTone:
+      override.lightTone !== undefined ? override.lightTone : base.lightTone,
+    darkTone:
+      override.darkTone !== undefined ? override.darkTone : base.darkTone,
     darkDesaturation: override.darkDesaturation ?? base.darkDesaturation,
-    darkCurve: override.darkCurve ?? base.darkCurve,
+    saturationTaper: override.saturationTaper ?? base.saturationTaper,
     states: base.states,
     modes: base.modes,
     shadowTuning: override.shadowTuning ?? base.shadowTuning,
