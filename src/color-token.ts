@@ -21,7 +21,8 @@ import {
   parseHexAlpha,
   srgbToOkhsl,
 } from './okhsl-color-math';
-import { isAbsoluteLightness, pairNormal } from './hc-pair';
+import { okhstToOkhsl, toTone } from './okhst';
+import { isAbsoluteTone, pairNormal } from './hc-pair';
 import { resolveAllColors } from './resolver';
 import {
   buildCssMap,
@@ -45,6 +46,7 @@ import type {
   GlazeJsonOptions,
   GlazeTokenOptions,
   OkhslColor,
+  OkhstColor,
   OklchColor,
   RgbColor,
   RegularColorDef,
@@ -57,7 +59,7 @@ import type {
 
 /** Internal name of the user-facing standalone color in the synthesized def map. */
 const STANDALONE_VALUE = 'value';
-/** Internal name of the hidden static-anchor seed used for relative lightness / contrast. */
+/** Internal name of the hidden static-anchor seed used for relative tone / contrast. */
 const STANDALONE_SEED = 'seed';
 /** Internal name of an externally-resolved `GlazeColorToken` injected as a base reference. */
 const STANDALONE_BASE = 'externalBase';
@@ -76,7 +78,7 @@ const RESERVED_STANDALONE_NAMES = new Set([
 /**
  * Build the per-token effective config override for a value-form color.
  *
- * Light window defaults to `false` (preserve input lightness exactly).
+ * Light window defaults to `false` (preserve input tone exactly).
  * All other fields snapshot from global at create time. User override
  * fields win over all defaults.
  */
@@ -85,16 +87,14 @@ function buildValueFormConfigOverride(
 ): GlazeConfigOverride {
   const cfg = getConfig();
   return {
-    lightLightness:
-      userOverride?.lightLightness !== undefined
-        ? userOverride.lightLightness
-        : false,
-    darkLightness:
-      userOverride?.darkLightness !== undefined
-        ? userOverride.darkLightness
-        : cfg.darkLightness,
+    lightTone:
+      userOverride?.lightTone !== undefined ? userOverride.lightTone : false,
+    darkTone:
+      userOverride?.darkTone !== undefined
+        ? userOverride.darkTone
+        : cfg.darkTone,
     darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
-    darkCurve: userOverride?.darkCurve ?? cfg.darkCurve,
+    saturationTaper: userOverride?.saturationTaper ?? cfg.saturationTaper,
     autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
     shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
   };
@@ -111,16 +111,16 @@ function buildStructuredConfigOverride(
 ): GlazeConfigOverride {
   const cfg = getConfig();
   return {
-    lightLightness:
-      userOverride?.lightLightness !== undefined
-        ? userOverride.lightLightness
-        : cfg.lightLightness,
-    darkLightness:
-      userOverride?.darkLightness !== undefined
-        ? userOverride.darkLightness
-        : cfg.darkLightness,
+    lightTone:
+      userOverride?.lightTone !== undefined
+        ? userOverride.lightTone
+        : cfg.lightTone,
+    darkTone:
+      userOverride?.darkTone !== undefined
+        ? userOverride.darkTone
+        : cfg.darkTone,
     darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
-    darkCurve: userOverride?.darkCurve ?? cfg.darkCurve,
+    saturationTaper: userOverride?.saturationTaper ?? cfg.saturationTaper,
     autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
     shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
   };
@@ -150,7 +150,7 @@ function resolvedConfigFromOverride(
  * than bare degrees (`deg` is the only suffix tolerated by `parseFloat`)
  * are out of scope.
  */
-const COLOR_FN_RE = /^(rgba?|hsla?|okhsl|oklch)\(\s*([^)]*)\s*\)$/i;
+const COLOR_FN_RE = /^(rgba?|hsla?|okhsl|okhst|oklch)\(\s*([^)]*)\s*\)$/i;
 
 function parseNumberOrPercent(raw: string, percentScale: number): number {
   if (raw.endsWith('%')) {
@@ -241,6 +241,12 @@ function parseColorString(input: string): OkhslColor {
       const l = parseNumberOrPercent(components[2], 1);
       return { h, s, l };
     }
+    case 'okhst': {
+      const h = parseFloat(components[0]);
+      const s = parseNumberOrPercent(components[1], 1);
+      const t = parseNumberOrPercent(components[2], 1);
+      return okhstToOkhsl({ h, s, t });
+    }
     case 'oklch': {
       const L = parseNumberOrPercent(components[0], 1);
       // Per CSS Color 4: chroma percent maps `100% → 0.4`.
@@ -271,7 +277,7 @@ function validateOkhslColor(value: OkhslColor): void {
   }
   if (s > 1.5 || l > 1.5) {
     throw new Error(
-      'glaze.color: OkhslColor s/l must be in 0–1 range. Did you mean the structured form { hue, saturation, lightness } (which uses 0–100)?',
+      'glaze.color: OkhslColor s/l must be in 0–1 range. Did you mean the structured form { hue, saturation, tone } (which uses 0–100)?',
     );
   }
 }
@@ -321,6 +327,23 @@ function isOklchColorObject(value: object): value is OklchColor {
   return 'c' in value && 'l' in value && 'h' in value;
 }
 
+function isOkhstColorObject(value: object): value is OkhstColor {
+  return 't' in value && 'h' in value && 's' in value;
+}
+
+/** Validate a user-supplied `{ h, s, t }` OKHST object (s/t in 0–1). */
+function validateOkhstColor(value: OkhstColor): void {
+  const { h, s, t } = value;
+  if (!Number.isFinite(h) || !Number.isFinite(s) || !Number.isFinite(t)) {
+    throw new Error('glaze.color: OkhstColor h/s/t must be finite numbers.');
+  }
+  if (s > 1.5 || t > 1.5) {
+    throw new Error(
+      'glaze.color: OkhstColor s/t must be in 0–1 range. Did you mean the structured form { hue, saturation, tone } (which uses 0–100)?',
+    );
+  }
+}
+
 /**
  * Validate a user-supplied `opacity` override on `glaze.color()`.
  * Must be a finite number in `0..=1`.
@@ -335,7 +358,7 @@ function validateStandaloneOpacity(value: number): void {
 
 /**
  * Validate a structured `GlazeColorInput`. Range-checks the `hue` /
- * `saturation` / `lightness` numerics (and any HC-pair second value)
+ * `saturation` / `tone` numerics (and any HC-pair second value)
  * before the resolver sees them so out-of-range or non-finite inputs
  * fail with a helpful, top-level error rather than producing a
  * NaN-laden token. `opacity` is checked here too so all input
@@ -356,18 +379,25 @@ function validateStructuredInput(input: GlazeColorInput): void {
       `glaze.color: structured saturation must be a finite number in 0–100 (got ${input.saturation}).`,
     );
   }
-  const checkLightness = (value: number, label: string): void => {
-    if (!Number.isFinite(value) || value < 0 || value > 100) {
+  const checkTone = (value: number | string, label: string): void => {
+    // 'max' / 'min' extreme keywords are always valid.
+    if (value === 'max' || value === 'min') return;
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      value > 100
+    ) {
       throw new Error(
-        `glaze.color: structured ${label} must be a finite number in 0–100 (got ${value}).`,
+        `glaze.color: structured ${label} must be a finite number in 0–100 or 'max'/'min' (got ${String(value)}).`,
       );
     }
   };
-  if (Array.isArray(input.lightness)) {
-    checkLightness(input.lightness[0], 'lightness[normal]');
-    checkLightness(input.lightness[1], 'lightness[hc]');
+  if (Array.isArray(input.tone)) {
+    checkTone(input.tone[0], 'tone[normal]');
+    checkTone(input.tone[1], 'tone[hc]');
   } else {
-    checkLightness(input.lightness, 'lightness');
+    checkTone(input.tone, 'tone');
   }
   if (input.saturationFactor !== undefined) {
     if (
@@ -430,6 +460,10 @@ export function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
     validateOklchColor(value);
     return oklchComponentsToOkhsl(value.l, value.c, value.h);
   }
+  if (isOkhstColorObject(value)) {
+    validateOkhstColor(value);
+    return okhstToOkhsl(value);
+  }
   validateOkhslColor(value);
   return value;
 }
@@ -451,7 +485,7 @@ interface ValueDefsResult {
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
  * across every value-shorthand form.
  *
- * When the user requests `contrast` or relative `lightness`, a hidden
+ * When the user requests `contrast` or relative `tone`, a hidden
  * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
  * the seed pinned to the literal user-provided color across all four
  * variants, so the contrast solver always anchors against it.
@@ -465,15 +499,15 @@ function buildStandaloneValueDefs(
   const relativeHue =
     typeof options?.hue === 'string' ? options.hue : undefined;
 
-  const lightnessOption = options?.lightness;
+  const toneOption = options?.tone;
   const hasExternalBase = options?.base !== undefined;
   // Seed-anchor synthesis only kicks in when the user did NOT supply their
-  // own base — in that case `contrast` and relative `lightness` anchor to
+  // own base — in that case `contrast` and relative `tone` anchor to
   // the literal seed via the hidden `STANDALONE_SEED` def.
   const needsSeedAnchor =
     !hasExternalBase &&
     (options?.contrast !== undefined ||
-      (lightnessOption !== undefined && !isAbsoluteLightness(lightnessOption)));
+      (toneOption !== undefined && !isAbsoluteTone(toneOption)));
 
   if (options?.opacity !== undefined)
     validateStandaloneOpacity(options.opacity);
@@ -482,12 +516,16 @@ function buildStandaloneValueDefs(
   if (userName !== undefined) validateStandaloneName(userName);
   const primary = userName ?? STANDALONE_VALUE;
 
+  // The seed color is given in OKHSL lightness; express it as canonical tone.
+  const seedTone = toTone(main.l);
+
   const valueDef: RegularColorDef = {
     hue: relativeHue,
     saturation: options?.saturationFactor,
-    lightness: lightnessOption ?? main.l * 100,
+    tone: toneOption ?? seedTone,
     contrast: options?.contrast,
     mode: options?.mode ?? 'auto',
+    flip: options?.flip,
     opacity: options?.opacity,
     base: hasExternalBase
       ? STANDALONE_BASE
@@ -502,7 +540,7 @@ function buildStandaloneValueDefs(
     defs[STANDALONE_SEED] = {
       hue: main.h,
       saturation: 1,
-      lightness: main.l * 100,
+      tone: seedTone,
       mode: 'static',
     };
   }
@@ -595,9 +633,9 @@ function createColorTokenFromDefs(
 
 /**
  * When a value/`from` color links to a base that was created via the
- * structured form (with explicit `hue`/`saturation`/`lightness`), resolve
- * that base with `lightLightness: false` for the linking math so the
- * contrast/lightness anchor matches the input lightness — not the
+ * structured form (with explicit `hue`/`saturation`/`tone`), resolve
+ * that base with `lightTone: false` for the linking math so the
+ * contrast/tone anchor matches the input tone — not the
  * windowed output. The original base token's `.resolve()` is unaffected.
  */
 function toLinkingBase(
@@ -608,7 +646,7 @@ function toLinkingBase(
   if (exp.form !== 'structured') return base;
   const linkingConfig: GlazeConfigOverride = {
     ...(exp.config ?? {}),
-    lightLightness: false,
+    lightTone: false,
   };
   return colorFromExport({ ...exp, config: linkingConfig });
 }
@@ -662,9 +700,10 @@ export function createColorToken(
 
   const defs: ColorMap = {
     [primary]: {
-      lightness: input.lightness,
+      tone: input.tone,
       saturation: input.saturationFactor,
       mode: input.mode ?? 'auto',
+      flip: input.flip,
       contrast: input.contrast,
       opacity: input.opacity,
       base: hasExternalBase
@@ -676,8 +715,11 @@ export function createColorToken(
   };
 
   if (needsSeedAnchor) {
+    const seedTone = pairNormal(input.tone);
     defs[STANDALONE_SEED] = {
-      lightness: pairNormal(input.lightness),
+      // The seed anchor must be a concrete tone; resolve 'max'/'min' to its
+      // extreme so the static anchor is well-defined.
+      tone: seedTone === 'max' ? 100 : seedTone === 'min' ? 0 : seedTone,
       saturation: 1,
       mode: 'static',
     };
@@ -715,8 +757,8 @@ export function createColorTokenFromValue(
   const main = extractOkhslFromValue(value);
   const rawBaseToken = resolveBaseToken(options?.base);
   // For linking math, structured bases are re-resolved at full range
-  // (lightLightness: false) so contrast/lightness anchors use the
-  // input lightness, not the windowed output.
+  // (lightTone: false) so contrast/tone anchors use the
+  // input tone, not the windowed output.
   const linkingBase = toLinkingBase(rawBaseToken);
   const { seedHue, seedSaturation, defs, primary } = buildStandaloneValueDefs(
     main,
@@ -761,11 +803,12 @@ function buildOverridesExport(
   const out: GlazeColorOverridesExport = {};
   if (options.hue !== undefined) out.hue = options.hue;
   if (options.saturation !== undefined) out.saturation = options.saturation;
-  if (options.lightness !== undefined) out.lightness = options.lightness;
+  if (options.tone !== undefined) out.tone = options.tone;
   if (options.saturationFactor !== undefined) {
     out.saturationFactor = options.saturationFactor;
   }
   if (options.mode !== undefined) out.mode = options.mode;
+  if (options.flip !== undefined) out.flip = options.flip;
   if (options.contrast !== undefined) out.contrast = options.contrast;
   if (options.opacity !== undefined) out.opacity = options.opacity;
   if (options.name !== undefined) out.name = options.name;
@@ -783,12 +826,13 @@ function buildStructuredInputExport(
   const out: GlazeColorInputExport = {
     hue: input.hue,
     saturation: input.saturation,
-    lightness: input.lightness,
+    tone: input.tone,
   };
   if (input.saturationFactor !== undefined) {
     out.saturationFactor = input.saturationFactor;
   }
   if (input.mode !== undefined) out.mode = input.mode;
+  if (input.flip !== undefined) out.flip = input.flip;
   if (input.opacity !== undefined) out.opacity = input.opacity;
   if (input.contrast !== undefined) out.contrast = input.contrast;
   if (input.name !== undefined) out.name = input.name;
@@ -820,11 +864,12 @@ function rehydrateOverrides(
   const out: GlazeColorOverrides = {};
   if (data.hue !== undefined) out.hue = data.hue;
   if (data.saturation !== undefined) out.saturation = data.saturation;
-  if (data.lightness !== undefined) out.lightness = data.lightness;
+  if (data.tone !== undefined) out.tone = data.tone;
   if (data.saturationFactor !== undefined) {
     out.saturationFactor = data.saturationFactor;
   }
   if (data.mode !== undefined) out.mode = data.mode;
+  if (data.flip !== undefined) out.flip = data.flip;
   if (data.contrast !== undefined) out.contrast = data.contrast;
   if (data.opacity !== undefined) out.opacity = data.opacity;
   if (data.name !== undefined) out.name = data.name;
@@ -842,12 +887,13 @@ function rehydrateStructuredInput(
   const out: GlazeColorInput = {
     hue: data.hue,
     saturation: data.saturation,
-    lightness: data.lightness,
+    tone: data.tone,
   };
   if (data.saturationFactor !== undefined) {
     out.saturationFactor = data.saturationFactor;
   }
   if (data.mode !== undefined) out.mode = data.mode;
+  if (data.flip !== undefined) out.flip = data.flip;
   if (data.opacity !== undefined) out.opacity = data.opacity;
   if (data.contrast !== undefined) out.contrast = data.contrast;
   if (data.name !== undefined) out.name = data.name;

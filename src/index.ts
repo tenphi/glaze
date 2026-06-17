@@ -11,15 +11,19 @@ export { glaze } from './glaze';
 export type {
   HCPair,
   MinContrast,
+  ContrastSpec,
   RelativeValue,
+  ExtremeValue,
+  ToneValue,
   AdaptationMode,
   GlazeColorFormat,
   GlazeOutputModes,
   HexColor,
   OkhslColor,
+  OkhstColor,
   RgbColor,
   OklchColor,
-  LightnessWindow,
+  ToneWindow,
   RegularColorDef,
   ShadowColorDef,
   ShadowTuning,
@@ -55,17 +59,32 @@ export type {
 
 // Re-export contrast solver utilities for advanced use
 export {
-  findLightnessForContrast,
+  findToneForContrast,
   findValueForMixContrast,
   resolveMinContrast,
+  resolveContrastForMode,
+  apcaContrast,
 } from './contrast-solver';
 export type {
   ContrastPreset,
-  FindLightnessForContrastOptions,
-  FindLightnessForContrastResult,
+  ResolvedContrast,
+  FindToneForContrastOptions,
+  FindToneForContrastResult,
   FindValueForMixContrastOptions,
   FindValueForMixContrastResult,
 } from './contrast-solver';
+
+// Re-export OKHST tone utilities for advanced use
+export {
+  toTone,
+  fromTone,
+  toneFromY,
+  yFromTone,
+  okhstToOkhsl,
+  okhslToOkhst,
+  variantToOkhsl,
+  REF_EPS,
+} from './okhst';
 
 // Re-export color math for advanced use
 export {

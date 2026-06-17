@@ -3,16 +3,17 @@ description: Glaze project structure, purpose, commands, and conventions
 alwaysApply: true
 ---
 
-# Glaze — OKHSL Color Theme Generator
+# Glaze — OKHST Color Theme Generator
 
-Package: `@tenphi/glaze` — zero-dependency, OKHSL-based color theme generator with WCAG contrast solving for light, dark, and high-contrast schemes.
+Package: `@tenphi/glaze` — zero-dependency color theme generator built on OKHST (OKHSL with a contrast-uniform **tone** axis), with WCAG + APCA contrast solving for light, dark, and high-contrast schemes.
 
 ## Key Features
 
-- OKHSL color space (perceptually uniform)
-- WCAG 2 contrast solving (automatic lightness adjustment)
+- OKHST color model — OKHSL rendering substrate with a contrast-uniform `tone` axis (equal tone steps → equal contrast)
+- WCAG 2 + APCA contrast solving (automatic tone adjustment)
+- Unified dark mode — single `100 − t` tone inversion, no fitted curve
 - Multi-scheme generation (light, dark, high-contrast)
-- Multi-format output (`okhsl`, `rgb`, `hsl`, `oklch`)
+- Multi-format output (`okhsl`, `rgb`, `hsl`, `oklch`); `okhst` is input-only
 - Import/export (serialize/restore theme configs)
 - Tree-shakeable ESM + CJS dual-format package
 - TypeScript-first with full type definitions
@@ -24,8 +25,9 @@ src/
   index.ts                 # Entry point, re-exports everything
   glaze.ts                 # Core theme factory: glaze(), glaze.palette(), glaze.from(), etc.
   types.ts                 # All TypeScript type definitions
+  okhst.ts                 # OKHST tone layer: tone↔lightness transfers, scheme mapping, taper
   okhsl-color-math.ts      # OKHSL/sRGB/OKLab conversions, hex parsing, format functions
-  contrast-solver.ts        # Binary-search WCAG contrast solver
+  contrast-solver.ts        # Tone-based WCAG + APCA contrast solver
   glaze.test.ts            # Main test suite
   contrast-solver.test.ts  # Contrast solver tests
 ```

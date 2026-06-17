@@ -70,10 +70,16 @@ const EPSILON = 1e-10;
 // ============================================================================
 
 const constrainAngle = (angle: number): number => ((angle % 360) + 360) % 360;
-const toe = (x: number): number =>
+/**
+ * OKHSL toe function: maps OKLab lightness L to perceptual lightness l.
+ * Exported for the OKHST tone transfers in `okhst.ts`.
+ */
+export const toe = (x: number): number =>
   0.5 *
   (K3 * x - K1 + Math.sqrt((K3 * x - K1) * (K3 * x - K1) + 4 * K2 * K3 * x));
-const toeInv = (x: number): number => (x ** 2 + K1 * x) / (K3 * (x + K2));
+/** Inverse OKHSL toe: maps perceptual lightness l back to OKLab lightness L. */
+export const toeInv = (x: number): number =>
+  (x ** 2 + K1 * x) / (K3 * (x + K2));
 const dot3 = (a: Vec3, b: Vec3): number =>
   a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const dotXY = (a: [number, number], b: [number, number]): number =>

@@ -15,6 +15,7 @@ import {
   formatOklch,
   formatRgb,
 } from './okhsl-color-math';
+import { variantToOkhsl } from './okhst';
 import { getConfig } from './config';
 import type {
   GlazeColorFormat,
@@ -42,7 +43,9 @@ export function formatVariant(
   v: ResolvedColorVariant,
   format: GlazeColorFormat = 'okhsl',
 ): string {
-  const base = formatters[format](v.h, v.s * 100, v.l * 100);
+  // Variants store canonical tone; convert to OKHSL lightness at the edge.
+  const { l } = variantToOkhsl(v);
+  const base = formatters[format](v.h, v.s * 100, l * 100);
   if (v.alpha >= 1) return base;
   const closing = base.lastIndexOf(')');
   return `${base.slice(0, closing)} / ${fmt(v.alpha, 4)})`;

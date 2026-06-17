@@ -6,6 +6,11 @@
  * Owns the per-scheme resolve helpers for regular, shadow, and mix
  * color defs.
  *
+ * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
+ * `t` is the canonical contrast-uniform tone (0–1, reference eps). The
+ * resolver works in tone for regular colors and converts to/from OKHSL
+ * lightness only at the mix/shadow and luminance edges.
+ *
  * Every function receives a single `GlazeConfigResolved` so the full
  * per-instance config (including overrides) is available without
  * re-reading the global singleton mid-resolve.
@@ -18,16 +23,17 @@ import {
   srgbToOkhsl,
 } from './okhsl-color-math';
 import {
-  findLightnessForContrast,
+  findToneForContrast,
   findValueForMixContrast,
+  resolveContrastForMode,
 } from './contrast-solver';
-import type { LinearRgb } from './contrast-solver';
+import type { LinearRgb, ResolvedContrast } from './contrast-solver';
 import {
   clamp,
-  isAbsoluteLightness,
+  isAbsoluteTone,
   pairHC,
   pairNormal,
-  parseRelativeOrAbsolute,
+  parseToneValue,
   resolveEffectiveHue,
 } from './hc-pair';
 import {
@@ -38,19 +44,25 @@ import {
   resolveShadowTuning,
 } from './shadow';
 import {
-  lightMappedToDark,
-  mapLightnessDark,
-  mapLightnessLight,
+  fromTone,
+  lightToneMappedToDark,
   mapSaturationDark,
-  schemeLightnessRange,
-} from './scheme-mapping';
+  mapToneForScheme,
+  okhslToOkhst,
+  saturationEnvelope,
+  schemeToneRange,
+  toTone,
+  variantToOkhsl,
+} from './okhst';
 import { topoSort, validateColorDefs } from './validation';
-import { warnContrastUnmet } from './warnings';
+import { warnContrastUnmet, warnContrastDrift } from './warnings';
 import type {
   AdaptationMode,
   ColorDef,
   ColorMap,
+  ContrastSpec,
   GlazeConfigResolved,
+  HCPair,
   MixColorDef,
   RegularColorDef,
   ResolvedColor,
@@ -69,6 +81,14 @@ export interface ResolveContext {
 
 type ResolvedField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
 
+/** An OKHSL-lightness-shaped variant used at the mix/shadow edge. */
+interface OkhslVariant {
+  h: number;
+  s: number;
+  l: number;
+  alpha: number;
+}
+
 export function getSchemeVariant(
   color: ResolvedColor,
   isDark: boolean,
@@ -80,18 +100,54 @@ export function getSchemeVariant(
   return color.light;
 }
 
+/** Edge adapter: resolved variant (`t`) → OKHSL-lightness variant. */
+function toOkhslVariant(v: ResolvedColorVariant): OkhslVariant {
+  const c = variantToOkhsl(v);
+  return { h: c.h, s: c.s, l: c.l, alpha: v.alpha };
+}
+
+/** Edge adapter: OKHSL-lightness variant → resolved variant (`t`). */
+function toToneVariant(v: OkhslVariant): ResolvedColorVariant {
+  const c = okhslToOkhst({ h: v.h, s: v.s, l: v.l });
+  return { h: c.h, s: c.s, t: c.t, alpha: v.alpha };
+}
+
+function resolveContrastSpec(
+  spec: HCPair<ContrastSpec>,
+  isHighContrast: boolean,
+): ResolvedContrast {
+  const outer = isHighContrast ? pairHC(spec) : pairNormal(spec);
+  return resolveContrastForMode(outer, isHighContrast);
+}
+
+/**
+ * Apply the relative-tone delta against a base, honoring `flip`.
+ *
+ * When `flip` is on and `base + delta` falls outside `[0, 100]`, mirror the
+ * delta to the other side of the base (so an offset that would clamp instead
+ * reflects back into range). When off, the caller clamps as usual.
+ */
+function applyToneFlip(delta: number, baseTone: number, flip: boolean): number {
+  if (!flip) return delta;
+  const target = baseTone + delta;
+  if (target >= 0 && target <= 100) return delta;
+  return -delta;
+}
+
 function resolveRootColor(
   _name: string,
   def: RegularColorDef,
   _ctx: ResolveContext,
   isHighContrast: boolean,
-): { lightL: number; satFactor: number } {
-  const rawL = def.lightness!;
-  const rawValue = isHighContrast ? pairHC(rawL) : pairNormal(rawL);
-  const parsed = parseRelativeOrAbsolute(rawValue);
-  const lightL = clamp(parsed.value, 0, 100);
+): { authorTone: number; satFactor: number } {
+  const rawT = def.tone!;
+  const rawValue = isHighContrast ? pairHC(rawT) : pairNormal(rawT);
+  // Root tone is absolute or extreme ('max' = 100, 'min' = 0); both flow
+  // through mapToneForScheme (and invert in dark under mode 'auto').
+  const parsed = parseToneValue(rawValue);
+  const authorTone = clamp(parsed.value, 0, 100);
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
-  return { lightL, satFactor };
+  return { authorTone, satFactor };
 }
 
 function resolveDependentColor(
@@ -101,7 +157,7 @@ function resolveDependentColor(
   isHighContrast: boolean,
   isDark: boolean,
   effectiveHue: number,
-): { l: number; satFactor: number } {
+): { tone: number; satFactor: number } {
   const baseName = def.base!;
   const baseResolved = ctx.resolved.get(baseName);
   if (!baseResolved) {
@@ -112,110 +168,103 @@ function resolveDependentColor(
 
   const mode = def.mode ?? 'auto';
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
+  const flip = def.flip ?? ctx.config.autoFlip;
 
   const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);
-  const baseL = baseVariant.l * 100;
+  const baseTone = baseVariant.t * 100;
 
-  let preferredL: number;
-  const rawLightness = def.lightness;
+  let preferredTone: number;
+  const rawTone = def.tone;
 
-  if (rawLightness === undefined) {
-    preferredL = baseL;
+  if (rawTone === undefined) {
+    preferredTone = baseTone;
   } else {
-    const rawValue = isHighContrast
-      ? pairHC(rawLightness)
-      : pairNormal(rawLightness);
-    const parsed = parseRelativeOrAbsolute(rawValue);
+    const rawValue = isHighContrast ? pairHC(rawTone) : pairNormal(rawTone);
+    const parsed = parseToneValue(rawValue);
 
-    if (parsed.relative) {
-      const delta = parsed.value;
+    if (parsed.kind === 'relative') {
+      const delta = applyToneFlip(parsed.value, baseTone, flip);
       if (isDark && mode === 'auto') {
         const baseLightVariant = getSchemeVariant(
           baseResolved,
           false,
           isHighContrast,
         );
-        const absoluteLightL = clamp(baseLightVariant.l * 100 + delta, 0, 100);
-        preferredL = lightMappedToDark(
-          absoluteLightL,
+        const baseLightTone = baseLightVariant.t * 100;
+        const absoluteLightTone = clamp(
+          baseLightTone + applyToneFlip(parsed.value, baseLightTone, flip),
+          0,
+          100,
+        );
+        preferredTone = lightToneMappedToDark(
+          absoluteLightTone,
           isHighContrast,
           ctx.config,
         );
       } else {
-        preferredL = clamp(baseL + delta, 0, 100);
+        preferredTone = clamp(baseTone + delta, 0, 100);
       }
     } else {
-      if (isDark) {
-        preferredL = mapLightnessDark(
-          parsed.value,
-          mode,
-          isHighContrast,
-          ctx.config,
-        );
-      } else {
-        preferredL = mapLightnessLight(
-          parsed.value,
-          mode,
-          isHighContrast,
-          ctx.config,
-        );
-      }
+      // Absolute or extreme ('max' = 100, 'min' = 0): map through the scheme.
+      preferredTone = mapToneForScheme(
+        parsed.value,
+        mode,
+        isDark,
+        isHighContrast,
+        ctx.config,
+      );
     }
   }
 
   const rawContrast = def.contrast;
   if (rawContrast !== undefined) {
-    const minCr = isHighContrast
-      ? pairHC(rawContrast)
-      : pairNormal(rawContrast);
+    const resolvedContrast = resolveContrastSpec(rawContrast, isHighContrast);
 
     const effectiveSat = isDark
       ? mapSaturationDark((satFactor * ctx.saturation) / 100, mode, ctx.config)
       : (satFactor * ctx.saturation) / 100;
 
+    const baseOkhsl = toOkhslVariant(baseVariant);
     const baseLinearRgb = okhslToLinearSrgb(
-      baseVariant.h,
-      baseVariant.s,
-      baseVariant.l,
+      baseOkhsl.h,
+      baseOkhsl.s,
+      baseOkhsl.l,
     );
 
-    const windowRange = schemeLightnessRange(
-      isDark,
-      mode,
-      isHighContrast,
-      ctx.config,
-    );
+    const toneRange = schemeToneRange(isDark, mode, isHighContrast, ctx.config);
 
     let initialDirection: 'lighter' | 'darker' | undefined;
-    if (preferredL < baseL) {
+    if (preferredTone < baseTone) {
       initialDirection = 'darker';
-    } else if (preferredL > baseL) {
+    } else if (preferredTone > baseTone) {
       initialDirection = 'lighter';
     }
 
-    const result = findLightnessForContrast({
+    const result = findToneForContrast({
       hue: effectiveHue,
       saturation: effectiveSat,
-      preferredLightness: clamp(
-        preferredL / 100,
-        windowRange[0],
-        windowRange[1],
-      ),
+      preferredTone: clamp(preferredTone / 100, toneRange[0], toneRange[1]),
       baseLinearRgb,
-      contrast: minCr,
-      lightnessRange: [0, 1],
+      contrast: resolvedContrast,
+      toneRange: [0, 1],
       initialDirection,
-      flip: ctx.config.autoFlip,
+      flip,
     });
 
     if (!result.met) {
-      warnContrastUnmet(name, isDark, isHighContrast, minCr, result.contrast);
+      warnContrastUnmet(
+        name,
+        isDark,
+        isHighContrast,
+        resolvedContrast,
+        result.contrast,
+      );
     }
 
-    return { l: result.lightness * 100, satFactor };
+    return { tone: result.tone * 100, satFactor };
   }
 
-  return { l: clamp(preferredL, 0, 100), satFactor };
+  return { tone: clamp(preferredTone, 0, 100), satFactor };
 }
 
 function resolveColorForScheme(
@@ -235,15 +284,21 @@ function resolveColorForScheme(
 
   const regDef = def as RegularColorDef;
   const mode = regDef.mode ?? 'auto';
-  const isRoot = isAbsoluteLightness(regDef.lightness) && !regDef.base;
+  const isRoot = isAbsoluteTone(regDef.tone) && !regDef.base;
   const effectiveHue = resolveEffectiveHue(ctx.hue, regDef.hue);
 
-  let lightL: number;
+  let finalTone: number;
   let satFactor: number;
 
   if (isRoot) {
     const root = resolveRootColor(name, regDef, ctx, isHighContrast);
-    lightL = root.lightL;
+    finalTone = mapToneForScheme(
+      root.authorTone,
+      mode,
+      isDark,
+      isHighContrast,
+      ctx.config,
+    );
     satFactor = root.satFactor;
   } else {
     const dep = resolveDependentColor(
@@ -254,39 +309,26 @@ function resolveColorForScheme(
       isDark,
       effectiveHue,
     );
-    lightL = dep.l;
+    finalTone = dep.tone;
     satFactor = dep.satFactor;
   }
 
-  let finalL: number;
-  let finalSat: number;
+  const baseSat = (satFactor * ctx.saturation) / 100;
+  let finalSat = isDark
+    ? mapSaturationDark(baseSat, mode, ctx.config)
+    : baseSat;
 
-  if (isDark && isRoot) {
-    finalL = mapLightnessDark(lightL, mode, isHighContrast, ctx.config);
-    finalSat = mapSaturationDark(
-      (satFactor * ctx.saturation) / 100,
-      mode,
-      ctx.config,
-    );
-  } else if (isDark && !isRoot) {
-    finalL = lightL;
-    finalSat = mapSaturationDark(
-      (satFactor * ctx.saturation) / 100,
-      mode,
-      ctx.config,
-    );
-  } else if (isRoot) {
-    finalL = mapLightnessLight(lightL, mode, isHighContrast, ctx.config);
-    finalSat = (satFactor * ctx.saturation) / 100;
-  } else {
-    finalL = lightL;
-    finalSat = (satFactor * ctx.saturation) / 100;
-  }
+  const toneFraction = clamp(finalTone / 100, 0, 1);
+  finalSat = saturationEnvelope(
+    finalSat,
+    toneFraction,
+    ctx.config.saturationTaper,
+  );
 
   return {
     h: effectiveHue,
     s: clamp(finalSat, 0, 1),
-    l: clamp(finalL / 100, 0, 1),
+    t: toneFraction,
     alpha: regDef.opacity ?? 1,
   };
 }
@@ -298,12 +340,16 @@ function resolveShadowForScheme(
   isHighContrast: boolean,
 ): ResolvedColorVariant {
   const bgResolved = ctx.resolved.get(def.bg)!;
-  const bgVariant = getSchemeVariant(bgResolved, isDark, isHighContrast);
+  const bgVariant = toOkhslVariant(
+    getSchemeVariant(bgResolved, isDark, isHighContrast),
+  );
 
-  let fgVariant: ResolvedColorVariant | undefined;
+  let fgVariant: OkhslVariant | undefined;
   if (def.fg) {
     const fgResolved = ctx.resolved.get(def.fg)!;
-    fgVariant = getSchemeVariant(fgResolved, isDark, isHighContrast);
+    fgVariant = toOkhslVariant(
+      getSchemeVariant(fgResolved, isDark, isHighContrast),
+    );
   }
 
   const intensity = isHighContrast
@@ -311,10 +357,10 @@ function resolveShadowForScheme(
     : pairNormal(def.intensity);
 
   const tuning = resolveShadowTuning(def.tuning, ctx.config.shadowTuning);
-  return computeShadow(bgVariant, fgVariant, intensity, tuning);
+  return toToneVariant(computeShadow(bgVariant, fgVariant, intensity, tuning));
 }
 
-function variantToLinearRgb(v: ResolvedColorVariant): LinearRgb {
+function okhslVariantToLinearRgb(v: OkhslVariant): LinearRgb {
   return okhslToLinearSrgb(v.h, v.s, v.l);
 }
 
@@ -324,11 +370,7 @@ function variantToLinearRgb(v: ResolvedColorVariant): LinearRgb {
  * use the hue from the color that has saturation (matches CSS
  * color-mix "missing component" behavior).
  */
-function mixHue(
-  base: ResolvedColorVariant,
-  target: ResolvedColorVariant,
-  t: number,
-): number {
+function mixHue(base: OkhslVariant, target: OkhslVariant, t: number): number {
   const SAT_EPSILON = 1e-6;
   const baseHasSat = base.s > SAT_EPSILON;
   const targetHasSat = target.s > SAT_EPSILON;
@@ -350,14 +392,14 @@ function linearSrgbLerp(
   ];
 }
 
-function linearRgbToVariant(rgb: LinearRgb): ResolvedColorVariant {
+function linearRgbToToneVariant(rgb: LinearRgb): ResolvedColorVariant {
   const gamma: [number, number, number] = [
     Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[0]))),
     Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[1]))),
     Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[2]))),
   ];
   const [h, s, l] = srgbToOkhsl(gamma);
-  return { h, s, l, alpha: 1 };
+  return toToneVariant({ h, s, l, alpha: 1 });
 }
 
 function resolveMixForScheme(
@@ -368,11 +410,11 @@ function resolveMixForScheme(
 ): ResolvedColorVariant {
   const baseResolved = ctx.resolved.get(def.base)!;
   const targetResolved = ctx.resolved.get(def.target)!;
-  const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);
-  const targetVariant = getSchemeVariant(
-    targetResolved,
-    isDark,
-    isHighContrast,
+  const baseVariant = toOkhslVariant(
+    getSchemeVariant(baseResolved, isDark, isHighContrast),
+  );
+  const targetVariant = toOkhslVariant(
+    getSchemeVariant(targetResolved, isDark, isHighContrast),
   );
 
   const rawValue = isHighContrast ? pairHC(def.value) : pairNormal(def.value);
@@ -380,20 +422,15 @@ function resolveMixForScheme(
 
   const blend = def.blend ?? 'opaque';
   const space = def.space ?? 'okhsl';
-  const baseLinear = variantToLinearRgb(baseVariant);
-  const targetLinear = variantToLinearRgb(targetVariant);
+  const baseLinear = okhslVariantToLinearRgb(baseVariant);
+  const targetLinear = okhslVariantToLinearRgb(targetVariant);
 
   if (def.contrast !== undefined) {
-    const minCr = isHighContrast
-      ? pairHC(def.contrast)
-      : pairNormal(def.contrast);
+    const resolvedContrast = resolveContrastSpec(def.contrast, isHighContrast);
 
     let luminanceAt: (v: number) => number;
 
-    if (blend === 'transparent') {
-      luminanceAt = (v: number) =>
-        gamutClampedLuminance(linearSrgbLerp(baseLinear, targetLinear, v));
-    } else if (space === 'srgb') {
+    if (blend === 'transparent' || space === 'srgb') {
       luminanceAt = (v: number) =>
         gamutClampedLuminance(linearSrgbLerp(baseLinear, targetLinear, v));
     } else {
@@ -409,7 +446,7 @@ function resolveMixForScheme(
       preferredValue: t,
       baseLinearRgb: baseLinear,
       targetLinearRgb: targetLinear,
-      contrast: minCr,
+      contrast: resolvedContrast,
       luminanceAtValue: luminanceAt,
       flip: ctx.config.autoFlip,
     });
@@ -417,25 +454,25 @@ function resolveMixForScheme(
   }
 
   if (blend === 'transparent') {
-    return {
+    return toToneVariant({
       h: targetVariant.h,
       s: targetVariant.s,
       l: targetVariant.l,
       alpha: clamp(t, 0, 1),
-    };
+    });
   }
 
   if (space === 'srgb') {
     const mixed = linearSrgbLerp(baseLinear, targetLinear, t);
-    return linearRgbToVariant(mixed);
+    return linearRgbToToneVariant(mixed);
   }
 
-  return {
+  return toToneVariant({
     h: mixHue(baseVariant, targetVariant, t),
     s: clamp(baseVariant.s + (targetVariant.s - baseVariant.s) * t, 0, 1),
     l: clamp(baseVariant.l + (targetVariant.l - baseVariant.l) * t, 0, 1),
     alpha: 1,
-  };
+  });
 }
 
 function defMode(def: ColorDef): AdaptationMode | undefined {
@@ -500,6 +537,53 @@ function seedField(
   }
 }
 
+/**
+ * After the four passes, surface chromatic contrast drift (§10): a color
+ * resolved with a `base` + `contrast` may land slightly under the contrast
+ * its tone implies because chromatic luminance drifts from the gray tone.
+ */
+function verifyContrastDrift(
+  order: string[],
+  defs: ColorMap,
+  result: Map<string, ResolvedColor>,
+): void {
+  for (const name of order) {
+    const def = defs[name];
+    if (isShadowDef(def) || isMixDef(def)) continue;
+    const regDef = def as RegularColorDef;
+    if (regDef.contrast === undefined || !regDef.base) continue;
+    const color = result.get(name);
+    const base = result.get(regDef.base);
+    if (!color || !base) continue;
+
+    const schemes: {
+      isDark: boolean;
+      isHighContrast: boolean;
+      field: ResolvedField;
+    }[] = [
+      { isDark: false, isHighContrast: false, field: 'light' },
+      { isDark: false, isHighContrast: true, field: 'lightContrast' },
+      { isDark: true, isHighContrast: false, field: 'dark' },
+      { isDark: true, isHighContrast: true, field: 'darkContrast' },
+    ];
+
+    for (const s of schemes) {
+      const spec = resolveContrastSpec(regDef.contrast, s.isHighContrast);
+      const cVariant = color[s.field];
+      const bVariant = base[s.field];
+      const cOkhsl = toOkhslVariant(cVariant);
+      const bOkhsl = toOkhslVariant(bVariant);
+      const yC = gamutClampedLuminance(
+        okhslToLinearSrgb(cOkhsl.h, cOkhsl.s, cOkhsl.l),
+      );
+      const yB = gamutClampedLuminance(
+        okhslToLinearSrgb(bOkhsl.h, bOkhsl.s, bOkhsl.l),
+      );
+      warnContrastDrift(name, s.isDark, s.isHighContrast, spec, yC, yB);
+    }
+  }
+}
+
 export function resolveAllColors(
   hue: number,
   saturation: number,
@@ -527,16 +611,14 @@ export function resolveAllColors(
     }
   }
 
-  // Pass 1: Light normal. `runPass` initializes each local ResolvedColor
-  // with all four slots seeded with the just-computed light variant.
+  // Pass 1: Light normal.
   const lightMap = runPass(order, defs, ctx, false, false, 'light');
 
   // Pass 2: Light high-contrast.
   seedField(order, ctx, 'lightContrast', lightMap);
   const lightHCMap = runPass(order, defs, ctx, false, true, 'lightContrast');
 
-  // Pass 3: Dark normal. Seed dark/darkContrast from the light passes
-  // so HC-dependent and base lookups have sensible starting points.
+  // Pass 3: Dark normal.
   seedField(order, ctx, 'dark', lightMap);
   seedField(order, ctx, 'darkContrast', lightHCMap);
   const darkMap = runPass(order, defs, ctx, true, false, 'dark');
@@ -557,5 +639,10 @@ export function resolveAllColors(
     });
   }
 
+  verifyContrastDrift(order, defs, result);
+
   return result;
 }
+
+// Re-export for callers that previously imported tone helpers from here.
+export { fromTone, toTone };

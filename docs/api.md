@@ -39,7 +39,7 @@ const d = glaze.fromRgb(122, 77, 191);
 const e = glaze.from(a.export());
 
 // Per-theme config override:
-const rawTheme = glaze(280, 80, { lightLightness: false, darkLightness: false });
+const rawTheme = glaze(280, 80, { lightTone: false, darkTone: false });
 ```
 
 The optional `config` parameter is a `GlazeConfigOverride` — see [Per-instance config override](#per-instance-config-override).
@@ -72,15 +72,15 @@ A `GlazeTheme` exposes:
 ### `theme.colors(defs)`
 
 ```ts
-theme.colors({ surface: { lightness: 97 } });
-theme.colors({ text: { lightness: 30 } });
+theme.colors({ surface: { tone: 97 } });
+theme.colors({ text: { tone: 30 } });
 // Both 'surface' and 'text' are now defined.
 ```
 
 ### `theme.color(name) / theme.color(name, def)`
 
 ```ts
-theme.color('surface', { lightness: 97, saturation: 0.75 });    // set
+theme.color('surface', { tone: 97, saturation: 0.75 });    // set
 const def = theme.color('surface');                              // get
 ```
 
@@ -91,11 +91,11 @@ Creates a new theme inheriting all color definitions, optionally replacing the h
 ```ts
 const danger = primary.extend({
   hue: 23,
-  colors: { 'accent-fill': { lightness: 48, mode: 'fixed' } },
+  colors: { 'accent-fill': { tone: 48, mode: 'fixed' } },
 });
 
-// Inherit parent's config override and tighten the dark window further:
-const highSat = base.extend({ config: { darkLightness: [10, 100] } });
+// Inherit parent's config override and widen the dark window further:
+const highSat = base.extend({ config: { darkTone: [10, 100] } });
 ```
 
 `GlazeExtendOptions`:
@@ -211,56 +211,89 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 
 | Field | Type | Description |
 |---|---|---|
-| `lightness` | `HCPair<number \| RelativeValue>` | Number = absolute (0–100). String (`'+N'`/`'-N'`) = relative to base's lightness (requires `base`). Optional HC pair `[normal, hc]`. |
+| `tone` | `HCPair<ToneValue>` | Number = absolute (0–100, contrast-uniform). `'+N'`/`'-N'` = relative to base's tone (requires `base`). `'max'`/`'min'` = forced to the scheme's tone extreme (no `base`). Optional HC pair `[normal, hc]`. |
 | `saturation` | `number` | Saturation factor applied to the seed saturation (0–1). Default: `1`. |
 | `hue` | `number \| RelativeValue` | Number = absolute (0–360). String (`'+N'`/`'-N'`) = relative to the **theme seed hue** (never to a base color). |
 | `base` | `string` | Name of another color in the same theme — makes this a *dependent* color. |
-| `contrast` | `HCPair<MinContrast>` | WCAG contrast floor against `base`. Requires `base`. |
+| `contrast` | `HCPair<ContrastSpec>` | Contrast floor against `base`. Requires `base`. See [`contrast`](#contrast-floor). |
 | `mode` | `'auto' \| 'fixed' \| 'static'` | Adaptation mode. Default: `'auto'`. See [Adaptation modes](#adaptation-modes). |
+| `flip` | `boolean` | Flip out-of-bounds results (relative `tone` overshoot / unmet `contrast`) to the opposite side instead of clamping. Default: the global `autoFlip` (`true`). See [`flip`](#flip). |
 | `opacity` | `number` | Fixed alpha 0–1. Output includes alpha in the CSS value. Combining with `contrast` is not recommended (a `console.warn` is emitted). |
 | `inherit` | `boolean` | Whether this color is inherited by child themes via `extend()`. Default: `true`. Set to `false` to make the color local to the current theme. |
 
-#### Lightness values
+#### Tone values
+
+`tone` (0–100) replaces OKHSL lightness with a contrast-uniform axis — equal tone steps give equal WCAG contrast. See [`docs/okhst.md`](okhst.md) for the math. (To port old `lightness` values, see [migration.md](migration.md).)
 
 | Form | Example | Meaning |
 |---|---|---|
-| Number (absolute) | `lightness: 45` | Absolute lightness 0–100. |
-| String (relative) | `lightness: '-52'` | Relative to base color's lightness (requires `base`). |
-| HC pair | `lightness: ['-7', '-20']` | `[normal, high-contrast]`. A single value applies to both. |
+| Number (absolute) | `tone: 45` | Absolute tone 0–100. |
+| String (relative) | `tone: '-52'` | Relative to base color's tone (requires `base`). |
+| Extreme | `tone: 'max'` / `'min'` | Force to the scheme's highest (`'max'` = 100) or lowest (`'min'` = 0) tone. No `base` needed. |
+| HC pair | `tone: ['-7', '-20']` | `[normal, high-contrast]`. A single value applies to both. |
 
-**Absolute lightness** on a dependent color (`base` set) positions the color independently. In dark mode it is dark-mapped on its own. The `contrast` solver acts as a safety net.
+**Absolute tone** on a dependent color (`base` set) positions the color independently. In dark mode it is tone-mapped (inverted + windowed) on its own. The `contrast` solver acts as a safety net.
 
-**Relative lightness** applies a signed delta to the base color's resolved lightness. In dark mode with `mode: 'auto'`, the sign flips automatically so a `'-52'` light-mode offset becomes a `+52` dark-mode offset.
+**Relative tone** applies a signed delta to the base color's resolved tone. Because tone is contrast-uniform, a fixed delta yields a fixed contrast step. In dark mode with `mode: 'auto'`, the offset is anchored to the base's per-scheme tone. If `base + delta` falls outside `[0, 100]`, the result is clamped to the boundary, or — with `flip` (default on) — mirrored to the other side of the base.
 
-A dependent color with `base` but no `lightness` inherits the base's lightness (equivalent to a delta of 0).
+**Extreme tone** (`'max'` / `'min'`) forces the color to the scheme's tone extreme without a contrast hack or a magic number. `'max'` resolves to author tone 100 and `'min'` to 0; both flow through scheme mapping like an absolute tone, so under `mode: 'auto'` they invert in dark (`'max'` is lightest in light, darkest in dark). Use `mode: 'static'` to pin the same extreme across schemes, or `mode: 'fixed'` to keep the same end without inverting. No `base` required.
 
-#### `contrast` (WCAG floor)
+A dependent color with `base` but no `tone` inherits the base's tone (equivalent to a delta of 0).
+
+#### `flip`
+
+`flip` governs what happens when a result would fall outside its valid range:
+
+- **Relative `tone` overshoot:** when `base ± delta` exceeds `[0, 100]`, `flip` mirrors the delta to the other side of the base (e.g. `'+30'` becomes `'-30'`) instead of clamping to the boundary.
+- **`contrast` direction:** when the requested tone direction can't meet the floor, `flip` lets the solver try the opposite side (the same behavior as the global `autoFlip`).
+
+`flip` defaults to the global `autoFlip` (`true`). Set `flip: false` on a color to clamp instead of mirror — useful when you want a relative offset to stay on the authored side of the base, or to keep an unmet contrast pinned to one direction's extreme.
+
+#### `contrast` (floor)
 
 ```ts
-type MinContrast = number | 'AA' | 'AAA' | 'AA-large' | 'AAA-large';
+type ContrastPreset = 'AA' | 'AAA' | 'AA-large' | 'AAA-large';
+type ContrastSpec =
+  | number                                  // bare WCAG ratio
+  | ContrastPreset                          // named WCAG preset
+  | { wcag: HCPair<number | ContrastPreset> }
+  | { apca: HCPair<number> };               // APCA Lc target
 ```
 
-| Preset | Ratio |
+| Preset | WCAG ratio |
 |---|---|
 | `'AA-large'` | 3 |
 | `'AA'` | 4.5 |
 | `'AAA-large'` | 4.5 |
 | `'AAA'` | 7 |
 
-You can also pass any numeric ratio directly (e.g., `contrast: 4.5`, `contrast: 11`). The constraint is applied independently for each scheme — if the `lightness` already satisfies the floor it's kept, otherwise the solver adjusts lightness until the target is met.
+A bare number or preset means **WCAG**. Use `{ wcag }` / `{ apca }` to pick the metric explicitly. The `[normal, highContrast]` pair may live at the outer level (`[4.5, 7]`, `[{ wcag: 4.5 }, { wcag: 7 }]`) or inside the metric (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`).
 
-By default, `autoFlip` lets the solver cross to the opposite side of the base color when the requested lightness direction cannot satisfy contrast. Set `glaze.configure({ autoFlip: false })` to keep strict directionality: unmet colors pin to that direction's 0 or 100 lightness extreme instead of falling back to the original requested value.
+```ts
+contrast: 4.5                  // WCAG 4.5
+contrast: 'AAA'                // WCAG 7
+contrast: { wcag: 6 }          // WCAG 6
+contrast: { wcag: [4.5, 7] }   // WCAG 4.5 normal / 7 high-contrast
+contrast: { apca: 60 }         // APCA Lc 60
+contrast: { apca: [45, 60] }   // APCA Lc 45 normal / 60 high-contrast
+```
 
-**Full lightness spectrum in HC mode:** in high-contrast variants the `lightLightness` and `darkLightness` window constraints are bypassed entirely. Colors can reach the full 0–100 range, maximizing perceivable contrast.
+The floor is applied independently per scheme — if the `tone` already satisfies it the tone is kept, otherwise the solver searches in tone (contrast-uniform → a closed-form WCAG seed and fast convergence) until the target is met.
+
+By default, the solver crosses to the opposite side of the base color when the requested tone direction cannot satisfy the floor. This is controlled per-color by [`flip`](#flip) (which defaults to the global `autoFlip`). Set `glaze.configure({ autoFlip: false })` — or `flip: false` on a single color — to keep strict directionality: unmet colors pin to that direction's 0 or 100 tone extreme instead of falling back to the original requested value.
+
+**Full tone spectrum in HC mode:** in high-contrast variants the `lightTone` and `darkTone` window constraints are bypassed entirely (the window is forced to `[0, 100]`). Colors can reach the full range, maximizing perceivable contrast.
+
+**Chromatic drift (verification):** tone is contrast-uniform for grays. A chromatic swatch at a given tone shares its OKHSL lightness with the equivalent gray but drifts in real luminance, so a contrast-floored color may land slightly under its gray-tone expectation. Glaze measures the resolved result against the base and emits a deduped advisory `console.warn` when it drifts below the target. See [`docs/okhst.md`](okhst.md) §Verification.
 
 #### Per-color hue override
 
 ```ts
 const theme = glaze(280, 80);
 theme.colors({
-  surface:     { lightness: 97 },
-  gradientEnd: { lightness: 90, hue: '+20' },   // 280 + 20 = 300
-  warning:     { lightness: 60, hue: 40 },      // absolute
+  surface:     { tone: 97 },
+  gradientEnd: { tone: 90, hue: '+20' },   // 280 + 20 = 300
+  warning:     { tone: 60, hue: 40 },      // absolute
 });
 ```
 
@@ -289,7 +322,7 @@ See [Shadows](#shadows) below for the algorithm and tuning details.
 | `value` | `HCPair<number>` | Mix ratio 0–100 (0 = pure base, 100 = pure target). In `'transparent'` blend, this becomes the target's opacity. Supports HC pairs. |
 | `blend` | `'opaque' \| 'transparent'` | Default `'opaque'`. |
 | `space` | `'okhsl' \| 'srgb'` | Interpolation space for opaque blending. Default `'okhsl'`. Ignored for `'transparent'` (always composites in linear sRGB). |
-| `contrast` | `HCPair<MinContrast>` | Optional WCAG floor against `base`. The solver adjusts the mix ratio (opaque) or opacity (transparent). |
+| `contrast` | `HCPair<ContrastSpec>` | Optional contrast floor against `base` (WCAG or APCA — see [`contrast`](#contrast-floor)). The solver adjusts the mix ratio (opaque) or opacity (transparent). |
 | `inherit` | `boolean` | Inheritance flag, default `true`. |
 
 See [Mix colors](#mix-colors) below.
@@ -312,10 +345,10 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 
 | Shape | Example | Notes |
 |---|---|---|
-| **Bare string** | `'#26fcb2'` | Hex or CSS color function (`rgb()`, `hsl()`, `okhsl()`, `oklch()`). |
-| **Value object** | `{ h: 152, s: 0.95, l: 0.74 }` | OKHSL, `{ r, g, b }` (sRGB 0–255), or `{ l, c, h }` (OKLCh). |
+| **Bare string** | `'#26fcb2'` | Hex or CSS color function (`rgb()`, `hsl()`, `okhsl()`, `okhst()`, `oklch()`). |
+| **Value object** | `{ h: 152, s: 0.95, l: 0.74 }` | OKHSL, OKHST (`{ h, s, t }`), `{ r, g, b }` (sRGB 0–255), or `{ l, c, h }` (OKLCh). |
 | **`{ from, ...overrides }`** | `{ from: '#1a1a2e', base: bg, contrast: 'AA' }` | Value + color overrides in one object. |
-| **Structured** | `{ hue: 152, saturation: 95, lightness: 74 }` | Full theme-style token (hue/saturation/lightness all in 0–100). |
+| **Structured** | `{ hue: 152, saturation: 95, tone: 74 }` | Full theme-style token (hue/saturation in 0–100, tone in 0–100). |
 
 `GlazeColorValue` (bare string or value-object forms) accepts:
 
@@ -325,23 +358,26 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `rgb()` | `'rgb(38 252 178)'`, `'rgb(38 252 178 / 0.8)'` | Modern space syntax. Alpha dropped with warning. |
 | `hsl()` | `'hsl(152 97% 57%)'` | Modern space syntax. Alpha dropped with warning. |
 | `okhsl()` | `'okhsl(152 95% 74%)'` | Glaze's own emit format. Alpha dropped with warning. |
+| `okhst()` | `'okhst(152 95% 70%)'` | OKHST tone input (third value is tone 0–100). **Input only** — never emitted. Alpha dropped with warning. |
 | `oklch()` | `'oklch(0.85 0.18 152)'` | Glaze's own emit format. Alpha dropped with warning. |
-| `OkhslColor` object | `{ h: 152, s: 0.95, l: 0.74 }` | Glaze's native shape (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l` throws with a hint to use the structured form. |
+| `OkhslColor` object | `{ h: 152, s: 0.95, l: 0.74 }` | OKHSL shape (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l` throws with a hint to use the structured form. |
+| `OkhstColor` object | `{ h: 152, s: 0.95, t: 0.70 }` | OKHST shape (h: 0–360, s/t: 0–1). The `t` key disambiguates it from `{ h, s, l }`. **Input only.** |
 | `RgbColor` object | `{ r: 38, g: 252, b: 178 }` | sRGB 0–255. RGB tuple `[r, g, b]` is not supported — use this object form. |
 | `OklchColor` object | `{ l: 0.85, c: 0.18, h: 152 }` | OKLCh (L/C: 0–1, H: degrees), same semantics as `oklch()` strings. |
 
-`GlazeColorInput` (structured form) is `{ hue, saturation, lightness, ... }`:
+`GlazeColorInput` (structured form) is `{ hue, saturation, tone, ... }`:
 
 | Field | Type | Description |
 |---|---|---|
 | `hue` | `number` | 0–360. |
 | `saturation` | `number` | 0–100. |
-| `lightness` | `HCPair<number>` | 0–100, optional HC pair. |
+| `tone` | `HCPair<number \| ExtremeValue>` | 0–100 (contrast-uniform) or `'max'`/`'min'`, optional HC pair. |
 | `saturationFactor` | `number` | Multiplier on the seed (0–1). Default: `1`. |
 | `mode` | `AdaptationMode` | Default: `'auto'`. |
+| `flip` | `boolean` | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. |
 | `opacity` | `number` | Fixed alpha 0–1. |
 | `base` | `GlazeColorToken \| GlazeColorValue` | Optional dependency. See [Pairing colors](#pairing-colors). |
-| `contrast` | `HCPair<MinContrast>` | WCAG floor against `base`. Without `base`, anchored to the literal seed. |
+| `contrast` | `HCPair<ContrastSpec>` | Contrast floor against `base` (WCAG or APCA). Without `base`, anchored to the literal seed. |
 | `name` | `string` | Debug label for warnings; doesn't change output keys. Reserved names (`'value'`, `'seed'`, `'externalBase'`) are rejected. |
 
 `GlazeFromInput` (from form) is `{ from: GlazeColorValue, ...colorOverrides }`:
@@ -351,10 +387,11 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `from` | **Required.** The source color value — same forms as `GlazeColorValue`. |
 | `hue` | Number (absolute 0–360) or `'+N'`/`'-N'` (relative to seed, never to `base`). |
 | `saturation` | Override seed saturation (0–100). |
-| `lightness` | Number (absolute 0–100) or `'+N'`/`'-N'`. Without `base`, relative anchors to the seed; with `base`, anchors to `base`'s lightness per scheme. |
+| `tone` | Number (absolute 0–100), `'+N'`/`'-N'`, or `'max'`/`'min'`. Without `base`, relative anchors to the seed; with `base`, anchors to `base`'s tone per scheme. |
 | `saturationFactor` | Multiplier on the seed (0–1). |
 | `mode` | `'auto'` (default) / `'fixed'` / `'static'`. |
-| `contrast` | WCAG floor. Without `base`, anchored to the literal seed; with `base`, solved per scheme. |
+| `flip` | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. |
+| `contrast` | Contrast floor (WCAG or APCA). Without `base`, anchored to the literal seed; with `base`, solved per scheme. |
 | `base` | `GlazeColorToken` or raw `GlazeColorValue`. See [Pairing colors](#pairing-colors). |
 | `opacity` | Fixed alpha 0–1. Combining with `contrast` is not recommended — `console.warn` is emitted. |
 | `name` | Debug label only — surfaces in warnings/errors. Does not change output keys. |
@@ -366,10 +403,10 @@ Named CSS colors (`'red'`, `'blueviolet'`) are not supported.
 Every input form defaults to `mode: 'auto'` so the resolved token adapts between light and dark like an ordinary theme color. The config snapshot taken at create time differs by input form:
 
 - **Value-shorthand** (bare strings, value objects, and `{ from, ...overrides }`):
-  - Light variant preserves the input lightness exactly (`lightLightness: false`).
-  - All other config fields (`darkLightness`, `darkDesaturation`, `darkCurve`, `autoFlip`) snapshot from `globalConfig` at create time.
-- **Structured input** (`{ hue, saturation, lightness, ... }`):
-  - Both lightness windows snapshot from `globalConfig` at create time (same as a theme color).
+  - Light variant preserves the input tone exactly (`lightTone: false`).
+  - All other config fields (`darkTone`, `darkDesaturation`, `saturationTaper`, `autoFlip`) snapshot from `globalConfig` at create time.
+- **Structured input** (`{ hue, saturation, tone, ... }`):
+  - Both tone windows snapshot from `globalConfig` at create time (same as a theme color).
 - All fields are **snapshotted at color-creation time** — later `glaze.configure()` calls don't retroactively change existing tokens.
 
 ```ts
@@ -379,11 +416,14 @@ glaze.color('#26fcb2')
 // Value-object — same behavior
 glaze.color({ h: 152, s: 0.95, l: 0.74 })
 
+// OKHST value-object — tone axis
+glaze.color({ h: 152, s: 0.95, t: 0.70 })
+
 // From form — value + color overrides
 glaze.color({ from: '#1a1a2e', hue: '+20', contrast: 'AA' })
 
-// Structured form — explicit hue/saturation/lightness (0–100)
-glaze.color({ hue: 152, saturation: 95, lightness: 74 })
+// Structured form — explicit hue/saturation/tone (0–100)
+glaze.color({ hue: 152, saturation: 95, tone: 74 })
 ```
 
 ### Token methods
@@ -401,36 +441,36 @@ A `GlazeColorToken` exposes:
 
 ### Per-instance config override
 
-The optional `config` second argument (`GlazeConfigOverride`) overrides the resolve-relevant global config fields for a single token or theme. Fields that are omitted fall through to the live global config at create time (and are snapshotted). Pass `false` for a lightness window to disable clamping entirely — equivalent to `[0, 100]`.
+The optional `config` second argument (`GlazeConfigOverride`) overrides the resolve-relevant global config fields for a single token or theme. Fields that are omitted fall through to the live global config at create time (and are snapshotted). A tone window can be `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping).
 
 `GlazeConfigOverride`:
 
 | Field | Default (from global) | Description |
 |---|---|---|
-| `lightLightness` | `[10, 100]` | Light window `[lo, hi]` or `false` (disable clamping = `[0, 100]`). |
-| `darkLightness` | `[15, 95]` | Dark window `[lo, hi]` or `false` (disable clamping). |
+| `lightTone` | `[13, 100]` | Light tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
+| `darkTone` | `[10, 95]` | Dark tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
-| `darkCurve` | `0.5` | Möbius beta for dark `auto`-inversion (0–1). Accepts `[normal, hc]` pair. |
-| `autoFlip` | `true` | When solving `contrast`, allow the solver to switch lightness direction if the requested side can't meet the target. |
+| `saturationTaper` | `0.15` | Saturation taper strength toward the tone extremes (0–1). |
+| `autoFlip` | `true` | Default for each color's `flip`: when solving `contrast` (or applying a relative `tone` that overshoots), allow crossing to the opposite side instead of clamping. |
 | `shadowTuning` | `undefined` | Default shadow tuning (meaningful for themes; harmless on color tokens). |
 
 Config overrides apply to both `glaze.color()` tokens and `glaze()` themes:
 
 ```ts
-// Standalone color — preserve raw lightness in both schemes
-glaze.color('#26fcb2', { darkLightness: false })
+// Standalone color — preserve raw tone in both schemes
+glaze.color('#26fcb2', { darkTone: false })
 
 // Restore the #000 → white dark flip (full dark range)
 glaze.color('#000000', {
-  lightLightness: false,
-  darkLightness: [15, 100],
+  lightTone: false,
+  darkTone: [15, 100],
 })
 
 // Structured form with config override
-glaze.color({ hue: 152, saturation: 95, lightness: 74 }, { darkLightness: false })
+glaze.color({ hue: 152, saturation: 95, tone: 74 }, { darkTone: false })
 
 // Theme with config override
-const rawTheme = glaze(280, 80, { lightLightness: false })
+const rawTheme = glaze(280, 80, { lightTone: false })
 ```
 
 The override is **snapshotted at create time** so later `glaze.configure()` calls don't change already-created tokens or themes (for non-overridden fields, the snapshot captured the global value at creation time; for themes, non-overridden fields are re-read from the live global at resolve time — see [Theme config override](#theme-config-override)).
@@ -443,17 +483,18 @@ When a theme is created with a `GlazeConfigOverride`, the override is **merged o
 - Fields you didn't override still react to later `glaze.configure()` calls.
 
 ```ts
-const t = glaze(280, 80, { lightLightness: [0, 50] });
-t.colors({ text: { lightness: 50, saturation: 1 } });
-// text.light.l ≈ 0.25 — always, regardless of global lightLightness changes.
+const t = glaze(280, 80, { lightTone: [0, 50] });
+t.colors({ text: { tone: 50, saturation: 1 } });
+// text.light lands inside the [0, 50] window — always, regardless of
+// global lightTone changes.
 // text.dark.s reacts to glaze.configure({ darkDesaturation }) since it's not overridden.
 ```
 
 `extend` inherits the parent's override and shallow-merges the child's:
 
 ```ts
-const child = t.extend({ config: { darkLightness: false } });
-// child: lightLightness: [0, 50] (inherited) + darkLightness: false (added)
+const child = t.extend({ config: { darkTone: false } });
+// child: lightTone { lo: 0, hi: 50 } (inherited) + darkTone: false (added)
 ```
 
 `theme.export()` includes `config`; `glaze.from(data)` restores it.
@@ -473,7 +514,7 @@ Both value-form and structured-form tokens round-trip.
 
 ### Pairing colors
 
-Set `base` to anchor a standalone color to another standalone color or raw value. The WCAG contrast solver and relative `lightness` offsets switch their anchor from the literal seed to the base's resolved variant per scheme — so the same text color automatically lands at AA against its background in light, dark, and high-contrast modes.
+Set `base` to anchor a standalone color to another standalone color or raw value. The contrast solver and relative `tone` offsets switch their anchor from the literal seed to the base's resolved variant per scheme — so the same text color automatically lands at AA against its background in light, dark, and high-contrast modes.
 
 ```ts
 const bg = glaze.color('#1a1a2e');
@@ -481,10 +522,10 @@ const bg = glaze.color('#1a1a2e');
 // Text guaranteed AA against `bg` in every scheme.
 const text = glaze.color({ from: '#ffffff', base: bg, contrast: 'AA' });
 
-// Border 8 lightness units lighter than `bg` in each scheme.
+// Border 8 tone units lighter than `bg` in each scheme.
 const border = glaze.color({ from: '#000000',
   base: bg,
-  lightness: '+8',
+  tone: '+8',
   mode: 'fixed',
 });
 
@@ -495,11 +536,11 @@ const text2 = glaze.color({ from: '#ffffff', base: '#1a1a2e', contrast: 'AA' });
 Behavior with `base`:
 
 - `contrast` is solved per scheme against `base`'s resolved variant (light / dark / lightContrast / darkContrast).
-- Relative `lightness: '+N'` / `'-N'` is anchored to `base`'s lightness per scheme (matches theme behavior).
+- Relative `tone: '+N'` / `'-N'` is anchored to `base`'s tone per scheme (matches theme behavior).
 - Relative `hue: '+N'` / `'-N'` still anchors to the **seed** (the value passed to `glaze.color()`), not the base.
 - `mode` works as a per-pair knob.
 - The base token's `.resolve()` is called lazily on the first resolve of the dependent and the result is captured by reference; later mutations to the base don't apply.
-- **Structured bases are resolved at full range for linking math**: when a value/`from` color links to a base created via the structured form, the contrast/lightness anchor uses the raw input lightness (not the windowed output). This ensures the anchor matches what you intended, not what the light window remapped it to. The base's own `.resolve()` output is unaffected.
+- **Structured bases are resolved at full range for linking math**: when a value/`from` color links to a base created via the structured form, the contrast/tone anchor uses the raw input tone (not the windowed output). This ensures the anchor matches what you intended, not what the light window remapped it to. The base's own `.resolve()` output is unaffected.
 - When the contrast target is physically unreachable, `glaze` emits a single `console.warn` per `(name, scheme, target)` triple and returns the closest passing variant. Use the `name` override to make the warning identifiable.
 
 Chains compose:
@@ -522,8 +563,8 @@ The `name` override appears in `console.warn` / Error messages but **does not** 
 
 ```ts
 theme.colors({
-  surface: { lightness: 95 },
-  text:    { base: 'surface', lightness: '-52', contrast: 'AAA' },
+  surface: { tone: 95 },
+  text:    { base: 'surface', tone: '-52', contrast: 'AAA' },
 
   'shadow-sm': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 5 },
   'shadow-md': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 10 },
@@ -616,7 +657,7 @@ For a simple fixed-alpha color (no shadow algorithm), use `opacity` on a regular
 
 ```ts
 theme.colors({
-  overlay: { lightness: 0, opacity: 0.5 },
+  overlay: { tone: 0, opacity: 0.5 },
 });
 // → 'oklch(0 0 0 / 0.5)'
 ```
@@ -631,8 +672,8 @@ Produces a solid color by interpolating between `base` and `target`:
 
 ```ts
 theme.colors({
-  surface: { lightness: 95 },
-  accent:  { lightness: 30 },
+  surface: { tone: 95 },
+  accent:  { tone: 30 },
   tint:    { type: 'mix', base: 'surface', target: 'accent', value: 30 },
 });
 ```
@@ -647,8 +688,8 @@ Produces the target color with controlled opacity — useful for hover overlays:
 
 ```ts
 theme.colors({
-  surface: { lightness: 95 },
-  black:   { lightness: 0, saturation: 0 },
+  surface: { tone: 95 },
+  black:   { tone: 0, saturation: 0 },
   hover: {
     type: 'mix', base: 'surface', target: 'black',
     value: 8, blend: 'transparent',
@@ -695,8 +736,8 @@ Mix colors can reference other mix colors:
 
 ```ts
 theme.colors({
-  white: { lightness: 100, saturation: 0 },
-  black: { lightness: 0, saturation: 0 },
+  white: { tone: 100, saturation: 0 },
+  black: { tone: 0, saturation: 0 },
   gray:  { type: 'mix', base: 'white', target: 'black', value: 50, space: 'srgb' },
   lightGray: { type: 'mix', base: 'white', target: 'gray', value: 50, space: 'srgb' },
 });
@@ -877,78 +918,66 @@ The `format` option works on every export: `theme.tokens()`, `theme.tasty()`, `t
 
 | Mode | Behavior |
 |---|---|
-| `'auto'` (default) | Full adaptation. Light ↔ dark inversion via the Möbius curve. High-contrast boost. |
-| `'fixed'` | Color stays recognizable. Lightness is *mapped* (not inverted) into the dark window. Use for brand buttons, CTAs, status banners. |
-| `'static'` | No adaptation. Same value in every scheme. |
+| `'auto'` (default) | Full adaptation. Dark is a single tone inversion (`100 − t`) remapped into the dark window. High-contrast uses the full range. |
+| `'fixed'` | Color stays recognizable. Tone is *mapped* (not inverted) into the dark window. Use for brand buttons, CTAs, status banners. |
+| `'static'` | No adaptation. Same tone in every scheme. |
 
-### How relative lightness adapts
+### How relative tone adapts
 
-**`auto`** — relative lightness sign flips in dark scheme:
-
-```
-Light: surface L=97, text lightness='-52' → L=45 (dark text on light bg)
-Dark:  surface inverts to L≈20 (Möbius), sign flips → L=20+52=72
-       contrast solver may push further (light text on dark bg)
-```
-
-**`fixed`** — lightness is mapped (not inverted), relative sign preserved:
+**`auto`** — the offset is anchored to the base's per-scheme tone:
 
 ```
-Light: accent-fill L=52, accent-text lightness='+48' → L=100 (white on brand)
-Dark:  accent-fill maps to L≈51.6, sign preserved → L≈99.6
+Light: surface tone=97, text tone='-52' → tone 45 (dark text on light bg)
+Dark:  surface inverts to a low tone; the '-52' offset re-anchors to the
+       base's light tone and maps into the dark window (light text on dark bg)
 ```
 
-**`static`** — no adaptation, same value in every scheme.
+**`fixed`** — tone is mapped (not inverted), relative sign preserved:
+
+```
+Light: accent-fill tone=52, accent-text tone='+20' → lighter than the fill
+Dark:  accent-fill maps into the dark window, sign preserved
+```
+
+Offsets that would push past `[0, 100]` clamp to the boundary, or — with `flip` (default on) — mirror to the other side of the base. Set `flip: false` to keep the authored side and clamp instead.
+
+**`static`** — no adaptation, same tone in every scheme.
 
 ---
 
 ## Light / dark scheme mapping
 
-### Light scheme — lightness
+The mapping is now a single tone pipeline; there is no Möbius curve. See [`docs/okhst.md`](okhst.md) for the full math and the calibrated default constants.
 
-Absolute lightness values (root colors and dependent colors with absolute lightness) are mapped linearly within the configured `lightLightness` window:
+### Light scheme
 
-```ts
-const [lo, hi] = lightLightness; // default: [10, 100]
-const mappedL = (lightness * (hi - lo)) / 100 + lo;
+An authored tone (0–100) is remapped into the `lightTone` window. The window's `lo`/`hi` are OKHSL-lightness endpoints (0–100); the tone is positioned within the window's tone interval and converted to a final OKHSL lightness. `static` mode and HC variants use the full range.
+
+```
+window      = lightTone               // default [13, 100]
+finalTone   = remap(authorTone, window)
+finalL      = fromTone(finalTone)     // OKHSL lightness
 ```
 
-Both `auto` and `fixed` modes use the same linear formula. `static` mode and HC variants bypass the mapping (identity: `mappedL = l`).
+### Dark scheme
 
-| Color | Raw L | Mapped L (default `[10, 100]`) |
-|---|---|---|
-| surface (L=97) | 97 | 97.3 |
-| accent-fill (L=52) | 52 | 56.8 |
-| near-black (L=0) | 0 | 10 |
+**`auto`** — invert the tone, then remap into the dark window:
 
-### Dark scheme — lightness
-
-**`auto`** — inverted with a Möbius transformation within the configured window:
-
-```ts
-const [lo, hi] = darkLightness; // default: [15, 95]
-const t = (100 - lightness) / 100;
-const invertedL = lo + (hi - lo) * t / (t + darkCurve * (1 - t));
-// darkCurve default: 0.5
+```
+window    = darkTone                  // default [10, 95]
+inverted  = 100 - authorTone
+finalTone = remap(inverted, window)
 ```
 
-The `darkCurve` parameter (default `0.5`, range 0–1) controls how much the dark-mode inversion expands lightness deltas. Lower values produce stronger expansion; `1` gives linear (legacy) behavior. Accepts `[normal, highContrast]` pairs (e.g. `darkCurve: [0.5, 0.3]`).
+Because tone is contrast-uniform, the inversion preserves contrast steps without a fitted curve — the asymmetry between light and dark lives entirely in the two windows' `(lo, hi, eps)` scalars (`eps` defaults to the reference `0.05`).
 
-Unlike a power curve, the Möbius transformation provides **proportional expansion** — small and large deltas are scaled by similar ratios, preserving the visual hierarchy of the light theme.
+**`fixed`** — remap into the dark window without inversion:
 
-**`fixed`** — mapped without inversion (not affected by `darkCurve`):
-
-```ts
-const mappedL = (lightness * (hi - lo)) / 100 + lo;
+```
+finalTone = remap(authorTone, darkTone)
 ```
 
-| Color | Light L | Auto (curve=0.5) | Auto (curve=1, linear) | Fixed (mapped) |
-|---|---|---|---|---|
-| surface (L=97) | 97 | 19.7 | 17.4 | 92.6 |
-| accent-fill (L=52) | 52 | 66.9 | 53.4 | 56.6 |
-| accent-text (L=100) | 100 | 15 | 15 | 95 |
-
-In high-contrast variants the `darkLightness` window is bypassed — `auto` uses the Möbius curve over the full `[0, 100]` range, `fixed` uses identity.
+In high-contrast variants both windows are bypassed (forced to the full `[0, 100]` range): `auto` still inverts, `fixed`/`static` do not.
 
 ### Dark scheme — saturation
 
@@ -960,16 +989,20 @@ S_dark = S_light * (1 - darkDesaturation) // default: 0.1
 
 `static` mode skips desaturation.
 
+### Saturation taper
+
+`saturationTaper` (default `0.15`) gently reduces saturation toward the tone extremes, where in-gamut chroma collapses. It is the *strength* (0–1) — the maximum fraction of saturation removed at the very edges — ramped in smoothly over the outer ~15% of tone on each end. Mid-tones are untouched; `0` disables it.
+
 ---
 
 ## Configuration
 
 ```ts
 glaze.configure({
-  lightLightness: [10, 100],   // or false to disable clamping
-  darkLightness: [15, 95],     // or false to disable clamping
+  lightTone: [13, 100], // [lo, hi]; or { lo, hi, eps } / false to disable clamping
+  darkTone: [10, 95],   // [lo, hi]; or { lo, hi, eps } / false to disable clamping
   darkDesaturation: 0.1,
-  darkCurve: 0.5,              // or [normal, hc] pair
+  saturationTaper: 0.15,
   states: {
     dark: '@dark',
     highContrast: '@high-contrast',
@@ -985,20 +1018,22 @@ glaze.configure({
 });
 ```
 
+A `ToneWindow` is `[lo, hi]` (OKHSL-lightness endpoints, reference eps — the common form), `{ lo, hi, eps }` (advanced: explicit per-mode render eps), or `false` to disable clamping (full range `[0, 100]` at the reference eps). `false` removes the *boundaries*, not the contrast-uniform tone curve.
+
 `GlazeConfig`:
 
 | Field | Default | Description |
 |---|---|---|
-| `lightLightness` | `[10, 100]` | Light scheme lightness window `[lo, hi]`, or `false` to disable clamping (equivalent to `[0, 100]`). Bypassed in HC. |
-| `darkLightness` | `[15, 95]` | Dark scheme lightness window, or `false` to disable clamping. Bypassed in HC. |
+| `lightTone` | `[13, 100]` | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
+| `darkTone` | `[10, 95]` | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
-| `darkCurve` | `0.5` | Möbius beta for dark `auto`-inversion (0–1). Accepts `[normal, hc]` pair. |
+| `saturationTaper` | `0.15` | Saturation taper strength toward the tone extremes (0–1). `0` disables. |
 | `states.dark` | `'@dark'` | State alias for dark mode tokens (Tasty export). |
 | `states.highContrast` | `'@high-contrast'` | State alias for HC tokens. |
 | `modes.dark` | `true` | Include dark variants in exports. |
 | `modes.highContrast` | `false` | Include HC variants. |
 | `shadowTuning` | `undefined` | Default tuning for all shadow colors. Per-color tuning merges field-by-field. |
-| `autoFlip` | `true` | When solving `contrast`, allow the solver to switch away from the requested lightness direction if that side can't meet the target. With `false`, only the requested direction is considered; unmet contrasts pin the lightness to that direction's extreme (and emit a warning). |
+| `autoFlip` | `true` | Default for each color's `flip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`flip`](#flip). |
 
 | Method | Description |
 |---|---|
@@ -1039,10 +1074,12 @@ Resolution priority (highest first):
 | Condition | Behavior |
 |---|---|
 | `contrast` without `base` in a **theme** color | Validation error |
-| Relative `lightness` without `base` in a **theme** color | Validation error |
+| Relative `tone` without `base` in a **theme** color | Validation error |
 | `contrast` without `base` in `glaze.color()` | Anchors against the literal seed (no error) |
-| Relative `lightness` without `base` in `glaze.color()` | Anchors against the literal seed (no error) |
-| `lightness` resolves outside 0–100 | Clamp silently |
+| Relative `tone` without `base` in `glaze.color()` | Anchors against the literal seed (no error) |
+| Relative `tone` overshoots `[0, 100]` | Mirror to the other side of the base (`flip` on, default), or clamp to the boundary (`flip` off) |
+| `tone` resolves outside 0–100 | Clamp silently |
+| `'max'` / `'min'` without `base` | Allowed — resolves to the scheme's tone extreme (root color) |
 | `saturation` outside 0–1 | Clamp silently |
 | Circular `base` references | Validation error |
 | `base` references non-existent name | Validation error |
@@ -1112,35 +1149,66 @@ formatOklch(280, 60, 95); // 'oklch(0.95 ... 280)'
 
 To attach an alpha component, use `glaze.format(variant, format)` on a `ResolvedColorVariant` (which carries the `alpha` channel) instead of these raw writers.
 
-### Contrast solver
+### OKHST tone utilities
 
 ```ts
 import {
-  findLightnessForContrast,
-  findValueForMixContrast,
-  resolveMinContrast,
+  toTone,
+  fromTone,
+  toneFromY,
+  yFromTone,
+  okhstToOkhsl,
+  okhslToOkhst,
+  variantToOkhsl,
+  REF_EPS,
 } from '@tenphi/glaze';
 ```
 
 | Function | Description |
 |---|---|
-| `findLightnessForContrast(opts)` | Binary-search for the OKHSL lightness that meets a WCAG contrast floor against a base color. Returns `{ lightness, contrast, met, branch }`. |
-| `findValueForMixContrast(opts)` | Same, but searches for a mix `value` (0–1) that meets a contrast floor between a base and a target. |
-| `resolveMinContrast(value)` | Resolves a `MinContrast` (preset or number) to a numeric ratio. |
+| `toTone(l, eps?)` | OKHSL lightness (0–100) → tone (0–100). Defaults to `REF_EPS`. |
+| `fromTone(t, eps?)` | Tone (0–100) → OKHSL lightness (0–100). Inverse of `toTone`. |
+| `toneFromY(y, eps?)` / `yFromTone(t, eps?)` | Same transfer in luminance space (0–1). |
+| `okhstToOkhsl({ h, s, t })` | OKHST → OKHSL (`{ h, s, l }`). |
+| `okhslToOkhst({ h, s, l })` | OKHSL → OKHST (`{ h, s, t }`). |
+| `variantToOkhsl(variant)` | `ResolvedColorVariant` (stores `t`) → `{ h, s, l, alpha }` for rendering. |
+| `REF_EPS` | Reference epsilon (`0.05`) for the canonical tone axis. |
 
-`findLightnessForContrast` options:
+`ResolvedColorVariant` now stores `{ h, s, t, alpha }` (tone, not lightness). Use `variantToOkhsl(variant).l` to recover OKHSL lightness. See [`docs/okhst.md`](okhst.md) for the full model.
+
+### Contrast solver
+
+```ts
+import {
+  findToneForContrast,
+  findValueForMixContrast,
+  resolveContrastForMode,
+  resolveMinContrast,
+  apcaContrast,
+} from '@tenphi/glaze';
+```
+
+| Function | Description |
+|---|---|
+| `findToneForContrast(opts)` | Binary-search for the tone (0–1) that meets a contrast floor (WCAG or APCA) against a base color. Returns `{ tone, contrast, met, branch, flipped? }`. |
+| `findValueForMixContrast(opts)` | Same, but searches for a mix `value` (0–1) that meets a contrast floor between a base and a target. |
+| `resolveContrastForMode(spec, isHC)` | Resolves a `ContrastSpec` to `{ metric: 'wcag' \| 'apca', target }` for the requested mode (picks the normal or HC entry of any pair). |
+| `resolveMinContrast(value)` | Resolves a `MinContrast` (WCAG preset or number) to a numeric ratio. |
+| `apcaContrast(yText, yBg)` | APCA Lc magnitude (0–106) for two relative luminances. |
+
+`findToneForContrast` options:
 
 | Option | Default | Description |
 |---|---|---|
 | `hue` | — | Candidate hue (0–360). |
 | `saturation` | — | Candidate saturation (0–1). |
-| `preferredLightness` | — | Preferred candidate lightness (0–1). Kept if it already meets the target. |
+| `preferredTone` | — | Preferred candidate tone (0–1). Kept if it already meets the target. |
 | `baseLinearRgb` | — | Base color as linear sRGB tuple. |
-| `contrast` | — | WCAG floor (`MinContrast`). |
-| `lightnessRange` | `[0, 1]` | Search bounds. |
+| `contrast` | — | `ResolvedContrast` (`{ metric, target }`). |
+| `toneRange` | `[0, 1]` | Search bounds in tone. |
 | `epsilon` | `1e-4` | Convergence threshold. |
-| `maxIterations` | `14` | Max binary-search iterations per branch. |
-| `initialDirection` | higher-contrast side | Direction to search first (`'lighter'` or `'darker'`). Theme resolution sets this from the requested lightness relative to the base color. |
+| `maxIterations` | `18` | Max binary-search iterations per branch. |
+| `initialDirection` | higher-contrast side | Direction to search first (`'lighter'` or `'darker'`). |
 | `flip` | `false` | When `true`, try the opposite direction if the initial one doesn't meet the target. When `false`, only the initial direction is searched — unmet contrasts pin the result to that direction's extreme. |
 
-Result: `{ lightness, contrast, met, branch: 'lighter' | 'darker' | 'preferred', flipped? }`. `flipped: true` indicates the initial direction failed and the opposite direction satisfied the target.
+Result: `{ tone, contrast, met, branch: 'lighter' | 'darker' | 'preferred', flipped? }`. `flipped: true` indicates the initial direction failed and the opposite direction satisfied the target.

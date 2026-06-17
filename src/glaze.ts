@@ -26,6 +26,7 @@ import {
 } from './color-token';
 import { formatVariant } from './formatters';
 import { computeShadow, resolveShadowTuning } from './shadow';
+import { okhslToOkhst } from './okhst';
 import { createPalette } from './palette';
 import { createTheme } from './theme';
 import type {
@@ -63,7 +64,7 @@ type PaletteInput = Record<string, GlazeTheme>;
  * // or shorthand:
  * const primary = glaze({ hue: 280, saturation: 80 });
  * // with config override:
- * const raw = glaze(280, 80, { lightLightness: false });
+ * const raw = glaze(280, 80, { lightTone: false });
  * ```
  */
 export function glaze(
@@ -107,15 +108,15 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
  *
  * | Shape | Example | Notes |
  * |---|---|---|
- * | Bare string | `'#26fcb2'`, `'rgb(38 252 178)'` | Hex or CSS color function |
- * | Value object | `{ h: 152, s: 0.95, l: 0.74 }` | OKHSL, `{r,g,b}`, `{l,c,h}` |
+ * | Bare string | `'#26fcb2'`, `'rgb(38 252 178)'` | Hex or CSS color function (incl. `okhst()`) |
+ * | Value object | `{ h: 152, s: 0.95, l: 0.74 }` | OKHSL, OKHST (`{h,s,t}`), `{r,g,b}`, `{l,c,h}` |
  * | `{ from, ...overrides }` | `{ from: '#fff', base: bg, contrast: 'AA' }` | Value + color overrides |
- * | Structured | `{ hue: 152, saturation: 95, lightness: 74 }` | Full theme-style token |
+ * | Structured | `{ hue: 152, saturation: 95, tone: 74 }` | Full theme-style token |
  *
  * **arg2 — config override** (optional, all shapes):
  * Overrides the resolve-relevant global config fields for this token.
  * Fields that are omitted fall through to the live global config at
- * create time (and are snapshotted). Pass `false` for a lightness window
+ * create time (and are snapshotted). Pass `false` for a tone window
  * to disable clamping entirely.
  *
  * ```ts
@@ -126,19 +127,19 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
  * glaze.color({ from: '#fff', base: bg, contrast: 'AA' })
  *
  * // Structured form — full theme-style token
- * glaze.color({ hue: 152, saturation: 95, lightness: 74 })
+ * glaze.color({ hue: 152, saturation: 95, tone: 74 })
  *
  * // Config override on any form
- * glaze.color('#26fcb2', { darkLightness: false, autoFlip: false })
- * glaze.color({ from: '#fff', base: bg }, { darkCurve: 0.3 })
+ * glaze.color('#26fcb2', { darkTone: false, autoFlip: false })
+ * glaze.color({ from: '#fff', base: bg }, { saturationTaper: 0 })
  * ```
  *
  * Defaults: every form defaults to `mode: 'auto'`. Value-shorthand forms
- * (bare strings and value objects) preserve light lightness exactly
- * (`lightLightness: false` internally). Structured form snapshots both
- * lightness windows from `globalConfig` at create time.
+ * (bare strings and value objects) preserve light tone exactly
+ * (`lightTone: false` internally). Structured form snapshots both
+ * tone windows from `globalConfig` at create time.
  *
- * Relative `lightness: '+N'` and `contrast` anchor to the literal seed by
+ * Relative `tone: '+N'` and `contrast` anchor to the literal seed by
  * default; when `base` is set they anchor to the base's resolved variant
  * per scheme. Relative `hue: '+N'` always anchors to the seed, not the base.
  */
@@ -180,12 +181,18 @@ glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
     : undefined;
   const cfg = getConfig();
   const tuning = resolveShadowTuning(input.tuning, cfg.shadowTuning);
-  return computeShadow(
+  const result = computeShadow(
     { ...bg, alpha: 1 },
     fg ? { ...fg, alpha: 1 } : undefined,
     input.intensity,
     tuning,
   );
+  const { h, s, t } = okhslToOkhst({
+    h: result.h,
+    s: result.s,
+    l: result.l,
+  });
+  return { h, s, t, alpha: result.alpha };
 };
 
 /** Format a resolved color variant as a CSS string. */

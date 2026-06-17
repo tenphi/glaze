@@ -11,12 +11,48 @@ import type { ContrastPreset } from './contrast-solver';
 /** A value or [normal, high-contrast] pair. */
 export type HCPair<T> = T | [T, T];
 
+/** Bare WCAG contrast target: a ratio number or a named preset. */
 export type MinContrast = number | ContrastPreset;
+
+/**
+ * A contrast floor with a pluggable metric.
+ *
+ * - `number` / `ContrastPreset`: a WCAG ratio (bare form).
+ * - `{ wcag }`: WCAG ratio or preset, optionally an HC pair.
+ * - `{ apca }`: APCA Lc target (absolute value), optionally an HC pair.
+ *
+ * The `[normal, highContrast]` pair may live at the outer level
+ * (`[4.5, 7]`, `[{ wcag: 4.5 }, { wcag: 7 }]`) or inside the metric
+ * (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`).
+ */
+export type ContrastSpec =
+  | number
+  | ContrastPreset
+  | { wcag: HCPair<number | ContrastPreset> }
+  | { apca: HCPair<number> };
 
 export type AdaptationMode = 'auto' | 'fixed' | 'static';
 
 /** A signed relative offset string, e.g. '+20' or '-15.5'. */
 export type RelativeValue = `+${number}` | `-${number}`;
+
+/**
+ * Force a color to a tone extreme:
+ * - `'max'`: the highest tone in the active scheme range/window.
+ * - `'min'`: the lowest tone.
+ *
+ * Under `mode: 'auto'` the extreme inverts in the dark scheme (so `'max'`
+ * tracks the inversion and becomes the darkest tone). No `base` required.
+ */
+export type ExtremeValue = 'max' | 'min';
+
+/**
+ * A tone value as authored on a color.
+ * - Number: absolute tone (0–100).
+ * - `'+N'` / `'-N'`: relative to the base's tone (requires `base`).
+ * - `'max'` / `'min'`: forced to the scheme's tone extreme (no base needed).
+ */
+export type ToneValue = number | RelativeValue | ExtremeValue;
 
 /** Color format for output. */
 export type GlazeColorFormat = 'okhsl' | 'rgb' | 'hsl' | 'oklch';
@@ -46,6 +82,16 @@ export interface OkhslColor {
   l: number;
 }
 
+/**
+ * Direct OKHST color input — OKHSL with the lightness axis replaced by the
+ * contrast-uniform tone axis. `h`: 0–360, `s`: 0–1, `t`: 0–1 (tone).
+ */
+export interface OkhstColor {
+  h: number;
+  s: number;
+  t: number;
+}
+
 /** sRGB components in 0–255 (value-shorthand object form). */
 export interface RgbColor {
   r: number;
@@ -62,11 +108,12 @@ export interface OklchColor {
 
 export interface RegularColorDef {
   /**
-   * Lightness value (0–100).
-   * - Number: absolute lightness.
-   * - String ('+N' / '-N'): relative to base color's lightness (requires `base`).
+   * Tone value (0–100, contrast-uniform — see `docs/okhst.md`).
+   * - Number: absolute tone.
+   * - String ('+N' / '-N'): relative to base color's tone (requires `base`).
+   * - `'max'` / `'min'`: force to the scheme's tone extreme (no base needed).
    */
-  lightness?: HCPair<number | RelativeValue>;
+  tone?: HCPair<ToneValue>;
   /** Saturation factor applied to the seed saturation (0–1, default: 1). */
   saturation?: number;
   /**
@@ -78,17 +125,33 @@ export interface RegularColorDef {
 
   /** Name of another color in the same theme (dependent color). */
   base?: string;
-  /** WCAG contrast ratio floor against the base color. */
-  contrast?: HCPair<MinContrast>;
+  /**
+   * Contrast floor against the base color. A bare number/preset is WCAG;
+   * use `{ wcag }` / `{ apca }` to pick the metric. Accepts an HC pair.
+   */
+  contrast?: HCPair<ContrastSpec>;
 
   /** Adaptation mode. Default: 'auto'. */
   mode?: AdaptationMode;
 
   /**
+   * Whether to flip out-of-bounds results to the opposite side instead of
+   * clamping to the extreme. Affects both:
+   * - relative `tone`: when `base ± delta` exceeds `[0, 100]`, mirror the
+   *   delta to the other side of the base.
+   * - `contrast`: when the requested direction can't meet the floor, try the
+   *   opposite side (same as the global `autoFlip`).
+   *
+   * Defaults to the global `autoFlip` config (default `true`). Set `false`
+   * to clamp instead.
+   */
+  flip?: boolean;
+
+  /**
    * Fixed opacity (0–1).
    * Output includes alpha in the CSS value.
    * Does not affect contrast resolution — a semi-transparent color
-   * has no fixed perceived lightness, so `contrast` and `opacity`
+   * has no fixed perceived tone, so `contrast` and `opacity`
    * should not be combined (a console.warn is emitted).
    */
   opacity?: number;
@@ -179,12 +242,13 @@ export interface MixColorDef {
    */
   space?: 'okhsl' | 'srgb';
   /**
-   * Minimum WCAG contrast between the base and the resulting color.
+   * Minimum contrast between the base and the resulting color.
    * In 'opaque' mode, adjusts the mix ratio to meet contrast.
    * In 'transparent' mode, adjusts opacity to meet contrast against the composite.
-   * Supports [normal, highContrast] pair.
+   * A bare number/preset is WCAG; use `{ wcag }` / `{ apca }` to pick the
+   * metric. Supports [normal, highContrast] pair.
    */
-  contrast?: HCPair<MinContrast>;
+  contrast?: HCPair<ContrastSpec>;
 
   /**
    * Whether this color is inherited by child themes created via `extend()`.
@@ -201,14 +265,20 @@ export type ColorMap = Record<string, ColorDef>;
 // Resolved internal types
 // ============================================================================
 
-/** Resolved color for a single scheme variant. */
+/**
+ * Resolved color for a single scheme variant.
+ *
+ * Stored in OKHST: `h` / `s` are OKHSL hue/saturation, `t` is the canonical
+ * contrast-uniform tone (0–1, reference eps). Convert to OKHSL lightness via
+ * `variantToOkhsl` at the rendering / luminance edges.
+ */
 export interface ResolvedColorVariant {
   /** OKHSL hue (0–360). */
   h: number;
   /** OKHSL saturation (0–1). */
   s: number;
-  /** OKHSL lightness (0–1). */
-  l: number;
+  /** Canonical tone (0–1, reference eps). */
+  t: number;
   /** Opacity (0–1). Default: 1. */
   alpha: number;
 }
@@ -229,25 +299,32 @@ export interface ResolvedColor {
 // ============================================================================
 
 /**
- * Lightness window value. A `[lo, hi]` tuple (0–100) or `false` to disable
- * clamping entirely (equivalent to `[0, 100]`).
+ * A scheme tone window.
+ * - `[lo, hi]`: OKHSL-lightness endpoints (0–100) the authored tone is
+ *   remapped into, using the reference eps `0.05`. The common form.
+ * - `{ lo, hi, eps }`: same, with an explicit render curvature `eps`
+ *   (advanced — most palettes never need this).
+ * - `false`: disable clamping (full range `[0, 100]` at the reference eps).
+ *   This removes the *boundaries*, not the tone curve.
  */
-export type LightnessWindow = false | [number, number];
+export type ToneWindow =
+  | false
+  | [number, number]
+  | { lo: number; hi: number; eps: number };
 
 export interface GlazeConfig {
-  /** Light scheme lightness window [lo, hi]. Default: [10, 100]. Pass `false` to disable clamping. */
-  lightLightness?: LightnessWindow;
-  /** Dark scheme lightness window [lo, hi]. Default: [15, 95]. Pass `false` to disable clamping. */
-  darkLightness?: LightnessWindow;
+  /** Light scheme tone window — `[lo, hi]` (default `[13, 100]`), `{ lo, hi, eps }` for advanced eps tuning, or `false` to disable clamping. */
+  lightTone?: ToneWindow;
+  /** Dark scheme tone window — `[lo, hi]` (default `[10, 95]`), `{ lo, hi, eps }`, or `false` to disable clamping. */
+  darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
   darkDesaturation?: number;
   /**
-   * Möbius beta for dark auto-inversion (0–1).
-   * Lower values expand subtle near-white distinctions in dark mode.
-   * Set to 1 for linear (legacy) behavior. Default: 0.5.
-   * Accepts [normal, highContrast] pair for separate HC tuning.
+   * Saturation taper toward the tone extremes (0–1). The fraction of the
+   * tone range over which saturation rolls off at each end, where in-gamut
+   * chroma collapses. Default: 0.15. Set to 0 to disable.
    */
-  darkCurve?: HCPair<number>;
+  saturationTaper?: number;
   /** State alias names for token export. */
   states?: {
     dark?: string;
@@ -258,27 +335,27 @@ export interface GlazeConfig {
   /** Default tuning for all shadow colors. Per-color tuning merges field-by-field. */
   shadowTuning?: ShadowTuning;
   /**
-   * Automatically flip lightness direction when contrast can't be met.
+   * Automatically flip tone direction when contrast can't be met.
    *
    * When enabled (default `true`), the solver searches the requested
-   * lightness direction first. If that direction can't reach the target,
+   * tone direction first. If that direction can't reach the target,
    * it tries the opposite direction and uses it when it passes. If neither
-   * side passes, the lightness is pinned to the requested-direction
+   * side passes, the tone is pinned to the requested-direction
    * extreme and a warning is emitted.
    *
    * Set to `false` for strict "no flip" behavior. The opposite
    * direction is never considered: if the requested direction can't
-   * meet the target, the lightness is pinned to its extreme (never
-   * falls back to the originally requested lightness).
+   * meet the target, the tone is pinned to its extreme (never
+   * falls back to the originally requested tone).
    */
   autoFlip?: boolean;
 }
 
 export interface GlazeConfigResolved {
-  lightLightness: LightnessWindow;
-  darkLightness: LightnessWindow;
+  lightTone: ToneWindow;
+  darkTone: ToneWindow;
   darkDesaturation: number;
-  darkCurve: HCPair<number>;
+  saturationTaper: number;
   states: {
     dark: string;
     highContrast: string;
@@ -293,18 +370,18 @@ export interface GlazeConfigResolved {
  * Fields that are set take priority over the live global config. Fields
  * that are omitted fall through to the live global at resolve time.
  *
- * `false` for a lightness window disables clamping (equivalent to `[0, 100]`).
+ * `false` for a tone window disables clamping (full range at reference eps).
  */
 export interface GlazeConfigOverride {
-  /** Light scheme lightness window, or `false` to disable clamping. */
-  lightLightness?: LightnessWindow;
-  /** Dark scheme lightness window, or `false` to disable clamping. */
-  darkLightness?: LightnessWindow;
+  /** Light scheme tone window, or `false` to disable clamping. */
+  lightTone?: ToneWindow;
+  /** Dark scheme tone window, or `false` to disable clamping. */
+  darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). */
   darkDesaturation?: number;
-  /** Möbius beta for dark auto-inversion. Accepts [normal, hc] pair. */
-  darkCurve?: HCPair<number>;
-  /** Whether to auto-flip lightness when contrast can't be met. */
+  /** Saturation taper toward the tone extremes (0–1). */
+  saturationTaper?: number;
+  /** Whether to auto-flip tone when contrast can't be met. */
   autoFlip?: boolean;
   /**
    * Shadow tuning defaults. Only meaningful for themes; harmless on
@@ -357,25 +434,28 @@ export interface GlazeShadowInput {
 export interface GlazeColorInput {
   hue: number;
   saturation: number;
-  lightness: HCPair<number>;
+  tone: HCPair<number | ExtremeValue>;
   saturationFactor?: number;
   mode?: AdaptationMode;
+  /** Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. */
+  flip?: boolean;
   /**
    * Fixed opacity (0–1). Output includes alpha in the CSS value.
-   * Combining with `contrast` is not recommended (perceived lightness
+   * Combining with `contrast` is not recommended (perceived tone
    * becomes unpredictable) — a `console.warn` is emitted in that case.
    */
   opacity?: number;
   /**
    * Optional dependency on another color. Same semantics as
-   * `GlazeColorOverrides.base` — `contrast` and relative `lightness`
+   * `GlazeColorOverrides.base` — `contrast` and relative `tone`
    * anchor to the base per scheme.
    */
   base?: GlazeColorToken | GlazeColorValue;
   /**
-   * WCAG contrast floor against `base`. Requires `base` to be set.
+   * Contrast floor against `base`. Requires `base` to be set. A bare
+   * number/preset is WCAG; use `{ wcag }` / `{ apca }` to pick the metric.
    */
-  contrast?: HCPair<MinContrast>;
+  contrast?: HCPair<ContrastSpec>;
   /**
    * Optional human-readable name for the token. Used in error and
    * warning messages (otherwise an internal name like `"value"` is
@@ -396,10 +476,16 @@ export interface GlazeColorInput {
  * Literal object forms:
  * - `{ h, s, l }` — OKHSL (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l`
  *   throws with a hint to use the structured form.
+ * - `{ h, s, t }` — OKHST (h: 0–360, s/t: 0–1). Tone in 0–1.
  * - `{ r, g, b }` — sRGB 0–255.
  * - `{ l, c, h }` — OKLCh (L/C: 0–1, H: degrees), same as `oklch()` strings.
  */
-export type GlazeColorValue = string | OkhslColor | RgbColor | OklchColor;
+export type GlazeColorValue =
+  | string
+  | OkhslColor
+  | OkhstColor
+  | RgbColor
+  | OklchColor;
 
 /** Color overrides for the `from` and value-shorthand inputs. */
 export interface GlazeColorOverrides {
@@ -412,34 +498,43 @@ export interface GlazeColorOverrides {
   /** Override seed saturation (0–100). Default: extracted from value. */
   saturation?: number;
   /**
-   * Override lightness. Number is absolute (0–100); `'+N'`/`'-N'` is
-   * relative to the literal seed (the value passed to `glaze.color()`).
+   * Override tone. Number is absolute (0–100, contrast-uniform); `'+N'`/`'-N'`
+   * is relative to the literal seed (the value passed to `glaze.color()`);
+   * `'max'` / `'min'` force to the scheme's tone extreme.
    * Supports HCPair for high-contrast.
    */
-  lightness?: HCPair<number | RelativeValue>;
+  tone?: HCPair<ToneValue>;
   /** Saturation multiplier on the seed (0–1). Default: 1. */
   saturationFactor?: number;
   /**
    * Adaptation mode. Defaults to `'auto'` for every input form, so
    * colors automatically adapt between light and dark like an ordinary
    * theme color. All value-shorthand inputs (strings and literal objects)
-   * preserve light lightness (`lightLightness: false`) and snapshot
-   * `globalConfig.darkLightness` on the dark side. Only the structured
-   * `{ hue, saturation, lightness }` form also snapshots
-   * `globalConfig.lightLightness`.
+   * preserve light tone (`lightTone: false`) and snapshot
+   * `globalConfig.darkTone` on the dark side. Only the structured
+   * `{ hue, saturation, tone }` form also snapshots
+   * `globalConfig.lightTone`.
    *
-   * Pass `'fixed'` explicitly to opt back into the legacy linear, non-
-   * inverting mapping; pass `'static'` to pin the same lightness
+   * Pass `'fixed'` explicitly to opt back into the linear, non-
+   * inverting mapping; pass `'static'` to pin the same tone
    * across every variant.
    */
   mode?: AdaptationMode;
 
   /**
-   * WCAG contrast floor. By default solved against the literal seed
-   * (the value itself); when `base` is set, solved against the base's
-   * resolved variant per scheme. Same shape as `RegularColorDef.contrast`.
+   * Flip out-of-bounds results (relative `tone` overshoot / unmet
+   * `contrast`) to the opposite side instead of clamping. Defaults to
+   * the global `autoFlip`.
    */
-  contrast?: HCPair<MinContrast>;
+  flip?: boolean;
+
+  /**
+   * Contrast floor. By default solved against the literal seed
+   * (the value itself); when `base` is set, solved against the base's
+   * resolved variant per scheme. Same shape as `RegularColorDef.contrast`
+   * (bare number/preset = WCAG; `{ wcag }` / `{ apca }` to pick the metric).
+   */
+  contrast?: HCPair<ContrastSpec>;
 
   /**
    * Optional dependency on another color. Accepts either a
@@ -450,14 +545,14 @@ export interface GlazeColorOverrides {
    * When set:
    * - `contrast` is solved against the base's resolved variant
    *   per-scheme (light / dark / lightContrast / darkContrast).
-   * - Relative `lightness: '+N'` / `'-N'` is anchored to the base's
-   *   lightness per-scheme (matches theme behavior for dependent colors).
+   * - Relative `tone: '+N'` / `'-N'` is anchored to the base's
+   *   tone per-scheme (matches theme behavior for dependent colors).
    * - Relative `hue: '+N'` / `'-N'` still anchors to the seed (the
    *   value passed to `glaze.color()`), not the base.
    * - When the base was created via the structured form (with explicit
-   *   `hue`/`saturation`/`lightness`), it is resolved at full range
-   *   (`lightLightness: false`) for the linking math — ensuring the
-   *   contrast/lightness anchor matches the input lightness, not the
+   *   `hue`/`saturation`/`tone`), it is resolved at full range
+   *   (`lightTone: false`) for the linking math — ensuring the
+   *   contrast/tone anchor matches the input tone, not the
    *   windowed output. The base's own `.resolve()` output is unaffected.
    *
    * The base token's `.resolve()` is called lazily on first resolve and
@@ -468,7 +563,7 @@ export interface GlazeColorOverrides {
 
   /**
    * Fixed opacity (0–1). Output includes alpha in the CSS value.
-   * Combining with `contrast` is not recommended (perceived lightness
+   * Combining with `contrast` is not recommended (perceived tone
    * becomes unpredictable) — a `console.warn` is emitted in that case.
    */
   opacity?: number;
@@ -487,7 +582,7 @@ export interface GlazeColorOverrides {
  *
  * ```ts
  * glaze.color({ from: '#1a1a2e', base: bg, contrast: 'AA' })
- * glaze.color({ from: { r: 38, g: 252, b: 178 }, lightness: '+10' })
+ * glaze.color({ from: { r: 38, g: 252, b: 178 }, tone: '+10' })
  * ```
  */
 export interface GlazeFromInput extends GlazeColorOverrides {
@@ -572,12 +667,13 @@ export interface GlazeColorTokenExport {
 export interface GlazeColorInputExport {
   hue: number;
   saturation: number;
-  lightness: HCPair<number>;
+  tone: HCPair<number | ExtremeValue>;
   saturationFactor?: number;
   mode?: AdaptationMode;
+  flip?: boolean;
   opacity?: number;
   base?: GlazeColorTokenExport | GlazeColorValue;
-  contrast?: HCPair<MinContrast>;
+  contrast?: HCPair<ContrastSpec>;
   name?: string;
 }
 
@@ -588,10 +684,11 @@ export interface GlazeColorInputExport {
 export interface GlazeColorOverridesExport {
   hue?: number | RelativeValue;
   saturation?: number;
-  lightness?: HCPair<number | RelativeValue>;
+  tone?: HCPair<ToneValue>;
   saturationFactor?: number;
   mode?: AdaptationMode;
-  contrast?: HCPair<MinContrast>;
+  flip?: boolean;
+  contrast?: HCPair<ContrastSpec>;
   base?: GlazeColorTokenExport | GlazeColorValue;
   opacity?: number;
   name?: string;
