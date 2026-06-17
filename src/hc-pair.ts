@@ -1,7 +1,7 @@
 /**
  * Small shared helpers used across the resolver pipeline:
  * - HC-pair selection (`pairNormal` / `pairHC`)
- * - Absolute / relative lightness discrimination
+ * - Absolute / relative / extreme tone discrimination
  * - Generic numeric helpers (`clamp`, hue resolution, relative-value parsing)
  */
 

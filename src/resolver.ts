@@ -20,6 +20,7 @@ import {
   okhslToLinearSrgb,
   sRGBLinearToGamma,
   gamutClampedLuminance,
+  apcaLuminanceFromLinearRgb,
   srgbToOkhsl,
 } from './okhsl-color-math';
 import {
@@ -27,7 +28,18 @@ import {
   findValueForMixContrast,
   resolveContrastForMode,
 } from './contrast-solver';
-import type { LinearRgb, ResolvedContrast } from './contrast-solver';
+import type {
+  ContrastMetric,
+  LinearRgb,
+  ResolvedContrast,
+} from './contrast-solver';
+
+/** Luminance of a linear-sRGB color in the metric's basis (WCAG Y or APCA Ys). */
+function metricLuminance(metric: ContrastMetric, rgb: LinearRgb): number {
+  return metric === 'apca'
+    ? apcaLuminanceFromLinearRgb(rgb)
+    : gamutClampedLuminance(rgb);
+}
 import {
   clamp,
   isAbsoluteTone,
@@ -45,7 +57,6 @@ import {
 } from './shadow';
 import {
   fromTone,
-  lightToneMappedToDark,
   mapSaturationDark,
   mapToneForScheme,
   okhslToOkhst,
@@ -135,9 +146,7 @@ function applyToneFlip(delta: number, baseTone: number, flip: boolean): number {
 }
 
 function resolveRootColor(
-  _name: string,
   def: RegularColorDef,
-  _ctx: ResolveContext,
   isHighContrast: boolean,
 ): { authorTone: number; satFactor: number } {
   const rawT = def.tone!;
@@ -183,7 +192,6 @@ function resolveDependentColor(
     const parsed = parseToneValue(rawValue);
 
     if (parsed.kind === 'relative') {
-      const delta = applyToneFlip(parsed.value, baseTone, flip);
       if (isDark && mode === 'auto') {
         const baseLightVariant = getSchemeVariant(
           baseResolved,
@@ -196,12 +204,17 @@ function resolveDependentColor(
           0,
           100,
         );
-        preferredTone = lightToneMappedToDark(
+        // Invert + remap the base-anchored light tone into the dark window,
+        // exactly like an absolute author tone under `mode: 'auto'`.
+        preferredTone = mapToneForScheme(
           absoluteLightTone,
+          'auto',
+          true,
           isHighContrast,
           ctx.config,
         );
       } else {
+        const delta = applyToneFlip(parsed.value, baseTone, flip);
         preferredTone = clamp(baseTone + delta, 0, 100);
       }
     } else {
@@ -249,6 +262,9 @@ function resolveDependentColor(
       toneRange: [0, 1],
       initialDirection,
       flip,
+      // Search with the same edge taper the renderer applies, so the solved
+      // tone meets the floor at its rendered saturation.
+      saturationTaper: ctx.config.saturationTaper,
     });
 
     if (!result.met) {
@@ -291,7 +307,7 @@ function resolveColorForScheme(
   let satFactor: number;
 
   if (isRoot) {
-    const root = resolveRootColor(name, regDef, ctx, isHighContrast);
+    const root = resolveRootColor(regDef, isHighContrast);
     finalTone = mapToneForScheme(
       root.authorTone,
       mode,
@@ -427,18 +443,19 @@ function resolveMixForScheme(
 
   if (def.contrast !== undefined) {
     const resolvedContrast = resolveContrastSpec(def.contrast, isHighContrast);
+    const metric = resolvedContrast.metric;
 
     let luminanceAt: (v: number) => number;
 
     if (blend === 'transparent' || space === 'srgb') {
       luminanceAt = (v: number) =>
-        gamutClampedLuminance(linearSrgbLerp(baseLinear, targetLinear, v));
+        metricLuminance(metric, linearSrgbLerp(baseLinear, targetLinear, v));
     } else {
       luminanceAt = (v: number) => {
         const h = mixHue(baseVariant, targetVariant, v);
         const s = baseVariant.s + (targetVariant.s - baseVariant.s) * v;
         const l = baseVariant.l + (targetVariant.l - baseVariant.l) * v;
-        return gamutClampedLuminance(okhslToLinearSrgb(h, s, l));
+        return metricLuminance(metric, okhslToLinearSrgb(h, s, l));
       };
     }
 
@@ -573,10 +590,14 @@ function verifyContrastDrift(
       const bVariant = base[s.field];
       const cOkhsl = toOkhslVariant(cVariant);
       const bOkhsl = toOkhslVariant(bVariant);
-      const yC = gamutClampedLuminance(
+      // Measure in the spec's metric basis so the APCA warning compares APCA
+      // luminances, not WCAG ones.
+      const yC = metricLuminance(
+        spec.metric,
         okhslToLinearSrgb(cOkhsl.h, cOkhsl.s, cOkhsl.l),
       );
-      const yB = gamutClampedLuminance(
+      const yB = metricLuminance(
+        spec.metric,
         okhslToLinearSrgb(bOkhsl.h, bOkhsl.s, bOkhsl.l),
       );
       warnContrastDrift(name, s.isDark, s.isHighContrast, spec, yC, yB);

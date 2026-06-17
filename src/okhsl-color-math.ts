@@ -440,6 +440,29 @@ export function gamutClampedLuminance(
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/**
+ * Compute APCA screen luminance (`Ys`) from linear sRGB.
+ *
+ * APCA does not use the WCAG piecewise sRGB EOTF; it defines its own
+ * luminance as `0.2126·R^2.4 + 0.7152·G^2.4 + 0.0722·B^2.4` over the
+ * gamma-encoded (display) channels with a simple 2.4 exponent. The APCA
+ * soft-clamp threshold in `apcaContrast` is calibrated against this basis,
+ * so the solver must feed it `Ys`, not WCAG relative luminance. Channels
+ * are gamut-clamped to [0, 1] first, matching `gamutClampedLuminance`.
+ */
+export function apcaLuminanceFromLinearRgb(
+  linearRgb: [number, number, number],
+): number {
+  const r = Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0])));
+  const g = Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1])));
+  const b = Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2])));
+  return (
+    0.2126 * Math.pow(r, 2.4) +
+    0.7152 * Math.pow(g, 2.4) +
+    0.0722 * Math.pow(b, 2.4)
+  );
+}
+
 // ============================================================================
 // Reverse pipeline: sRGB → OKHSL
 // ============================================================================

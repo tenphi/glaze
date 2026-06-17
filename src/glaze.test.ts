@@ -1072,8 +1072,8 @@ describe('glaze', () => {
           contrast: { apca: 60 },
         });
         const resolved = text.resolve();
-        // pushed below the ~0.6 point that yields Lc 60 vs white
-        expect(llOf(resolved.light)).toBeLessThanOrEqual(0.58);
+        // pushed below the ~0.59 point that yields APCA Lc 60 vs white
+        expect(llOf(resolved.light)).toBeLessThanOrEqual(0.59);
       });
     });
 

@@ -1,8 +1,9 @@
 /**
- * Glaze — OKHSL-based color theme generator.
+ * Glaze — OKHST color theme generator.
  *
- * Generates robust light, dark, and high-contrast color schemes
- * from a hue/saturation seed with WCAG contrast solving.
+ * Generates robust light, dark, and high-contrast color schemes from a
+ * hue/saturation seed on a contrast-uniform tone axis, with WCAG + APCA
+ * contrast solving.
  */
 
 export { glaze } from './glaze';

@@ -141,7 +141,9 @@ renders in every scheme.
 Chosen so light mode tracks the previous pipeline closely while the axis stays
 contrast-uniform; the dark window is a clean default rather than a curve fit
 (the old Möbius curve was intentionally non-uniform, which is what we are
-replacing). Derived with [scripts/calibrate-tone.mts](../scripts/calibrate-tone.mts).
+replacing). The windows were calibrated by minimizing RMSE against the legacy
+light/dark lightness mapping over the authored 0–100 range, with `eps` pinned to
+the reference value `0.05` so the tone axis stays WCAG-uniform.
 
 | Config | lo | hi | eps |
 |---|---|---|---|
@@ -195,7 +197,12 @@ For APCA, it binary-searches tone against the APCA Lc target.
 
 `apcaContrast(yText, yBg)` implements SAPC/APCA Lc (soft-clamp of low luminances
 plus the polarity exponents for normal vs reverse contrast), returning a signed
-Lc whose magnitude the solver compares against the target.
+Lc whose magnitude the solver compares against the target. Its inputs are APCA
+*screen* luminances `Ys = 0.2126·R^2.4 + 0.7152·G^2.4 + 0.0722·B^2.4` over the
+gamma-encoded channels (`apcaLuminanceFromLinearRgb`), **not** WCAG relative
+luminance — the soft-clamp constants are calibrated against `Ys`, so the solver
+feeds it the matching basis. This is a faithful-but-simplified APCA (it omits
+the spatial/font-size lookup that maps Lc to a usable text size).
 
 ## Verification (APCA / WCAG drift)
 
@@ -213,5 +220,5 @@ hiding it. The dedupe cache is the existing 256-entry cache in
 `lightness` (OKHSL `l`, 0–100) is replaced by `tone` (0–100). They are **not**
 the same number — tone is the contrast-uniform reparameterization. To convert an
 old absolute `lightness: L` to the equivalent `tone`, use
-`toTone(Y(L/100), 0.05)`. See [migration.md](migration.md) for the full guide and
+`toTone(L/100, 0.05)`. See [migration.md](migration.md) for the full guide and
 a conversion table.

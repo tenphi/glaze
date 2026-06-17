@@ -1166,8 +1166,8 @@ import {
 
 | Function | Description |
 |---|---|
-| `toTone(l, eps?)` | OKHSL lightness (0–100) → tone (0–100). Defaults to `REF_EPS`. |
-| `fromTone(t, eps?)` | Tone (0–100) → OKHSL lightness (0–100). Inverse of `toTone`. |
+| `toTone(l, eps?)` | OKHSL lightness (0–1) → tone (0–100). Defaults to `REF_EPS`. |
+| `fromTone(t, eps?)` | Tone (0–100) → OKHSL lightness (0–1). Inverse of `toTone`. |
 | `toneFromY(y, eps?)` / `yFromTone(t, eps?)` | Same transfer in luminance space (0–1). |
 | `okhstToOkhsl({ h, s, t })` | OKHST → OKHSL (`{ h, s, l }`). |
 | `okhslToOkhst({ h, s, l })` | OKHSL → OKHST (`{ h, s, t }`). |
@@ -1210,5 +1210,6 @@ import {
 | `maxIterations` | `18` | Max binary-search iterations per branch. |
 | `initialDirection` | higher-contrast side | Direction to search first (`'lighter'` or `'darker'`). |
 | `flip` | `false` | When `true`, try the opposite direction if the initial one doesn't meet the target. When `false`, only the initial direction is searched — unmet contrasts pin the result to that direction's extreme. |
+| `saturationTaper` | `0` | When `> 0`, candidate saturation rolls off toward the tone extremes (same envelope the renderer applies), so the solved tone meets the floor at its rendered saturation. |
 
 Result: `{ tone, contrast, met, branch: 'lighter' | 'darker' | 'preferred', flipped? }`. `flipped: true` indicates the initial direction failed and the opposite direction satisfied the target.

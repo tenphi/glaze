@@ -2,9 +2,9 @@
  * Standalone single-color tokens (`glaze.color()` / `glaze.colorFrom()`).
  *
  * Owns the value-shorthand parser (hex, `rgb()` / `hsl()` / `okhsl()` /
- * `oklch()`, `{ r, g, b }`, `{ h, s, l }`, `{ l, c, h }`), the structured-input
- * validator, the two factory paths (value vs structured), and the
- * JSON-safe export / rehydration round-trip.
+ * `okhst()` / `oklch()`, `{ r, g, b }`, `{ h, s, l }`, `{ h, s, t }`,
+ * `{ l, c, h }`), the structured-input validator, the two factory paths
+ * (value vs structured), and the JSON-safe export / rehydration round-trip.
  *
  * Standalone tokens snapshot the full effective config at create time
  * so later `configure()` calls do not retroactively change exported

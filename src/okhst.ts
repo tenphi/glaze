@@ -199,22 +199,6 @@ export function mapToneForScheme(
   return clamp(toTone(finalL / 100), 0, 100);
 }
 
-/**
- * Canonical tone of a base's light-scheme value, inverted and remapped into
- * the dark window. Used when a dependent color anchors a relative `tone`
- * offset against a base's light value while resolving the dark scheme under
- * `mode: 'auto'`.
- */
-export function lightToneMappedToDark(
-  lightTone: number,
-  isHighContrast: boolean,
-  config: GlazeConfigResolved,
-): number {
-  const win = activeWindow(isHighContrast, 'dark', config);
-  const finalL = remapToneToLightness(clamp(100 - lightTone, 0, 100), win);
-  return clamp(toTone(finalL / 100), 0, 100);
-}
-
 // ============================================================================
 // Saturation
 // ============================================================================

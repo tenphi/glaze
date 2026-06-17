@@ -14,11 +14,24 @@ import {
   okhslToLinearSrgb,
   contrastRatioFromLuminance,
   gamutClampedLuminance,
+  apcaLuminanceFromLinearRgb,
 } from './okhsl-color-math';
-import { REF_EPS, fromTone, toneFromY } from './okhst';
+import { REF_EPS, fromTone, saturationEnvelope, toneFromY } from './okhst';
 import type { ContrastSpec, HCPair } from './types';
 
 export type LinearRgb = [number, number, number];
+
+export type ContrastMetric = 'wcag' | 'apca';
+
+/**
+ * Luminance of a linear-sRGB color in the basis the metric expects: WCAG
+ * relative luminance for `wcag`, APCA screen luminance (`Ys`) for `apca`.
+ */
+function luminanceFor(metric: ContrastMetric, linearRgb: LinearRgb): number {
+  return metric === 'apca'
+    ? apcaLuminanceFromLinearRgb(linearRgb)
+    : gamutClampedLuminance(linearRgb);
+}
 
 // ============================================================================
 // Types
@@ -138,17 +151,26 @@ const CACHE_SIZE = 512;
 const luminanceCache = new Map<string, number>();
 const cacheOrder: string[] = [];
 
-/** Luminance of an OKHST color `(h, s, t)` with t in 0–1 (reference eps). */
-function cachedLuminance(h: number, s: number, t: number): number {
+/**
+ * Luminance of an OKHST color `(h, s, t)` with t in 0–1 (reference eps), in
+ * the metric's luminance basis. The metric is part of the cache key because
+ * WCAG and APCA derive different luminances from the same color.
+ */
+function cachedLuminance(
+  metric: ContrastMetric,
+  h: number,
+  s: number,
+  t: number,
+): number {
   const tRounded = Math.round(t * 10000) / 10000;
-  const key = `${h}|${s}|${tRounded}`;
+  const key = `${metric}|${h}|${s}|${tRounded}`;
 
   const cached = luminanceCache.get(key);
   if (cached !== undefined) return cached;
 
   const l = fromTone(tRounded * 100, REF_EPS);
   const linearRgb = okhslToLinearSrgb(h, s, l);
-  const y = gamutClampedLuminance(linearRgb);
+  const y = luminanceFor(metric, linearRgb);
 
   if (luminanceCache.size >= CACHE_SIZE) {
     const evict = cacheOrder.shift()!;
@@ -206,6 +228,13 @@ export interface FindToneForContrastOptions {
   initialDirection?: 'lighter' | 'darker';
   /** Auto-flip tone direction when contrast can't be met. Default: false. */
   flip?: boolean;
+  /**
+   * Saturation taper strength (0–1). When set, candidate saturation is rolled
+   * off toward the tone extremes via the same envelope the renderer applies,
+   * so the solved tone meets the floor with its *rendered* saturation. Default
+   * `0` (no taper) for direct/advanced callers.
+   */
+  saturationTaper?: number;
 }
 
 export interface FindToneForContrastResult {
@@ -229,8 +258,7 @@ interface BranchResult {
 
 /** Binary search one branch [lo, hi] for the nearest passing tone to `preferred`. */
 function searchBranch(
-  h: number,
-  s: number,
+  lum: (t: number) => number,
   lo: number,
   hi: number,
   yBase: number,
@@ -240,8 +268,8 @@ function searchBranch(
   maxIter: number,
   preferred: number,
 ): BranchResult {
-  const scoreLo = metricScore(metric, cachedLuminance(h, s, lo), yBase);
-  const scoreHi = metricScore(metric, cachedLuminance(h, s, hi), yBase);
+  const scoreLo = metricScore(metric, lum(lo), yBase);
+  const scoreHi = metricScore(metric, lum(hi), yBase);
 
   if (scoreLo < target && scoreHi < target) {
     return scoreLo >= scoreHi
@@ -255,7 +283,7 @@ function searchBranch(
   for (let i = 0; i < maxIter; i++) {
     if (high - low < epsilon) break;
     const mid = (low + high) / 2;
-    const scoreMid = metricScore(metric, cachedLuminance(h, s, mid), yBase);
+    const scoreMid = metricScore(metric, lum(mid), yBase);
 
     if (scoreMid >= target) {
       if (mid < preferred) low = mid;
@@ -266,8 +294,8 @@ function searchBranch(
     }
   }
 
-  const scoreLow = metricScore(metric, cachedLuminance(h, s, low), yBase);
-  const scoreHigh = metricScore(metric, cachedLuminance(h, s, high), yBase);
+  const scoreLow = metricScore(metric, lum(low), yBase);
+  const scoreHigh = metricScore(metric, lum(high), yBase);
   const lowPasses = scoreLow >= target;
   const highPasses = scoreHigh >= target;
 
@@ -318,10 +346,23 @@ export function findToneForContrast(
   const { metric, target } = contrast;
   // Overshoot absorbs rounding in the OKHSL/OKLCH formatting pipeline.
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
-  const yBase = gamutClampedLuminance(baseLinearRgb);
+  const yBase = luminanceFor(metric, baseLinearRgb);
 
-  const yPref = cachedLuminance(hue, saturation, preferredTone);
-  const scorePref = metricScore(metric, yPref, yBase);
+  const taper = options.saturationTaper ?? 0;
+  // Luminance of a candidate at tone `t`. With a taper, saturation rolls off
+  // toward the extremes exactly as the renderer does, so the solved tone
+  // meets the floor with its *rendered* saturation; the (h, s, t) cache only
+  // applies when saturation is tone-independent (no taper).
+  const lum =
+    taper > 0
+      ? (t: number): number => {
+          const s = saturationEnvelope(saturation, t, taper);
+          const l = fromTone(t * 100, REF_EPS);
+          return luminanceFor(metric, okhslToLinearSrgb(hue, s, l));
+        }
+      : (t: number): number => cachedLuminance(metric, hue, saturation, t);
+
+  const scorePref = metricScore(metric, lum(preferredTone), yBase);
 
   if (scorePref >= searchTarget) {
     return {
@@ -351,16 +392,8 @@ export function findToneForContrast(
       branch: 'preferred',
     };
   } else {
-    const scoreMin = metricScore(
-      metric,
-      cachedLuminance(hue, saturation, minT),
-      yBase,
-    );
-    const scoreMax = metricScore(
-      metric,
-      cachedLuminance(hue, saturation, maxT),
-      yBase,
-    );
+    const scoreMin = metricScore(metric, lum(minT), yBase);
+    const scoreMax = metricScore(metric, lum(maxT), yBase);
     initialIsDarker = scoreMin >= scoreMax;
   }
 
@@ -379,8 +412,7 @@ export function findToneForContrast(
   const runBranch = (darker: boolean): BranchResult =>
     darker
       ? searchBranch(
-          hue,
-          saturation,
+          lum,
           minT,
           seededPreferred,
           yBase,
@@ -391,8 +423,7 @@ export function findToneForContrast(
           seededPreferred,
         )
       : searchBranch(
-          hue,
-          saturation,
+          lum,
           seededPreferred,
           maxT,
           yBase,
@@ -440,11 +471,7 @@ export function findToneForContrast(
 
   // Failure: pin to the initial direction's extreme.
   const extreme = initialIsDarker ? minT : maxT;
-  const scoreExtreme = metricScore(
-    metric,
-    cachedLuminance(hue, saturation, extreme),
-    yBase,
-  );
+  const scoreExtreme = metricScore(metric, lum(extreme), yBase);
   return {
     tone: extreme,
     contrast: scoreExtreme,
@@ -565,7 +592,7 @@ export function findValueForMixContrast(
 
   const { metric, target } = contrast;
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
-  const yBase = gamutClampedLuminance(baseLinearRgb);
+  const yBase = luminanceFor(metric, baseLinearRgb);
 
   const scorePref = metricScore(
     metric,

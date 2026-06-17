@@ -2,7 +2,7 @@
  * Color graph validation and topological sort.
  *
  * `validateColorDefs` rejects bad references (missing / shadow-referencing /
- * base/contrast/lightness mismatches) and detects cycles before the
+ * base/contrast/tone mismatches) and detects cycles before the
  * resolver runs. `topoSort` orders defs so each color is processed after
  * its base / bg / fg / target dependencies.
  */
