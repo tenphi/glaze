@@ -1,5 +1,32 @@
 # @tenphi/glaze
 
+## 0.14.0
+
+### Minor Changes
+
+- [#63](https://github.com/tenphi/glaze/pull/63) [`3b6e2a6`](https://github.com/tenphi/glaze/commit/3b6e2a632cc5d8f18a4f2e5580354d88d655e3d7) Thanks [@tenphi](https://github.com/tenphi)! - Replace the OKHSL lightness axis with a contrast-uniform **tone** axis (OKHST) and remove the Möbius dark-mode curve.
+
+  **Breaking changes**
+  - The `lightness` authoring prop is gone. Use `tone` (0–100, contrast-uniform) everywhere — theme colors, `glaze.color()` structured input, and relative offsets. Equal tone steps now give equal WCAG contrast, so numeric values won't map to the same OKHSL lightness as before; re-check absolute mid-range values.
+  - Config windows changed: `lightLightness` / `darkLightness` → `lightTone` / `darkTone`. A window is `[lo, hi]` (reference eps — the common form), `{ lo, hi, eps }` (advanced eps tuning), or `false` to disable clamping. `false` removes the boundaries (full `[0, 100]` range) but keeps the contrast-uniform tone curve. `darkCurve` was removed.
+  - `ResolvedColorVariant` now stores `{ h, s, t, alpha }` (tone) instead of `{ h, s, l }`. Use the new `variantToOkhsl()` helper to recover OKHSL lightness.
+  - Export snapshots now carry `lightTone` / `darkTone` windows.
+  - Relative `tone` offsets that overshoot `[0, 100]` now mirror to the other side of the base by default (the new `flip`, inheriting `autoFlip`) instead of clamping. Set `flip: false` (or `autoFlip: false`) to restore clamping.
+
+  **New**
+  - `tone: 'max'` / `'min'` forces a color to the scheme's tone extreme (lightest / darkest) with no `base` and no contrast hack; under `mode: 'auto'` they invert in dark like any tone.
+  - `flip` per-color prop (default: global `autoFlip`): mirrors out-of-bounds relative `tone` overshoot and unmet `contrast` to the opposite side of the base, or clamps when `false`.
+  - Tone windows accept the `[lo, hi]` array shorthand alongside `{ lo, hi, eps }` and `false`.
+  - `contrast` accepts a metric selector: a bare number/preset is WCAG, `{ wcag }` / `{ apca }` picks the metric, and the `[normal, hc]` pair may live at the outer level or inside the metric (`{ wcag: [4.5, 7] }`).
+  - APCA Lc contrast solving alongside WCAG, plus an APCA-based drift verification warning for chromatic swatches.
+  - OKHST input: `okhst(H S% T%)` strings and `{ h, s, t }` objects (input only — never emitted).
+  - `saturationTaper` config knob (default `0.15`) gently rolls off saturation toward the tone extremes.
+  - New exports: `toTone`, `fromTone`, `toneFromY`, `yFromTone`, `okhstToOkhsl`, `okhslToOkhst`, `variantToOkhsl`, `REF_EPS`, `findToneForContrast`, `resolveContrastForMode`, `apcaContrast`, and the `ContrastSpec` / `OkhstColor` / `ToneWindow` / `ExtremeValue` / `ToneValue` types.
+
+### Patch Changes
+
+- [#63](https://github.com/tenphi/glaze/pull/63) [`3b6e2a6`](https://github.com/tenphi/glaze/commit/3b6e2a632cc5d8f18a4f2e5580354d88d655e3d7) Thanks [@tenphi](https://github.com/tenphi)! - Adjust the default tone-window floors: `lightTone` is now `[10, 100]` (was `[13, 100]`) and `darkTone` is now `[15, 95]` (was `[10, 95]`). The OKHST migration made dark schemes bottom out darker than the legacy pipeline for the same input; lifting the dark floor keeps the darkest dark-mode surfaces closer to the previous output, and lowering the light floor widens the usable light range. Override with `lightTone: [13, 100]` / `darkTone: [10, 95]` to restore the prior values.
+
 ## 0.13.0
 
 ### Minor Changes
