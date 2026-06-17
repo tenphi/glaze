@@ -1,5 +1,5 @@
 /**
- * Glaze — OKHSL-based color theme generator.
+ * Glaze — OKHST color theme generator.
  *
  * Public API entry. Wires `glaze()` and its attached static methods to
  * the focused modules in this folder:
@@ -53,7 +53,7 @@ type PaletteInput = Record<string, GlazeTheme>;
  * Create a single-hue glaze theme.
  *
  * An optional `config` override can be supplied to customize the resolve
- * behavior for this theme (lightness windows, dark curve, etc.). The
+ * behavior for this theme (tone windows, saturation taper, etc.). The
  * override is **merged over the live global config at resolve time** —
  * the theme still reacts to later `configure()` calls for fields it
  * didn't override.

@@ -17,6 +17,7 @@ import {
   apcaLuminanceFromLinearRgb,
 } from './okhsl-color-math';
 import { REF_EPS, fromTone, saturationEnvelope, toneFromY } from './okhst';
+import { clamp } from './hc-pair';
 import type { ContrastSpec, HCPair } from './types';
 
 export type LinearRgb = [number, number, number];
@@ -27,7 +28,10 @@ export type ContrastMetric = 'wcag' | 'apca';
  * Luminance of a linear-sRGB color in the basis the metric expects: WCAG
  * relative luminance for `wcag`, APCA screen luminance (`Ys`) for `apca`.
  */
-function luminanceFor(metric: ContrastMetric, linearRgb: LinearRgb): number {
+export function metricLuminance(
+  metric: ContrastMetric,
+  linearRgb: LinearRgb,
+): number {
   return metric === 'apca'
     ? apcaLuminanceFromLinearRgb(linearRgb)
     : gamutClampedLuminance(linearRgb);
@@ -170,7 +174,7 @@ function cachedLuminance(
 
   const l = fromTone(tRounded * 100, REF_EPS);
   const linearRgb = okhslToLinearSrgb(h, s, l);
-  const y = luminanceFor(metric, linearRgb);
+  const y = metricLuminance(metric, linearRgb);
 
   if (luminanceCache.size >= CACHE_SIZE) {
     const evict = cacheOrder.shift()!;
@@ -250,15 +254,23 @@ export interface FindToneForContrastResult {
   flipped?: boolean;
 }
 
+/**
+ * Result of a single one-dimensional branch search. `pos` is the chosen
+ * coordinate (tone or mix value depending on the caller's domain).
+ */
 interface BranchResult {
-  tone: number;
+  pos: number;
   contrast: number;
   met: boolean;
 }
 
-/** Binary search one branch [lo, hi] for the nearest passing tone to `preferred`. */
+/**
+ * Binary search one branch `[lo, hi]` for the position nearest to `anchor`
+ * that meets `target`. The domain is whatever `lum` interprets (tone 0–1 or
+ * mix parameter 0–1); the search is identical in both cases.
+ */
 function searchBranch(
-  lum: (t: number) => number,
+  lum: (x: number) => number,
   lo: number,
   hi: number,
   yBase: number,
@@ -266,15 +278,15 @@ function searchBranch(
   target: number,
   epsilon: number,
   maxIter: number,
-  preferred: number,
+  anchor: number,
 ): BranchResult {
   const scoreLo = metricScore(metric, lum(lo), yBase);
   const scoreHi = metricScore(metric, lum(hi), yBase);
 
   if (scoreLo < target && scoreHi < target) {
     return scoreLo >= scoreHi
-      ? { tone: lo, contrast: scoreLo, met: false }
-      : { tone: hi, contrast: scoreHi, met: false };
+      ? { pos: lo, contrast: scoreLo, met: false }
+      : { pos: hi, contrast: scoreHi, met: false };
   }
 
   let low = lo;
@@ -286,10 +298,10 @@ function searchBranch(
     const scoreMid = metricScore(metric, lum(mid), yBase);
 
     if (scoreMid >= target) {
-      if (mid < preferred) low = mid;
+      if (mid < anchor) low = mid;
       else high = mid;
     } else {
-      if (mid < preferred) high = mid;
+      if (mid < anchor) high = mid;
       else low = mid;
     }
   }
@@ -300,16 +312,16 @@ function searchBranch(
   const highPasses = scoreHigh >= target;
 
   if (lowPasses && highPasses) {
-    return Math.abs(low - preferred) <= Math.abs(high - preferred)
-      ? { tone: low, contrast: scoreLow, met: true }
-      : { tone: high, contrast: scoreHigh, met: true };
+    return Math.abs(low - anchor) <= Math.abs(high - anchor)
+      ? { pos: low, contrast: scoreLow, met: true }
+      : { pos: high, contrast: scoreHigh, met: true };
   }
-  if (lowPasses) return { tone: low, contrast: scoreLow, met: true };
-  if (highPasses) return { tone: high, contrast: scoreHigh, met: true };
+  if (lowPasses) return { pos: low, contrast: scoreLow, met: true };
+  if (highPasses) return { pos: high, contrast: scoreHigh, met: true };
 
   return scoreLow >= scoreHigh
-    ? { tone: low, contrast: scoreLow, met: false }
-    : { tone: high, contrast: scoreHigh, met: false };
+    ? { pos: low, contrast: scoreLow, met: false }
+    : { pos: high, contrast: scoreHigh, met: false };
 }
 
 /**
@@ -323,6 +335,128 @@ function wcagToneSeed(yBase: number, target: number, darker: boolean): number {
     : target * (yBase + 0.05) - 0.05;
   const yClamped = Math.max(0, Math.min(1, yTarget));
   return Math.max(0, Math.min(1, toneFromY(yClamped, REF_EPS) / 100));
+}
+
+/**
+ * Shared "find the nearest passing position" core for both the tone and mix
+ * solvers. Both pick an initial direction within `[lo, hi]`, binary-search
+ * that branch, optionally flip to the opposite branch, and pin to the
+ * initial extreme on failure — they only differ in their domain and how the
+ * branch boundary / luminance closure are built.
+ *
+ * `searchAnchor` biases the branch boundary and the in-branch tiebreak (the
+ * WCAG seed for the tone solver; `preferred` otherwise). `distanceAnchor`
+ * is the position the flip step measures closeness against (the original
+ * preferred position, before any seed bias).
+ */
+interface SolveCoreOptions {
+  lum: (x: number) => number;
+  yBase: number;
+  metric: 'wcag' | 'apca';
+  target: number;
+  searchTarget: number;
+  lo: number;
+  hi: number;
+  /** Branch-boundary + in-branch tiebreak anchor. */
+  searchAnchor: number;
+  /** Position the flip step minimizes distance to. */
+  distanceAnchor: number;
+  epsilon: number;
+  maxIterations: number;
+  flip: boolean;
+  /** Force the first branch ('lower' searches `[lo, anchor]'). */
+  initialIsLower: boolean;
+}
+
+interface SolveCoreResult {
+  pos: number;
+  contrast: number;
+  met: boolean;
+  /** Which branch produced the result. */
+  lower: boolean;
+  flipped?: boolean;
+}
+
+function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
+  const {
+    lum,
+    yBase,
+    metric,
+    target,
+    searchTarget,
+    lo,
+    hi,
+    searchAnchor,
+    distanceAnchor,
+    epsilon,
+    maxIterations,
+    flip,
+    initialIsLower,
+  } = opts;
+
+  const runBranch = (lower: boolean): BranchResult =>
+    lower
+      ? searchBranch(
+          lum,
+          lo,
+          searchAnchor,
+          yBase,
+          metric,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          searchAnchor,
+        )
+      : searchBranch(
+          lum,
+          searchAnchor,
+          hi,
+          yBase,
+          metric,
+          searchTarget,
+          epsilon,
+          maxIterations,
+          searchAnchor,
+        );
+
+  const initialResult = runBranch(initialIsLower);
+  initialResult.met = initialResult.contrast >= target;
+
+  if (initialResult.met && !flip) {
+    return { ...initialResult, lower: initialIsLower };
+  }
+
+  if (flip) {
+    // The opposite branch exists only when `distanceAnchor` is strictly
+    // interior on that side (matches the legacy canDarker/canUpper guards).
+    const canOpposite = initialIsLower
+      ? distanceAnchor < hi
+      : distanceAnchor > lo;
+    const oppositeResult = canOpposite ? runBranch(!initialIsLower) : null;
+    if (oppositeResult) oppositeResult.met = oppositeResult.contrast >= target;
+
+    if (initialResult.met && oppositeResult?.met) {
+      const initialDist = Math.abs(initialResult.pos - distanceAnchor);
+      const oppositeDist = Math.abs(oppositeResult.pos - distanceAnchor);
+      return initialDist <= oppositeDist
+        ? { ...initialResult, lower: initialIsLower }
+        : { ...oppositeResult, lower: !initialIsLower, flipped: true };
+    }
+    if (initialResult.met) return { ...initialResult, lower: initialIsLower };
+    if (oppositeResult?.met) {
+      return { ...oppositeResult, lower: !initialIsLower, flipped: true };
+    }
+  }
+
+  // Failure: pin to the initial direction's extreme.
+  const extreme = initialIsLower ? lo : hi;
+  const scoreExtreme = metricScore(metric, lum(extreme), yBase);
+  return {
+    pos: extreme,
+    contrast: scoreExtreme,
+    met: false,
+    lower: initialIsLower,
+  };
 }
 
 /**
@@ -346,7 +480,7 @@ export function findToneForContrast(
   const { metric, target } = contrast;
   // Overshoot absorbs rounding in the OKHSL/OKLCH formatting pipeline.
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
-  const yBase = luminanceFor(metric, baseLinearRgb);
+  const yBase = metricLuminance(metric, baseLinearRgb);
 
   const taper = options.saturationTaper ?? 0;
   // Luminance of a candidate at tone `t`. With a taper, saturation rolls off
@@ -358,7 +492,7 @@ export function findToneForContrast(
       ? (t: number): number => {
           const s = saturationEnvelope(saturation, t, taper);
           const l = fromTone(t * 100, REF_EPS);
-          return luminanceFor(metric, okhslToLinearSrgb(hue, s, l));
+          return metricLuminance(metric, okhslToLinearSrgb(hue, s, l));
         }
       : (t: number): number => cachedLuminance(metric, hue, saturation, t);
 
@@ -397,10 +531,12 @@ export function findToneForContrast(
     initialIsDarker = scoreMin >= scoreMax;
   }
 
-  // For WCAG, bias the search start toward the closed-form seed.
-  const seededPreferred =
+  // For WCAG, bias the search start toward the closed-form seed (darker =
+  // the "lower" branch). The flip step still measures distance against the
+  // original `preferredTone`, not the seed.
+  const searchAnchor =
     metric === 'wcag'
-      ? clampToRange(
+      ? clamp(
           initialIsDarker
             ? Math.min(preferredTone, wcagToneSeed(yBase, target, true))
             : Math.max(preferredTone, wcagToneSeed(yBase, target, false)),
@@ -409,79 +545,29 @@ export function findToneForContrast(
         )
       : preferredTone;
 
-  const runBranch = (darker: boolean): BranchResult =>
-    darker
-      ? searchBranch(
-          lum,
-          minT,
-          seededPreferred,
-          yBase,
-          metric,
-          searchTarget,
-          epsilon,
-          maxIterations,
-          seededPreferred,
-        )
-      : searchBranch(
-          lum,
-          seededPreferred,
-          maxT,
-          yBase,
-          metric,
-          searchTarget,
-          epsilon,
-          maxIterations,
-          seededPreferred,
-        );
+  const solved = solveNearestContrast({
+    lum,
+    yBase,
+    metric,
+    target,
+    searchTarget,
+    lo: minT,
+    hi: maxT,
+    searchAnchor,
+    distanceAnchor: preferredTone,
+    epsilon,
+    maxIterations,
+    flip: options.flip ?? false,
+    initialIsLower: initialIsDarker,
+  });
 
-  const initialBranchName: 'darker' | 'lighter' = initialIsDarker
-    ? 'darker'
-    : 'lighter';
-  const oppositeBranchName: 'darker' | 'lighter' = initialIsDarker
-    ? 'lighter'
-    : 'darker';
-
-  const initialResult = runBranch(initialIsDarker);
-  initialResult.met = initialResult.contrast >= target;
-
-  if (initialResult.met && !options.flip) {
-    return { ...initialResult, branch: initialBranchName };
-  }
-
-  if (options.flip) {
-    const canOpposite = initialIsDarker ? canLighter : canDarker;
-    const oppositeResult = canOpposite ? runBranch(!initialIsDarker) : null;
-    if (oppositeResult) oppositeResult.met = oppositeResult.contrast >= target;
-
-    if (initialResult.met && oppositeResult?.met) {
-      const initialDist = Math.abs(initialResult.tone - preferredTone);
-      const oppositeDist = Math.abs(oppositeResult.tone - preferredTone);
-      if (initialDist <= oppositeDist) {
-        return { ...initialResult, branch: initialBranchName };
-      }
-      return { ...oppositeResult, branch: oppositeBranchName, flipped: true };
-    }
-    if (initialResult.met) {
-      return { ...initialResult, branch: initialBranchName };
-    }
-    if (oppositeResult?.met) {
-      return { ...oppositeResult, branch: oppositeBranchName, flipped: true };
-    }
-  }
-
-  // Failure: pin to the initial direction's extreme.
-  const extreme = initialIsDarker ? minT : maxT;
-  const scoreExtreme = metricScore(metric, lum(extreme), yBase);
   return {
-    tone: extreme,
-    contrast: scoreExtreme,
-    met: false,
-    branch: initialBranchName,
+    tone: solved.pos,
+    contrast: solved.contrast,
+    met: solved.met,
+    branch: solved.lower ? 'darker' : 'lighter',
+    ...(solved.flipped ? { flipped: true } : {}),
   };
-}
-
-function clampToRange(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
 }
 
 // ============================================================================
@@ -514,66 +600,6 @@ export interface FindValueForMixContrastResult {
   flipped?: boolean;
 }
 
-interface MixBranchResult {
-  value: number;
-  contrast: number;
-  met: boolean;
-}
-
-function searchMixBranch(
-  lo: number,
-  hi: number,
-  yBase: number,
-  metric: 'wcag' | 'apca',
-  target: number,
-  epsilon: number,
-  maxIter: number,
-  preferred: number,
-  luminanceAt: (t: number) => number,
-): MixBranchResult {
-  const scoreLo = metricScore(metric, luminanceAt(lo), yBase);
-  const scoreHi = metricScore(metric, luminanceAt(hi), yBase);
-
-  if (scoreLo < target && scoreHi < target) {
-    return scoreLo >= scoreHi
-      ? { value: lo, contrast: scoreLo, met: false }
-      : { value: hi, contrast: scoreHi, met: false };
-  }
-
-  let low = lo;
-  let high = hi;
-
-  for (let i = 0; i < maxIter; i++) {
-    if (high - low < epsilon) break;
-    const mid = (low + high) / 2;
-    const scoreMid = metricScore(metric, luminanceAt(mid), yBase);
-    if (scoreMid >= target) {
-      if (mid < preferred) low = mid;
-      else high = mid;
-    } else {
-      if (mid < preferred) high = mid;
-      else low = mid;
-    }
-  }
-
-  const scoreLow = metricScore(metric, luminanceAt(low), yBase);
-  const scoreHigh = metricScore(metric, luminanceAt(high), yBase);
-  const lowPasses = scoreLow >= target;
-  const highPasses = scoreHigh >= target;
-
-  if (lowPasses && highPasses) {
-    return Math.abs(low - preferred) <= Math.abs(high - preferred)
-      ? { value: low, contrast: scoreLow, met: true }
-      : { value: high, contrast: scoreHigh, met: true };
-  }
-  if (lowPasses) return { value: low, contrast: scoreLow, met: true };
-  if (highPasses) return { value: high, contrast: scoreHigh, met: true };
-
-  return scoreLow >= scoreHigh
-    ? { value: low, contrast: scoreLow, met: false }
-    : { value: high, contrast: scoreHigh, met: false };
-}
-
 /**
  * Find the mix parameter (ratio or opacity) that satisfies a contrast floor
  * against a base color, staying as close to `preferredValue` as possible.
@@ -592,7 +618,7 @@ export function findValueForMixContrast(
 
   const { metric, target } = contrast;
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
-  const yBase = luminanceFor(metric, baseLinearRgb);
+  const yBase = metricLuminance(metric, baseLinearRgb);
 
   const scorePref = metricScore(
     metric,
@@ -618,55 +644,26 @@ export function findValueForMixContrast(
     initialIsLower = scoreLower >= scoreUpper;
   }
 
-  const runBranch = (lower: boolean): MixBranchResult =>
-    lower
-      ? searchMixBranch(
-          0,
-          preferredValue,
-          yBase,
-          metric,
-          searchTarget,
-          epsilon,
-          maxIterations,
-          preferredValue,
-          luminanceAtValue,
-        )
-      : searchMixBranch(
-          preferredValue,
-          1,
-          yBase,
-          metric,
-          searchTarget,
-          epsilon,
-          maxIterations,
-          preferredValue,
-          luminanceAtValue,
-        );
+  const solved = solveNearestContrast({
+    lum: luminanceAtValue,
+    yBase,
+    metric,
+    target,
+    searchTarget,
+    lo: 0,
+    hi: 1,
+    searchAnchor: preferredValue,
+    distanceAnchor: preferredValue,
+    epsilon,
+    maxIterations,
+    flip: options.flip ?? false,
+    initialIsLower,
+  });
 
-  const initialResult = runBranch(initialIsLower);
-  initialResult.met = initialResult.contrast >= target;
-
-  if (initialResult.met && !options.flip) {
-    return initialResult;
-  }
-
-  if (options.flip) {
-    const canOpposite = initialIsLower ? canUpper : canLower;
-    const oppositeResult = canOpposite ? runBranch(!initialIsLower) : null;
-    if (oppositeResult) oppositeResult.met = oppositeResult.contrast >= target;
-
-    if (initialResult.met && oppositeResult?.met) {
-      const initialDist = Math.abs(initialResult.value - preferredValue);
-      const oppositeDist = Math.abs(oppositeResult.value - preferredValue);
-      return initialDist <= oppositeDist
-        ? initialResult
-        : { ...oppositeResult, flipped: true };
-    }
-    if (initialResult.met) return initialResult;
-    if (oppositeResult?.met) return { ...oppositeResult, flipped: true };
-  }
-
-  const extreme = initialIsLower ? 0 : 1;
-  const scoreExtreme = metricScore(metric, luminanceAtValue(extreme), yBase);
-  return { value: extreme, contrast: scoreExtreme, met: false };
+  return {
+    value: solved.pos,
+    contrast: solved.contrast,
+    met: solved.met,
+    ...(solved.flipped ? { flipped: true } : {}),
+  };
 }

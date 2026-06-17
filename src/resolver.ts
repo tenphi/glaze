@@ -19,27 +19,15 @@
 import {
   okhslToLinearSrgb,
   sRGBLinearToGamma,
-  gamutClampedLuminance,
-  apcaLuminanceFromLinearRgb,
   srgbToOkhsl,
 } from './okhsl-color-math';
 import {
   findToneForContrast,
   findValueForMixContrast,
+  metricLuminance,
   resolveContrastForMode,
 } from './contrast-solver';
-import type {
-  ContrastMetric,
-  LinearRgb,
-  ResolvedContrast,
-} from './contrast-solver';
-
-/** Luminance of a linear-sRGB color in the metric's basis (WCAG Y or APCA Ys). */
-function metricLuminance(metric: ContrastMetric, rgb: LinearRgb): number {
-  return metric === 'apca'
-    ? apcaLuminanceFromLinearRgb(rgb)
-    : gamutClampedLuminance(rgb);
-}
+import type { LinearRgb, ResolvedContrast } from './contrast-solver';
 import {
   clamp,
   isAbsoluteTone,

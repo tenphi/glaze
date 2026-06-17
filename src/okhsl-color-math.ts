@@ -1,9 +1,9 @@
 /**
  * OKHSL color math primitives for the glaze theme generator.
  *
- * Provides bidirectional OKHSL ↔ sRGB conversion, relative luminance
- * computation for WCAG 2 contrast calculations, and multi-format output
- * (okhsl, rgb, hsl, oklch).
+ * Provides bidirectional OKHSL ↔ sRGB conversion, luminance computation
+ * for both contrast metrics (WCAG 2 relative luminance and APCA screen
+ * luminance `Ys`), and multi-format output (okhsl, rgb, hsl, oklch).
  */
 
 type Vec3 = [number, number, number];
