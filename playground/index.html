@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Glaze · OKHST Playground</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app__header">
+        <h1 class="app__title">
+          Glaze <span class="app__dot">·</span> OKHST Playground
+        </h1>
+        <p class="app__subtitle">
+          A contrast-uniform tone ramp from a single hue / saturation seed.
+        </p>
+      </header>
+
+      <section class="controls" aria-label="Seed controls">
+        <div class="control">
+          <label class="control__label" for="hue">
+            <span>Hue</span>
+            <output id="hue-value" class="control__value">240°</output>
+          </label>
+          <input
+            id="hue"
+            class="slider slider--hue"
+            type="range"
+            min="0"
+            max="360"
+            step="1"
+            value="240"
+          />
+        </div>
+
+        <div class="control">
+          <label class="control__label" for="saturation">
+            <span>Saturation</span>
+            <output id="saturation-value" class="control__value">80</output>
+          </label>
+          <input
+            id="saturation"
+            class="slider"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="80"
+          />
+        </div>
+      </section>
+
+      <section class="palette" id="palette" aria-label="Tone palette"></section>
+
+      <footer class="app__footer">
+        Tone <strong>0</strong> → <strong>100</strong> across
+        <strong>15</strong> steps · click a swatch to copy its hex
+      </footer>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
