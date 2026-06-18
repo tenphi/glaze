@@ -155,18 +155,10 @@ A window is authored as `[lo, hi]` (reference eps — the common form),
 to disable clamping. `false` is the full range `[0, 100]` at the reference eps —
 it removes the **boundaries**, not the tone curve.
 
-Other defaults: `darkDesaturation = 0.1` (unchanged), `saturationTaper = 0.15`,
+Other defaults: `darkDesaturation = 0.1` (unchanged),
 `autoFlip = true`.
 
 Reference: `REF_EPS = 0.05`.
-
-## Saturation taper
-
-At the tone extremes the in-gamut chroma collapses, so high saturation near
-white/black reads as noise. `saturationEnvelope(s, toneFinal, taper)` applies a
-smoothstep rolloff over the outer `taper` fraction of the tone range (default
-`0.15` → outer 15% on each end). `taper = 0` disables it. It is conservative by
-design: mid-tones are untouched, so existing ramps barely shift.
 
 ## Contrast metric (unified)
 

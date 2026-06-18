@@ -48,7 +48,6 @@ import {
   mapSaturationDark,
   mapToneForScheme,
   okhslToOkhst,
-  saturationEnvelope,
   schemeToneRange,
   toTone,
   variantToOkhsl,
@@ -230,6 +229,7 @@ function resolveDependentColor(
       baseOkhsl.h,
       baseOkhsl.s,
       baseOkhsl.l,
+      ctx.config.pastel,
     );
 
     const toneRange = schemeToneRange(isDark, mode, isHighContrast, ctx.config);
@@ -250,9 +250,7 @@ function resolveDependentColor(
       toneRange: [0, 1],
       initialDirection,
       flip,
-      // Search with the same edge taper the renderer applies, so the solved
-      // tone meets the floor at its rendered saturation.
-      saturationTaper: ctx.config.saturationTaper,
+      pastel: ctx.config.pastel,
     });
 
     if (!result.met) {
@@ -318,16 +316,11 @@ function resolveColorForScheme(
   }
 
   const baseSat = (satFactor * ctx.saturation) / 100;
-  let finalSat = isDark
+  const finalSat = isDark
     ? mapSaturationDark(baseSat, mode, ctx.config)
     : baseSat;
 
   const toneFraction = clamp(finalTone / 100, 0, 1);
-  finalSat = saturationEnvelope(
-    finalSat,
-    toneFraction,
-    ctx.config.saturationTaper,
-  );
 
   return {
     h: effectiveHue,
@@ -364,8 +357,8 @@ function resolveShadowForScheme(
   return toToneVariant(computeShadow(bgVariant, fgVariant, intensity, tuning));
 }
 
-function okhslVariantToLinearRgb(v: OkhslVariant): LinearRgb {
-  return okhslToLinearSrgb(v.h, v.s, v.l);
+function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {
+  return okhslToLinearSrgb(v.h, v.s, v.l, pastel);
 }
 
 /**
@@ -396,13 +389,16 @@ function linearSrgbLerp(
   ];
 }
 
-function linearRgbToToneVariant(rgb: LinearRgb): ResolvedColorVariant {
+function linearRgbToToneVariant(
+  rgb: LinearRgb,
+  pastel: boolean,
+): ResolvedColorVariant {
   const gamma: [number, number, number] = [
     Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[0]))),
     Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[1]))),
     Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[2]))),
   ];
-  const [h, s, l] = srgbToOkhsl(gamma);
+  const [h, s, l] = srgbToOkhsl(gamma, pastel);
   return toToneVariant({ h, s, l, alpha: 1 });
 }
 
@@ -426,8 +422,11 @@ function resolveMixForScheme(
 
   const blend = def.blend ?? 'opaque';
   const space = def.space ?? 'okhsl';
-  const baseLinear = okhslVariantToLinearRgb(baseVariant);
-  const targetLinear = okhslVariantToLinearRgb(targetVariant);
+  const baseLinear = okhslVariantToLinearRgb(baseVariant, ctx.config.pastel);
+  const targetLinear = okhslVariantToLinearRgb(
+    targetVariant,
+    ctx.config.pastel,
+  );
 
   if (def.contrast !== undefined) {
     const resolvedContrast = resolveContrastSpec(def.contrast, isHighContrast);
@@ -443,7 +442,10 @@ function resolveMixForScheme(
         const h = mixHue(baseVariant, targetVariant, v);
         const s = baseVariant.s + (targetVariant.s - baseVariant.s) * v;
         const l = baseVariant.l + (targetVariant.l - baseVariant.l) * v;
-        return metricLuminance(metric, okhslToLinearSrgb(h, s, l));
+        return metricLuminance(
+          metric,
+          okhslToLinearSrgb(h, s, l, ctx.config.pastel),
+        );
       };
     }
 
@@ -469,7 +471,7 @@ function resolveMixForScheme(
 
   if (space === 'srgb') {
     const mixed = linearSrgbLerp(baseLinear, targetLinear, t);
-    return linearRgbToToneVariant(mixed);
+    return linearRgbToToneVariant(mixed, ctx.config.pastel);
   }
 
   return toToneVariant({

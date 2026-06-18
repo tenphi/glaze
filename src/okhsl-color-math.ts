@@ -307,9 +307,55 @@ const getCs = (
   return [c0, cMid, cMax];
 };
 
+const CYAN_A = Math.cos((199.8 * Math.PI) / 180);
+const CYAN_B = Math.sin((199.8 * Math.PI) / 180);
+const BLUE_A = Math.cos((267.4 * Math.PI) / 180);
+const BLUE_B = Math.sin((267.4 * Math.PI) / 180);
+
+let cyanCusp: [number, number] | undefined;
+let blueCusp: [number, number] | undefined;
+
+/**
+ * Computes the maximum safe OKLCH chroma that fits inside the sRGB gamut
+ * for all possible hues at a given OKLab lightness `L`.
+ */
+export function computeSafeChromaOKLCH(L: number): number {
+  if (!cyanCusp) cyanCusp = findCuspOKLCH(CYAN_A, CYAN_B);
+  if (!blueCusp) blueCusp = findCuspOKLCH(BLUE_A, BLUE_B);
+
+  const c1 = findGamutIntersectionOKLCH(CYAN_A, CYAN_B, L, 1, L, cyanCusp);
+  const c2 = findGamutIntersectionOKLCH(BLUE_A, BLUE_B, L, 1, L, blueCusp);
+  return Math.min(c1, c2);
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
+
+/** Per-hue cusp-lightness cache. The cusp is mode-independent, so keying on
+ * a rounded hue is safe and keeps the cache small. */
+const cuspLightnessCache = new Map<number, number>();
+
+/**
+ * OKHSL lightness of the gamut cusp for a hue — the lightness where the
+ * realizable chroma peaks. Reuses the same `find_cusp` OKHSL already runs for
+ * its `s` normalization (no new color math); the OKLab cusp lightness is run
+ * through the OKHSL `toe` and clamped to `[0.001, 0.999]` so divisions that
+ * key off it stay safe. Cached per (rounded) hue.
+ *
+ * @param h Hue, 0–360.
+ */
+export function cuspLightness(h: number): number {
+  const key = Math.round(constrainAngle(h) * 100) / 100;
+  const cached = cuspLightnessCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const hNorm = key / 360.0;
+  const cusp = findCuspOKLCH(Math.cos(TAU * hNorm), Math.sin(TAU * hNorm));
+  const lc = clampVal(toe(cusp[0]), 0.001, 0.999);
+  cuspLightnessCache.set(key, lc);
+  return lc;
+}
 
 /**
  * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to OKLab [L, a, b].
@@ -318,6 +364,7 @@ export function okhslToOklab(
   h: number,
   s: number,
   l: number,
+  pastel = false,
 ): [number, number, number] {
   const L = toeInv(l);
   let a = 0;
@@ -329,29 +376,35 @@ export function okhslToOklab(
     const a_ = Math.cos(TAU * hNorm);
     const b_ = Math.sin(TAU * hNorm);
 
-    const cusp = findCuspOKLCH(a_, b_);
-    const Cs = getCs(L, a_, b_, cusp);
-    const [c0, cMid, cMax] = Cs;
-
-    const mid = 0.8;
-    const midInv = 1.25;
-    let t: number, k0: number, k1: number, k2: number;
-
-    if (s < mid) {
-      t = midInv * s;
-      k0 = 0.0;
-      k1 = mid * c0;
-      k2 = 1.0 - k1 / cMid;
+    if (pastel) {
+      const c = s * computeSafeChromaOKLCH(L);
+      a = c * a_;
+      b = c * b_;
     } else {
-      t = 5 * (s - 0.8);
-      k0 = cMid;
-      k1 = (0.2 * cMid ** 2 * 1.25 ** 2) / c0;
-      k2 = 1.0 - k1 / (cMax - cMid);
-    }
+      const cusp = findCuspOKLCH(a_, b_);
+      const Cs = getCs(L, a_, b_, cusp);
+      const [c0, cMid, cMax] = Cs;
 
-    const c = k0 + (t * k1) / (1.0 - k2 * t);
-    a = c * a_;
-    b = c * b_;
+      const mid = 0.8;
+      const midInv = 1.25;
+      let t: number, k0: number, k1: number, k2: number;
+
+      if (s < mid) {
+        t = midInv * s;
+        k0 = 0.0;
+        k1 = mid * c0;
+        k2 = 1.0 - k1 / cMid;
+      } else {
+        t = 5 * (s - 0.8);
+        k0 = cMid;
+        k1 = (0.2 * cMid ** 2 * 1.25 ** 2) / c0;
+        k2 = 1.0 - k1 / (cMax - cMid);
+      }
+
+      const c = k0 + (t * k1) / (1.0 - k2 * t);
+      a = c * a_;
+      b = c * b_;
+    }
   }
 
   return [L, a, b];
@@ -365,8 +418,9 @@ export function okhslToLinearSrgb(
   h: number,
   s: number,
   l: number,
+  pastel = false,
 ): [number, number, number] {
-  return OKLabToLinearSRGB(okhslToOklab(h, s, l));
+  return OKLabToLinearSRGB(okhslToOklab(h, s, l, pastel));
 }
 
 /**
@@ -411,8 +465,9 @@ export function okhslToSrgb(
   h: number,
   s: number,
   l: number,
+  pastel = false,
 ): [number, number, number] {
-  const lin = okhslToLinearSrgb(h, s, l);
+  const lin = okhslToLinearSrgb(h, s, l, pastel);
   return [
     Math.max(0, Math.min(1, sRGBLinearToGamma(lin[0]))),
     Math.max(0, Math.min(1, sRGBLinearToGamma(lin[1]))),
@@ -478,7 +533,7 @@ const linearSrgbToOklab = (rgb: Vec3): Vec3 => {
  * Input: [L, a, b] where L: 0–1, a/b: roughly -0.5 to 0.5.
  * Returns [h, s, l] where h: 0–360, s: 0–1, l: 0–1.
  */
-export const oklabToOkhsl = (lab: Vec3): Vec3 => {
+export const oklabToOkhsl = (lab: Vec3, pastel = false): Vec3 => {
   const L = lab[0];
   const a = lab[1];
   const b = lab[2];
@@ -522,27 +577,31 @@ export const oklabToOkhsl = (lab: Vec3): Vec3 => {
   let h = Math.atan2(b, a) * (180 / Math.PI);
   h = constrainAngle(h);
 
-  const cusp = findCuspOKLCH(a_, b_);
-  const Cs = getCs(L, a_, b_, cusp);
-  const [c0, cMid, cMax] = Cs;
-
-  const mid = 0.8;
-  const midInv = 1.25;
-
   let s: number;
 
-  if (C < cMid) {
-    const k1 = mid * c0;
-    const k2 = 1.0 - k1 / cMid;
-    const t = C / (k1 + C * k2);
-    s = t / midInv;
+  if (pastel) {
+    s = C / computeSafeChromaOKLCH(L);
   } else {
-    const k0 = cMid;
-    const k1 = (0.2 * cMid ** 2 * 1.25 ** 2) / c0;
-    const k2 = 1.0 - k1 / (cMax - cMid);
-    const cDiff = C - k0;
-    const t = cDiff / (k1 + cDiff * k2);
-    s = mid + t / 5;
+    const cusp = findCuspOKLCH(a_, b_);
+    const Cs = getCs(L, a_, b_, cusp);
+    const [c0, cMid, cMax] = Cs;
+
+    const mid = 0.8;
+    const midInv = 1.25;
+
+    if (C < cMid) {
+      const k1 = mid * c0;
+      const k2 = 1.0 - k1 / cMid;
+      const t = C / (k1 + C * k2);
+      s = t / midInv;
+    } else {
+      const k0 = cMid;
+      const k1 = (0.2 * cMid ** 2 * 1.25 ** 2) / c0;
+      const k2 = 1.0 - k1 / (cMax - cMid);
+      const cDiff = C - k0;
+      const t = cDiff / (k1 + cDiff * k2);
+      s = mid + t / 5;
+    }
   }
 
   const l = toe(L);
@@ -556,6 +615,7 @@ export const oklabToOkhsl = (lab: Vec3): Vec3 => {
  */
 export function srgbToOkhsl(
   rgb: [number, number, number],
+  pastel = false,
 ): [number, number, number] {
   const linear: Vec3 = [
     sRGBGammaToLinear(rgb[0]),
@@ -563,7 +623,7 @@ export function srgbToOkhsl(
     sRGBGammaToLinear(rgb[2]),
   ];
   const oklab = linearSrgbToOklab(linear);
-  return oklabToOkhsl(oklab) as [number, number, number];
+  return oklabToOkhsl(oklab, pastel) as [number, number, number];
 }
 
 /**
@@ -674,8 +734,21 @@ function fmt(value: number, decimals: number): string {
  * Format OKHSL values as a CSS `okhsl(H S% L%)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatOkhsl(h: number, s: number, l: number): string {
-  return `okhsl(${fmt(h, 2)} ${fmt(s, 2)}% ${fmt(l, 2)}%)`;
+export function formatOkhsl(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
+  let outS = s;
+  if (pastel) {
+    // If it's a pastel color, we need to find the equivalent normal OKHSL `s`
+    // so it renders identically in external parsers that don't know about `pastel`.
+    const oklab = okhslToOklab(h, s / 100, l / 100, true);
+    const normalOkhsl = oklabToOkhsl(oklab, false);
+    outS = normalOkhsl[1] * 100;
+  }
+  return `okhsl(${fmt(h, 2)} ${fmt(outS, 2)}% ${fmt(l, 2)}%)`;
 }
 
 /**
@@ -683,8 +756,13 @@ export function formatOkhsl(h: number, s: number, l: number): string {
  * Uses 2 decimal places to avoid 8-bit quantization contrast loss.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatRgb(h: number, s: number, l: number): string {
-  const [r, g, b] = okhslToSrgb(h, s / 100, l / 100);
+export function formatRgb(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
+  const [r, g, b] = okhslToSrgb(h, s / 100, l / 100, pastel);
   return `rgb(${parseFloat((r * 255).toFixed(2))} ${parseFloat((g * 255).toFixed(2))} ${parseFloat((b * 255).toFixed(2))})`;
 }
 
@@ -692,8 +770,13 @@ export function formatRgb(h: number, s: number, l: number): string {
  * Format OKHSL values as a CSS `hsl(H S% L%)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatHsl(h: number, s: number, l: number): string {
-  const [r, g, b] = okhslToSrgb(h, s / 100, l / 100);
+export function formatHsl(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
+  const [r, g, b] = okhslToSrgb(h, s / 100, l / 100, pastel);
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -722,8 +805,13 @@ export function formatHsl(h: number, s: number, l: number): string {
  * Format OKHSL values as a CSS `oklch(L C H)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatOklch(h: number, s: number, l: number): string {
-  const [L, a, b] = okhslToOklab(h, s / 100, l / 100);
+export function formatOklch(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
+  const [L, a, b] = okhslToOklab(h, s / 100, l / 100, pastel);
   const C = Math.sqrt(a * a + b * b);
   let hh = Math.atan2(b, a) * (180 / Math.PI);
   hh = constrainAngle(hh);

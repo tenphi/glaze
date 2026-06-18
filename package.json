@@ -1,7 +1,7 @@
 {
   "name": "@tenphi/glaze",
   "version": "0.14.0",
-  "description": "OKHSL-based color theme generator with WCAG contrast solving for light, dark, and high-contrast schemes",
+  "description": "OKHST-based color theme generator with WCAG contrast solving for light, dark, and high-contrast schemes",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -28,6 +28,7 @@
   },
   "scripts": {
     "build": "tsdown",
+    "playground": "vite playground",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -48,6 +49,7 @@
   "keywords": [
     "color",
     "theme",
+    "okhst",
     "okhsl",
     "contrast",
     "wcag",
@@ -72,6 +74,7 @@
     "tsdown": "^0.20.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.0",
+    "vite": "^8.0.16",
     "vitest": "^4.0.18"
   },
   "packageManager": "pnpm@11.0.8"

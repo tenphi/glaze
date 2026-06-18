@@ -95,6 +95,7 @@ export {
   oklabToOkhsl,
   srgbToOkhsl,
   hslToSrgb,
+  cuspLightness,
   parseHex,
   parseHexAlpha,
   relativeLuminanceFromLinearRgb,

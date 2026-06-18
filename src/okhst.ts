@@ -10,8 +10,8 @@
  * - the `{ h, s, t }` <-> `{ h, s, l }` color-space converters,
  * - the resolved-variant edge adapter (`variantToOkhsl`),
  * - the per-scheme tone mapping that replaced the Möbius dark curve
- *   (`mapToneForScheme`), the saturation reducers, and the solver's
- *   scheme tone range.
+ *   (`mapToneForScheme`), the dark desaturation reducer, and the solver's scheme
+ *   tone range.
  *
  * See `docs/okhst.md` for the full specification and the calibrated
  * default constants.
@@ -211,42 +211,6 @@ export function mapSaturationDark(
 ): number {
   if (mode === 'static') return s;
   return s * (1 - config.darkDesaturation);
-}
-
-/** Smoothstep `0..1`. */
-function smoothstep(x: number): number {
-  const t = clamp(x, 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
-/** Fraction of the tone range over which the taper ramps in, per end. */
-const TAPER_REGION = 0.15;
-
-/**
- * Gently taper saturation toward the tone extremes, where in-gamut chroma
- * collapses and high saturation reads as noise. `taper` is the *strength*
- * (0–1): the maximum fraction of saturation removed at the very edges. The
- * rolloff ramps in smoothly over the outer {@link TAPER_REGION} of tone on
- * each end, so mid-tones are untouched and high-tone surfaces keep most of
- * their color. `taper = 0` disables the effect.
- *
- * @param s Saturation (0–1).
- * @param toneFinal Stored canonical tone (0–1).
- * @param taper Strength (0–1); default config is a gentle 0.15.
- */
-export function saturationEnvelope(
-  s: number,
-  toneFinal: number,
-  taper: number,
-): number {
-  if (taper <= 0) return s;
-  const t = clamp(toneFinal, 0, 1);
-  const strength = clamp(taper, 0, 1);
-  const edge = Math.min(t, 1 - t);
-  if (edge >= TAPER_REGION) return s;
-  // ramp: 0 at the region boundary, 1 at the extreme.
-  const ramp = 1 - smoothstep(edge / TAPER_REGION);
-  return s * (1 - strength * ramp);
 }
 
 // ============================================================================

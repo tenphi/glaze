@@ -112,7 +112,11 @@ function buildPaletteOutput<T, R>(
         primary?: string | false;
       }
     | undefined,
-  buildOne: (resolved: Map<string, ResolvedColor>, prefix: string) => T,
+  buildOne: (
+    resolved: Map<string, ResolvedColor>,
+    prefix: string,
+    pastel: boolean,
+  ) => T,
   merge: (acc: R, part: T) => void,
   empty: () => R,
 ): R {
@@ -129,9 +133,10 @@ function buildPaletteOutput<T, R>(
 
   for (const [themeName, theme] of Object.entries(themes)) {
     const resolved = theme.resolve();
+    const pastel = theme.getConfig().pastel;
     const prefix = resolvePrefix(options, themeName, true);
     const filtered = filterCollisions(resolved, prefix, seen, themeName);
-    merge(acc, buildOne(filtered, prefix));
+    merge(acc, buildOne(filtered, prefix, pastel));
 
     if (themeName === effectivePrimary) {
       const primaryFiltered = filterCollisions(
@@ -141,7 +146,7 @@ function buildPaletteOutput<T, R>(
         themeName,
         true,
       );
-      merge(acc, buildOne(primaryFiltered, ''));
+      merge(acc, buildOne(primaryFiltered, '', pastel));
     }
   }
 
@@ -166,8 +171,8 @@ export function createPalette(
         themes,
         paletteOptions,
         options,
-        (filtered, prefix) =>
-          buildFlatTokenMap(filtered, prefix, modes, options?.format),
+        (filtered, prefix, pastel) =>
+          buildFlatTokenMap(filtered, prefix, modes, options?.format, pastel),
         (acc, part) => {
           for (const variant of Object.keys(part)) {
             if (!acc[variant]) {
@@ -196,8 +201,15 @@ export function createPalette(
         themes,
         paletteOptions,
         options,
-        (filtered, prefix) =>
-          buildTokenMap(filtered, prefix, states, modes, options?.format),
+        (filtered, prefix, pastel) =>
+          buildTokenMap(
+            filtered,
+            prefix,
+            states,
+            modes,
+            options?.format,
+            pastel,
+          ),
         (acc, part) => Object.assign(acc, part),
         () => ({}),
       );
@@ -213,7 +225,12 @@ export function createPalette(
 
       for (const [themeName, theme] of Object.entries(themes)) {
         const resolved = theme.resolve();
-        result[themeName] = buildJsonMap(resolved, modes, options?.format);
+        result[themeName] = buildJsonMap(
+          resolved,
+          modes,
+          options?.format,
+          theme.getConfig().pastel,
+        );
       }
 
       return result;
@@ -230,7 +247,8 @@ export function createPalette(
         themes,
         paletteOptions,
         options,
-        (filtered, prefix) => buildCssMap(filtered, prefix, suffix, format),
+        (filtered, prefix, pastel) =>
+          buildCssMap(filtered, prefix, suffix, format, pastel),
         (acc, part) => {
           for (const key of [
             'light',

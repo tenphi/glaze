@@ -34,7 +34,7 @@ glaze.configure({ lightLightness: [10, 100], darkLightness: [15, 95], darkCurve:
 glaze.configure({
   lightTone: [10, 100],
   darkTone: [15, 95],
-  // darkCurve removed; saturationTaper: 0.15 is the new gentle-extremes knob
+  // darkCurve removed
 });
 ```
 

@@ -319,12 +319,6 @@ export interface GlazeConfig {
   darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
   darkDesaturation?: number;
-  /**
-   * Saturation taper toward the tone extremes (0–1). The fraction of the
-   * tone range over which saturation rolls off at each end, where in-gamut
-   * chroma collapses. Default: 0.15. Set to 0 to disable.
-   */
-  saturationTaper?: number;
   /** State alias names for token export. */
   states?: {
     dark?: string;
@@ -349,13 +343,19 @@ export interface GlazeConfig {
    * falls back to the originally requested tone).
    */
   autoFlip?: boolean;
+  /**
+   * If true, uses a hue-independent "safe" chroma limit across all colors
+   * so that scaling saturation never exceeds the sRGB boundary at any hue
+   * for the given lightness.
+   * @default false
+   */
+  pastel?: boolean;
 }
 
 export interface GlazeConfigResolved {
   lightTone: ToneWindow;
   darkTone: ToneWindow;
   darkDesaturation: number;
-  saturationTaper: number;
   states: {
     dark: string;
     highContrast: string;
@@ -363,6 +363,7 @@ export interface GlazeConfigResolved {
   modes: Required<GlazeOutputModes>;
   shadowTuning?: ShadowTuning;
   autoFlip: boolean;
+  pastel: boolean;
 }
 
 /**
@@ -379,10 +380,14 @@ export interface GlazeConfigOverride {
   darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). */
   darkDesaturation?: number;
-  /** Saturation taper toward the tone extremes (0–1). */
-  saturationTaper?: number;
   /** Whether to auto-flip tone when contrast can't be met. */
   autoFlip?: boolean;
+  /**
+   * If true, uses a hue-independent "safe" chroma limit across all colors
+   * so that scaling saturation never exceeds the sRGB boundary at any hue
+   * for the given lightness.
+   */
+  pastel?: boolean;
   /**
    * Shadow tuning defaults. Only meaningful for themes; harmless on
    * standalone color tokens.
@@ -703,6 +708,8 @@ export interface GlazeTheme {
   readonly hue: number;
   /** The saturation seed (0–100). */
   readonly saturation: number;
+  /** The effective config for this theme. */
+  getConfig(): GlazeConfigResolved;
 
   /** Add/replace colors (additive merge with existing definitions). */
   colors(defs: ColorMap): void;

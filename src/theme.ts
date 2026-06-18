@@ -75,6 +75,9 @@ export function createTheme(
     get saturation() {
       return saturation;
     },
+    getConfig(): GlazeConfigResolved {
+      return getEffectiveConfig();
+    },
 
     colors(defs: ColorMap): void {
       colorDefs = { ...colorDefs, ...defs };
@@ -153,7 +156,13 @@ export function createTheme(
 
     tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>> {
       const modes = resolveModes(options?.modes);
-      return buildFlatTokenMap(resolveCached(), '', modes, options?.format);
+      return buildFlatTokenMap(
+        resolveCached(),
+        '',
+        modes,
+        options?.format,
+        getEffectiveConfig().pastel,
+      );
     },
 
     tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>> {
@@ -163,12 +172,24 @@ export function createTheme(
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
       };
       const modes = resolveModes(options?.modes);
-      return buildTokenMap(resolveCached(), '', states, modes, options?.format);
+      return buildTokenMap(
+        resolveCached(),
+        '',
+        states,
+        modes,
+        options?.format,
+        cfg.pastel,
+      );
     },
 
     json(options?: GlazeJsonOptions): Record<string, Record<string, string>> {
       const modes = resolveModes(options?.modes);
-      return buildJsonMap(resolveCached(), modes, options?.format);
+      return buildJsonMap(
+        resolveCached(),
+        modes,
+        options?.format,
+        getEffectiveConfig().pastel,
+      );
     },
 
     css(options?: GlazeCssOptions): GlazeCssResult {
@@ -177,6 +198,7 @@ export function createTheme(
         '',
         options?.suffix ?? '-color',
         options?.format ?? 'rgb',
+        getEffectiveConfig().pastel,
       );
     },
   } as GlazeTheme;

@@ -16,7 +16,7 @@ import {
   gamutClampedLuminance,
   apcaLuminanceFromLinearRgb,
 } from './okhsl-color-math';
-import { REF_EPS, fromTone, saturationEnvelope, toneFromY } from './okhst';
+import { REF_EPS, fromTone, toneFromY } from './okhst';
 import { clamp } from './hc-pair';
 import type { ContrastSpec, HCPair } from './types';
 
@@ -165,15 +165,16 @@ function cachedLuminance(
   h: number,
   s: number,
   t: number,
+  pastel: boolean,
 ): number {
   const tRounded = Math.round(t * 10000) / 10000;
-  const key = `${metric}|${h}|${s}|${tRounded}`;
+  const key = `${metric}|${h}|${s}|${tRounded}|${pastel}`;
 
   const cached = luminanceCache.get(key);
   if (cached !== undefined) return cached;
 
   const l = fromTone(tRounded * 100, REF_EPS);
-  const linearRgb = okhslToLinearSrgb(h, s, l);
+  const linearRgb = okhslToLinearSrgb(h, s, l, pastel);
   const y = metricLuminance(metric, linearRgb);
 
   if (luminanceCache.size >= CACHE_SIZE) {
@@ -232,13 +233,8 @@ export interface FindToneForContrastOptions {
   initialDirection?: 'lighter' | 'darker';
   /** Auto-flip tone direction when contrast can't be met. Default: false. */
   flip?: boolean;
-  /**
-   * Saturation taper strength (0–1). When set, candidate saturation is rolled
-   * off toward the tone extremes via the same envelope the renderer applies,
-   * so the solved tone meets the floor with its *rendered* saturation. Default
-   * `0` (no taper) for direct/advanced callers.
-   */
-  saturationTaper?: number;
+  /** Use the hue-independent "safe" chroma boundary. Default: false. */
+  pastel?: boolean;
 }
 
 export interface FindToneForContrastResult {
@@ -475,6 +471,7 @@ export function findToneForContrast(
     toneRange = [0, 1],
     epsilon = 1e-4,
     maxIterations = 18,
+    pastel = false,
   } = options;
 
   const { metric, target } = contrast;
@@ -482,19 +479,9 @@ export function findToneForContrast(
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
   const yBase = metricLuminance(metric, baseLinearRgb);
 
-  const taper = options.saturationTaper ?? 0;
-  // Luminance of a candidate at tone `t`. With a taper, saturation rolls off
-  // toward the extremes exactly as the renderer does, so the solved tone
-  // meets the floor with its *rendered* saturation; the (h, s, t) cache only
-  // applies when saturation is tone-independent (no taper).
-  const lum =
-    taper > 0
-      ? (t: number): number => {
-          const s = saturationEnvelope(saturation, t, taper);
-          const l = fromTone(t * 100, REF_EPS);
-          return metricLuminance(metric, okhslToLinearSrgb(hue, s, l));
-        }
-      : (t: number): number => cachedLuminance(metric, hue, saturation, t);
+  // Luminance of a candidate at tone `t`.
+  const lum = (t: number): number =>
+    cachedLuminance(metric, hue, saturation, t, pastel);
 
   const scorePref = metricScore(metric, lum(preferredTone), yBase);
 

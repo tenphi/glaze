@@ -23,7 +23,6 @@ export function defaultConfig(): GlazeConfigResolved {
     lightTone: { lo: 10, hi: 100, eps: 0.05 },
     darkTone: { lo: 15, hi: 95, eps: 0.05 },
     darkDesaturation: 0.1,
-    saturationTaper: 0.15,
     states: {
       dark: '@dark',
       highContrast: '@high-contrast',
@@ -33,6 +32,7 @@ export function defaultConfig(): GlazeConfigResolved {
       highContrast: false,
     },
     autoFlip: true,
+    pastel: false,
   };
 }
 
@@ -68,7 +68,6 @@ export function configure(config: GlazeConfig): void {
     lightTone: config.lightTone ?? globalConfig.lightTone,
     darkTone: config.darkTone ?? globalConfig.darkTone,
     darkDesaturation: config.darkDesaturation ?? globalConfig.darkDesaturation,
-    saturationTaper: config.saturationTaper ?? globalConfig.saturationTaper,
     states: {
       dark: config.states?.dark ?? globalConfig.states.dark,
       highContrast:
@@ -81,6 +80,7 @@ export function configure(config: GlazeConfig): void {
     },
     shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
+    pastel: config.pastel ?? globalConfig.pastel,
   };
 }
 
@@ -106,10 +106,10 @@ export function mergeConfig(
     darkTone:
       override.darkTone !== undefined ? override.darkTone : base.darkTone,
     darkDesaturation: override.darkDesaturation ?? base.darkDesaturation,
-    saturationTaper: override.saturationTaper ?? base.saturationTaper,
     states: base.states,
     modes: base.modes,
     shadowTuning: override.shadowTuning ?? base.shadowTuning,
     autoFlip: override.autoFlip ?? base.autoFlip,
+    pastel: override.pastel ?? base.pastel,
   };
 }

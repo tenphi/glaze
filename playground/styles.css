@@ -1,0 +1,326 @@
+/**
+ * OKHST playground styles.
+ *
+ * Plain CSS, no framework. The single dynamic hook is `--accent`, set from
+ * JS to the current mid-tone swatch so the chrome (title, slider thumbs)
+ * tracks the seed hue as you drag.
+ */
+
+:root {
+  --radius: 14px;
+  --radius-sm: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(
+      120% 90% at 50% -10%,
+      color-mix(in srgb, var(--accent) 14%, transparent),
+      transparent 60%
+    ),
+    var(--bg);
+  color: var(--text);
+  font-family:
+    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: clamp(16px, 4vw, 32px) 24px 32px;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.app__header {
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.app__title {
+  margin: 0;
+  font-size: clamp(1.5rem, 1rem + 2vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.app__dot {
+  color: var(--accent);
+  transition: color 0.15s ease;
+}
+
+.app__subtitle {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 1rem;
+}
+
+/* ── Theme Switcher ─────────────────────────────────────────────────── */
+
+.theme-switcher {
+  display: flex;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px;
+  gap: 2px;
+}
+
+.theme-switcher__label {
+  cursor: pointer;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  transition: color 0.15s, background 0.15s;
+}
+
+.theme-switcher__input {
+  display: none;
+}
+
+.theme-switcher__input:checked + .theme-switcher__label {
+  background: var(--bg-elev-2);
+  color: var(--text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 50%, transparent);
+}
+
+.theme-switcher__input:focus-visible + .theme-switcher__label {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Controls ───────────────────────────────────────────────────────── */
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+
+.control__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.control__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--bg-elev-2);
+  padding: 2px 10px;
+  border-radius: 999px;
+  transition: color 0.15s ease;
+}
+
+/* ── Range sliders ──────────────────────────────────────────────────── */
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+  outline: none;
+  cursor: pointer;
+}
+
+.slider--hue {
+  background: linear-gradient(
+    90deg,
+    hsl(0 90% 60%),
+    hsl(60 90% 60%),
+    hsl(120 90% 60%),
+    hsl(180 90% 60%),
+    hsl(240 90% 60%),
+    hsl(300 90% 60%),
+    hsl(360 90% 60%)
+  );
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 3px solid var(--accent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--bg) 45%, transparent);
+  transition: transform 0.1s ease;
+}
+
+.slider::-webkit-slider-thumb:active {
+  transform: scale(1.12);
+}
+
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 3px solid var(--accent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--bg) 45%, transparent);
+}
+
+.slider:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* ── Palette ────────────────────────────────────────────────────────── */
+
+.palettes-container {
+  margin: -16px -24px 0;
+}
+
+.palette {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 16px 24px 12px;
+}
+
+.palette::-webkit-scrollbar {
+  height: 8px;
+}
+
+.palette::-webkit-scrollbar-track {
+  background: var(--bg-elev);
+  border-radius: 4px;
+  margin: 0 24px;
+}
+
+.palette::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.palette::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
+.swatch {
+  flex: 0 0 72px;
+  appearance: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  min-height: 100px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.swatch:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent),
+    0 10px 22px color-mix(in srgb, var(--bg) 40%, transparent);
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.swatch__tone {
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.swatch__hex {
+  font-size: 0.65rem;
+  font-family: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
+  opacity: 0.78;
+  letter-spacing: 0.02em;
+}
+
+.swatch--copied .swatch__hex {
+  opacity: 1;
+}
+
+.swatch--copied .swatch__hex::after {
+  content: ' ✓ copied';
+}
+
+.btn {
+  appearance: none;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background: var(--border);
+}
+
+.btn:active {
+  background: var(--bg-elev);
+}
+
+.btn--remove {
+  color: var(--danger);
+}
+
+.block {
+  margin-bottom: 40px;
+}
+
+.app__footer {
+  margin-top: 28px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.app__footer strong {
+  color: var(--text);
+  font-weight: 600;
+}
