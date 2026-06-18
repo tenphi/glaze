@@ -82,7 +82,11 @@ export function buildTokenMap(
       entry[states.dark] = formatVariant(color.dark, format, pastel);
     }
     if (modes.highContrast) {
-      entry[states.highContrast] = formatVariant(color.lightContrast, format, pastel);
+      entry[states.highContrast] = formatVariant(
+        color.lightContrast,
+        format,
+        pastel,
+      );
     }
     if (modes.dark && modes.highContrast) {
       entry[`${states.dark} & ${states.highContrast}`] = formatVariant(
@@ -128,10 +132,18 @@ export function buildFlatTokenMap(
       result.dark[key] = formatVariant(color.dark, format, pastel);
     }
     if (modes.highContrast) {
-      result.lightContrast[key] = formatVariant(color.lightContrast, format, pastel);
+      result.lightContrast[key] = formatVariant(
+        color.lightContrast,
+        format,
+        pastel,
+      );
     }
     if (modes.dark && modes.highContrast) {
-      result.darkContrast[key] = formatVariant(color.darkContrast, format, pastel);
+      result.darkContrast[key] = formatVariant(
+        color.darkContrast,
+        format,
+        pastel,
+      );
     }
   }
 

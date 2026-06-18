@@ -734,7 +734,12 @@ function fmt(value: number, decimals: number): string {
  * Format OKHSL values as a CSS `okhsl(H S% L%)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatOkhsl(h: number, s: number, l: number, pastel = false): string {
+export function formatOkhsl(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
   let outS = s;
   if (pastel) {
     // If it's a pastel color, we need to find the equivalent normal OKHSL `s`
@@ -751,7 +756,12 @@ export function formatOkhsl(h: number, s: number, l: number, pastel = false): st
  * Uses 2 decimal places to avoid 8-bit quantization contrast loss.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatRgb(h: number, s: number, l: number, pastel = false): string {
+export function formatRgb(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
   const [r, g, b] = okhslToSrgb(h, s / 100, l / 100, pastel);
   return `rgb(${parseFloat((r * 255).toFixed(2))} ${parseFloat((g * 255).toFixed(2))} ${parseFloat((b * 255).toFixed(2))})`;
 }
@@ -760,7 +770,12 @@ export function formatRgb(h: number, s: number, l: number, pastel = false): stri
  * Format OKHSL values as a CSS `hsl(H S% L%)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatHsl(h: number, s: number, l: number, pastel = false): string {
+export function formatHsl(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
   const [r, g, b] = okhslToSrgb(h, s / 100, l / 100, pastel);
 
   const max = Math.max(r, g, b);
@@ -790,7 +805,12 @@ export function formatHsl(h: number, s: number, l: number, pastel = false): stri
  * Format OKHSL values as a CSS `oklch(L C H)` string.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
  */
-export function formatOklch(h: number, s: number, l: number, pastel = false): string {
+export function formatOklch(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): string {
   const [L, a, b] = okhslToOklab(h, s / 100, l / 100, pastel);
   const C = Math.sqrt(a * a + b * b);
   let hh = Math.atan2(b, a) * (180 / Math.PI);

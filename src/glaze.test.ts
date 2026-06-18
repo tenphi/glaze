@@ -62,20 +62,28 @@ describe('glaze', () => {
   describe('color definitions', () => {
     it('limits chroma to safe boundary when pastel config is true', () => {
       // Create a color token with pastel=true. S=1 at hue 150.
-      const tokenPastel = glaze.color({ hue: 150, saturation: 100, tone: 50 }, { pastel: true });
-      const tokenNormal = glaze.color({ hue: 150, saturation: 100, tone: 50 }, { pastel: false });
-      
+      const tokenPastel = glaze.color(
+        { hue: 150, saturation: 100, tone: 50 },
+        { pastel: true },
+      );
+      const tokenNormal = glaze.color(
+        { hue: 150, saturation: 100, tone: 50 },
+        { pastel: false },
+      );
+
       const tokensP = tokenPastel.token();
       const tokensN = tokenNormal.token();
-      
+
       const rgbPastel = parseHex(tokensP['']);
       const rgbNormal = parseHex(tokensN['']);
-      
+
       expect(rgbPastel).toBeDefined();
       expect(rgbNormal).toBeDefined();
-      
+
       // We can check format using css as well, to satisfy format testing
-      expect(tokenPastel.css({ name: 'test', format: 'rgb' }).light).toContain('rgb(');
+      expect(tokenPastel.css({ name: 'test', format: 'rgb' }).light).toContain(
+        'rgb(',
+      );
     });
     it('resolves root colors with tone, hue and saturation', () => {
       const theme = glaze(280, 80);

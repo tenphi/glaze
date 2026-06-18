@@ -423,7 +423,10 @@ function resolveMixForScheme(
   const blend = def.blend ?? 'opaque';
   const space = def.space ?? 'okhsl';
   const baseLinear = okhslVariantToLinearRgb(baseVariant, ctx.config.pastel);
-  const targetLinear = okhslVariantToLinearRgb(targetVariant, ctx.config.pastel);
+  const targetLinear = okhslVariantToLinearRgb(
+    targetVariant,
+    ctx.config.pastel,
+  );
 
   if (def.contrast !== undefined) {
     const resolvedContrast = resolveContrastSpec(def.contrast, isHighContrast);
@@ -439,7 +442,10 @@ function resolveMixForScheme(
         const h = mixHue(baseVariant, targetVariant, v);
         const s = baseVariant.s + (targetVariant.s - baseVariant.s) * v;
         const l = baseVariant.l + (targetVariant.l - baseVariant.l) * v;
-        return metricLuminance(metric, okhslToLinearSrgb(h, s, l, ctx.config.pastel));
+        return metricLuminance(
+          metric,
+          okhslToLinearSrgb(h, s, l, ctx.config.pastel),
+        );
       };
     }
 
