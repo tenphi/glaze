@@ -8,20 +8,103 @@
  */
 
 import { buildPalette, DEFAULT_STEPS } from './palette.js';
+import { glaze } from '../src/index.ts';
 
 let nextBlockId = 1;
 
 /** Mutable UI state. */
 const state = {
   steps: 11,
+  pastel: false,
+  lo: 0,
+  hi: 100,
   blocks: [
     { id: 0, hue: 240, saturation: 80 }
   ]
 };
 
+let saveTimeout;
+function scheduleSave() {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(saveStateToHash, 250);
+}
+
+async function saveStateToHash() {
+  const compactState = {
+    s: state.steps,
+    p: state.pastel,
+    l: state.lo,
+    h: state.hi,
+    b: state.blocks.map(b => [b.hue, b.saturation])
+  };
+  const json = JSON.stringify(compactState);
+  
+  try {
+    const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    const buffer = await new Response(stream).arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binString = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binString += String.fromCharCode(bytes[i]);
+    }
+    const b64 = btoa(binString).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    window.history.replaceState(null, '', '#' + b64);
+  } catch (e) {
+    const b64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    window.history.replaceState(null, '', '#u' + b64);
+  }
+}
+
+async function loadStateFromHash() {
+  const hash = window.location.hash.slice(1);
+  if (!hash) return false;
+  
+  try {
+    let json;
+    if (hash.startsWith('u')) {
+      let b64 = hash.slice(1).replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      json = atob(b64);
+    } else {
+      let b64 = hash.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      const binString = atob(b64);
+      const bytes = new Uint8Array(binString.length);
+      for (let i = 0; i < binString.length; i++) {
+        bytes[i] = binString.charCodeAt(i);
+      }
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      json = await new Response(stream).text();
+    }
+    
+    const parsed = JSON.parse(json);
+    if (typeof parsed.s === 'number') state.steps = parsed.s;
+    if (typeof parsed.p === 'boolean') state.pastel = parsed.p;
+    if (typeof parsed.l === 'number') state.lo = parsed.l;
+    if (typeof parsed.h === 'number') state.hi = parsed.h;
+    if (Array.isArray(parsed.b) && parsed.b.length > 0) {
+      state.blocks = parsed.b.map((b, i) => ({
+        id: i,
+        hue: b[0],
+        saturation: b[1]
+      }));
+      nextBlockId = state.blocks.length;
+    }
+    return true;
+  } catch (e) {
+    console.error('Failed to restore state from hash', e);
+    return false;
+  }
+}
+
 const els = {
   steps: document.querySelector('#steps'),
   stepsValue: document.querySelector('#steps-value'),
+  lo: document.querySelector('#lo'),
+  loValue: document.querySelector('#lo-value'),
+  hi: document.querySelector('#hi'),
+  hiValue: document.querySelector('#hi-value'),
+  pastel: document.querySelector('#pastel'),
   footerSteps: document.querySelector('#footer-steps'),
   blocksContainer: document.querySelector('#blocks-container'),
   addBtn: document.querySelector('#add-palette-btn'),
@@ -90,12 +173,41 @@ const handleCopy = (event) => {
   if (swatch?.dataset.hex) copyHex(swatch.dataset.hex, swatch);
 };
 
-function updateAccent() {
+let uiThemeStyleEl = document.getElementById('ui-theme');
+if (!uiThemeStyleEl) {
+  uiThemeStyleEl = document.createElement('style');
+  uiThemeStyleEl.id = 'ui-theme';
+  document.head.appendChild(uiThemeStyleEl);
+}
+
+function updateUITheme() {
   if (state.blocks.length === 0) return;
   const firstBlock = state.blocks[0];
-  const steps = buildPalette(firstBlock.hue, firstBlock.saturation, state.steps);
-  const accent = steps[Math.floor(steps.length / 2)];
-  document.documentElement.style.setProperty('--accent', accent.css);
+  
+  const uiTheme = glaze(firstBlock.hue, 100);
+  uiTheme.colors({
+    'bg': { tone: 100, saturation: 0.15 },
+    'bg-elev': { tone: 96, saturation: 0.15 },
+    'bg-elev-2': { tone: 92, saturation: 0.15 },
+    'border': { tone: 86, saturation: 0.15 },
+    'text': { tone: 5, saturation: 0.15 },
+    'text-dim': { tone: 40, saturation: 0.15 },
+    'danger': { hue: 10, saturation: 0.8, tone: 50 },
+    'accent': { tone: 50, saturation: 0.8 },
+  });
+
+  const css = uiTheme.css({ suffix: '', format: 'rgb' });
+
+  uiThemeStyleEl.textContent = `
+html[data-theme="light"] { ${css.light} }
+html[data-theme="dark"] { ${css.dark} }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) { ${css.dark} }
+}
+@media (prefers-color-scheme: light) {
+  html:not([data-theme="dark"]) { ${css.light} }
+}
+  `;
 }
 
 function renderBlock(block) {
@@ -107,8 +219,10 @@ function renderBlock(block) {
   dom.satInput.value = block.saturation;
   dom.satValue.textContent = String(Math.round(block.saturation));
 
-  const steps = buildPalette(block.hue, block.saturation, state.steps);
+  const steps = buildPalette(block.hue, block.saturation, state.steps, state.pastel, state.lo, state.hi);
   dom.palette.replaceChildren(...steps.map(createSwatch));
+  
+  scheduleSave();
 }
 
 function createBlockDOM(block) {
@@ -127,7 +241,7 @@ function createBlockDOM(block) {
   hueInput.addEventListener('input', () => {
     block.hue = Number(hueInput.value);
     renderBlock(block);
-    updateAccent();
+    updateUITheme();
   });
 
   satInput.addEventListener('input', () => {
@@ -140,7 +254,8 @@ function createBlockDOM(block) {
     container.remove();
     blockElements.delete(block.id);
     updateRemoveButtons();
-    updateAccent();
+    updateUITheme();
+    scheduleSave();
   });
 
   palette.addEventListener('scroll', syncScroll);
@@ -173,15 +288,20 @@ function renderAllBlocks() {
   });
   
   updateRemoveButtons();
-  updateAccent();
+  updateUITheme();
 }
 
 // Global render when steps change
 function renderGlobal() {
   els.steps.value = String(state.steps);
   els.stepsValue.textContent = String(state.steps);
+  els.lo.value = String(state.lo);
+  els.loValue.textContent = String(state.lo);
+  els.hi.value = String(state.hi);
+  els.hiValue.textContent = String(state.hi);
   if (els.footerSteps) els.footerSteps.textContent = String(state.steps);
   renderAllBlocks();
+  scheduleSave();
 }
 
 function bindGlobalEvents() {
@@ -189,6 +309,33 @@ function bindGlobalEvents() {
     state.steps = Number(els.steps.value);
     renderGlobal();
   });
+
+  els.lo.addEventListener('input', () => {
+    let val = Number(els.lo.value);
+    if (val > state.hi - 50) {
+      val = state.hi - 50;
+      els.lo.value = String(val);
+    }
+    state.lo = val;
+    renderGlobal();
+  });
+
+  els.hi.addEventListener('input', () => {
+    let val = Number(els.hi.value);
+    if (val < state.lo + 50) {
+      val = state.lo + 50;
+      els.hi.value = String(val);
+    }
+    state.hi = val;
+    renderGlobal();
+  });
+
+  if (els.pastel) {
+    els.pastel.addEventListener('change', () => {
+      state.pastel = els.pastel.checked;
+      renderGlobal();
+    });
+  }
 
   els.addBtn.addEventListener('click', () => {
     const lastBlock = state.blocks[state.blocks.length - 1];
@@ -202,5 +349,37 @@ function bindGlobalEvents() {
   });
 }
 
-bindGlobalEvents();
-renderGlobal();
+function bindThemeSwitcher() {
+  const radios = document.querySelectorAll('.theme-switcher__input');
+  const savedTheme = localStorage.getItem('playground-theme') || 'system';
+  
+  function applyTheme(theme) {
+    if (theme === 'system') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+    localStorage.setItem('playground-theme', theme);
+  }
+
+  radios.forEach(radio => {
+    if (radio.value === savedTheme) radio.checked = true;
+    radio.addEventListener('change', (e) => {
+      applyTheme(e.target.value);
+    });
+  });
+
+  applyTheme(savedTheme);
+}
+
+async function init() {
+  bindGlobalEvents();
+  bindThemeSwitcher();
+  await loadStateFromHash();
+  
+  if (els.pastel) els.pastel.checked = state.pastel;
+  
+  renderGlobal();
+}
+
+init();

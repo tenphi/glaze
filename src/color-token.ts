@@ -592,6 +592,7 @@ function createColorTokenFromDefs(
       resolveStates(options),
       resolveModes(options?.modes),
       options?.format,
+      effectiveConfig.pastel,
     );
     return tokenMap[`#${primary}`];
   };
@@ -609,6 +610,7 @@ function createColorTokenFromDefs(
         resolveOnce(),
         resolveModes(options?.modes),
         options?.format,
+        effectiveConfig.pastel,
       );
       return jsonMap[primary];
     },
@@ -622,6 +624,7 @@ function createColorTokenFromDefs(
         '',
         options.suffix ?? '-color',
         options.format ?? 'rgb',
+        effectiveConfig.pastel,
       );
     },
 

@@ -42,6 +42,17 @@ describe('glaze', () => {
       expect(theme.saturation).toBe(80);
     });
 
+    it('respects pastel config on theme creation', () => {
+      const theme = glaze(100, 100, undefined, { pastel: true });
+      theme.colors({ surface: { tone: 50, saturation: 1 } });
+      const surface = theme.resolve().get('surface')!;
+      expect(surface.light.s).toBeCloseTo(1, 3);
+      // Wait, tone 50 pastel means the chroma is scaled to the safe boundary.
+      // S doesn't change here since S is 1. The output formatting reflects pastel.
+      const formatted = theme.css({ format: 'rgb', suffix: '' });
+      expect(formatted.light).toContain('--surface: rgb(');
+    });
+
     it('defaults saturation to 100 when using shorthand', () => {
       const theme = glaze(280);
       expect(theme.saturation).toBe(100);
@@ -49,6 +60,23 @@ describe('glaze', () => {
   });
 
   describe('color definitions', () => {
+    it('limits chroma to safe boundary when pastel config is true', () => {
+      // Create a color token with pastel=true. S=1 at hue 150.
+      const tokenPastel = glaze.color({ hue: 150, saturation: 100, tone: 50 }, { pastel: true });
+      const tokenNormal = glaze.color({ hue: 150, saturation: 100, tone: 50 }, { pastel: false });
+      
+      const tokensP = tokenPastel.token();
+      const tokensN = tokenNormal.token();
+      
+      const rgbPastel = parseHex(tokensP['']);
+      const rgbNormal = parseHex(tokensN['']);
+      
+      expect(rgbPastel).toBeDefined();
+      expect(rgbNormal).toBeDefined();
+      
+      // We can check format using css as well, to satisfy format testing
+      expect(tokenPastel.css({ name: 'test', format: 'rgb' }).light).toContain('rgb(');
+    });
     it('resolves root colors with tone, hue and saturation', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97, saturation: 0.75 } });

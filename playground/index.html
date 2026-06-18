@@ -9,12 +9,22 @@
   <body>
     <main class="app">
       <header class="app__header">
-        <h1 class="app__title">
-          Glaze <span class="app__dot">·</span> OKHST Playground
-        </h1>
-        <p class="app__subtitle">
-          A contrast-uniform tone ramp from a single hue / saturation seed.
-        </p>
+        <div>
+          <h1 class="app__title">
+            Glaze <span class="app__dot">·</span> OKHST Playground
+          </h1>
+          <p class="app__subtitle">
+            A contrast-uniform tone ramp from a single hue / saturation seed.
+          </p>
+        </div>
+        <div class="theme-switcher">
+          <input type="radio" id="theme-system" name="theme" value="system" class="theme-switcher__input" checked />
+          <label for="theme-system" class="theme-switcher__label">System</label>
+          <input type="radio" id="theme-light" name="theme" value="light" class="theme-switcher__input" />
+          <label for="theme-light" class="theme-switcher__label">Light</label>
+          <input type="radio" id="theme-dark" name="theme" value="dark" class="theme-switcher__input" />
+          <label for="theme-dark" class="theme-switcher__label">Dark</label>
+        </div>
       </header>
 
       <section class="controls" aria-label="Global controls">
@@ -33,7 +43,41 @@
             value="11"
           />
         </div>
-        <div class="control" style="display: flex; align-items: flex-end; justify-content: flex-end;">
+        <div class="control">
+          <label class="control__label" for="lo">
+            <span>Tone Low</span>
+            <output id="lo-value" class="control__value">0</output>
+          </label>
+          <input
+            id="lo"
+            class="slider"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="0"
+          />
+        </div>
+        <div class="control">
+          <label class="control__label" for="hi">
+            <span>Tone High</span>
+            <output id="hi-value" class="control__value">100</output>
+          </label>
+          <input
+            id="hi"
+            class="slider"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value="100"
+          />
+        </div>
+        <div class="control" style="display: flex; align-items: center; justify-content: space-between; margin-top: auto;">
+          <label class="control__label" for="pastel" style="margin-bottom: 0; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="pastel" style="width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer;" />
+            <span>Pastel</span>
+          </label>
           <button type="button" id="add-palette-btn" class="btn">Add Palette</button>
         </div>
       </section>

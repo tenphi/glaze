@@ -23,7 +23,7 @@ export const DEFAULT_STEPS = 11;
  * OKHST tone axis (tone 0 → black, tone 100 → white) rather than a windowed
  * surface ladder. Tweak this object to explore other resolve behaviors.
  */
-const SWATCH_CONFIG = { lightTone: false };
+const SWATCH_CONFIG = { lightTone: false, pastel: false };
 
 function toByte(channel) {
   return Math.round(channel * 255);
@@ -58,12 +58,12 @@ function readableTextColor(rgb) {
  * @param {number} saturation 0–100
  * @param {number} tone 0–100 (contrast-uniform OKHST tone)
  */
-export function buildStep(hue, saturation, tone) {
-  const config = { ...SWATCH_CONFIG };
+export function buildStep(hue, saturation, tone, pastel = false, lo = 0, hi = 100) {
+  const config = { ...SWATCH_CONFIG, pastel, lightTone: [lo, hi] };
   const token = glaze.color({ hue, saturation, tone }, config);
   const variant = token.resolve().light;
   const okhsl = variantToOkhsl(variant);
-  const rgb = okhslToSrgb(okhsl.h, okhsl.s, okhsl.l);
+  const rgb = okhslToSrgb(okhsl.h, okhsl.s, okhsl.l, pastel);
 
   return {
     tone,
@@ -82,11 +82,11 @@ export function buildStep(hue, saturation, tone) {
  * @param {number} [steps] number of swatches (default {@link DEFAULT_STEPS})
  * @returns step descriptors ordered dark → light
  */
-export function buildPalette(hue, saturation, steps = DEFAULT_STEPS) {
+export function buildPalette(hue, saturation, steps = DEFAULT_STEPS, pastel = false, lo = 0, hi = 100) {
   const out = [];
   for (let i = 0; i < steps; i++) {
     const tone = steps === 1 ? 100 : (i / (steps - 1)) * 100;
-    out.push(buildStep(hue, saturation, tone));
+    out.push(buildStep(hue, saturation, tone, pastel, lo, hi));
   }
   return out;
 }

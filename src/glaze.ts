@@ -199,8 +199,9 @@ glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
 glaze.format = function format(
   variant: ResolvedColorVariant,
   colorFormat?: GlazeColorFormat,
+  pastel?: boolean,
 ): string {
-  return formatVariant(variant, colorFormat);
+  return formatVariant(variant, colorFormat, pastel);
 };
 
 /**

@@ -27,7 +27,7 @@ import type {
 
 const formatters: Record<
   GlazeColorFormat,
-  (h: number, s: number, l: number) => string
+  (h: number, s: number, l: number, pastel: boolean) => string
 > = {
   okhsl: formatOkhsl,
   rgb: formatRgb,
@@ -42,10 +42,11 @@ function fmt(value: number, decimals: number): string {
 export function formatVariant(
   v: ResolvedColorVariant,
   format: GlazeColorFormat = 'okhsl',
+  pastel = false,
 ): string {
   // Variants store canonical tone; convert to OKHSL lightness at the edge.
   const { l } = variantToOkhsl(v);
-  const base = formatters[format](v.h, v.s * 100, l * 100);
+  const base = formatters[format](v.h, v.s * 100, l * 100, pastel);
   if (v.alpha >= 1) return base;
   const closing = base.lastIndexOf(')');
   return `${base.slice(0, closing)} / ${fmt(v.alpha, 4)})`;
@@ -67,25 +68,27 @@ export function buildTokenMap(
   states: { dark: string; highContrast: string },
   modes: Required<GlazeOutputModes>,
   format: GlazeColorFormat = 'okhsl',
+  pastel = false,
 ): Record<string, Record<string, string>> {
   const tokens: Record<string, Record<string, string>> = {};
 
   for (const [name, color] of resolved) {
     const key = `#${prefix}${name}`;
     const entry: Record<string, string> = {
-      '': formatVariant(color.light, format),
+      '': formatVariant(color.light, format, pastel),
     };
 
     if (modes.dark) {
-      entry[states.dark] = formatVariant(color.dark, format);
+      entry[states.dark] = formatVariant(color.dark, format, pastel);
     }
     if (modes.highContrast) {
-      entry[states.highContrast] = formatVariant(color.lightContrast, format);
+      entry[states.highContrast] = formatVariant(color.lightContrast, format, pastel);
     }
     if (modes.dark && modes.highContrast) {
       entry[`${states.dark} & ${states.highContrast}`] = formatVariant(
         color.darkContrast,
         format,
+        pastel,
       );
     }
 
@@ -100,6 +103,7 @@ export function buildFlatTokenMap(
   prefix: string,
   modes: Required<GlazeOutputModes>,
   format: GlazeColorFormat = 'okhsl',
+  pastel = false,
 ): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {
     light: {},
@@ -118,16 +122,16 @@ export function buildFlatTokenMap(
   for (const [name, color] of resolved) {
     const key = `${prefix}${name}`;
 
-    result.light[key] = formatVariant(color.light, format);
+    result.light[key] = formatVariant(color.light, format, pastel);
 
     if (modes.dark) {
-      result.dark[key] = formatVariant(color.dark, format);
+      result.dark[key] = formatVariant(color.dark, format, pastel);
     }
     if (modes.highContrast) {
-      result.lightContrast[key] = formatVariant(color.lightContrast, format);
+      result.lightContrast[key] = formatVariant(color.lightContrast, format, pastel);
     }
     if (modes.dark && modes.highContrast) {
-      result.darkContrast[key] = formatVariant(color.darkContrast, format);
+      result.darkContrast[key] = formatVariant(color.darkContrast, format, pastel);
     }
   }
 
@@ -138,22 +142,23 @@ export function buildJsonMap(
   resolved: Map<string, ResolvedColor>,
   modes: Required<GlazeOutputModes>,
   format: GlazeColorFormat = 'okhsl',
+  pastel = false,
 ): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {};
 
   for (const [name, color] of resolved) {
     const entry: Record<string, string> = {
-      light: formatVariant(color.light, format),
+      light: formatVariant(color.light, format, pastel),
     };
 
     if (modes.dark) {
-      entry.dark = formatVariant(color.dark, format);
+      entry.dark = formatVariant(color.dark, format, pastel);
     }
     if (modes.highContrast) {
-      entry.lightContrast = formatVariant(color.lightContrast, format);
+      entry.lightContrast = formatVariant(color.lightContrast, format, pastel);
     }
     if (modes.dark && modes.highContrast) {
-      entry.darkContrast = formatVariant(color.darkContrast, format);
+      entry.darkContrast = formatVariant(color.darkContrast, format, pastel);
     }
 
     result[name] = entry;
@@ -167,6 +172,7 @@ export function buildCssMap(
   prefix: string,
   suffix: string,
   format: GlazeColorFormat,
+  pastel = false,
 ): GlazeCssResult {
   const lines: Record<keyof GlazeCssResult, string[]> = {
     light: [],
@@ -177,13 +183,13 @@ export function buildCssMap(
 
   for (const [name, color] of resolved) {
     const prop = `--${prefix}${name}${suffix}`;
-    lines.light.push(`${prop}: ${formatVariant(color.light, format)};`);
-    lines.dark.push(`${prop}: ${formatVariant(color.dark, format)};`);
+    lines.light.push(`${prop}: ${formatVariant(color.light, format, pastel)};`);
+    lines.dark.push(`${prop}: ${formatVariant(color.dark, format, pastel)};`);
     lines.lightContrast.push(
-      `${prop}: ${formatVariant(color.lightContrast, format)};`,
+      `${prop}: ${formatVariant(color.lightContrast, format, pastel)};`,
     );
     lines.darkContrast.push(
-      `${prop}: ${formatVariant(color.darkContrast, format)};`,
+      `${prop}: ${formatVariant(color.darkContrast, format, pastel)};`,
     );
   }
 

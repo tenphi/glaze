@@ -165,15 +165,16 @@ function cachedLuminance(
   h: number,
   s: number,
   t: number,
+  pastel: boolean,
 ): number {
   const tRounded = Math.round(t * 10000) / 10000;
-  const key = `${metric}|${h}|${s}|${tRounded}`;
+  const key = `${metric}|${h}|${s}|${tRounded}|${pastel}`;
 
   const cached = luminanceCache.get(key);
   if (cached !== undefined) return cached;
 
   const l = fromTone(tRounded * 100, REF_EPS);
-  const linearRgb = okhslToLinearSrgb(h, s, l);
+  const linearRgb = okhslToLinearSrgb(h, s, l, pastel);
   const y = metricLuminance(metric, linearRgb);
 
   if (luminanceCache.size >= CACHE_SIZE) {
@@ -232,6 +233,8 @@ export interface FindToneForContrastOptions {
   initialDirection?: 'lighter' | 'darker';
   /** Auto-flip tone direction when contrast can't be met. Default: false. */
   flip?: boolean;
+  /** Use the hue-independent "safe" chroma boundary. Default: false. */
+  pastel?: boolean;
 }
 
 export interface FindToneForContrastResult {
@@ -468,6 +471,7 @@ export function findToneForContrast(
     toneRange = [0, 1],
     epsilon = 1e-4,
     maxIterations = 18,
+    pastel = false,
   } = options;
 
   const { metric, target } = contrast;
@@ -477,7 +481,7 @@ export function findToneForContrast(
 
   // Luminance of a candidate at tone `t`.
   const lum = (t: number): number =>
-    cachedLuminance(metric, hue, saturation, t);
+    cachedLuminance(metric, hue, saturation, t, pastel);
 
   const scorePref = metricScore(metric, lum(preferredTone), yBase);
 

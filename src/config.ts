@@ -32,6 +32,7 @@ export function defaultConfig(): GlazeConfigResolved {
       highContrast: false,
     },
     autoFlip: true,
+    pastel: false,
   };
 }
 
@@ -79,6 +80,7 @@ export function configure(config: GlazeConfig): void {
     },
     shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
+    pastel: config.pastel ?? globalConfig.pastel,
   };
 }
 
@@ -108,5 +110,6 @@ export function mergeConfig(
     modes: base.modes,
     shadowTuning: override.shadowTuning ?? base.shadowTuning,
     autoFlip: override.autoFlip ?? base.autoFlip,
+    pastel: override.pastel ?? base.pastel,
   };
 }
