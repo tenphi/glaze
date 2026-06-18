@@ -9,30 +9,48 @@
 
 import { buildPalette, DEFAULT_STEPS } from './palette.js';
 
-/** Initial seed. */
-const DEFAULTS = { hue: 240, saturation: 80 };
+let nextBlockId = 1;
 
 /** Mutable UI state. */
-const state = { ...DEFAULTS };
+const state = {
+  steps: 11,
+  blocks: [
+    { id: 0, hue: 240, saturation: 80 }
+  ]
+};
 
 const els = {
-  hue: document.querySelector('#hue'),
-  hueValue: document.querySelector('#hue-value'),
-  saturation: document.querySelector('#saturation'),
-  saturationValue: document.querySelector('#saturation-value'),
-  palette: document.querySelector('#palette'),
+  steps: document.querySelector('#steps'),
+  stepsValue: document.querySelector('#steps-value'),
+  footerSteps: document.querySelector('#footer-steps'),
+  blocksContainer: document.querySelector('#blocks-container'),
+  addBtn: document.querySelector('#add-palette-btn'),
+  template: document.querySelector('#block-template'),
 };
+
+const blockElements = new Map(); // id -> { container, hueInput, hueValue, satInput, satValue, palette, removeBtn }
 
 function formatTone(tone) {
   return String(Math.round(tone));
 }
 
-/** Reflect the current state back into the slider labels + accent color. */
-function renderControls() {
-  els.hue.value = String(state.hue);
-  els.hueValue.textContent = `${Math.round(state.hue)}°`;
-  els.saturation.value = String(state.saturation);
-  els.saturationValue.textContent = String(Math.round(state.saturation));
+// Global scroll sync flag
+let isSyncingScroll = false;
+
+function syncScroll(e) {
+  if (isSyncingScroll) return;
+  isSyncingScroll = true;
+  const scrollLeft = e.target.scrollLeft;
+  
+  document.querySelectorAll('.palette').forEach((p) => {
+    if (p !== e.target) {
+      p.scrollLeft = scrollLeft;
+    }
+  });
+  
+  requestAnimationFrame(() => {
+    isSyncingScroll = false;
+  });
 }
 
 /** Build one swatch element from a step descriptor. */
@@ -57,22 +75,6 @@ function createSwatch(step) {
   return el;
 }
 
-/** Rebuild the palette from the current state. */
-function renderPalette() {
-  const steps = buildPalette(state.hue, state.saturation, DEFAULT_STEPS);
-
-  // Drive the UI accent from a mid-tone swatch so chrome tracks the seed hue.
-  const accent = steps[Math.floor(steps.length / 2)];
-  document.documentElement.style.setProperty('--accent', accent.css);
-
-  els.palette.replaceChildren(...steps.map(createSwatch));
-}
-
-function render() {
-  renderControls();
-  renderPalette();
-}
-
 async function copyHex(hex, el) {
   try {
     await navigator.clipboard.writeText(hex);
@@ -83,22 +85,122 @@ async function copyHex(hex, el) {
   }
 }
 
-function bindEvents() {
-  els.hue.addEventListener('input', () => {
-    state.hue = Number(els.hue.value);
-    render();
+const handleCopy = (event) => {
+  const swatch = event.target.closest('.swatch');
+  if (swatch?.dataset.hex) copyHex(swatch.dataset.hex, swatch);
+};
+
+function updateAccent() {
+  if (state.blocks.length === 0) return;
+  const firstBlock = state.blocks[0];
+  const steps = buildPalette(firstBlock.hue, firstBlock.saturation, state.steps);
+  const accent = steps[Math.floor(steps.length / 2)];
+  document.documentElement.style.setProperty('--accent', accent.css);
+}
+
+function renderBlock(block) {
+  const dom = blockElements.get(block.id);
+  if (!dom) return;
+
+  dom.hueInput.value = block.hue;
+  dom.hueValue.textContent = `${Math.round(block.hue)}°`;
+  dom.satInput.value = block.saturation;
+  dom.satValue.textContent = String(Math.round(block.saturation));
+
+  const steps = buildPalette(block.hue, block.saturation, state.steps);
+  dom.palette.replaceChildren(...steps.map(createSwatch));
+}
+
+function createBlockDOM(block) {
+  const frag = els.template.content.cloneNode(true);
+  const container = frag.querySelector('.block');
+  const hueInput = frag.querySelector('.hue-input');
+  const hueValue = frag.querySelector('.hue-value');
+  const satInput = frag.querySelector('.saturation-input');
+  const satValue = frag.querySelector('.saturation-value');
+  const palette = frag.querySelector('.palette');
+  const removeBtn = frag.querySelector('.btn--remove');
+
+  hueInput.value = block.hue;
+  satInput.value = block.saturation;
+
+  hueInput.addEventListener('input', () => {
+    block.hue = Number(hueInput.value);
+    renderBlock(block);
+    updateAccent();
   });
 
-  els.saturation.addEventListener('input', () => {
-    state.saturation = Number(els.saturation.value);
-    render();
+  satInput.addEventListener('input', () => {
+    block.saturation = Number(satInput.value);
+    renderBlock(block);
   });
 
-  els.palette.addEventListener('click', (event) => {
-    const swatch = event.target.closest('.swatch');
-    if (swatch?.dataset.hex) copyHex(swatch.dataset.hex, swatch);
+  removeBtn.addEventListener('click', () => {
+    state.blocks = state.blocks.filter(b => b.id !== block.id);
+    container.remove();
+    blockElements.delete(block.id);
+    updateRemoveButtons();
+    updateAccent();
+  });
+
+  palette.addEventListener('scroll', syncScroll);
+  palette.addEventListener('click', handleCopy);
+
+  blockElements.set(block.id, {
+    container, hueInput, hueValue, satInput, satValue, palette, removeBtn
+  });
+
+  els.blocksContainer.appendChild(container);
+  renderBlock(block);
+}
+
+function updateRemoveButtons() {
+  const canRemove = state.blocks.length > 1;
+  state.blocks.forEach(block => {
+    const dom = blockElements.get(block.id);
+    if (dom) {
+      dom.removeBtn.style.display = canRemove ? 'block' : 'none';
+    }
   });
 }
 
-bindEvents();
-render();
+function renderAllBlocks() {
+  state.blocks.forEach(block => {
+    if (!blockElements.has(block.id)) {
+      createBlockDOM(block);
+    }
+    renderBlock(block);
+  });
+  
+  updateRemoveButtons();
+  updateAccent();
+}
+
+// Global render when steps change
+function renderGlobal() {
+  els.steps.value = String(state.steps);
+  els.stepsValue.textContent = String(state.steps);
+  if (els.footerSteps) els.footerSteps.textContent = String(state.steps);
+  renderAllBlocks();
+}
+
+function bindGlobalEvents() {
+  els.steps.addEventListener('input', () => {
+    state.steps = Number(els.steps.value);
+    renderGlobal();
+  });
+
+  els.addBtn.addEventListener('click', () => {
+    const lastBlock = state.blocks[state.blocks.length - 1];
+    const newBlock = {
+      id: nextBlockId++,
+      hue: lastBlock ? lastBlock.hue : 240,
+      saturation: lastBlock ? lastBlock.saturation : 80
+    };
+    state.blocks.push(newBlock);
+    renderGlobal();
+  });
+}
+
+bindGlobalEvents();
+renderGlobal();

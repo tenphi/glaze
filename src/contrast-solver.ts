@@ -16,7 +16,7 @@ import {
   gamutClampedLuminance,
   apcaLuminanceFromLinearRgb,
 } from './okhsl-color-math';
-import { REF_EPS, fromTone, saturationCeiling, toneFromY } from './okhst';
+import { REF_EPS, fromTone, toneFromY } from './okhst';
 import { clamp } from './hc-pair';
 import type { ContrastSpec, HCPair } from './types';
 
@@ -232,14 +232,6 @@ export interface FindToneForContrastOptions {
   initialDirection?: 'lighter' | 'darker';
   /** Auto-flip tone direction when contrast can't be met. Default: false. */
   flip?: boolean;
-  /**
-   * Global chroma ceiling (`s_max`, 0–1). When set, candidate saturation is
-   * capped by the same cusp-anchored ceiling the renderer applies (keyed on
-   * the candidate's rendered OKHSL lightness + hue), so the solved tone meets
-   * the floor with its *rendered* saturation. Omit (`undefined`) for no
-   * ceiling — the default for direct/advanced callers.
-   */
-  saturationCeiling?: number;
 }
 
 export interface FindToneForContrastResult {
@@ -483,20 +475,9 @@ export function findToneForContrast(
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
   const yBase = metricLuminance(metric, baseLinearRgb);
 
-  const sMax = options.saturationCeiling;
-  // Luminance of a candidate at tone `t`. With a ceiling, saturation is capped
-  // by the same cusp-anchored taper the renderer applies (keyed on the
-  // rendered lightness + hue), so the solved tone meets the floor with its
-  // *rendered* saturation; the (h, s, t) cache only applies when saturation is
-  // tone-independent (no ceiling).
-  const lum =
-    sMax !== undefined
-      ? (t: number): number => {
-          const l = fromTone(t * 100, REF_EPS);
-          const s = saturationCeiling(saturation, l, hue, sMax);
-          return metricLuminance(metric, okhslToLinearSrgb(hue, s, l));
-        }
-      : (t: number): number => cachedLuminance(metric, hue, saturation, t);
+  // Luminance of a candidate at tone `t`.
+  const lum = (t: number): number =>
+    cachedLuminance(metric, hue, saturation, t);
 
   const scorePref = metricScore(metric, lum(preferredTone), yBase);
 

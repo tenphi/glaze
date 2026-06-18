@@ -319,15 +319,6 @@ export interface GlazeConfig {
   darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
   darkDesaturation?: number;
-  /**
-   * Global chroma ceiling (`s_max`, 0–1) for the cusp-anchored saturation
-   * taper. Chroma is held to a plateau out from the hue's gamut cusp, then
-   * eased to zero toward each lightness extreme, and applied as a ceiling
-   * (`min(s, s_max·f)`) so only oversaturated colors are tamed. Keyed on the
-   * rendered OKHSL lightness, so it behaves correctly in both schemes without
-   * a per-mode shoulder. Default: 0.9. Set to `false` to disable.
-   */
-  saturationCeiling?: number | false;
   /** State alias names for token export. */
   states?: {
     dark?: string;
@@ -358,7 +349,6 @@ export interface GlazeConfigResolved {
   lightTone: ToneWindow;
   darkTone: ToneWindow;
   darkDesaturation: number;
-  saturationCeiling: number | false;
   states: {
     dark: string;
     highContrast: string;
@@ -382,8 +372,6 @@ export interface GlazeConfigOverride {
   darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). */
   darkDesaturation?: number;
-  /** Global chroma ceiling (`s_max`, 0–1) for the cusp-anchored taper, or `false` to disable. */
-  saturationCeiling?: number | false;
   /** Whether to auto-flip tone when contrast can't be met. */
   autoFlip?: boolean;
   /**

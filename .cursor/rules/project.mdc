@@ -25,7 +25,7 @@ src/
   index.ts                 # Entry point, re-exports everything
   glaze.ts                 # Core theme factory: glaze(), glaze.palette(), glaze.from(), etc.
   types.ts                 # All TypeScript type definitions
-  okhst.ts                 # OKHST tone layer: tone↔lightness transfers, scheme mapping, taper
+  okhst.ts                 # OKHST tone layer: tone↔lightness transfers, scheme mapping
   okhsl-color-math.ts      # OKHSL/sRGB/OKLab conversions, hex parsing, format functions
   contrast-solver.ts        # Tone-based WCAG + APCA contrast solver
   glaze.test.ts            # Main test suite

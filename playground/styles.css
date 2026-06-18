@@ -169,12 +169,33 @@ body {
 /* ── Palette ────────────────────────────────────────────────────────── */
 
 .palette {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(83px, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
   gap: 8px;
+  padding-bottom: 12px;
+}
+
+.palette::-webkit-scrollbar {
+  height: 8px;
+}
+
+.palette::-webkit-scrollbar-track {
+  background: var(--bg-elev);
+  border-radius: 4px;
+}
+
+.palette::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.palette::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
 }
 
 .swatch {
+  flex: 0 0 83px;
   appearance: none;
   border: none;
   font: inherit;
@@ -227,7 +248,34 @@ body {
   content: ' ✓ copied';
 }
 
-/* ── Footer ─────────────────────────────────────────────────────────── */
+.btn {
+  appearance: none;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 16px;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background: var(--border);
+}
+
+.btn:active {
+  background: var(--bg-elev);
+}
+
+.btn--remove {
+  color: #ff5b5b;
+}
+
+.block {
+  margin-bottom: 40px;
+}
 
 .app__footer {
   margin-top: 28px;

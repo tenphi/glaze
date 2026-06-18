@@ -53,7 +53,7 @@ type PaletteInput = Record<string, GlazeTheme>;
  * Create a single-hue glaze theme.
  *
  * An optional `config` override can be supplied to customize the resolve
- * behavior for this theme (tone windows, saturation taper, etc.). The
+ * behavior for this theme (tone windows, etc.). The
  * override is **merged over the live global config at resolve time** —
  * the theme still reacts to later `configure()` calls for fields it
  * didn't override.
@@ -131,7 +131,7 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
  *
  * // Config override on any form
  * glaze.color('#26fcb2', { darkTone: false, autoFlip: false })
- * glaze.color({ from: '#fff', base: bg }, { saturationCeiling: false })
+ * glaze.color({ from: '#fff', base: bg })
  * ```
  *
  * Defaults: every form defaults to `mode: 'auto'`. Value-shorthand forms

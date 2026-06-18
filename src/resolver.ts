@@ -44,12 +44,10 @@ import {
   resolveShadowTuning,
 } from './shadow';
 import {
-  REF_EPS,
   fromTone,
   mapSaturationDark,
   mapToneForScheme,
   okhslToOkhst,
-  saturationCeiling,
   schemeToneRange,
   toTone,
   variantToOkhsl,
@@ -251,12 +249,6 @@ function resolveDependentColor(
       toneRange: [0, 1],
       initialDirection,
       flip,
-      // Search with the same cusp-anchored ceiling the renderer applies, so
-      // the solved tone meets the floor at its rendered saturation.
-      saturationCeiling:
-        ctx.config.saturationCeiling === false
-          ? undefined
-          : ctx.config.saturationCeiling,
     });
 
     if (!result.met) {
@@ -322,19 +314,11 @@ function resolveColorForScheme(
   }
 
   const baseSat = (satFactor * ctx.saturation) / 100;
-  let finalSat = isDark
+  const finalSat = isDark
     ? mapSaturationDark(baseSat, mode, ctx.config)
     : baseSat;
 
   const toneFraction = clamp(finalTone / 100, 0, 1);
-  const sMax = ctx.config.saturationCeiling;
-  if (sMax !== false) {
-    // Key the taper on the rendered OKHSL lightness + hue (not authoring
-    // tone), so a swatch rendered near white/black gets the matching
-    // shoulder in either scheme — no per-mode inversion of the taper.
-    const l = clamp(fromTone(finalTone, REF_EPS), 0, 1);
-    finalSat = saturationCeiling(finalSat, l, effectiveHue, sMax);
-  }
 
   return {
     h: effectiveHue,

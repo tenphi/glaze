@@ -10,8 +10,7 @@
  * - the `{ h, s, t }` <-> `{ h, s, l }` color-space converters,
  * - the resolved-variant edge adapter (`variantToOkhsl`),
  * - the per-scheme tone mapping that replaced the Möbius dark curve
- *   (`mapToneForScheme`), the saturation reducers (dark desaturation +
- *   the cusp-anchored `saturationCeiling`), and the solver's scheme
+ *   (`mapToneForScheme`), the dark desaturation reducer, and the solver's scheme
  *   tone range.
  *
  * See `docs/okhst.md` for the full specification and the calibrated
@@ -19,7 +18,7 @@
  */
 
 import { clamp } from './hc-pair';
-import { cuspLightness, toe, toeInv } from './okhsl-color-math';
+import { toe, toeInv } from './okhsl-color-math';
 import type { AdaptationMode, GlazeConfigResolved, ToneWindow } from './types';
 
 /**
@@ -212,61 +211,6 @@ export function mapSaturationDark(
 ): number {
   if (mode === 'static') return s;
   return s * (1 - config.darkDesaturation);
-}
-
-/**
- * Two-edge smoothstep: 0 below `e0`, 1 above `e1`, Hermite-eased between.
- * `smoothstep(e0, e1, x) = t*t*(3 - 2*t)` with `t = clamp((x - e0)/(e1 - e0))`.
- */
-function smoothstep(e0: number, e1: number, x: number): number {
-  if (e1 <= e0) return x < e0 ? 0 : 1;
-  const t = clamp((x - e0) / (e1 - e0), 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
-/**
- * Cusp-anchored end shoulders — the plateau half-widths over which chroma is
- * held at full before easing to zero at the extreme. Mode-independent: the
- * taper keys on the rendered lightness `l`, so a swatch near white is tapered
- * identically in light and dark mode. The two values differ only by *end*
- * (toward black vs toward white) because the realizable color solid does not
- * taper symmetrically.
- */
-const W_DARK = 0.45;
-const W_LIGHT = 0.4;
-
-/**
- * Cusp-anchored saturation ceiling.
- *
- * Reduces chroma toward the lightness extremes so ramps read as natural, with
- * a curve that is correct for any hue and asymmetric per end. The taper is
- * anchored at the hue's gamut cusp `lc` (where realizable chroma peaks) rather
- * than a fixed midpoint, and applied as a *ceiling* (`min(s, cap)`) so it only
- * tames colors that ask for more chroma than looks good at that lightness and
- * leaves intentionally muted colors untouched.
- *
- * Normalized distance from the cusp toward the nearest achromatic end
- * (`d = 0` at the cusp, `d = 1` at black on the dark side / white on the light
- * side) drives a plateau-and-shoulder envelope `f = 1 - smoothstep(w, 1, d)`:
- * `f = 1` out to the plateau half-width `w`, easing to `0` at the extreme.
- *
- * @param s Requested OKHSL saturation (0–1, already gamut-normalized).
- * @param l Rendered OKHSL lightness of the swatch (0–1).
- * @param h Hue (0–360).
- * @param sMax Global chroma ceiling (0–1) — the only per-mode lever.
- */
-export function saturationCeiling(
-  s: number,
-  l: number,
-  h: number,
-  sMax: number,
-): number {
-  if (s <= 0) return s;
-  const lc = cuspLightness(h);
-  const d = l <= lc ? (lc - l) / lc : (l - lc) / (1 - lc);
-  const w = l <= lc ? W_DARK : W_LIGHT;
-  const f = 1 - smoothstep(w, 1, d);
-  return Math.min(s, sMax * f);
 }
 
 // ============================================================================

@@ -17,45 +17,73 @@
         </p>
       </header>
 
-      <section class="controls" aria-label="Seed controls">
+      <section class="controls" aria-label="Global controls">
         <div class="control">
-          <label class="control__label" for="hue">
-            <span>Hue</span>
-            <output id="hue-value" class="control__value">240°</output>
+          <label class="control__label" for="steps">
+            <span>Steps</span>
+            <output id="steps-value" class="control__value">11</output>
           </label>
           <input
-            id="hue"
-            class="slider slider--hue"
-            type="range"
-            min="0"
-            max="360"
-            step="1"
-            value="240"
-          />
-        </div>
-
-        <div class="control">
-          <label class="control__label" for="saturation">
-            <span>Saturation</span>
-            <output id="saturation-value" class="control__value">80</output>
-          </label>
-          <input
-            id="saturation"
+            id="steps"
             class="slider"
             type="range"
-            min="0"
-            max="100"
+            min="6"
+            max="101"
             step="1"
-            value="80"
+            value="11"
           />
+        </div>
+        <div class="control" style="display: flex; align-items: flex-end; justify-content: flex-end;">
+          <button type="button" id="add-palette-btn" class="btn">Add Palette</button>
         </div>
       </section>
 
-      <section class="palette" id="palette" aria-label="Tone palette"></section>
+      <div id="blocks-container"></div>
+
+      <template id="block-template">
+        <div class="block">
+          <section class="controls" aria-label="Seed controls" style="margin-bottom: 16px;">
+            <div class="control">
+              <label class="control__label">
+                <span>Hue</span>
+                <output class="control__value hue-value">240°</output>
+              </label>
+              <input
+                class="slider slider--hue hue-input"
+                type="range"
+                min="0"
+                max="360"
+                step="1"
+                value="240"
+              />
+            </div>
+            <div class="control">
+              <label class="control__label">
+                <span>Saturation</span>
+                <output class="control__value saturation-value">80</output>
+              </label>
+              <input
+                class="slider saturation-input"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="80"
+              />
+            </div>
+            <div class="control" style="display: flex; align-items: flex-end; justify-content: flex-end;">
+              <button type="button" class="btn btn--remove" aria-label="Remove palette">Remove Palette</button>
+            </div>
+          </section>
+          <div class="palettes-container">
+            <div class="palette" aria-label="Tone palette"></div>
+          </div>
+        </div>
+      </template>
 
       <footer class="app__footer">
         Tone <strong>0</strong> → <strong>100</strong> across
-        <strong>15</strong> steps · click a swatch to copy its hex
+        <strong id="footer-steps">11</strong> steps · click a swatch to copy its hex
       </footer>
     </main>
 

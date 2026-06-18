@@ -155,57 +155,10 @@ A window is authored as `[lo, hi]` (reference eps — the common form),
 to disable clamping. `false` is the full range `[0, 100]` at the reference eps —
 it removes the **boundaries**, not the tone curve.
 
-Other defaults: `darkDesaturation = 0.1` (unchanged), `saturationCeiling = 0.9`,
+Other defaults: `darkDesaturation = 0.1` (unchanged),
 `autoFlip = true`.
 
 Reference: `REF_EPS = 0.05`.
-
-## Saturation taper (cusp-anchored)
-
-Toward the lightness extremes the realizable (in-gamut) chroma collapses, so
-high saturation near white/black reads as noise. The taper reduces chroma there
-with a curve that is **correct for any hue** and **asymmetric per end** — not a
-fixed-midpoint tent. It is anchored at the hue's gamut **cusp** (where
-realizable chroma peaks) rather than at mid-lightness, which makes it
-hue-correct by construction: warm hues peak light, cool hues peak dark.
-
-`saturationCeiling(s, l, h, s_max)` runs at the `T → OKHSL` edge, **after** tone
-inversion + window remap have produced the rendered lightness `l`. Keying on
-rendered `l` (not authoring tone) is deliberate — the cusp is an OKHSL-lightness
-property, so a swatch rendered near white always gets the light-end shoulder and
-one rendered near black always gets the dark-end shoulder, in **both** schemes,
-with no per-mode inversion of the taper.
-
-```
-lc = cuspLightness(h)                         // OKHSL cusp lightness, cached per hue
-d  = (l <= lc) ? (lc - l)/lc : (l - lc)/(1 - lc)   // 0 at cusp, 1 at the nearest extreme
-w  = (l <= lc) ? W_DARK : W_LIGHT             // plateau half-width per end
-f  = 1 - smoothstep(w, 1, d)                  // f=1 out to the plateau, eases to 0 at the extreme
-cap = s_max * f
-s' = min(s, cap)                              // a ceiling, not a scale
-```
-
-`min(s, cap)` applies the taper as a **ceiling** that follows the cusp shape: it
-only bites colors that ask for more chroma than looks good at that lightness and
-leaves intentionally muted colors untouched (multiplying by `f` would
-over-desaturate already-soft colors). It is achromatic-safe (`min(0, cap) = 0`)
-and consistent at the extremes, where gamut already forces chroma to zero.
-
-The shoulders are **mode-independent**; the two widths differ only by *end*
-because the color solid does not taper symmetrically toward black and white:
-
-| Param | Default | Role |
-|---|---|---|
-| `W_DARK` | `0.45` | plateau half-width toward black (internal constant) |
-| `W_LIGHT` | `0.40` | plateau half-width toward white (internal constant) |
-| `saturationCeiling` (`s_max`) | `0.9` | global chroma ceiling — the one config lever; `false` disables |
-
-If dark mode ever reads hot, lower a single global `s_max`; halation tracks
-contrast-against-background, not theme, so there is no per-mode shoulder.
-
-Because the taper changes chroma → luminance → contrast, the
-[APCA / WCAG drift verification](#verification-apca--wcag-drift) below applies to
-near-extreme steps after the taper.
 
 ## Contrast metric (unified)
 

@@ -13,7 +13,7 @@
 import { glaze, variantToOkhsl, okhslToSrgb } from '../src/index.ts';
 
 /** Default number of tone steps across the 0–100 axis. */
-export const DEFAULT_STEPS = 21;
+export const DEFAULT_STEPS = 11;
 
 /**
  * Per-token config used for every swatch.
@@ -21,8 +21,7 @@ export const DEFAULT_STEPS = 21;
  * `lightTone: false` disables the light tone *window* so the authored tone
  * maps directly across the full 0–100 range — i.e. the swatches show the raw
  * OKHST tone axis (tone 0 → black, tone 100 → white) rather than a windowed
- * surface ladder. Tweak this object to explore other resolve behaviors
- * (e.g. add `saturationCeiling: false` to see the unclamped substrate).
+ * surface ladder. Tweak this object to explore other resolve behaviors.
  */
 const SWATCH_CONFIG = { lightTone: false };
 
@@ -60,7 +59,8 @@ function readableTextColor(rgb) {
  * @param {number} tone 0–100 (contrast-uniform OKHST tone)
  */
 export function buildStep(hue, saturation, tone) {
-  const token = glaze.color({ hue, saturation, tone }, SWATCH_CONFIG);
+  const config = { ...SWATCH_CONFIG };
+  const token = glaze.color({ hue, saturation, tone }, config);
   const variant = token.resolve().light;
   const okhsl = variantToOkhsl(variant);
   const rgb = okhslToSrgb(okhsl.h, okhsl.s, okhsl.l);

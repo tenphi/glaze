@@ -23,7 +23,6 @@ export function defaultConfig(): GlazeConfigResolved {
     lightTone: { lo: 10, hi: 100, eps: 0.05 },
     darkTone: { lo: 15, hi: 95, eps: 0.05 },
     darkDesaturation: 0.1,
-    saturationCeiling: 0.9,
     states: {
       dark: '@dark',
       highContrast: '@high-contrast',
@@ -68,8 +67,6 @@ export function configure(config: GlazeConfig): void {
     lightTone: config.lightTone ?? globalConfig.lightTone,
     darkTone: config.darkTone ?? globalConfig.darkTone,
     darkDesaturation: config.darkDesaturation ?? globalConfig.darkDesaturation,
-    saturationCeiling:
-      config.saturationCeiling ?? globalConfig.saturationCeiling,
     states: {
       dark: config.states?.dark ?? globalConfig.states.dark,
       highContrast:
@@ -107,7 +104,6 @@ export function mergeConfig(
     darkTone:
       override.darkTone !== undefined ? override.darkTone : base.darkTone,
     darkDesaturation: override.darkDesaturation ?? base.darkDesaturation,
-    saturationCeiling: override.saturationCeiling ?? base.saturationCeiling,
     states: base.states,
     modes: base.modes,
     shadowTuning: override.shadowTuning ?? base.shadowTuning,

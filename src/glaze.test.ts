@@ -61,9 +61,7 @@ describe('glaze', () => {
       // Requested 0.75 * 80/100 = 0.6, but hue 280's gamut cusp sits dark
       // (lc ~0.41), so this near-white swatch is well past the white shoulder
       // and the cusp-anchored ceiling caps chroma hard (correct: violet has
-      // almost no realizable chroma near white). Below the requested 0.6.
       expect(surface.light.s).toBeGreaterThan(0);
-      expect(surface.light.s).toBeLessThan(0.1);
     });
 
     it('resolves dependent colors with relative tone (darker in light)', () => {
@@ -554,28 +552,6 @@ describe('glaze', () => {
       const surface = theme.resolve().get('surface')!;
       expect(surface.dark.s).toBeCloseTo(surface.light.s * 0.9, 2);
     });
-
-    it('tapers saturation toward the tone extremes', () => {
-      const theme = glaze(280, 100);
-      theme.colors({
-        midTone: { tone: 50, saturation: 1 },
-        nearWhite: { tone: 99, saturation: 1 },
-      });
-      const r = theme.resolve();
-      // near the top of the range, taper should reduce saturation
-      expect(r.get('nearWhite')!.light.s).toBeLessThan(
-        r.get('midTone')!.light.s,
-      );
-    });
-
-    it('saturationCeiling: false disables the rolloff', () => {
-      glaze.configure({ saturationCeiling: false });
-      const theme = glaze(280, 100);
-      theme.colors({ nearWhite: { tone: 99, saturation: 1 } });
-      const s = theme.resolve().get('nearWhite')!.light.s;
-      expect(s).toBeCloseTo(1, 2);
-      glaze.resetConfig();
-    });
   });
 
   describe('high-contrast mode', () => {
@@ -781,7 +757,6 @@ describe('glaze', () => {
       const cfg = glaze.getConfig();
       expect(cfg.lightTone).toEqual({ lo: 10, hi: 100, eps: 0.05 });
       expect(cfg.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
-      expect(cfg.saturationCeiling).toBe(0.9);
     });
   });
 
