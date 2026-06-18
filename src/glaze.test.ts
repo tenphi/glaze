@@ -58,9 +58,12 @@ describe('glaze', () => {
       expect(surface.light.h).toBe(280);
       // tone 97, light window [10,100]: ~0.966
       expect(llOf(surface.light)).toBeCloseTo(0.966, 2);
-      // 0.75 * 80/100 = 0.6, lightly tapered near the top of the range.
-      expect(surface.light.s).toBeGreaterThan(0.5);
-      expect(surface.light.s).toBeLessThanOrEqual(0.6);
+      // Requested 0.75 * 80/100 = 0.6, but hue 280's gamut cusp sits dark
+      // (lc ~0.41), so this near-white swatch is well past the white shoulder
+      // and the cusp-anchored ceiling caps chroma hard (correct: violet has
+      // almost no realizable chroma near white). Below the requested 0.6.
+      expect(surface.light.s).toBeGreaterThan(0);
+      expect(surface.light.s).toBeLessThan(0.1);
     });
 
     it('resolves dependent colors with relative tone (darker in light)', () => {
@@ -565,8 +568,8 @@ describe('glaze', () => {
       );
     });
 
-    it('saturationTaper: 0 disables the rolloff', () => {
-      glaze.configure({ saturationTaper: 0 });
+    it('saturationCeiling: false disables the rolloff', () => {
+      glaze.configure({ saturationCeiling: false });
       const theme = glaze(280, 100);
       theme.colors({ nearWhite: { tone: 99, saturation: 1 } });
       const s = theme.resolve().get('nearWhite')!.light.s;
@@ -778,7 +781,7 @@ describe('glaze', () => {
       const cfg = glaze.getConfig();
       expect(cfg.lightTone).toEqual({ lo: 10, hi: 100, eps: 0.05 });
       expect(cfg.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
-      expect(cfg.saturationTaper).toBe(0.15);
+      expect(cfg.saturationCeiling).toBe(0.9);
     });
   });
 

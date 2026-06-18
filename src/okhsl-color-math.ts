@@ -311,6 +311,31 @@ const getCs = (
 // Public API
 // ============================================================================
 
+/** Per-hue cusp-lightness cache. The cusp is mode-independent, so keying on
+ * a rounded hue is safe and keeps the cache small. */
+const cuspLightnessCache = new Map<number, number>();
+
+/**
+ * OKHSL lightness of the gamut cusp for a hue — the lightness where the
+ * realizable chroma peaks. Reuses the same `find_cusp` OKHSL already runs for
+ * its `s` normalization (no new color math); the OKLab cusp lightness is run
+ * through the OKHSL `toe` and clamped to `[0.001, 0.999]` so divisions that
+ * key off it stay safe. Cached per (rounded) hue.
+ *
+ * @param h Hue, 0–360.
+ */
+export function cuspLightness(h: number): number {
+  const key = Math.round(constrainAngle(h) * 100) / 100;
+  const cached = cuspLightnessCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const hNorm = key / 360.0;
+  const cusp = findCuspOKLCH(Math.cos(TAU * hNorm), Math.sin(TAU * hNorm));
+  const lc = clampVal(toe(cusp[0]), 0.001, 0.999);
+  cuspLightnessCache.set(key, lc);
+  return lc;
+}
+
 /**
  * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to OKLab [L, a, b].
  */

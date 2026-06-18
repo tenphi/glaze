@@ -131,7 +131,7 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
  *
  * // Config override on any form
  * glaze.color('#26fcb2', { darkTone: false, autoFlip: false })
- * glaze.color({ from: '#fff', base: bg }, { saturationTaper: 0 })
+ * glaze.color({ from: '#fff', base: bg }, { saturationCeiling: false })
  * ```
  *
  * Defaults: every form defaults to `mode: 'auto'`. Value-shorthand forms

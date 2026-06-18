@@ -94,7 +94,7 @@ function buildValueFormConfigOverride(
         ? userOverride.darkTone
         : cfg.darkTone,
     darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
-    saturationTaper: userOverride?.saturationTaper ?? cfg.saturationTaper,
+    saturationCeiling: userOverride?.saturationCeiling ?? cfg.saturationCeiling,
     autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
     shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
   };
@@ -120,7 +120,7 @@ function buildStructuredConfigOverride(
         ? userOverride.darkTone
         : cfg.darkTone,
     darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
-    saturationTaper: userOverride?.saturationTaper ?? cfg.saturationTaper,
+    saturationCeiling: userOverride?.saturationCeiling ?? cfg.saturationCeiling,
     autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
     shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
   };

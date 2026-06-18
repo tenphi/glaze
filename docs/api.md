@@ -404,7 +404,7 @@ Every input form defaults to `mode: 'auto'` so the resolved token adapts between
 
 - **Value-shorthand** (bare strings, value objects, and `{ from, ...overrides }`):
   - Light variant preserves the input tone exactly (`lightTone: false`).
-  - All other config fields (`darkTone`, `darkDesaturation`, `saturationTaper`, `autoFlip`) snapshot from `globalConfig` at create time.
+  - All other config fields (`darkTone`, `darkDesaturation`, `saturationCeiling`, `autoFlip`) snapshot from `globalConfig` at create time.
 - **Structured input** (`{ hue, saturation, tone, ... }`):
   - Both tone windows snapshot from `globalConfig` at create time (same as a theme color).
 - All fields are **snapshotted at color-creation time** — later `glaze.configure()` calls don't retroactively change existing tokens.
@@ -450,7 +450,7 @@ The optional `config` second argument (`GlazeConfigOverride`) overrides the reso
 | `lightTone` | `[10, 100]` | Light tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
 | `darkTone` | `[15, 95]` | Dark tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
-| `saturationTaper` | `0.15` | Saturation taper strength toward the tone extremes (0–1). |
+| `saturationCeiling` | `0.9` | Global chroma ceiling `s_max` (0–1) for the cusp-anchored saturation taper, or `false` to disable. |
 | `autoFlip` | `true` | Default for each color's `flip`: when solving `contrast` (or applying a relative `tone` that overshoots), allow crossing to the opposite side instead of clamping. |
 | `shadowTuning` | `undefined` | Default shadow tuning (meaningful for themes; harmless on color tokens). |
 
@@ -989,9 +989,9 @@ S_dark = S_light * (1 - darkDesaturation) // default: 0.1
 
 `static` mode skips desaturation.
 
-### Saturation taper
+### Saturation taper (cusp-anchored)
 
-`saturationTaper` (default `0.15`) gently reduces saturation toward the tone extremes, where in-gamut chroma collapses. It is the *strength* (0–1) — the maximum fraction of saturation removed at the very edges — ramped in smoothly over the outer ~15% of tone on each end. Mid-tones are untouched; `0` disables it.
+`saturationCeiling` (default `0.9`) is the global chroma ceiling `s_max` for the cusp-anchored saturation taper. Toward the lightness extremes the realizable chroma collapses, so high saturation reads as noise. The taper is anchored at each hue's gamut **cusp** (warm hues peak light, cool hues peak dark) and applied as a *ceiling* — `s' = min(s, s_max·f)` — so it only tames oversaturated colors and leaves intentionally muted ones untouched. It keys on the rendered OKHSL lightness, so the same curve runs in light and dark mode with no per-mode shoulder. The plateau half-widths `W_DARK` (`0.45`) and `W_LIGHT` (`0.40`) are fixed internal constants; `saturationCeiling: false` disables the taper entirely. If dark mode reads hot, lower `s_max`. See [OKHST §saturation taper](okhst.md#saturation-taper-cusp-anchored) for the full math.
 
 ---
 
@@ -1002,7 +1002,7 @@ glaze.configure({
   lightTone: [10, 100], // [lo, hi]; or { lo, hi, eps } / false to disable clamping
   darkTone: [15, 95],   // [lo, hi]; or { lo, hi, eps } / false to disable clamping
   darkDesaturation: 0.1,
-  saturationTaper: 0.15,
+  saturationCeiling: 0.9, // global chroma ceiling s_max; false to disable
   states: {
     dark: '@dark',
     highContrast: '@high-contrast',
@@ -1027,7 +1027,7 @@ A `ToneWindow` is `[lo, hi]` (OKHSL-lightness endpoints, reference eps — the c
 | `lightTone` | `[10, 100]` | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
 | `darkTone` | `[15, 95]` | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
-| `saturationTaper` | `0.15` | Saturation taper strength toward the tone extremes (0–1). `0` disables. |
+| `saturationCeiling` | `0.9` | Global chroma ceiling `s_max` (0–1) for the cusp-anchored saturation taper. `false` disables it. |
 | `states.dark` | `'@dark'` | State alias for dark mode tokens (Tasty export). |
 | `states.highContrast` | `'@high-contrast'` | State alias for HC tokens. |
 | `modes.dark` | `true` | Include dark variants in exports. |
@@ -1210,6 +1210,6 @@ import {
 | `maxIterations` | `18` | Max binary-search iterations per branch. |
 | `initialDirection` | higher-contrast side | Direction to search first (`'lighter'` or `'darker'`). |
 | `flip` | `false` | When `true`, try the opposite direction if the initial one doesn't meet the target. When `false`, only the initial direction is searched — unmet contrasts pin the result to that direction's extreme. |
-| `saturationTaper` | `0` | When `> 0`, candidate saturation rolls off toward the tone extremes (same envelope the renderer applies), so the solved tone meets the floor at its rendered saturation. |
+| `saturationCeiling` | `undefined` | When set (`s_max`, 0–1), candidate saturation is capped by the same cusp-anchored ceiling the renderer applies (keyed on rendered lightness + hue), so the solved tone meets the floor at its rendered saturation. |
 
 Result: `{ tone, contrast, met, branch: 'lighter' | 'darker' | 'preferred', flipped? }`. `flipped: true` indicates the initial direction failed and the opposite direction satisfied the target.

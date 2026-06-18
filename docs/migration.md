@@ -34,11 +34,24 @@ glaze.configure({ lightLightness: [10, 100], darkLightness: [15, 95], darkCurve:
 glaze.configure({
   lightTone: [10, 100],
   darkTone: [15, 95],
-  // darkCurve removed; saturationTaper: 0.15 is the new gentle-extremes knob
+  // darkCurve removed; saturationCeiling: 0.9 is the new extremes knob
 });
 ```
 
 `lightLightness`/`darkLightness` → `lightTone`/`darkTone`. The window value is `[lo, hi]` (reference eps — the common form), `{ lo, hi, eps }` (advanced: explicit render curvature), or `false` to disable clamping. `false` removes the *boundaries* (full `[0, 100]` range), not the contrast-uniform tone curve. Per-token `glaze.color(value, config)` overrides use the same shape.
+
+### `saturationTaper` → `saturationCeiling`
+
+The symmetric, tone-keyed `saturationTaper` *strength* (default `0.15`) is replaced by the cusp-anchored `saturationCeiling` — a global chroma ceiling `s_max` (default `0.9`) applied as `min(s, s_max·f)`, keyed on the rendered OKHSL lightness and the hue's gamut cusp. It is hue-correct (warm hues peak light, cool hues peak dark) and asymmetric per end; the plateau half-widths `W_DARK`/`W_LIGHT` are fixed internal constants.
+
+```ts
+// before
+glaze.configure({ saturationTaper: 0.15 }); // strength; 0 disables
+// after
+glaze.configure({ saturationCeiling: 0.9 }); // s_max ceiling; false disables
+```
+
+`saturationTaper: 0` → `saturationCeiling: false`. Because the new taper is hue-aware, near-extreme chroma now shifts more than under the old symmetric rolloff (a near-white cool hue, say, desaturates much harder — which is physically correct). Re-eyeball saturated colors that sit near white or black; mid-range stops are essentially unchanged.
 
 ### The `contrast` prop now selects a metric
 
