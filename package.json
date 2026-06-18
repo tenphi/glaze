@@ -29,6 +29,7 @@
   "scripts": {
     "build": "tsdown",
     "playground": "vite playground",
+    "build:playground": "vite build playground",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
