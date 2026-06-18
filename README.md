@@ -5,7 +5,7 @@
 <h1 align="center">Glaze</h1>
 
 <p align="center">
-  OKHSL-based color theme generator with WCAG contrast solving
+  OKHST-based color theme generator with WCAG contrast solving
 </p>
 
 <p align="center">
