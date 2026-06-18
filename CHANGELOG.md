@@ -1,5 +1,24 @@
 # @tenphi/glaze
 
+## 0.15.0
+
+### Minor Changes
+
+- [#65](https://github.com/tenphi/glaze/pull/65) [`7663cb8`](https://github.com/tenphi/glaze/commit/7663cb89e071b6066c43e54e3a5bd1140bc03898) Thanks [@tenphi](https://github.com/tenphi)! - Add `pastel` config option, `getConfig()` to `GlazeTheme`, and export `cuspLightness`.
+  - `pastel`: A new configuration option (`boolean`, default `false`) has been added to `GlazeConfig` and `FindToneForContrastOptions`. When enabled, it uses a hue-independent "safe" chroma limit across all colors so that scaling saturation never exceeds the sRGB boundary at any hue for the given lightness.
+  - `getConfig()`: Added to `GlazeTheme` to allow retrieving the effective configuration (`GlazeConfigResolved`) for a theme.
+  - `cuspLightness(h)`: Exported from `okhsl-color-math` to allow retrieving the OKHSL lightness of the gamut cusp for a given hue.
+
+- [#65](https://github.com/tenphi/glaze/pull/65) [`7663cb8`](https://github.com/tenphi/glaze/commit/7663cb89e071b6066c43e54e3a5bd1140bc03898) Thanks [@tenphi](https://github.com/tenphi)! - Remove the cusp-anchored saturation taper completely.
+
+  **Breaking change**
+  - `saturationTaper` has been removed from `GlazeConfig` and `GlazeConfigOverride` as well as from `glaze.configure()`. The concept of tapering/clamping saturation at lightness extremes is no longer supported, and colors are allowed to maintain their requested saturation across the entire lightness spectrum.
+  - `saturationTaper` has also been removed from `FindToneForContrastOptions`.
+
+### Patch Changes
+
+- [#65](https://github.com/tenphi/glaze/pull/65) [`7663cb8`](https://github.com/tenphi/glaze/commit/7663cb89e071b6066c43e54e3a5bd1140bc03898) Thanks [@tenphi](https://github.com/tenphi)! - docs: update project description to use OKHST instead of OKHSL
+
 ## 0.14.0
 
 ### Minor Changes
