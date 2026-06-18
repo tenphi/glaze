@@ -137,40 +137,134 @@ function syncScroll(e) {
 }
 
 /** Build one swatch element from a step descriptor. */
-function createSwatch(step) {
+function createSwatch(step, index) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'swatch';
+  el.dataset.index = index;
+  el.dataset.copy = step.hex;
   el.style.background = step.css;
   el.style.color = step.textColor;
   el.title = `Tone ${formatTone(step.tone)} — click to copy ${step.hex}`;
-  el.dataset.hex = step.hex;
+
+  const content = document.createElement('div');
+  content.className = 'swatch__content';
 
   const tone = document.createElement('span');
   tone.className = 'swatch__tone';
   tone.textContent = formatTone(step.tone);
 
   const hex = document.createElement('span');
-  hex.className = 'swatch__hex';
+  hex.className = 'swatch__hex swatch__copyable';
+  hex.dataset.copy = step.hex;
   hex.textContent = step.hex;
 
-  el.append(tone, hex);
-  return el;
+      const notations = document.createElement('div');
+      notations.className = 'swatch__notations';
+
+      const rgb = document.createElement('span');
+      rgb.className = 'swatch__notation swatch__copyable';
+      rgb.dataset.copy = step.fmtRgb;
+      rgb.textContent = step.fmtRgb;
+
+      const oklch = document.createElement('span');
+      oklch.className = 'swatch__notation swatch__copyable';
+      oklch.dataset.copy = step.fmtOklch;
+      oklch.textContent = step.fmtOklch;
+
+      const okhsl = document.createElement('span');
+      okhsl.className = 'swatch__notation swatch__copyable';
+      okhsl.dataset.copy = step.fmtOkhsl;
+      okhsl.textContent = step.fmtOkhsl;
+
+      const okhst = document.createElement('span');
+      okhst.className = 'swatch__notation swatch__copyable';
+      okhst.dataset.copy = step.fmtOkhst;
+      okhst.textContent = step.fmtOkhst;
+
+      notations.append(rgb, oklch, okhsl, okhst);
+      content.append(tone, hex, notations);
+      el.append(content);
+      return el;
 }
 
-async function copyHex(hex, el) {
-  try {
-    await navigator.clipboard.writeText(hex);
-    el.classList.add('swatch--copied');
-    setTimeout(() => el.classList.remove('swatch--copied'), 700);
-  } catch {
-    /* clipboard may be unavailable (insecure context) — ignore */
+const handleCopy = async (event) => {
+  const copyable = event.target.closest('.swatch__copyable') || event.target.closest('.swatch');
+  const textToCopy = copyable?.dataset?.copy || event.target.closest('.swatch')?.dataset?.copy;
+  if (textToCopy) {
+    const swatch = event.target.closest('.swatch');
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      swatch.classList.add('swatch--copied');
+      setTimeout(() => swatch.classList.remove('swatch--copied'), 700);
+    } catch {
+      /* clipboard may be unavailable (insecure context) — ignore */
+    }
   }
-}
+};
 
-const handleCopy = (event) => {
-  const swatch = event.target.closest('.swatch');
-  if (swatch?.dataset.hex) copyHex(swatch.dataset.hex, swatch);
+let activeHoverIndex = null;
+
+const setActiveHoverIndex = (index) => {
+  if (activeHoverIndex === index) return;
+  activeHoverIndex = index;
+  
+  if (index === null) {
+    document.querySelectorAll('.swatch').forEach(el => {
+      el.classList.remove('is-hovered');
+    });
+  } else {
+    document.querySelectorAll('.swatch').forEach(el => {
+      if (el.dataset.index === String(index)) {
+        el.classList.add('is-hovered');
+      } else {
+        el.classList.remove('is-hovered');
+      }
+    });
+  }
+};
+
+const handlePalettePointerMove = (e) => {
+  const palette = e.currentTarget;
+  const swatches = Array.from(palette.querySelectorAll('.swatch'));
+  if (swatches.length === 0) return;
+  
+  let targetIndex = null;
+  
+  for (const swatch of swatches) {
+    const rect = swatch.getBoundingClientRect();
+    if (e.clientX >= rect.left && e.clientX <= rect.right) {
+      targetIndex = swatch.dataset.index;
+      break;
+    }
+  }
+  
+  if (targetIndex === null) {
+    let minDistance = Infinity;
+    for (const swatch of swatches) {
+      const rect = swatch.getBoundingClientRect();
+      let dist = 0;
+      if (e.clientX < rect.left) dist = rect.left - e.clientX;
+      else if (e.clientX > rect.right) dist = e.clientX - rect.right;
+      
+      if (swatch.dataset.index === String(activeHoverIndex)) {
+        dist -= 1; // slight bias to prevent jitter
+      }
+      
+      if (dist < minDistance) {
+        minDistance = dist;
+        targetIndex = swatch.dataset.index;
+      }
+    }
+  }
+  
+  if (targetIndex !== null) {
+    setActiveHoverIndex(targetIndex);
+  }
+};
+
+const handlePalettePointerLeave = (e) => {
+  setActiveHoverIndex(null);
 };
 
 let uiThemeStyleEl = document.getElementById('ui-theme');
@@ -220,7 +314,7 @@ function renderBlock(block) {
   dom.satValue.textContent = String(Math.round(block.saturation));
 
   const steps = buildPalette(block.hue, block.saturation, state.steps, state.pastel, state.lo, state.hi);
-  dom.palette.replaceChildren(...steps.map(createSwatch));
+  dom.palette.replaceChildren(...steps.map((step, index) => createSwatch(step, index)));
   
   scheduleSave();
 }
@@ -260,6 +354,8 @@ function createBlockDOM(block) {
 
   palette.addEventListener('scroll', syncScroll);
   palette.addEventListener('click', handleCopy);
+  palette.addEventListener('pointermove', handlePalettePointerMove);
+  palette.addEventListener('pointerleave', handlePalettePointerLeave);
 
   blockElements.set(block.id, {
     container, hueInput, hueValue, satInput, satValue, palette, removeBtn

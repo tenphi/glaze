@@ -10,7 +10,7 @@
  * source (Vite transpiles the TypeScript on the fly).
  */
 
-import { glaze, variantToOkhsl, okhslToSrgb } from '../src/index.ts';
+import { glaze, variantToOkhsl, okhslToSrgb, formatOkhsl, formatOklch, formatRgb } from '../src/index.ts';
 
 /** Default number of tone steps across the 0–100 axis. */
 export const DEFAULT_STEPS = 11;
@@ -65,12 +65,21 @@ export function buildStep(hue, saturation, tone, pastel = false, lo = 0, hi = 10
   const okhsl = variantToOkhsl(variant);
   const rgb = okhslToSrgb(okhsl.h, okhsl.s, okhsl.l, pastel);
 
+  const fmtOkhsl = formatOkhsl(okhsl.h, okhsl.s * 100, okhsl.l * 100, pastel);
+  const fmtOklch = formatOklch(okhsl.h, okhsl.s * 100, okhsl.l * 100, pastel);
+  const fmtRgb = formatRgb(okhsl.h, okhsl.s * 100, okhsl.l * 100, pastel);
+  const fmtOkhst = `okhst(${parseFloat(hue.toFixed(2))} ${parseFloat(saturation.toFixed(2))}% ${parseFloat(tone.toFixed(2))})`;
+
   return {
     tone,
     css: `rgb(${toByte(rgb[0])} ${toByte(rgb[1])} ${toByte(rgb[2])})`,
     hex: toHex(rgb),
     textColor: readableTextColor(rgb),
     okhsl,
+    fmtOkhsl,
+    fmtOklch,
+    fmtRgb,
+    fmtOkhst
   };
 }
 
