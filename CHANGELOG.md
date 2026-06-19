@@ -1,5 +1,16 @@
 # @tenphi/glaze
 
+## 0.15.1
+
+### Patch Changes
+
+- [#67](https://github.com/tenphi/glaze/pull/67) [`3f70089`](https://github.com/tenphi/glaze/commit/3f700896e39aa1d931c457d5d6ca14d0135928fd) Thanks [@tenphi](https://github.com/tenphi)! - Allow `pastel` to be set per color, not just globally.
+
+  Every color definition (`RegularColorDef`, `ShadowColorDef`, `MixColorDef`) and
+  `glaze.color()` token now accepts an optional `pastel?: boolean` that overrides
+  the global / per-theme `pastel` config for that color only. Omit it to keep
+  inheriting the config default.
+
 ## 0.15.0
 
 ### Minor Changes
