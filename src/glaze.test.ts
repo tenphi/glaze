@@ -85,6 +85,107 @@ describe('glaze', () => {
         'rgb(',
       );
     });
+    it('honors per-color pastel override regardless of global config', () => {
+      // Two colors at the same seed: one opts into pastel via the def, the
+      // other follows the global `pastel: false` default. The resolved
+      // variants must carry the per-color flag through to formatting.
+      const theme = glaze(280, 80);
+      theme.colors({
+        plain: { tone: 50, saturation: 1 },
+        soft: { tone: 50, saturation: 1, pastel: true },
+      });
+      const resolved = theme.resolve();
+      expect(resolved.get('plain')!.light.pastel).toBe(false);
+      expect(resolved.get('soft')!.light.pastel).toBe(true);
+
+      // `soft` should render through the hue-independent safe gamut, which at
+      // saturation 1 / hue 280 yields a measurably different RGB than `plain`.
+      const css = theme.css({ format: 'rgb', suffix: '' });
+      expect(css.light).toContain('--plain: rgb(');
+      expect(css.light).toContain('--soft: rgb(');
+      const plainLine = css.light
+        .split('\n')
+        .find((l) => l.startsWith('--plain'))!;
+      const softLine = css.light
+        .split('\n')
+        .find((l) => l.startsWith('--soft'))!;
+      // Pastel clamps chroma to the safe boundary, so the two RGB triples
+      // diverge even though the inputs share tone/saturation/hue.
+      expect(plainLine).not.toEqual(softLine);
+      expect(plainLine.slice(plainLine.indexOf('('))).not.toEqual(
+        softLine.slice(softLine.indexOf('(')),
+      );
+    });
+
+    it('per-color pastel is inherited by extend()', () => {
+      const parent = glaze(280, 80);
+      parent.colors({ soft: { tone: 50, saturation: 1, pastel: true } });
+      const child = parent.extend({ saturation: 60 });
+      // The inherited def keeps its `pastel: true` flag.
+      expect(child.color('soft')!.pastel).toBe(true);
+      const resolved = child.resolve().get('soft')!;
+      expect(resolved.light.pastel).toBe(true);
+    });
+
+    it('per-color pastel can be overridden in a child theme', () => {
+      const parent = glaze(280, 80);
+      parent.colors({
+        pastel: { tone: 50, saturation: 1, pastel: true },
+        harsh: { tone: 50, saturation: 1, pastel: false },
+      });
+      const child = parent.extend({
+        colors: {
+          pastel: { tone: 50, saturation: 1, pastel: false },
+        },
+      });
+      expect(child.resolve().get('pastel')!.light.pastel).toBe(false);
+      expect(child.resolve().get('harsh')!.light.pastel).toBe(false);
+    });
+
+    it('per-color pastel flows through shadow and mix defs', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { tone: 90, saturation: 0.3 },
+        shadowed: {
+          type: 'shadow',
+          bg: 'surface',
+          intensity: 40,
+          pastel: true,
+        },
+        mixed: {
+          type: 'mix',
+          base: 'surface',
+          target: 'surface',
+          value: 50,
+          pastel: true,
+        },
+      });
+      const resolved = theme.resolve();
+      expect(resolved.get('shadowed')!.light.pastel).toBe(true);
+      expect(resolved.get('mixed')!.light.pastel).toBe(true);
+    });
+
+    it('standalone color tokens carry per-color pastel through export', () => {
+      const token = glaze.color({
+        hue: 150,
+        saturation: 100,
+        tone: 50,
+        pastel: true,
+      });
+      expect(token.resolve().light.pastel).toBe(true);
+
+      // The flag must survive the JSON-safe export / colorFrom round-trip.
+      const restored = glaze.colorFrom(token.export());
+      expect(restored.resolve().light.pastel).toBe(true);
+    });
+
+    it('value-shorthand pastel override beats the global config', () => {
+      glaze.configure({ pastel: false });
+      const token = glaze.color({ from: '#1e90ff', pastel: true });
+      expect(token.resolve().light.pastel).toBe(true);
+      glaze.resetConfig();
+    });
+
     it('resolves root colors with tone, hue and saturation', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97, saturation: 0.75 } });
