@@ -18,9 +18,7 @@ const state = {
   pastel: false,
   lo: 0,
   hi: 100,
-  blocks: [
-    { id: 0, hue: 240, saturation: 80 }
-  ]
+  blocks: [{ id: 0, hue: 240, saturation: 80 }],
 };
 
 let saveTimeout;
@@ -35,22 +33,30 @@ async function saveStateToHash() {
     p: state.pastel,
     l: state.lo,
     h: state.hi,
-    b: state.blocks.map(b => [b.hue, b.saturation])
+    b: state.blocks.map((b) => [b.hue, b.saturation]),
   };
   const json = JSON.stringify(compactState);
-  
+
   try {
-    const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    const stream = new Blob([json])
+      .stream()
+      .pipeThrough(new CompressionStream('deflate-raw'));
     const buffer = await new Response(stream).arrayBuffer();
     const bytes = new Uint8Array(buffer);
     let binString = '';
     for (let i = 0; i < bytes.length; i++) {
       binString += String.fromCharCode(bytes[i]);
     }
-    const b64 = btoa(binString).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const b64 = btoa(binString)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
     window.history.replaceState(null, '', '#' + b64);
   } catch (e) {
-    const b64 = btoa(json).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const b64 = btoa(json)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
     window.history.replaceState(null, '', '#u' + b64);
   }
 }
@@ -58,7 +64,7 @@ async function saveStateToHash() {
 async function loadStateFromHash() {
   const hash = window.location.hash.slice(1);
   if (!hash) return false;
-  
+
   try {
     let json;
     if (hash.startsWith('u')) {
@@ -73,10 +79,12 @@ async function loadStateFromHash() {
       for (let i = 0; i < binString.length; i++) {
         bytes[i] = binString.charCodeAt(i);
       }
-      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      const stream = new Blob([bytes])
+        .stream()
+        .pipeThrough(new DecompressionStream('deflate-raw'));
       json = await new Response(stream).text();
     }
-    
+
     const parsed = JSON.parse(json);
     if (typeof parsed.s === 'number') state.steps = parsed.s;
     if (typeof parsed.p === 'boolean') state.pastel = parsed.p;
@@ -86,7 +94,7 @@ async function loadStateFromHash() {
       state.blocks = parsed.b.map((b, i) => ({
         id: i,
         hue: b[0],
-        saturation: b[1]
+        saturation: b[1],
       }));
       nextBlockId = state.blocks.length;
     }
@@ -124,13 +132,13 @@ function syncScroll(e) {
   if (isSyncingScroll) return;
   isSyncingScroll = true;
   const scrollLeft = e.target.scrollLeft;
-  
+
   document.querySelectorAll('.palette').forEach((p) => {
     if (p !== e.target) {
       p.scrollLeft = scrollLeft;
     }
   });
-  
+
   requestAnimationFrame(() => {
     isSyncingScroll = false;
   });
@@ -141,6 +149,7 @@ function createSwatch(step, index) {
   const el = document.createElement('button');
   el.type = 'button';
   el.className = 'swatch';
+  el.tabIndex = 0;
   el.dataset.index = index;
   el.dataset.copy = step.hex;
   el.style.background = step.css;
@@ -159,112 +168,50 @@ function createSwatch(step, index) {
   hex.dataset.copy = step.hex;
   hex.textContent = step.hex;
 
-      const notations = document.createElement('div');
-      notations.className = 'swatch__notations';
+  const notations = document.createElement('div');
+  notations.className = 'swatch__notations';
 
-      const rgb = document.createElement('span');
-      rgb.className = 'swatch__notation swatch__copyable';
-      rgb.dataset.copy = step.fmtRgb;
-      rgb.textContent = step.fmtRgb;
+  const rgb = document.createElement('span');
+  rgb.className = 'swatch__notation swatch__copyable';
+  rgb.dataset.copy = step.fmtRgb;
+  rgb.textContent = step.fmtRgb;
 
-      const oklch = document.createElement('span');
-      oklch.className = 'swatch__notation swatch__copyable';
-      oklch.dataset.copy = step.fmtOklch;
-      oklch.textContent = step.fmtOklch;
+  const oklch = document.createElement('span');
+  oklch.className = 'swatch__notation swatch__copyable';
+  oklch.dataset.copy = step.fmtOklch;
+  oklch.textContent = step.fmtOklch;
 
-      const okhsl = document.createElement('span');
-      okhsl.className = 'swatch__notation swatch__copyable';
-      okhsl.dataset.copy = step.fmtOkhsl;
-      okhsl.textContent = step.fmtOkhsl;
+  const okhsl = document.createElement('span');
+  okhsl.className = 'swatch__notation swatch__copyable';
+  okhsl.dataset.copy = step.fmtOkhsl;
+  okhsl.textContent = step.fmtOkhsl;
 
-      const okhst = document.createElement('span');
-      okhst.className = 'swatch__notation swatch__copyable';
-      okhst.dataset.copy = step.fmtOkhst;
-      okhst.textContent = step.fmtOkhst;
+  const okhst = document.createElement('span');
+  okhst.className = 'swatch__notation swatch__copyable';
+  okhst.dataset.copy = step.fmtOkhst;
+  okhst.textContent = step.fmtOkhst;
 
-      notations.append(rgb, oklch, okhsl, okhst);
-      content.append(tone, hex, notations);
-      el.append(content);
-      return el;
+  notations.append(rgb, oklch, okhsl, okhst);
+  content.append(tone, hex, notations);
+  el.append(content);
+  return el;
 }
 
 const handleCopy = async (event) => {
-  const copyable = event.target.closest('.swatch__copyable') || event.target.closest('.swatch');
-  const textToCopy = copyable?.dataset?.copy || event.target.closest('.swatch')?.dataset?.copy;
-  if (textToCopy) {
-    const swatch = event.target.closest('.swatch');
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      swatch.classList.add('swatch--copied');
-      setTimeout(() => swatch.classList.remove('swatch--copied'), 700);
-    } catch {
-      /* clipboard may be unavailable (insecure context) — ignore */
-    }
-  }
-};
+  const copyable = event.target.closest('.swatch__copyable');
+  if (!copyable) return;
 
-let activeHoverIndex = null;
+  const textToCopy = copyable.dataset.copy;
+  if (!textToCopy) return;
 
-const setActiveHoverIndex = (index) => {
-  if (activeHoverIndex === index) return;
-  activeHoverIndex = index;
-  
-  if (index === null) {
-    document.querySelectorAll('.swatch').forEach(el => {
-      el.classList.remove('is-hovered');
-    });
-  } else {
-    document.querySelectorAll('.swatch').forEach(el => {
-      if (el.dataset.index === String(index)) {
-        el.classList.add('is-hovered');
-      } else {
-        el.classList.remove('is-hovered');
-      }
-    });
+  const swatch = event.target.closest('.swatch');
+  try {
+    await navigator.clipboard.writeText(textToCopy);
+    swatch.classList.add('swatch--copied');
+    setTimeout(() => swatch.classList.remove('swatch--copied'), 700);
+  } catch {
+    /* clipboard may be unavailable (insecure context) — ignore */
   }
-};
-
-const handlePalettePointerMove = (e) => {
-  const palette = e.currentTarget;
-  const swatches = Array.from(palette.querySelectorAll('.swatch'));
-  if (swatches.length === 0) return;
-  
-  let targetIndex = null;
-  
-  for (const swatch of swatches) {
-    const rect = swatch.getBoundingClientRect();
-    if (e.clientX >= rect.left && e.clientX <= rect.right) {
-      targetIndex = swatch.dataset.index;
-      break;
-    }
-  }
-  
-  if (targetIndex === null) {
-    let minDistance = Infinity;
-    for (const swatch of swatches) {
-      const rect = swatch.getBoundingClientRect();
-      let dist = 0;
-      if (e.clientX < rect.left) dist = rect.left - e.clientX;
-      else if (e.clientX > rect.right) dist = e.clientX - rect.right;
-      
-      if (swatch.dataset.index === String(activeHoverIndex)) {
-        dist -= 1; // slight bias to prevent jitter
-      }
-      
-      if (dist < minDistance) {
-        minDistance = dist;
-        targetIndex = swatch.dataset.index;
-      }
-    }
-  }
-  
-  if (targetIndex !== null) {
-    setActiveHoverIndex(targetIndex);
-  }
-};
-
-const handlePalettePointerLeave = (e) => {
-  setActiveHoverIndex(null);
 };
 
 let uiThemeStyleEl = document.getElementById('ui-theme');
@@ -277,17 +224,17 @@ if (!uiThemeStyleEl) {
 function updateUITheme() {
   if (state.blocks.length === 0) return;
   const firstBlock = state.blocks[0];
-  
+
   const uiTheme = glaze(firstBlock.hue, 100);
   uiTheme.colors({
-    'bg': { tone: 100, saturation: 0.15 },
+    bg: { tone: 100, saturation: 0.15 },
     'bg-elev': { tone: 96, saturation: 0.15 },
     'bg-elev-2': { tone: 92, saturation: 0.15 },
-    'border': { tone: 86, saturation: 0.15 },
-    'text': { tone: 5, saturation: 0.15 },
+    border: { tone: 86, saturation: 0.15 },
+    text: { tone: 5, saturation: 0.15 },
     'text-dim': { tone: 40, saturation: 0.15 },
-    'danger': { hue: 10, saturation: 0.8, tone: 50 },
-    'accent': { tone: 50, saturation: 0.8 },
+    danger: { hue: 10, saturation: 0.8, tone: 50 },
+    accent: { tone: 50, saturation: 0.8 },
   });
 
   const css = uiTheme.css({ suffix: '', format: 'rgb' });
@@ -313,9 +260,18 @@ function renderBlock(block) {
   dom.satInput.value = block.saturation;
   dom.satValue.textContent = String(Math.round(block.saturation));
 
-  const steps = buildPalette(block.hue, block.saturation, state.steps, state.pastel, state.lo, state.hi);
-  dom.palette.replaceChildren(...steps.map((step, index) => createSwatch(step, index)));
-  
+  const steps = buildPalette(
+    block.hue,
+    block.saturation,
+    state.steps,
+    state.pastel,
+    state.lo,
+    state.hi,
+  );
+  dom.palette.replaceChildren(
+    ...steps.map((step, index) => createSwatch(step, index)),
+  );
+
   scheduleSave();
 }
 
@@ -344,7 +300,7 @@ function createBlockDOM(block) {
   });
 
   removeBtn.addEventListener('click', () => {
-    state.blocks = state.blocks.filter(b => b.id !== block.id);
+    state.blocks = state.blocks.filter((b) => b.id !== block.id);
     container.remove();
     blockElements.delete(block.id);
     updateRemoveButtons();
@@ -354,11 +310,15 @@ function createBlockDOM(block) {
 
   palette.addEventListener('scroll', syncScroll);
   palette.addEventListener('click', handleCopy);
-  palette.addEventListener('pointermove', handlePalettePointerMove);
-  palette.addEventListener('pointerleave', handlePalettePointerLeave);
 
   blockElements.set(block.id, {
-    container, hueInput, hueValue, satInput, satValue, palette, removeBtn
+    container,
+    hueInput,
+    hueValue,
+    satInput,
+    satValue,
+    palette,
+    removeBtn,
   });
 
   els.blocksContainer.appendChild(container);
@@ -367,7 +327,7 @@ function createBlockDOM(block) {
 
 function updateRemoveButtons() {
   const canRemove = state.blocks.length > 1;
-  state.blocks.forEach(block => {
+  state.blocks.forEach((block) => {
     const dom = blockElements.get(block.id);
     if (dom) {
       dom.removeBtn.style.display = canRemove ? 'block' : 'none';
@@ -376,13 +336,13 @@ function updateRemoveButtons() {
 }
 
 function renderAllBlocks() {
-  state.blocks.forEach(block => {
+  state.blocks.forEach((block) => {
     if (!blockElements.has(block.id)) {
       createBlockDOM(block);
     }
     renderBlock(block);
   });
-  
+
   updateRemoveButtons();
   updateUITheme();
 }
@@ -438,7 +398,7 @@ function bindGlobalEvents() {
     const newBlock = {
       id: nextBlockId++,
       hue: lastBlock ? lastBlock.hue : 240,
-      saturation: lastBlock ? lastBlock.saturation : 80
+      saturation: lastBlock ? lastBlock.saturation : 80,
     };
     state.blocks.push(newBlock);
     renderGlobal();
@@ -448,7 +408,7 @@ function bindGlobalEvents() {
 function bindThemeSwitcher() {
   const radios = document.querySelectorAll('.theme-switcher__input');
   const savedTheme = localStorage.getItem('playground-theme') || 'system';
-  
+
   function applyTheme(theme) {
     if (theme === 'system') {
       document.documentElement.removeAttribute('data-theme');
@@ -458,7 +418,7 @@ function bindThemeSwitcher() {
     localStorage.setItem('playground-theme', theme);
   }
 
-  radios.forEach(radio => {
+  radios.forEach((radio) => {
     if (radio.value === savedTheme) radio.checked = true;
     radio.addEventListener('change', (e) => {
       applyTheme(e.target.value);
@@ -472,9 +432,9 @@ async function init() {
   bindGlobalEvents();
   bindThemeSwitcher();
   await loadStateFromHash();
-  
+
   if (els.pastel) els.pastel.checked = state.pastel;
-  
+
   renderGlobal();
 }
 

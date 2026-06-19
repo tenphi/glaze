@@ -31,7 +31,13 @@ body {
     var(--bg);
   color: var(--text);
   font-family:
-    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    'Inter',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
     sans-serif;
   font-size: 15px;
   line-height: 1.5;
@@ -91,7 +97,9 @@ body {
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-dim);
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s;
 }
 
 .theme-switcher__input {
@@ -251,7 +259,8 @@ body {
   font-weight: 600;
 }
 
-.swatch.is-hovered {
+.swatch:focus,
+.swatch:focus-within {
   flex: 0 0 180px;
   transform: translateY(-3px);
   box-shadow:
@@ -269,7 +278,8 @@ body {
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.swatch.is-hovered .swatch__content {
+.swatch:focus .swatch__content,
+.swatch:focus-within .swatch__content {
   transform: translateY(0);
 }
 
@@ -295,7 +305,9 @@ body {
   border-radius: 4px;
   padding: 1px 4px;
   margin: 0 -4px;
-  transition: opacity 0.15s, background 0.15s;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
 }
 
 .swatch__copyable:hover {
@@ -319,12 +331,14 @@ body {
   transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.swatch.is-hovered .swatch__notation {
+.swatch:focus .swatch__notation,
+.swatch:focus-within .swatch__notation {
   opacity: 0.78;
   pointer-events: auto;
 }
 
-.swatch.is-hovered .swatch__notation:hover {
+.swatch:focus .swatch__notation:hover,
+.swatch:focus-within .swatch__notation:hover {
   opacity: 1;
 }
 
@@ -354,7 +368,9 @@ body {
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .btn:hover {
