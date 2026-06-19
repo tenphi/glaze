@@ -157,6 +157,14 @@ export interface RegularColorDef {
   opacity?: number;
 
   /**
+   * Per-color override for the hue-independent "safe" chroma limit used in
+   * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
+   * Falls through to the global / per-theme `pastel` config when omitted.
+   * @see GlazeConfig.pastel
+   */
+  pastel?: boolean;
+
+  /**
    * Whether this color is inherited by child themes created via `extend()`.
    * Default: true. Set to false to make this color local to the current theme.
    */
@@ -209,6 +217,14 @@ export interface ShadowColorDef {
   tuning?: ShadowTuning;
 
   /**
+   * Per-color override for the hue-independent "safe" chroma limit used in
+   * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
+   * Falls through to the global / per-theme `pastel` config when omitted.
+   * @see GlazeConfig.pastel
+   */
+  pastel?: boolean;
+
+  /**
    * Whether this color is inherited by child themes created via `extend()`.
    * Default: true. Set to false to make this color local to the current theme.
    */
@@ -251,6 +267,14 @@ export interface MixColorDef {
   contrast?: HCPair<ContrastSpec>;
 
   /**
+   * Per-color override for the hue-independent "safe" chroma limit used in
+   * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
+   * Falls through to the global / per-theme `pastel` config when omitted.
+   * @see GlazeConfig.pastel
+   */
+  pastel?: boolean;
+
+  /**
    * Whether this color is inherited by child themes created via `extend()`.
    * Default: true. Set to false to make this color local to the current theme.
    */
@@ -281,6 +305,12 @@ export interface ResolvedColorVariant {
   t: number;
   /** Opacity (0–1). Default: 1. */
   alpha: number;
+  /**
+   * Effective `pastel` flag used while resolving this variant (author def or
+   * config fallback). Carried on the variant so output formatting matches the
+   * gamut mapping applied during resolution.
+   */
+  pastel?: boolean;
 }
 
 /** Fully resolved color across all scheme variants. */
@@ -467,6 +497,14 @@ export interface GlazeColorInput {
    * used). Does not affect output keys.
    */
   name?: string;
+
+  /**
+   * Per-color override for the hue-independent "safe" chroma limit used in
+   * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
+   * Falls through to the global / per-theme `pastel` config when omitted.
+   * @see GlazeConfig.pastel
+   */
+  pastel?: boolean;
 }
 
 /**
@@ -579,6 +617,14 @@ export interface GlazeColorOverrides {
    * used). Does not affect output keys.
    */
   name?: string;
+
+  /**
+   * Per-color override for the hue-independent "safe" chroma limit used in
+   * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
+   * Falls through to the global / per-theme `pastel` config when omitted.
+   * @see GlazeConfig.pastel
+   */
+  pastel?: boolean;
 }
 
 /**
@@ -680,6 +726,7 @@ export interface GlazeColorInputExport {
   base?: GlazeColorTokenExport | GlazeColorValue;
   contrast?: HCPair<ContrastSpec>;
   name?: string;
+  pastel?: boolean;
 }
 
 /**
@@ -697,6 +744,7 @@ export interface GlazeColorOverridesExport {
   base?: GlazeColorTokenExport | GlazeColorValue;
   opacity?: number;
   name?: string;
+  pastel?: boolean;
 }
 
 // ============================================================================

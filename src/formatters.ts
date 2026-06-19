@@ -45,8 +45,11 @@ export function formatVariant(
   pastel = false,
 ): string {
   // Variants store canonical tone; convert to OKHSL lightness at the edge.
+  // Per-variant `pastel` (set by the resolver from def or config fallback)
+  // wins over the format-time fallback, so output matches resolution.
+  const effectivePastel = v.pastel ?? pastel;
   const { l } = variantToOkhsl(v);
-  const base = formatters[format](v.h, v.s * 100, l * 100, pastel);
+  const base = formatters[format](v.h, v.s * 100, l * 100, effectivePastel);
   if (v.alpha >= 1) return base;
   const closing = base.lastIndexOf(')');
   return `${base.slice(0, closing)} / ${fmt(v.alpha, 4)})`;

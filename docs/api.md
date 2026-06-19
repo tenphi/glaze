@@ -219,6 +219,7 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 | `mode` | `'auto' \| 'fixed' \| 'static'` | Adaptation mode. Default: `'auto'`. See [Adaptation modes](#adaptation-modes). |
 | `flip` | `boolean` | Flip out-of-bounds results (relative `tone` overshoot / unmet `contrast`) to the opposite side instead of clamping. Default: the global `autoFlip` (`true`). See [`flip`](#flip). |
 | `opacity` | `number` | Fixed alpha 0–1. Output includes alpha in the CSS value. Combining with `contrast` is not recommended (a `console.warn` is emitted). |
+| `pastel` | `boolean` | Per-color override for the hue-independent "safe" chroma limit used in OKHSL↔sRGB conversions (luminance, contrast solving, output formatting). Falls through to the global / per-theme `pastel` config when omitted. Default: unset. See [Per-color `pastel`](#per-color-pastel). |
 | `inherit` | `boolean` | Whether this color is inherited by child themes via `extend()`. Default: `true`. Set to `false` to make the color local to the current theme. |
 
 #### Tone values
@@ -299,6 +300,38 @@ theme.colors({
 
 Relative hue is always relative to the **theme seed hue**, not to a base color.
 
+#### Per-color `pastel`
+
+`pastel: true` on a single color def overrides the global / per-theme `pastel` config for that color only. It toggles the hue-independent "safe" chroma limit used in every OKHSL↔sRGB conversion that touches this color: luminance calculations during contrast solving, gamut clamping during sRGB blend / mix edges, and output formatting. The effective flag is carried on the resolved variant (`ResolvedColorVariant.pastel`) so formatting matches the gamut mapping applied during resolution.
+
+```ts
+const theme = glaze(280, 80);
+theme.colors({
+  plain: { tone: 50, saturation: 1 },
+  soft:  { tone: 50, saturation: 1, pastel: true },
+});
+// theme.resolve().get('soft')!.light.pastel === true
+// theme.css().light contains different rgb() triples for `--plain` and `--soft`
+```
+
+Omit the field to inherit the global / per-theme `pastel` config — useful for keeping the default behavior while opting a single accent into the pastel gamut.
+
+The flag is part of the def object, so `extend()` copies it through to child themes alongside the rest of the def. Override it again on the child to flip a single color back:
+
+```ts
+const parent = glaze(280, 80);
+parent.colors({ soft: { tone: 50, saturation: 1, pastel: true } });
+
+const child = parent.extend({
+  colors: { soft: { tone: 50, saturation: 1, pastel: false } },
+});
+// child.resolve().get('soft')!.light.pastel === false
+```
+
+> **Note:** Per-color `pastel` is also supported on `ShadowColorDef` and `MixColorDef` (see the tables above). For shadows the math itself happens in OKHSL space, so the flag mainly controls the gamut-mapped output formatting and any luminance verification for that variant.
+>
+> Standalone `glaze.color()` tokens accept the same `pastel` field on both the structured (`GlazeColorInput`) and value-shorthand (`GlazeColorOverrides`) forms, and it survives the `export()` / `glaze.colorFrom()` round-trip.
+
 ### `ShadowColorDef`
 
 | Field | Type | Description |
@@ -308,6 +341,7 @@ Relative hue is always relative to the **theme seed hue**, not to a base color.
 | `fg` | `string` | Optional foreground color name for tinting and intensity modulation. Must reference a non-shadow color. Omit for an achromatic shadow at full user-specified intensity. |
 | `intensity` | `HCPair<number>` | Shadow intensity, 0–100. Supports HC pairs. |
 | `tuning` | `ShadowTuning` | Per-color tuning overrides. Merged field-by-field with the global `shadowTuning`. |
+| `pastel` | `boolean` | Per-color `pastel` override. See [Per-color `pastel`](#per-color-pastel). |
 | `inherit` | `boolean` | Inheritance flag, default `true`. |
 
 See [Shadows](#shadows) below for the algorithm and tuning details.
@@ -323,6 +357,7 @@ See [Shadows](#shadows) below for the algorithm and tuning details.
 | `blend` | `'opaque' \| 'transparent'` | Default `'opaque'`. |
 | `space` | `'okhsl' \| 'srgb'` | Interpolation space for opaque blending. Default `'okhsl'`. Ignored for `'transparent'` (always composites in linear sRGB). |
 | `contrast` | `HCPair<ContrastSpec>` | Optional contrast floor against `base` (WCAG or APCA — see [`contrast`](#contrast-floor)). The solver adjusts the mix ratio (opaque) or opacity (transparent). |
+| `pastel` | `boolean` | Per-color `pastel` override. See [Per-color `pastel`](#per-color-pastel). |
 | `inherit` | `boolean` | Inheritance flag, default `true`. |
 
 See [Mix colors](#mix-colors) below.
@@ -378,6 +413,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `opacity` | `number` | Fixed alpha 0–1. |
 | `base` | `GlazeColorToken \| GlazeColorValue` | Optional dependency. See [Pairing colors](#pairing-colors). |
 | `contrast` | `HCPair<ContrastSpec>` | Contrast floor against `base` (WCAG or APCA). Without `base`, anchored to the literal seed. |
+| `pastel` | `boolean` | Per-color `pastel` override. Falls through to the global / per-theme `pastel` config when omitted. See [Per-color `pastel`](#per-color-pastel). |
 | `name` | `string` | Debug label for warnings; doesn't change output keys. Reserved names (`'value'`, `'seed'`, `'externalBase'`) are rejected. |
 
 `GlazeFromInput` (from form) is `{ from: GlazeColorValue, ...colorOverrides }`:
@@ -394,6 +430,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `contrast` | Contrast floor (WCAG or APCA). Without `base`, anchored to the literal seed; with `base`, solved per scheme. |
 | `base` | `GlazeColorToken` or raw `GlazeColorValue`. See [Pairing colors](#pairing-colors). |
 | `opacity` | Fixed alpha 0–1. Combining with `contrast` is not recommended — `console.warn` is emitted. |
+| `pastel` | Per-color `pastel` override. Falls through to the global / per-theme `pastel` config when omitted. See [Per-color `pastel`](#per-color-pastel). |
 | `name` | Debug label only — surfaces in warnings/errors. Does not change output keys. |
 
 Named CSS colors (`'red'`, `'blueviolet'`) are not supported.

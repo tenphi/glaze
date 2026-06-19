@@ -525,6 +525,7 @@ function buildStandaloneValueDefs(
     mode: options?.mode ?? 'auto',
     flip: options?.flip,
     opacity: options?.opacity,
+    pastel: options?.pastel,
     base: hasExternalBase
       ? STANDALONE_BASE
       : needsSeedAnchor
@@ -707,6 +708,7 @@ export function createColorToken(
       flip: input.flip,
       contrast: input.contrast,
       opacity: input.opacity,
+      pastel: input.pastel,
       base: hasExternalBase
         ? STANDALONE_BASE
         : needsSeedAnchor
@@ -813,6 +815,7 @@ function buildOverridesExport(
   if (options.contrast !== undefined) out.contrast = options.contrast;
   if (options.opacity !== undefined) out.opacity = options.opacity;
   if (options.name !== undefined) out.name = options.name;
+  if (options.pastel !== undefined) out.pastel = options.pastel;
   if (options.base !== undefined) {
     out.base = isGlazeColorToken(options.base)
       ? options.base.export()
@@ -837,6 +840,7 @@ function buildStructuredInputExport(
   if (input.opacity !== undefined) out.opacity = input.opacity;
   if (input.contrast !== undefined) out.contrast = input.contrast;
   if (input.name !== undefined) out.name = input.name;
+  if (input.pastel !== undefined) out.pastel = input.pastel;
   if (input.base !== undefined) {
     out.base = isGlazeColorToken(input.base) ? input.base.export() : input.base;
   }
@@ -874,6 +878,7 @@ function rehydrateOverrides(
   if (data.contrast !== undefined) out.contrast = data.contrast;
   if (data.opacity !== undefined) out.opacity = data.opacity;
   if (data.name !== undefined) out.name = data.name;
+  if (data.pastel !== undefined) out.pastel = data.pastel;
   if (data.base !== undefined) {
     out.base = isExportedToken(data.base)
       ? colorFromExport(data.base)
@@ -898,6 +903,7 @@ function rehydrateStructuredInput(
   if (data.opacity !== undefined) out.opacity = data.opacity;
   if (data.contrast !== undefined) out.contrast = data.contrast;
   if (data.name !== undefined) out.name = data.name;
+  if (data.pastel !== undefined) out.pastel = data.pastel;
   if (data.base !== undefined) {
     out.base = isExportedToken(data.base)
       ? colorFromExport(data.base)

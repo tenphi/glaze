@@ -85,6 +85,8 @@ interface OkhslVariant {
   s: number;
   l: number;
   alpha: number;
+  /** Carried from the resolved variant so edge conversions reuse the right gamut. */
+  pastel?: boolean;
 }
 
 export function getSchemeVariant(
@@ -101,7 +103,7 @@ export function getSchemeVariant(
 /** Edge adapter: resolved variant (`t`) → OKHSL-lightness variant. */
 function toOkhslVariant(v: ResolvedColorVariant): OkhslVariant {
   const c = variantToOkhsl(v);
-  return { h: c.h, s: c.s, l: c.l, alpha: v.alpha };
+  return { h: c.h, s: c.s, l: c.l, alpha: v.alpha, pastel: v.pastel };
 }
 
 /** Edge adapter: OKHSL-lightness variant → resolved variant (`t`). */
@@ -165,6 +167,7 @@ function resolveDependentColor(
   const mode = def.mode ?? 'auto';
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
   const flip = def.flip ?? ctx.config.autoFlip;
+  const pastel = def.pastel ?? ctx.config.pastel;
 
   const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);
   const baseTone = baseVariant.t * 100;
@@ -229,7 +232,7 @@ function resolveDependentColor(
       baseOkhsl.h,
       baseOkhsl.s,
       baseOkhsl.l,
-      ctx.config.pastel,
+      baseVariant.pastel ?? ctx.config.pastel,
     );
 
     const toneRange = schemeToneRange(isDark, mode, isHighContrast, ctx.config);
@@ -250,7 +253,7 @@ function resolveDependentColor(
       toneRange: [0, 1],
       initialDirection,
       flip,
-      pastel: ctx.config.pastel,
+      pastel,
     });
 
     if (!result.met) {
@@ -288,6 +291,7 @@ function resolveColorForScheme(
   const mode = regDef.mode ?? 'auto';
   const isRoot = isAbsoluteTone(regDef.tone) && !regDef.base;
   const effectiveHue = resolveEffectiveHue(ctx.hue, regDef.hue);
+  const pastel = regDef.pastel ?? ctx.config.pastel;
 
   let finalTone: number;
   let satFactor: number;
@@ -327,6 +331,7 @@ function resolveColorForScheme(
     s: clamp(finalSat, 0, 1),
     t: toneFraction,
     alpha: regDef.opacity ?? 1,
+    pastel,
   };
 }
 
@@ -354,7 +359,10 @@ function resolveShadowForScheme(
     : pairNormal(def.intensity);
 
   const tuning = resolveShadowTuning(def.tuning, ctx.config.shadowTuning);
-  return toToneVariant(computeShadow(bgVariant, fgVariant, intensity, tuning));
+  return {
+    ...toToneVariant(computeShadow(bgVariant, fgVariant, intensity, tuning)),
+    pastel: def.pastel ?? ctx.config.pastel,
+  };
 }
 
 function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {
@@ -422,10 +430,14 @@ function resolveMixForScheme(
 
   const blend = def.blend ?? 'opaque';
   const space = def.space ?? 'okhsl';
-  const baseLinear = okhslVariantToLinearRgb(baseVariant, ctx.config.pastel);
+  const pastel = def.pastel ?? ctx.config.pastel;
+  const baseLinear = okhslVariantToLinearRgb(
+    baseVariant,
+    baseVariant.pastel ?? ctx.config.pastel,
+  );
   const targetLinear = okhslVariantToLinearRgb(
     targetVariant,
-    ctx.config.pastel,
+    targetVariant.pastel ?? ctx.config.pastel,
   );
 
   if (def.contrast !== undefined) {
@@ -442,10 +454,7 @@ function resolveMixForScheme(
         const h = mixHue(baseVariant, targetVariant, v);
         const s = baseVariant.s + (targetVariant.s - baseVariant.s) * v;
         const l = baseVariant.l + (targetVariant.l - baseVariant.l) * v;
-        return metricLuminance(
-          metric,
-          okhslToLinearSrgb(h, s, l, ctx.config.pastel),
-        );
+        return metricLuminance(metric, okhslToLinearSrgb(h, s, l, pastel));
       };
     }
 
@@ -461,25 +470,31 @@ function resolveMixForScheme(
   }
 
   if (blend === 'transparent') {
-    return toToneVariant({
-      h: targetVariant.h,
-      s: targetVariant.s,
-      l: targetVariant.l,
-      alpha: clamp(t, 0, 1),
-    });
+    return {
+      ...toToneVariant({
+        h: targetVariant.h,
+        s: targetVariant.s,
+        l: targetVariant.l,
+        alpha: clamp(t, 0, 1),
+      }),
+      pastel,
+    };
   }
 
   if (space === 'srgb') {
     const mixed = linearSrgbLerp(baseLinear, targetLinear, t);
-    return linearRgbToToneVariant(mixed, ctx.config.pastel);
+    return { ...linearRgbToToneVariant(mixed, pastel), pastel };
   }
 
-  return toToneVariant({
-    h: mixHue(baseVariant, targetVariant, t),
-    s: clamp(baseVariant.s + (targetVariant.s - baseVariant.s) * t, 0, 1),
-    l: clamp(baseVariant.l + (targetVariant.l - baseVariant.l) * t, 0, 1),
-    alpha: 1,
-  });
+  return {
+    ...toToneVariant({
+      h: mixHue(baseVariant, targetVariant, t),
+      s: clamp(baseVariant.s + (targetVariant.s - baseVariant.s) * t, 0, 1),
+      l: clamp(baseVariant.l + (targetVariant.l - baseVariant.l) * t, 0, 1),
+      alpha: 1,
+    }),
+    pastel,
+  };
 }
 
 function defMode(def: ColorDef): AdaptationMode | undefined {
@@ -553,6 +568,7 @@ function verifyContrastDrift(
   order: string[],
   defs: ColorMap,
   result: Map<string, ResolvedColor>,
+  config: GlazeConfigResolved,
 ): void {
   for (const name of order) {
     const def = defs[name];
@@ -581,14 +597,18 @@ function verifyContrastDrift(
       const cOkhsl = toOkhslVariant(cVariant);
       const bOkhsl = toOkhslVariant(bVariant);
       // Measure in the spec's metric basis so the APCA warning compares APCA
-      // luminances, not WCAG ones.
+      // luminances, not WCAG ones. Each variant carries its own effective
+      // pastel flag so the gamut mapping matches what the resolver applied;
+      // fall back to the config default for any variant without one.
+      const cPastel = cVariant.pastel ?? config.pastel;
+      const bPastel = bVariant.pastel ?? config.pastel;
       const yC = metricLuminance(
         spec.metric,
-        okhslToLinearSrgb(cOkhsl.h, cOkhsl.s, cOkhsl.l),
+        okhslToLinearSrgb(cOkhsl.h, cOkhsl.s, cOkhsl.l, cPastel),
       );
       const yB = metricLuminance(
         spec.metric,
-        okhslToLinearSrgb(bOkhsl.h, bOkhsl.s, bOkhsl.l),
+        okhslToLinearSrgb(bOkhsl.h, bOkhsl.s, bOkhsl.l, bPastel),
       );
       warnContrastDrift(name, s.isDark, s.isHighContrast, spec, yC, yB);
     }
@@ -650,7 +670,7 @@ export function resolveAllColors(
     });
   }
 
-  verifyContrastDrift(order, defs, result);
+  verifyContrastDrift(order, defs, result, config);
 
   return result;
 }
