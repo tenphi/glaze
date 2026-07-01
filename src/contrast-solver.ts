@@ -44,11 +44,57 @@ export function metricLuminance(
 export type ContrastPreset = 'AA' | 'AAA' | 'AA-large' | 'AAA-large';
 export type MinContrast = number | ContrastPreset;
 
+/**
+ * Named APCA Lc floor presets (APCA Bronze Simple Mode conformance levels),
+ * independent of role. Use them anywhere an APCA target is accepted.
+ *
+ * | Preset        | Lc  | Use case                                             |
+ * | ------------- | --- | ---------------------------------------------------- |
+ * | `'preferred'` | 90  | Preferred body / column text                         |
+ * | `'body'`      | 75  | Minimum body / column text                           |
+ * | `'content'`   | 60  | Readable non-body content (~WCAG AA 4.5:1)           |
+ * | `'large'`     | 45  | Large/bold headlines; fine icons/outlines (~3:1)     |
+ * | `'non-text'`  | 30  | Solid icons/controls; placeholder/disabled text      |
+ * | `'min'`       | 15  | Dividers/decorative; APCA "point of invisibility"    |
+ */
+export type ApcaPreset =
+  | 'preferred'
+  | 'body'
+  | 'content'
+  | 'large'
+  | 'non-text'
+  | 'min';
+
+export const APCA_PRESETS: Record<ApcaPreset, number> = {
+  preferred: 90,
+  body: 75,
+  content: 60,
+  large: 45,
+  'non-text': 30,
+  min: 15,
+};
+
+/**
+ * Resolve an APCA target — a raw Lc number (kept as-is) or an `ApcaPreset`
+ * keyword mapped to its Lc value. The magnitude is forced non-negative.
+ */
+export function resolveApcaTarget(value: number | ApcaPreset): number {
+  if (typeof value === 'number') return Math.abs(value);
+  return APCA_PRESETS[value];
+}
+
 /** Metric + numeric target after resolving a `ContrastSpec` for a mode. */
 export interface ResolvedContrast {
   metric: 'wcag' | 'apca';
   /** WCAG ratio (>= 1) or APCA Lc magnitude (0–106). */
   target: number;
+  /**
+   * APCA argument order: which side the resolved (candidate) color plays
+   * against the base. `'fg'` (default) → `apcaContrast(yCandidate, yBase)`;
+   * `'bg'` → `apcaContrast(yBase, yCandidate)`. Always `'fg'` for WCAG
+   * (symmetric, ignored).
+   */
+  polarity?: 'fg' | 'bg';
 }
 
 // ============================================================================
@@ -76,19 +122,23 @@ function pickPair<T>(p: HCPair<T>, isHighContrast: boolean): T {
 /**
  * Resolve a `ContrastSpec` (already selected from any outer HC pair) for a
  * given mode into `{ metric, target }`. Handles the inner metric HC pair and
- * preset resolution.
+ * preset resolution. `polarity` is passed through to the result for the APCA
+ * branch (it controls argument order in the solver); WCAG ignores it.
  */
 export function resolveContrastForMode(
   spec: ContrastSpec,
   isHighContrast: boolean,
+  polarity?: 'fg' | 'bg',
 ): ResolvedContrast {
   if (typeof spec === 'number' || typeof spec === 'string') {
+    // A bare string here is a WCAG preset ('AA' / 'AAA' / ...).
     return { metric: 'wcag', target: resolveMinContrast(spec) };
   }
   if ('apca' in spec) {
     return {
       metric: 'apca',
-      target: Math.abs(pickPair(spec.apca, isHighContrast)),
+      target: resolveApcaTarget(pickPair(spec.apca, isHighContrast)),
+      polarity: polarity ?? 'fg',
     };
   }
   return {
@@ -194,15 +244,24 @@ function cachedLuminance(
 /**
  * Score a candidate luminance against the base for a metric. Returns a value
  * that is `>= target` exactly when the floor is met (WCAG ratio, or APCA Lc
- * magnitude).
+ * magnitude). For APCA, `polarity` selects the argument order: `'fg'` (the
+ * default) treats the candidate as the text against a background base
+ * (`apcaContrast(yCandidate, yBase)`); `'bg'` treats the candidate as the
+ * background (`apcaContrast(yBase, yCandidate)`). The magnitude is taken
+ * either way. WCAG is symmetric, so polarity is ignored there.
  */
 function metricScore(
   metric: 'wcag' | 'apca',
   yCandidate: number,
   yBase: number,
+  polarity?: 'fg' | 'bg',
 ): number {
   if (metric === 'wcag') return contrastRatioFromLuminance(yCandidate, yBase);
-  return Math.abs(apcaContrast(yCandidate, yBase));
+  const lc =
+    polarity === 'bg'
+      ? apcaContrast(yBase, yCandidate)
+      : apcaContrast(yCandidate, yBase);
+  return Math.abs(lc);
 }
 
 // ============================================================================
@@ -275,9 +334,10 @@ function searchBranch(
   epsilon: number,
   maxIter: number,
   anchor: number,
+  polarity?: 'fg' | 'bg',
 ): BranchResult {
-  const scoreLo = metricScore(metric, lum(lo), yBase);
-  const scoreHi = metricScore(metric, lum(hi), yBase);
+  const scoreLo = metricScore(metric, lum(lo), yBase, polarity);
+  const scoreHi = metricScore(metric, lum(hi), yBase, polarity);
 
   if (scoreLo < target && scoreHi < target) {
     return scoreLo >= scoreHi
@@ -291,7 +351,7 @@ function searchBranch(
   for (let i = 0; i < maxIter; i++) {
     if (high - low < epsilon) break;
     const mid = (low + high) / 2;
-    const scoreMid = metricScore(metric, lum(mid), yBase);
+    const scoreMid = metricScore(metric, lum(mid), yBase, polarity);
 
     if (scoreMid >= target) {
       if (mid < anchor) low = mid;
@@ -302,8 +362,8 @@ function searchBranch(
     }
   }
 
-  const scoreLow = metricScore(metric, lum(low), yBase);
-  const scoreHigh = metricScore(metric, lum(high), yBase);
+  const scoreLow = metricScore(metric, lum(low), yBase, polarity);
+  const scoreHigh = metricScore(metric, lum(high), yBase, polarity);
   const lowPasses = scoreLow >= target;
   const highPasses = scoreHigh >= target;
 
@@ -360,8 +420,10 @@ interface SolveCoreOptions {
   epsilon: number;
   maxIterations: number;
   flip: boolean;
-  /** Force the first branch ('lower' searches `[lo, anchor]'). */
+  /** Force the first branch ('lower' searches `[lo, anchor]`). */
   initialIsLower: boolean;
+  /** APCA argument order; ignored for WCAG. Default `'fg'`. */
+  polarity?: 'fg' | 'bg';
 }
 
 interface SolveCoreResult {
@@ -388,6 +450,7 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
     maxIterations,
     flip,
     initialIsLower,
+    polarity,
   } = opts;
 
   const runBranch = (lower: boolean): BranchResult =>
@@ -402,6 +465,7 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
           epsilon,
           maxIterations,
           searchAnchor,
+          polarity,
         )
       : searchBranch(
           lum,
@@ -413,6 +477,7 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
           epsilon,
           maxIterations,
           searchAnchor,
+          polarity,
         );
 
   const initialResult = runBranch(initialIsLower);
@@ -446,7 +511,7 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
 
   // Failure: pin to the initial direction's extreme.
   const extreme = initialIsLower ? lo : hi;
-  const scoreExtreme = metricScore(metric, lum(extreme), yBase);
+  const scoreExtreme = metricScore(metric, lum(extreme), yBase, polarity);
   return {
     pos: extreme,
     contrast: scoreExtreme,
@@ -474,7 +539,7 @@ export function findToneForContrast(
     pastel = false,
   } = options;
 
-  const { metric, target } = contrast;
+  const { metric, target, polarity } = contrast;
   // Overshoot absorbs rounding in the OKHSL/OKLCH formatting pipeline.
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
   const yBase = metricLuminance(metric, baseLinearRgb);
@@ -483,7 +548,7 @@ export function findToneForContrast(
   const lum = (t: number): number =>
     cachedLuminance(metric, hue, saturation, t, pastel);
 
-  const scorePref = metricScore(metric, lum(preferredTone), yBase);
+  const scorePref = metricScore(metric, lum(preferredTone), yBase, polarity);
 
   if (scorePref >= searchTarget) {
     return {
@@ -513,8 +578,8 @@ export function findToneForContrast(
       branch: 'preferred',
     };
   } else {
-    const scoreMin = metricScore(metric, lum(minT), yBase);
-    const scoreMax = metricScore(metric, lum(maxT), yBase);
+    const scoreMin = metricScore(metric, lum(minT), yBase, polarity);
+    const scoreMax = metricScore(metric, lum(maxT), yBase, polarity);
     initialIsDarker = scoreMin >= scoreMax;
   }
 
@@ -546,6 +611,7 @@ export function findToneForContrast(
     maxIterations,
     flip: options.flip ?? false,
     initialIsLower: initialIsDarker,
+    polarity,
   });
 
   return {
@@ -603,7 +669,7 @@ export function findValueForMixContrast(
     maxIterations = 20,
   } = options;
 
-  const { metric, target } = contrast;
+  const { metric, target, polarity } = contrast;
   const searchTarget = metric === 'wcag' ? target * 1.01 : target + 0.5;
   const yBase = metricLuminance(metric, baseLinearRgb);
 
@@ -611,6 +677,7 @@ export function findValueForMixContrast(
     metric,
     luminanceAtValue(preferredValue),
     yBase,
+    polarity,
   );
   if (scorePref >= searchTarget) {
     return { value: preferredValue, contrast: scorePref, met: true };
@@ -626,8 +693,18 @@ export function findValueForMixContrast(
   } else if (!canLower && !canUpper) {
     return { value: preferredValue, contrast: scorePref, met: false };
   } else {
-    const scoreLower = metricScore(metric, luminanceAtValue(0), yBase);
-    const scoreUpper = metricScore(metric, luminanceAtValue(1), yBase);
+    const scoreLower = metricScore(
+      metric,
+      luminanceAtValue(0),
+      yBase,
+      polarity,
+    );
+    const scoreUpper = metricScore(
+      metric,
+      luminanceAtValue(1),
+      yBase,
+      polarity,
+    );
     initialIsLower = scoreLower >= scoreUpper;
   }
 
@@ -645,6 +722,7 @@ export function findValueForMixContrast(
     maxIterations,
     flip: options.flip ?? false,
     initialIsLower,
+    polarity,
   });
 
   return {

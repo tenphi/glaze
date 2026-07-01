@@ -56,6 +56,8 @@ export type {
   GlazePalette,
   GlazePaletteOptions,
   GlazePaletteExportOptions,
+  Role,
+  RoleInput,
 } from './types';
 
 // Re-export contrast solver utilities for advanced use
@@ -64,16 +66,27 @@ export {
   findValueForMixContrast,
   resolveMinContrast,
   resolveContrastForMode,
+  resolveApcaTarget,
   apcaContrast,
 } from './contrast-solver';
 export type {
   ContrastPreset,
+  ApcaPreset,
   ResolvedContrast,
   FindToneForContrastOptions,
   FindToneForContrastResult,
   FindValueForMixContrastOptions,
   FindValueForMixContrastResult,
 } from './contrast-solver';
+
+// Re-export role helpers for advanced use
+export {
+  normalizeRole,
+  inferRoleFromName,
+  roleToPolarity,
+  oppositeRole,
+} from './roles';
+export type { Polarity } from './roles';
 
 // Re-export OKHST tone utilities for advanced use
 export {

@@ -2,7 +2,7 @@
  * Glaze type definitions.
  */
 
-import type { ContrastPreset } from './contrast-solver';
+import type { ApcaPreset, ContrastPreset } from './contrast-solver';
 
 // ============================================================================
 // Value types
@@ -19,17 +19,54 @@ export type MinContrast = number | ContrastPreset;
  *
  * - `number` / `ContrastPreset`: a WCAG ratio (bare form).
  * - `{ wcag }`: WCAG ratio or preset, optionally an HC pair.
- * - `{ apca }`: APCA Lc target (absolute value), optionally an HC pair.
+ * - `{ apca }`: APCA Lc target (absolute value or preset), optionally an HC pair.
  *
  * The `[normal, highContrast]` pair may live at the outer level
  * (`[4.5, 7]`, `[{ wcag: 4.5 }, { wcag: 7 }]`) or inside the metric
- * (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`).
+ * (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`, `{ apca: ['content', 'body'] }`).
  */
 export type ContrastSpec =
   | number
   | ContrastPreset
   | { wcag: HCPair<number | ContrastPreset> }
-  | { apca: HCPair<number> };
+  | { apca: HCPair<number | ApcaPreset> };
+
+// ============================================================================
+// Color role
+// ============================================================================
+
+/**
+ * The semantic role a color plays against its base, used to fix APCA contrast
+ * polarity (which side is the foreground vs the background). WCAG is
+ * symmetric, so role never changes WCAG results.
+ */
+export type Role = 'text' | 'surface' | 'border';
+
+/**
+ * Any string accepted as a `role`. Canonical values plus aliases normalized by
+ * `normalizeRole` (see `roles.ts`): `surface` (bg/background/fill/canvas/
+ * paper/layer), `text` (fg/foreground/content/ink/label/stroke), `border`
+ * (divider/outline/separator/hairline/rule).
+ */
+export type RoleInput =
+  | Role
+  | 'bg'
+  | 'background'
+  | 'fill'
+  | 'canvas'
+  | 'paper'
+  | 'layer'
+  | 'fg'
+  | 'foreground'
+  | 'content'
+  | 'ink'
+  | 'label'
+  | 'stroke'
+  | 'divider'
+  | 'outline'
+  | 'separator'
+  | 'hairline'
+  | 'rule';
 
 export type AdaptationMode = 'auto' | 'fixed' | 'static';
 
@@ -165,6 +202,17 @@ export interface RegularColorDef {
   pastel?: boolean;
 
   /**
+   * Semantic role against `base`: how this color is used. Fixes APCA contrast
+   * polarity (the argument order in `apcaContrast`). WCAG is symmetric so it
+   * never affects WCAG results.
+   *
+   * Resolution: explicit `role` wins; else inferred from the color name when
+   * `inferRole` is enabled (default); else the opposite of the base's role;
+   * else defaults to `'text'` (foreground).
+   */
+  role?: RoleInput;
+
+  /**
    * Whether this color is inherited by child themes created via `extend()`.
    * Default: true. Set to false to make this color local to the current theme.
    */
@@ -275,6 +323,13 @@ export interface MixColorDef {
   pastel?: boolean;
 
   /**
+   * Semantic role of the mixed result against `base`. Same semantics as
+   * `RegularColorDef.role` (fixes APCA polarity). Resolution and defaults
+   * are identical.
+   */
+  role?: RoleInput;
+
+  /**
    * Whether this color is inherited by child themes created via `extend()`.
    * Default: true. Set to false to make this color local to the current theme.
    */
@@ -380,6 +435,13 @@ export interface GlazeConfig {
    * @default false
    */
   pastel?: boolean;
+  /**
+   * If true (default), infer a color's `role` from its name when no explicit
+   * `role` is set. Set to `false` to opt out of name-based inference (the
+   * base-opposite and default-foreground fallbacks still apply).
+   * @default true
+   */
+  inferRole?: boolean;
 }
 
 export interface GlazeConfigResolved {
@@ -394,6 +456,7 @@ export interface GlazeConfigResolved {
   shadowTuning?: ShadowTuning;
   autoFlip: boolean;
   pastel: boolean;
+  inferRole: boolean;
 }
 
 /**
@@ -418,6 +481,11 @@ export interface GlazeConfigOverride {
    * for the given lightness.
    */
   pastel?: boolean;
+  /**
+   * If true, infer a color's `role` from its name when no explicit `role` is
+   * set. Falls through to the live global at resolve time when omitted.
+   */
+  inferRole?: boolean;
   /**
    * Shadow tuning defaults. Only meaningful for themes; harmless on
    * standalone color tokens.
@@ -505,6 +573,15 @@ export interface GlazeColorInput {
    * @see GlazeConfig.pastel
    */
   pastel?: boolean;
+
+  /**
+   * Semantic role against `base` / the literal seed: how this token is used.
+   * Fixes APCA contrast polarity. Same resolution chain as
+   * `RegularColorDef.role` (explicit → name inference → opposite of base →
+   * `'text'`). For standalone tokens the name is internal, so set `role`
+   * explicitly or rely on the base-opposite / foreground default.
+   */
+  role?: RoleInput;
 }
 
 /**
@@ -625,6 +702,13 @@ export interface GlazeColorOverrides {
    * @see GlazeConfig.pastel
    */
   pastel?: boolean;
+
+  /**
+   * Semantic role against `base` / the literal seed: how this token is used.
+   * Fixes APCA contrast polarity. Same resolution chain as
+   * `RegularColorDef.role`.
+   */
+  role?: RoleInput;
 }
 
 /**
@@ -727,6 +811,7 @@ export interface GlazeColorInputExport {
   contrast?: HCPair<ContrastSpec>;
   name?: string;
   pastel?: boolean;
+  role?: RoleInput;
 }
 
 /**
@@ -745,6 +830,7 @@ export interface GlazeColorOverridesExport {
   opacity?: number;
   name?: string;
   pastel?: boolean;
+  role?: RoleInput;
 }
 
 // ============================================================================

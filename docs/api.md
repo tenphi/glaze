@@ -220,6 +220,7 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 | `flip` | `boolean` | Flip out-of-bounds results (relative `tone` overshoot / unmet `contrast`) to the opposite side instead of clamping. Default: the global `autoFlip` (`true`). See [`flip`](#flip). |
 | `opacity` | `number` | Fixed alpha 0–1. Output includes alpha in the CSS value. Combining with `contrast` is not recommended (a `console.warn` is emitted). |
 | `pastel` | `boolean` | Per-color override for the hue-independent "safe" chroma limit used in OKHSL↔sRGB conversions (luminance, contrast solving, output formatting). Falls through to the global / per-theme `pastel` config when omitted. Default: unset. See [Per-color `pastel`](#per-color-pastel). |
+| `role` | `RoleInput` | Semantic role against `base` (`'text'` / `'surface'` / `'border'` or an alias). Fixes APCA contrast polarity. Resolved via: explicit `role` → name inference → opposite of the base's role → `'text'`. See [Roles](#roles). |
 | `inherit` | `boolean` | Whether this color is inherited by child themes via `extend()`. Default: `true`. Set to `false` to make the color local to the current theme. |
 
 #### Tone values
@@ -277,7 +278,14 @@ contrast: { wcag: 6 }          // WCAG 6
 contrast: { wcag: [4.5, 7] }   // WCAG 4.5 normal / 7 high-contrast
 contrast: { apca: 60 }         // APCA Lc 60
 contrast: { apca: [45, 60] }   // APCA Lc 45 normal / 60 high-contrast
+contrast: { apca: 'content' }  // APCA preset -> Lc 60
+contrast: { apca: ['content', 'body'] } // Lc 60 normal / 75 high-contrast
 ```
+
+APCA preset keywords (Bronze Simple Mode conformance levels, role-independent):
+`'preferred'` (Lc 90), `'body'` (75), `'content'` (60, ~AA), `'large'` (45, ~3:1),
+`'non-text'` (30), `'min'` (15, point of invisibility). See
+[`docs/okhst.md`](okhst.md) §APCA.
 
 The floor is applied independently per scheme — if the `tone` already satisfies it the tone is kept, otherwise the solver searches in tone (contrast-uniform → a closed-form WCAG seed and fast convergence) until the target is met.
 
@@ -332,6 +340,36 @@ const child = parent.extend({
 >
 > Standalone `glaze.color()` tokens accept the same `pastel` field on both the structured (`GlazeColorInput`) and value-shorthand (`GlazeColorOverrides`) forms, and it survives the `export()` / `glaze.colorFrom()` round-trip.
 
+#### Roles
+
+A color's `role` describes how it is used against its `base` and fixes **APCA contrast polarity** — which side is the foreground vs the background. APCA is asymmetric (`|apca(a,b)| ≠ |apca(b,a)|`), so the role picks the correct argument order; WCAG is symmetric and unaffected.
+
+| Role | Polarity | Use | Aliases (name inference) |
+|---|---|---|---|
+| `'text'` | fg | Text / icons / foreground content | `text`, `fg`, `foreground`, `content`, `ink`, `label`, `stroke` |
+| `'border'` | fg | Non-text spot elements (borders, dividers, outlines) | `border`, `divider`, `outline`, `separator`, `hairline`, `rule` |
+| `'surface'` | bg | Backgrounds / fills | `surface`, `bg`, `background`, `fill`, `canvas`, `paper`, `layer` |
+
+Resolution chain (per color):
+
+1. Explicit `role` (normalized from an alias) wins.
+2. Else, when `inferRole` is enabled (default), infer from the color name — the **last** recognized token wins (`button-text` → `text`, `input-bg` → `surface`, `card-outline` → `border`).
+3. Else, the opposite of the base's role (a `surface` base ⇒ this is `text`).
+4. Else, `'text'` (foreground) — i.e. the base is treated as the background.
+
+```ts
+const theme = glaze(280, 60);
+theme.colors({
+  surface: { tone: 90 },
+  text:    { base: 'surface', contrast: { apca: 'content' } }, // inferred text
+  border:  { base: 'surface', tone: '-10' },                   // inferred border
+});
+// role fixes APCA polarity; set `pastel: true` explicitly if a border
+// needs the hue-independent safe chroma limit.
+```
+
+Disable name inference with `glaze.configure({ inferRole: false })` (the base-opposite and foreground-default fallbacks still apply).
+
 ### `ShadowColorDef`
 
 | Field | Type | Description |
@@ -358,6 +396,7 @@ See [Shadows](#shadows) below for the algorithm and tuning details.
 | `space` | `'okhsl' \| 'srgb'` | Interpolation space for opaque blending. Default `'okhsl'`. Ignored for `'transparent'` (always composites in linear sRGB). |
 | `contrast` | `HCPair<ContrastSpec>` | Optional contrast floor against `base` (WCAG or APCA — see [`contrast`](#contrast-floor)). The solver adjusts the mix ratio (opaque) or opacity (transparent). |
 | `pastel` | `boolean` | Per-color `pastel` override. See [Per-color `pastel`](#per-color-pastel). |
+| `role` | `RoleInput` | Semantic role of the mixed result against `base`. Same semantics as `RegularColorDef.role` (see [Roles](#roles)). |
 | `inherit` | `boolean` | Inheritance flag, default `true`. |
 
 See [Mix colors](#mix-colors) below.
@@ -414,6 +453,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `base` | `GlazeColorToken \| GlazeColorValue` | Optional dependency. See [Pairing colors](#pairing-colors). |
 | `contrast` | `HCPair<ContrastSpec>` | Contrast floor against `base` (WCAG or APCA). Without `base`, anchored to the literal seed. |
 | `pastel` | `boolean` | Per-color `pastel` override. Falls through to the global / per-theme `pastel` config when omitted. See [Per-color `pastel`](#per-color-pastel). |
+| `role` | `RoleInput` | Semantic role against `base` / the seed (see [Roles](#roles)). Fixes APCA polarity. |
 | `name` | `string` | Debug label for warnings; doesn't change output keys. Reserved names (`'value'`, `'seed'`, `'externalBase'`) are rejected. |
 
 `GlazeFromInput` (from form) is `{ from: GlazeColorValue, ...colorOverrides }`:
@@ -431,6 +471,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `base` | `GlazeColorToken` or raw `GlazeColorValue`. See [Pairing colors](#pairing-colors). |
 | `opacity` | Fixed alpha 0–1. Combining with `contrast` is not recommended — `console.warn` is emitted. |
 | `pastel` | Per-color `pastel` override. Falls through to the global / per-theme `pastel` config when omitted. See [Per-color `pastel`](#per-color-pastel). |
+| `role` | Semantic role against `base` / the seed (see [Roles](#roles)). Fixes APCA polarity. |
 | `name` | Debug label only — surfaces in warnings/errors. Does not change output keys. |
 
 Named CSS colors (`'red'`, `'blueviolet'`) are not supported.
@@ -1064,6 +1105,8 @@ A `ToneWindow` is `[lo, hi]` (OKHSL-lightness endpoints, reference eps — the c
 | `modes.highContrast` | `false` | Include HC variants. |
 | `shadowTuning` | `undefined` | Default tuning for all shadow colors. Per-color tuning merges field-by-field. |
 | `autoFlip` | `true` | Default for each color's `flip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`flip`](#flip). |
+| `pastel` | `false` | Hue-independent "safe" chroma limit across all colors so scaling saturation never exceeds the sRGB boundary at any hue for the given lightness. Override per color via [`pastel`](#per-color-pastel). |
+| `inferRole` | `true` | Infer each color's [`role`](#roles) from its name when no explicit `role` is set. Set to `false` to opt out of name-based inference (the base-opposite and foreground-default fallbacks still apply). |
 
 | Method | Description |
 |---|---|

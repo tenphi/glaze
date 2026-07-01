@@ -169,14 +169,14 @@ type ContrastSpec =
   | number                 // bare WCAG ratio
   | ContrastPreset         // 'AA' | 'AAA' | 'AA-large' | 'AAA-large' (WCAG)
   | { wcag: HCPair<number | ContrastPreset> }
-  | { apca: HCPair<number> };
+  | { apca: HCPair<number | ApcaPreset> };
 
 contrast?: HCPair<ContrastSpec>;
 ```
 
 A bare number or preset means WCAG. The `[normal, highContrast]` pair may live at
 the outer level (`[4.5, 7]`, `[{ wcag: 4.5 }, { wcag: 7 }]`) **or** inside the
-metric (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`). `resolveContrastForMode`
+metric (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`, `{ apca: ['content', 'body'] }`). `resolveContrastForMode`
 peels the outer pair by mode, then the inner metric pair by the same mode, then
 resolves presets, returning `{ metric, target }`.
 
@@ -195,6 +195,49 @@ gamma-encoded channels (`apcaLuminanceFromLinearRgb`), **not** WCAG relative
 luminance — the soft-clamp constants are calibrated against `Ys`, so the solver
 feeds it the matching basis. This is a faithful-but-simplified APCA (it omits
 the spatial/font-size lookup that maps Lc to a usable text size).
+
+#### Polarity (roles)
+
+APCA is **asymmetric**: `|apcaContrast(a, b)| ≠ |apcaContrast(b, a)|`, because
+the normal-polarity exponents (dark text on light bg) differ from the
+reverse-polarity exponents (light text on dark bg). Glaze picks the argument
+order from each color's semantic **role** against its base:
+
+| Role      | Polarity | Argument order                 | Aliases (name inference)                    |
+| --------- | -------- | ------------------------------ | ------------------------------------------- |
+| `text`    | `fg`     | `apcaContrast(candidate, base)`| `text`, `fg`, `foreground`, `content`, `ink`, `label`, `stroke` |
+| `border`  | `fg`     | `apcaContrast(candidate, base)`| `border`, `divider`, `outline`, `separator`, `hairline`, `rule` |
+| `surface` | `bg`     | `apcaContrast(base, candidate)`| `surface`, `bg`, `background`, `fill`, `canvas`, `paper`, `layer` |
+
+A color's role is resolved per the chain: explicit `role` → inferred from the
+color name (last recognized token wins, so `button-text` → `text`,
+`input-bg` → `surface`) → the opposite of the base's role → `'text'` (foreground)
+default. Name inference is on by default (`config.inferRole: true`) and can be
+disabled. WCAG is symmetric, so role never changes WCAG results — it only fixes
+APCA argument order.
+
+#### APCA presets
+
+APCA targets may be a raw Lc number or a named preset (APCA Bronze Simple Mode
+conformance levels), independent of role:
+
+```ts
+type ApcaPreset = 'preferred' | 'body' | 'content' | 'large' | 'non-text' | 'min';
+```
+
+| Preset        | Lc  | Use case                                             |
+| ------------- | --- | ---------------------------------------------------- |
+| `'preferred'` | 90  | Preferred body / column text                         |
+| `'body'`      | 75  | Minimum body / column text                           |
+| `'content'`   | 60  | Readable non-body content (~WCAG AA 4.5:1)           |
+| `'large'`     | 45  | Large/bold headlines; fine icons/outlines (~3:1)     |
+| `'non-text'`  | 30  | Solid icons/controls; placeholder/disabled text      |
+| `'min'`       | 15  | Dividers/decorative; APCA "point of invisibility"    |
+
+```ts
+contrast: { apca: 'content' }          // Lc 60
+contrast: { apca: ['content', 'body'] } // HC pair: 60 normal, 75 high-contrast
+```
 
 ## Verification (APCA / WCAG drift)
 

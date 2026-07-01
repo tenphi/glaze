@@ -3,8 +3,10 @@ import {
   contrastRatioFromLuminance,
   okhslToLinearSrgb,
   gamutClampedLuminance,
+  apcaLuminanceFromLinearRgb,
   parseHex,
 } from './okhsl-color-math';
+import { apcaContrast } from './contrast-solver';
 import { variantToOkhsl } from './okhst';
 import type { GlazeColorTokenExport, ResolvedColorVariant } from './types';
 
@@ -22,6 +24,25 @@ function variantContrast(
   const yA = gamutClampedLuminance(okhslToLinearSrgb(ca.h, ca.s, ca.l));
   const yB = gamutClampedLuminance(okhslToLinearSrgb(cb.h, cb.s, cb.l));
   return contrastRatioFromLuminance(yA, yB);
+}
+
+/** APCA Lc magnitude of `candidate` against `base`, ordered by `polarity`. */
+function variantApca(
+  candidate: ResolvedColorVariant,
+  base: ResolvedColorVariant,
+  polarity: 'fg' | 'bg',
+): number {
+  const cc = variantToOkhsl(candidate);
+  const cb = variantToOkhsl(base);
+  const yC = apcaLuminanceFromLinearRgb(
+    okhslToLinearSrgb(cc.h, cc.s, cc.l, candidate.pastel),
+  );
+  const yB = apcaLuminanceFromLinearRgb(
+    okhslToLinearSrgb(cb.h, cb.s, cb.l, base.pastel),
+  );
+  return Math.abs(
+    polarity === 'bg' ? apcaContrast(yB, yC) : apcaContrast(yC, yB),
+  );
 }
 
 describe('glaze', () => {
@@ -771,6 +792,149 @@ describe('glaze', () => {
       expect(
         variantContrast(r.get('fg')!.lightContrast, r.get('bg')!.lightContrast),
       ).toBeGreaterThanOrEqual(7);
+    });
+  });
+
+  describe('role inference', () => {
+    it("infers 'border' from the name with no special pastel default", () => {
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10' },
+      });
+      const r = theme.resolve();
+      // Borders fall through to the config pastel default (no special default).
+      expect(r.get('border')!.light.pastel).toBe(false);
+    });
+
+    it('border pastel follows the global config like any other color', () => {
+      glaze.configure({ pastel: true });
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10' },
+        text: { base: 'surface', tone: '-40' },
+      });
+      const r = theme.resolve();
+      expect(r.get('border')!.light.pastel).toBe(true);
+      expect(r.get('text')!.light.pastel).toBe(true);
+    });
+
+    it('explicit pastel on a border still applies', () => {
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10', pastel: true },
+      });
+      const r = theme.resolve();
+      expect(r.get('border')!.light.pastel).toBe(true);
+    });
+
+    it('non-border names keep the config pastel default (false)', () => {
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        text: { base: 'surface', tone: '-40' },
+      });
+      const r = theme.resolve();
+      expect(r.get('text')!.light.pastel).toBe(false);
+    });
+
+    it('last recognized name token wins (button-text -> text, input-bg -> surface)', () => {
+      // Observable via APCA polarity: a text (fg) and a surface (bg) against
+      // the same base converge to different tones for the same Lc floor.
+      const theme = glaze(0, 50);
+      theme.colors({
+        bg: { tone: 80 },
+        'button-text': { base: 'bg', contrast: { apca: 45 } },
+        'input-bg': { base: 'bg', contrast: { apca: 45 } },
+      });
+      const r = theme.resolve();
+      const asText = r.get('button-text')!.light;
+      const asSurface = r.get('input-bg')!.light;
+      const base = r.get('bg')!.light;
+      // 'button-text' infers text (fg); 'input-bg' infers surface (bg).
+      expect(variantApca(asText, base, 'fg')).toBeGreaterThanOrEqual(45);
+      expect(variantApca(asSurface, base, 'bg')).toBeGreaterThanOrEqual(45);
+      expect(Math.abs(llOf(asText) - llOf(asSurface))).toBeGreaterThan(0.01);
+    });
+
+    it('explicit role overrides name inference', () => {
+      const theme = glaze(0, 50);
+      theme.colors({
+        bg: { tone: 90 },
+        // Named like text but forced to a surface role.
+        text: { base: 'bg', role: 'surface', contrast: { apca: 45 } },
+        // A plain text name with default role (inferred text).
+        label: { base: 'bg', contrast: { apca: 45 } },
+      });
+      const r = theme.resolve();
+      const asSurface = r.get('text')!.light;
+      const asText = r.get('label')!.light;
+      const base = r.get('bg')!.light;
+      // Polarity flips the APCA argument order, so the two converge differently.
+      expect(Math.abs(llOf(asSurface) - llOf(asText))).toBeGreaterThan(0.01);
+      expect(variantApca(asSurface, base, 'bg')).toBeGreaterThanOrEqual(45);
+      expect(variantApca(asText, base, 'fg')).toBeGreaterThanOrEqual(45);
+    });
+
+    it("uses the opposite of the base's role when the name does not infer", () => {
+      const theme = glaze(0, 50);
+      theme.colors({
+        bg: { tone: 90 }, // name 'bg' infers surface
+        accent: { base: 'bg', contrast: { apca: 45 } }, // no keyword -> opposite of base
+      });
+      const r = theme.resolve();
+      // base 'bg' is a surface -> 'accent' defaults to text (fg polarity).
+      const base = r.get('bg')!.light;
+      const accent = r.get('accent')!.light;
+      expect(variantApca(accent, base, 'fg')).toBeGreaterThanOrEqual(45);
+    });
+
+    it('inferRole: false skips name inference and falls back to the base opposite', () => {
+      const theme = glaze(0, 50, { inferRole: false });
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10' },
+      });
+      const r = theme.resolve();
+      // Without inference, 'border' is just a name; base 'surface' infers...
+      // but inference is off, so 'surface' falls to its default (root -> text),
+      // and 'border' takes the opposite -> surface. No pastel default applies.
+      expect(r.get('border')!.light.pastel).toBe(false);
+    });
+
+    it('APCA preset keywords resolve to role-independent Lc floors', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 97 },
+        body: { base: 'bg', contrast: { apca: 'content' } },
+        divider: { base: 'bg', role: 'border', contrast: { apca: 'min' } },
+      });
+      const r = theme.resolve();
+      const base = r.get('bg')!.light;
+      // 'content' -> Lc 60
+      expect(
+        variantApca(r.get('body')!.light, base, 'fg'),
+      ).toBeGreaterThanOrEqual(60);
+      // 'min' -> Lc 15 (border role -> bg-ordered? border is fg polarity)
+      expect(
+        variantApca(r.get('divider')!.light, base, 'fg'),
+      ).toBeGreaterThanOrEqual(15);
+    });
+
+    it('back-compat: a dependent with no role defaults to foreground (fg)', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 97 },
+        accent: { base: 'bg', tone: 50, contrast: { apca: 60 } },
+      });
+      const r = theme.resolve();
+      // 'accent' name does not infer; base 'bg' infers surface -> accent is fg.
+      const base = r.get('bg')!.light;
+      expect(
+        variantApca(r.get('accent')!.light, base, 'fg'),
+      ).toBeGreaterThanOrEqual(60);
     });
   });
 
