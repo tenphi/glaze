@@ -2,7 +2,7 @@
  * Glaze type definitions.
  */
 
-import type { ContrastPreset } from './contrast-solver';
+import type { ApcaPreset, ContrastPreset } from './contrast-solver';
 
 // ============================================================================
 // Value types
@@ -19,17 +19,54 @@ export type MinContrast = number | ContrastPreset;
  *
  * - `number` / `ContrastPreset`: a WCAG ratio (bare form).
  * - `{ wcag }`: WCAG ratio or preset, optionally an HC pair.
- * - `{ apca }`: APCA Lc target (absolute value), optionally an HC pair.
+ * - `{ apca }`: APCA Lc target (absolute value or preset), optionally an HC pair.
  *
  * The `[normal, highContrast]` pair may live at the outer level
  * (`[4.5, 7]`, `[{ wcag: 4.5 }, { wcag: 7 }]`) or inside the metric
- * (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`).
+ * (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`, `{ apca: ['content', 'body'] }`).
  */
 export type ContrastSpec =
   | number
   | ContrastPreset
   | { wcag: HCPair<number | ContrastPreset> }
-  | { apca: HCPair<number> };
+  | { apca: HCPair<number | ApcaPreset> };
+
+// ============================================================================
+// Color role
+// ============================================================================
+
+/**
+ * The semantic role a color plays against its base, used to fix APCA contrast
+ * polarity (which side is the foreground vs the background). WCAG is
+ * symmetric, so role never changes WCAG results.
+ */
+export type Role = 'text' | 'surface' | 'border';
+
+/**
+ * Any string accepted as a `role`. Canonical values plus aliases normalized by
+ * `normalizeRole` (see `roles.ts`): `surface` (bg/background/fill/canvas/
+ * paper/layer), `text` (fg/foreground/content/ink/label/stroke), `border`
+ * (divider/outline/separator/hairline/rule).
+ */
+export type RoleInput =
+  | Role
+  | 'bg'
+  | 'background'
+  | 'fill'
+  | 'canvas'
+  | 'paper'
+  | 'layer'
+  | 'fg'
+  | 'foreground'
+  | 'content'
+  | 'ink'
+  | 'label'
+  | 'stroke'
+  | 'divider'
+  | 'outline'
+  | 'separator'
+  | 'hairline'
+  | 'rule';
 
 export type AdaptationMode = 'auto' | 'fixed' | 'static';
 
@@ -165,6 +202,17 @@ export interface RegularColorDef {
   pastel?: boolean;
 
   /**
+   * Semantic role against `base`: how this color is used. Fixes APCA contrast
+   * polarity (the argument order in `apcaContrast`). WCAG is symmetric so it
+   * never affects WCAG results.
+   *
+   * Resolution: explicit `role` wins; else inferred from the color name when
+   * `inferRole` is enabled (default); else the opposite of the base's role;
+   * else defaults to `'text'` (foreground).
+   */
+  role?: RoleInput;
+
+  /**
    * Whether this color is inherited by child themes created via `extend()`.
    * Default: true. Set to false to make this color local to the current theme.
    */
@@ -275,6 +323,13 @@ export interface MixColorDef {
   pastel?: boolean;
 
   /**
+   * Semantic role of the mixed result against `base`. Same semantics as
+   * `RegularColorDef.role` (fixes APCA polarity). Resolution and defaults
+   * are identical.
+   */
+  role?: RoleInput;
+
+  /**
    * Whether this color is inherited by child themes created via `extend()`.
    * Default: true. Set to false to make this color local to the current theme.
    */
@@ -380,6 +435,13 @@ export interface GlazeConfig {
    * @default false
    */
   pastel?: boolean;
+  /**
+   * If true (default), infer a color's `role` from its name when no explicit
+   * `role` is set. Set to `false` to opt out of name-based inference (the
+   * base-opposite and default-foreground fallbacks still apply).
+   * @default true
+   */
+  inferRole?: boolean;
 }
 
 export interface GlazeConfigResolved {
@@ -394,6 +456,7 @@ export interface GlazeConfigResolved {
   shadowTuning?: ShadowTuning;
   autoFlip: boolean;
   pastel: boolean;
+  inferRole: boolean;
 }
 
 /**
@@ -418,6 +481,11 @@ export interface GlazeConfigOverride {
    * for the given lightness.
    */
   pastel?: boolean;
+  /**
+   * If true, infer a color's `role` from its name when no explicit `role` is
+   * set. Falls through to the live global at resolve time when omitted.
+   */
+  inferRole?: boolean;
   /**
    * Shadow tuning defaults. Only meaningful for themes; harmless on
    * standalone color tokens.
@@ -505,6 +573,15 @@ export interface GlazeColorInput {
    * @see GlazeConfig.pastel
    */
   pastel?: boolean;
+
+  /**
+   * Semantic role against `base` / the literal seed: how this token is used.
+   * Fixes APCA contrast polarity. Same resolution chain as
+   * `RegularColorDef.role` (explicit → name inference → opposite of base →
+   * `'text'`). For standalone tokens the name is internal, so set `role`
+   * explicitly or rely on the base-opposite / foreground default.
+   */
+  role?: RoleInput;
 }
 
 /**
@@ -625,6 +702,13 @@ export interface GlazeColorOverrides {
    * @see GlazeConfig.pastel
    */
   pastel?: boolean;
+
+  /**
+   * Semantic role against `base` / the literal seed: how this token is used.
+   * Fixes APCA contrast polarity. Same resolution chain as
+   * `RegularColorDef.role`.
+   */
+  role?: RoleInput;
 }
 
 /**
@@ -674,6 +758,27 @@ export interface GlazeColorToken {
   json(options?: GlazeJsonOptions): Record<string, string>;
   /** Export as CSS custom property declarations grouped by scheme variant. */
   css(options: GlazeColorCssOptions): GlazeCssResult;
+  /**
+   * Export as W3C DTCG color tokens (one per scheme variant, no color name
+   * key). Each entry is a full `{ $type: 'color', $value }` token.
+   * @see https://www.designtokens.org/
+   */
+  dtcg(options?: GlazeDtcgOptions): GlazeColorDtcgResult;
+  /**
+   * Export as a single W3C DTCG Resolver-Module document for this color,
+   * keyed by `name` across all scheme variants. `name` is required.
+   * @see https://www.designtokens.org/
+   */
+  dtcgResolver(
+    options: GlazeColorDtcgResolverOptions,
+  ): GlazeDtcgResolverDocument;
+  /**
+   * Export as a Tailwind CSS v4 `@theme` block (light baseline) plus dark /
+   * high-contrast overrides. Returns a single ready-to-paste CSS string.
+   * `name` is required (forms `--color-<name>`).
+   * @see https://tailwindcss.com/docs/theme
+   */
+  tailwind(options: GlazeColorTailwindOptions): string;
   /**
    * Serialize the token as a JSON-safe object. Captures the original
    * input value, overrides, and config so it can be rehydrated via
@@ -727,6 +832,7 @@ export interface GlazeColorInputExport {
   contrast?: HCPair<ContrastSpec>;
   name?: string;
   pastel?: boolean;
+  role?: RoleInput;
 }
 
 /**
@@ -745,6 +851,7 @@ export interface GlazeColorOverridesExport {
   opacity?: number;
   name?: string;
   pastel?: boolean;
+  role?: RoleInput;
 }
 
 // ============================================================================
@@ -811,6 +918,30 @@ export interface GlazeTheme {
 
   /** Export as CSS custom property declarations. */
   css(options?: GlazeCssOptions): GlazeCssResult;
+
+  /**
+   * Export as W3C Design Tokens Format Module (2025.10) documents, one per
+   * scheme variant. Consumable by Figma, Tokens Studio, Style Dictionary,
+   * Terrazzo, and any DTCG-compatible tool.
+   * @see https://www.designtokens.org/
+   */
+  dtcg(options?: GlazeDtcgOptions): GlazeDtcgResult;
+
+  /**
+   * Export as a single W3C DTCG Resolver-Module document describing every
+   * scheme variant as one `sets` entry plus a single `scheme` modifier with a
+   * context per variant. Consumable by resolver tools such as Dispersa.
+   * @see https://www.designtokens.org/
+   */
+  dtcgResolver(options?: GlazeDtcgResolverOptions): GlazeDtcgResolverDocument;
+
+  /**
+   * Export as a Tailwind CSS v4 `@theme` block (light baseline) plus dark /
+   * high-contrast overrides under configurable selectors. Returns a single
+   * ready-to-paste CSS string.
+   * @see https://tailwindcss.com/docs/theme
+   */
+  tailwind(options?: GlazeTailwindOptions): string;
 }
 
 export interface GlazeExtendOptions {
@@ -859,6 +990,210 @@ export interface GlazeCssResult {
   dark: string;
   lightContrast: string;
   darkContrast: string;
+}
+
+// ============================================================================
+// DTCG & Tailwind export types
+// ============================================================================
+
+/**
+ * Color space used for DTCG `$value` color objects.
+ * @see https://www.designtokens.org/
+ */
+export type DtcgColorSpace = 'srgb' | 'oklch';
+
+/**
+ * A DTCG color `$value` in the sRGB color space: gamma sRGB components in
+ * 0–1 plus a 6-digit `hex` hint. Universally understood by Figma, Tokens
+ * Studio, Style Dictionary, and every DTCG reader.
+ */
+export interface DtcgSrgbColorValue {
+  colorSpace: 'srgb';
+  components: [number, number, number];
+  hex: HexColor;
+  /** Opacity 0–1. Omitted when fully opaque (alpha = 1). */
+  alpha?: number;
+}
+
+/**
+ * A DTCG color `$value` in the OKLCH color space: `[L, C, H]` components
+ * (L/C: 0–1, H: degrees). Wide-gamut and Glaze-native; no `hex` is emitted.
+ */
+export interface DtcgOklchColorValue {
+  colorSpace: 'oklch';
+  components: [number, number, number];
+  /** Opacity 0–1. Omitted when fully opaque (alpha = 1). */
+  alpha?: number;
+}
+
+/** A DTCG `$value` for a color token, in either supported color space. */
+export type DtcgColorValue = DtcgSrgbColorValue | DtcgOklchColorValue;
+
+/**
+ * A single W3C DTCG color token: `{ $type: 'color', $value }`.
+ * `$description` is optional and not populated by Glaze today.
+ */
+export interface DtcgColorToken {
+  $type: 'color';
+  $value: DtcgColorValue;
+  $description?: string;
+}
+
+/**
+ * A W3C Design Tokens Format Module (2025.10) token tree for one scheme.
+ * Glaze emits one document per scheme variant — the most tool-compatible
+ * convention (one file per Style Dictionary theme / Tokens Studio set /
+ * Figma variable mode).
+ */
+export type DtcgDocument = Record<string, DtcgColorToken>;
+
+/** DTCG token documents grouped by scheme variant. Light is always present. */
+export interface GlazeDtcgResult {
+  light: DtcgDocument;
+  dark?: DtcgDocument;
+  lightContrast?: DtcgDocument;
+  darkContrast?: DtcgDocument;
+}
+
+/** A single DTCG color token grouped by scheme variant (standalone tokens). */
+export interface GlazeColorDtcgResult {
+  light: DtcgColorToken;
+  dark?: DtcgColorToken;
+  lightContrast?: DtcgColorToken;
+  darkContrast?: DtcgColorToken;
+}
+
+/** Options for `theme.dtcg()` / `palette.dtcg()`. */
+export interface GlazeDtcgOptions {
+  /** Override which scheme variants to include. */
+  modes?: GlazeOutputModes;
+  /**
+   * DTCG color space. `'srgb'` (default) emits sRGB components plus a `hex`
+   * hint — universally understood (Figma, Tokens Studio). `'oklch'` emits
+   * OKLCH components with no hex — Glaze-native, wide-gamut.
+   */
+  colorSpace?: DtcgColorSpace;
+}
+
+// ============================================================================
+// DTCG Resolver-Module export types
+// (W3C Design Tokens Resolver Module — one document for all scheme variants)
+// ============================================================================
+
+/**
+ * A node in a DTCG Resolver-Module token tree: either a leaf color token or a
+ * nested group. A flat `DtcgDocument` (top-level color-name keys) is a valid
+ * shallow tree, so Glaze's per-scheme documents slot directly into
+ * `sets.<name>.sources` and `modifiers.<name>.contexts.<ctx>` entries.
+ */
+export interface DtcgTokenTree {
+  [key: string]: DtcgColorToken | DtcgTokenTree;
+}
+
+/** A named set in a resolver document: a list of token-tree sources. */
+export interface DtcgResolverSet {
+  sources: DtcgTokenTree[];
+}
+
+/**
+ * A named modifier (an axis such as `scheme`) in a resolver document.
+ * `default` names the context applied when no override is selected; `contexts`
+ * maps each context name to the token-tree overrides applied for it.
+ */
+export interface DtcgResolverModifier {
+  default: string;
+  contexts: Record<string, DtcgTokenTree[]>;
+}
+
+/** A JSON-pointer `$ref` entry in a resolver document's `resolutionOrder`. */
+export interface DtcgResolverRef {
+  $ref: string;
+}
+
+/**
+ * A W3C DTCG Resolver-Module document. Describes every scheme variant in a
+ * single file as `sets` (base token sources) plus `modifiers` (per-context
+ * overrides) composed in `resolutionOrder`. Consumable by resolver tools such
+ * as Dispersa.
+ * @see https://www.designtokens.org/
+ */
+export interface GlazeDtcgResolverDocument {
+  version: string;
+  sets: Record<string, DtcgResolverSet>;
+  modifiers: Record<string, DtcgResolverModifier>;
+  resolutionOrder: DtcgResolverRef[];
+}
+
+/** Renaming of the four scheme variants as resolver-modifier context names. */
+export interface GlazeDtcgResolverContextNames {
+  light?: string;
+  dark?: string;
+  lightContrast?: string;
+  darkContrast?: string;
+}
+
+/**
+ * Options for `theme.dtcgResolver()` / `palette.dtcgResolver()`. Extends
+ * `GlazeDtcgOptions` so `modes` + `colorSpace` pass through to the underlying
+ * per-scheme `dtcg()` build.
+ */
+export interface GlazeDtcgResolverOptions extends GlazeDtcgOptions {
+  /** Name of the single set holding the default (light) token tree. Default `'base'`. */
+  setName?: string;
+  /**
+   * Name of the modifier describing the scheme axis. Default `'scheme'`
+   * (Glaze's term for the light / dark / high-contrast axis).
+   */
+  modifierName?: string;
+  /**
+   * Override the four context names emitted on the modifier. Defaults to the
+   * Glaze variant keys: `light` / `dark` / `lightContrast` / `darkContrast`.
+   */
+  contextNames?: GlazeDtcgResolverContextNames;
+  /** Resolver document version. Default `'2025.10'`. */
+  version?: string;
+}
+
+/** Options for `glaze.color().dtcgResolver()`. `name` is required. */
+export interface GlazeColorDtcgResolverOptions extends GlazeDtcgResolverOptions {
+  /** Token name keying the color within each token tree. Required. */
+  name: string;
+}
+
+/** Options for `theme.tailwind()` / `palette.tailwind()`. */
+export interface GlazeTailwindOptions {
+  /** Override which scheme variants to include. */
+  modes?: GlazeOutputModes;
+  /** Output color format. Default: 'oklch'. */
+  format?: GlazeColorFormat;
+  /**
+   * CSS custom property namespace, forming `--<namespace><name>`.
+   * Default: `'color-'` → `--color-surface`. (Tailwind v4's `--color-*`
+   * convention, which auto-generates `bg-*` / `text-*` / `border-*`.)
+   *
+   * Named `namespace` rather than `prefix` to avoid clashing with the
+   * palette theme-prefix option on `palette.tailwind()`.
+   */
+  namespace?: string;
+  /**
+   * Selector wrapping the dark-scheme overrides. Default: `'.dark'`.
+   * Pass a media query such as `'@media (prefers-color-scheme: dark)'` to
+   * drive dark mode from the OS preference instead of a class.
+   */
+  darkSelector?: string;
+  /**
+   * Selector wrapping the light high-contrast overrides. Default:
+   * `'.high-contrast'`. The combined dark + high-contrast overrides are
+   * emitted under `${darkSelector}${highContrastSelector}` (e.g.
+   * `.dark.high-contrast`).
+   */
+  highContrastSelector?: string;
+}
+
+/** Options for `glaze.color().tailwind()`. `name` is required. */
+export interface GlazeColorTailwindOptions extends GlazeTailwindOptions {
+  /** Custom property base name (without leading `--`). Required. */
+  name: string;
 }
 
 /** Options for `glaze.palette()` creation. */
@@ -930,4 +1265,28 @@ export interface GlazePalette {
 
   /** Export all themes as CSS custom property declarations. */
   css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult;
+
+  /**
+   * Export all themes as W3C DTCG documents, one per scheme variant.
+   * Prefix defaults to `true`. Inherits the palette-level `primary`.
+   * @see https://www.designtokens.org/
+   */
+  dtcg(options?: GlazeDtcgOptions & GlazePaletteExportOptions): GlazeDtcgResult;
+
+  /**
+   * Export all themes as a single W3C DTCG Resolver-Module document. Prefix
+   * defaults to `true`. Inherits the palette-level `primary`.
+   * @see https://www.designtokens.org/
+   */
+  dtcgResolver(
+    options?: GlazeDtcgResolverOptions & GlazePaletteExportOptions,
+  ): GlazeDtcgResolverDocument;
+
+  /**
+   * Export all themes as a Tailwind CSS v4 `@theme` block plus dark /
+   * high-contrast overrides. Returns a single ready-to-paste CSS string.
+   * Prefix defaults to `true`.
+   * @see https://tailwindcss.com/docs/theme
+   */
+  tailwind(options?: GlazeTailwindOptions & GlazePaletteExportOptions): string;
 }

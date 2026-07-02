@@ -1,0 +1,11 @@
+---
+'@tenphi/glaze': minor
+---
+
+Add DTCG and Tailwind CSS v4 token exports
+
+- **`dtcg()`** — W3C [Design Tokens Format Module (2025.10)](https://www.designtokens.org/) export. Available on themes, palettes, and standalone `glaze.color()` tokens. Returns one spec-conformant token document per scheme variant (`light` / `dark` / `lightContrast` / `darkContrast``), each a `{ name: { $type: 'color', $value } }` tree consumable by Figma, Tokens Studio, Style Dictionary v4+, Terrazzo, Penpot, and every DTCG-compatible tool. The `colorSpace` option selects the `$value` representation: `'srgb'` (default — gamma sRGB `components` in 0–1 plus a `hex` hint) or `'oklch'` (Glaze-native, wide-gamut `[L, C, H]`, no hex). `alpha` is emitted only when opacity is below 1. One document per scheme is the most tool-compatible convention (one file per Style Dictionary theme / Tokens Studio set / Figma variable mode).
+- **`tailwind()`** — Tailwind CSS v4 export. Returns a single ready-to-paste CSS string: an `@theme` block (light baseline) plus dark / high-contrast overrides under configurable selectors. The `--color-*` namespace (configurable via `namespace`) auto-generates `bg-*` / `text-*` / `border-*` utilities. `darkSelector` (default `.dark`) accepts an at-rule like `'@media (prefers-color-scheme: dark)'` (nests `:root` automatically); `highContrastSelector` (default `.high-contrast`) covers the HC variants, with the combined block at `${darkSelector}${highContrastSelector}`. Default `format` is `'oklch'`.
+- **New types** exported from the package entry: `DtcgColorSpace`, `DtcgSrgbColorValue`, `DtcgOklchColorValue`, `DtcgColorValue`, `DtcgColorToken`, `DtcgDocument`, `GlazeDtcgResult`, `GlazeColorDtcgResult`, `GlazeDtcgOptions`, `GlazeTailwindOptions`, `GlazeColorTailwindOptions`.
+- **New color-math helpers** exported for advanced use: `srgbToHex(rgb)` (sRGB 0–1 → `#rrggbb`) and `okhslToOklch(h, s, l, pastel?)` (OKHSL → `[L, C, H]`), shared by `formatOklch` and the DTCG exporter.
+- Both new exports honor `modes` (dark / high-contrast gating) and the palette `prefix` / `primary` options. On `palette.tailwind()`, the palette theme-prefix `prefix` is separate from `GlazeTailwindOptions.namespace` (the `--color-*` CSS namespace).

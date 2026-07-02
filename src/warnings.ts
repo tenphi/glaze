@@ -89,7 +89,11 @@ export function warnContrastDrift(
 ): void {
   const actual =
     contrast.metric === 'apca'
-      ? Math.abs(apcaContrast(yColor, yBase))
+      ? Math.abs(
+          contrast.polarity === 'bg'
+            ? apcaContrast(yBase, yColor)
+            : apcaContrast(yColor, yBase),
+        )
       : contrastRatioFromLuminance(yColor, yBase);
 
   const slack =

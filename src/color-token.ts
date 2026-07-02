@@ -26,23 +26,32 @@ import { isAbsoluteTone, pairNormal } from './hc-pair';
 import { resolveAllColors } from './resolver';
 import {
   buildCssMap,
+  buildDtcgMap,
+  buildDtcgResolver,
   buildJsonMap,
+  buildTailwindMap,
   buildTokenMap,
   resolveModes,
 } from './formatters';
 import type {
   ColorMap,
   GlazeColorCssOptions,
+  GlazeColorDtcgResolverOptions,
+  GlazeColorDtcgResult,
   GlazeColorInput,
   GlazeColorInputExport,
   GlazeColorOverrides,
   GlazeColorOverridesExport,
+  GlazeColorTailwindOptions,
   GlazeColorToken,
   GlazeColorTokenExport,
   GlazeColorValue,
   GlazeCssResult,
   GlazeConfigOverride,
   GlazeConfigResolved,
+  GlazeDtcgOptions,
+  GlazeDtcgResolverDocument,
+  GlazeDtcgResult,
   GlazeJsonOptions,
   GlazeTokenOptions,
   OkhslColor,
@@ -526,6 +535,7 @@ function buildStandaloneValueDefs(
     flip: options?.flip,
     opacity: options?.opacity,
     pastel: options?.pastel,
+    role: options?.role,
     base: hasExternalBase
       ? STANDALONE_BASE
       : needsSeedAnchor
@@ -629,6 +639,64 @@ function createColorTokenFromDefs(
       );
     },
 
+    dtcg(options?: GlazeDtcgOptions): GlazeColorDtcgResult {
+      const modes = resolveModes(options?.modes);
+      const doc = buildDtcgMap(
+        resolveOnce(),
+        '',
+        modes,
+        options?.colorSpace ?? 'srgb',
+        effectiveConfig.pastel,
+      );
+      const result: GlazeColorDtcgResult = { light: doc.light[primary] };
+      if (doc.dark) result.dark = doc.dark[primary];
+      if (doc.lightContrast) {
+        result.lightContrast = doc.lightContrast[primary];
+      }
+      if (doc.darkContrast) result.darkContrast = doc.darkContrast[primary];
+      return result;
+    },
+
+    dtcgResolver(
+      options: GlazeColorDtcgResolverOptions,
+    ): GlazeDtcgResolverDocument {
+      const doc = buildDtcgMap(
+        resolveOnce(),
+        '',
+        resolveModes(options?.modes),
+        options?.colorSpace ?? 'srgb',
+        effectiveConfig.pastel,
+      );
+      const name = options.name;
+      const result: GlazeDtcgResult = {
+        light: { [name]: doc.light[primary] },
+      };
+      if (doc.dark) result.dark = { [name]: doc.dark[primary] };
+      if (doc.lightContrast) {
+        result.lightContrast = { [name]: doc.lightContrast[primary] };
+      }
+      if (doc.darkContrast) {
+        result.darkContrast = { [name]: doc.darkContrast[primary] };
+      }
+      return buildDtcgResolver(result, options);
+    },
+
+    tailwind(options: GlazeColorTailwindOptions): string {
+      const renamed = new Map<string, ResolvedColor>([
+        [options.name, resolveOnce().get(primary)!],
+      ]);
+      return buildTailwindMap(
+        renamed,
+        '',
+        options.namespace ?? 'color-',
+        resolveModes(options?.modes),
+        options.format ?? 'oklch',
+        options.darkSelector ?? '.dark',
+        options.highContrastSelector ?? '.high-contrast',
+        effectiveConfig.pastel,
+      );
+    },
+
     export: exportData,
   };
 }
@@ -709,6 +777,7 @@ export function createColorToken(
       contrast: input.contrast,
       opacity: input.opacity,
       pastel: input.pastel,
+      role: input.role,
       base: hasExternalBase
         ? STANDALONE_BASE
         : needsSeedAnchor
@@ -816,6 +885,7 @@ function buildOverridesExport(
   if (options.opacity !== undefined) out.opacity = options.opacity;
   if (options.name !== undefined) out.name = options.name;
   if (options.pastel !== undefined) out.pastel = options.pastel;
+  if (options.role !== undefined) out.role = options.role;
   if (options.base !== undefined) {
     out.base = isGlazeColorToken(options.base)
       ? options.base.export()
@@ -841,6 +911,7 @@ function buildStructuredInputExport(
   if (input.contrast !== undefined) out.contrast = input.contrast;
   if (input.name !== undefined) out.name = input.name;
   if (input.pastel !== undefined) out.pastel = input.pastel;
+  if (input.role !== undefined) out.role = input.role;
   if (input.base !== undefined) {
     out.base = isGlazeColorToken(input.base) ? input.base.export() : input.base;
   }
@@ -879,6 +950,7 @@ function rehydrateOverrides(
   if (data.opacity !== undefined) out.opacity = data.opacity;
   if (data.name !== undefined) out.name = data.name;
   if (data.pastel !== undefined) out.pastel = data.pastel;
+  if (data.role !== undefined) out.role = data.role;
   if (data.base !== undefined) {
     out.base = isExportedToken(data.base)
       ? colorFromExport(data.base)
@@ -904,6 +976,7 @@ function rehydrateStructuredInput(
   if (data.contrast !== undefined) out.contrast = data.contrast;
   if (data.name !== undefined) out.name = data.name;
   if (data.pastel !== undefined) out.pastel = data.pastel;
+  if (data.role !== undefined) out.role = data.role;
   if (data.base !== undefined) {
     out.base = isExportedToken(data.base)
       ? colorFromExport(data.base)

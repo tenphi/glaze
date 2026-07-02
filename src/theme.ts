@@ -3,7 +3,8 @@
  *
  * Wraps a hue/saturation seed, a mutable `ColorMap`, and an optional
  * per-theme `GlazeConfigOverride`. Exposes `tokens()` / `tasty()` /
- * `json()` / `css()` / `resolve()` / `export()` / `extend()`.
+ * `json()` / `css()` / `dtcg()` / `dtcgResolver()` / `tailwind()` / `resolve()` /
+ * `export()` / `extend()`.
  *
  * The per-theme config override is **merged over the live global config at
  * resolve time** so the theme still reacts to later `configure()` calls
@@ -14,8 +15,11 @@
 import { getConfig, getConfigVersion, mergeConfig } from './config';
 import {
   buildCssMap,
+  buildDtcgMap,
+  buildDtcgResolver,
   buildFlatTokenMap,
   buildJsonMap,
+  buildTailwindMap,
   buildTokenMap,
   resolveModes,
 } from './formatters';
@@ -27,8 +31,13 @@ import type {
   GlazeCssResult,
   GlazeConfigOverride,
   GlazeConfigResolved,
+  GlazeDtcgOptions,
+  GlazeDtcgResolverDocument,
+  GlazeDtcgResolverOptions,
+  GlazeDtcgResult,
   GlazeExtendOptions,
   GlazeJsonOptions,
+  GlazeTailwindOptions,
   GlazeTheme,
   GlazeThemeExport,
   GlazeTokenOptions,
@@ -198,6 +207,44 @@ export function createTheme(
         '',
         options?.suffix ?? '-color',
         options?.format ?? 'rgb',
+        getEffectiveConfig().pastel,
+      );
+    },
+
+    dtcg(options?: GlazeDtcgOptions): GlazeDtcgResult {
+      const modes = resolveModes(options?.modes);
+      return buildDtcgMap(
+        resolveCached(),
+        '',
+        modes,
+        options?.colorSpace ?? 'srgb',
+        getEffectiveConfig().pastel,
+      );
+    },
+
+    dtcgResolver(
+      options?: GlazeDtcgResolverOptions,
+    ): GlazeDtcgResolverDocument {
+      const result = buildDtcgMap(
+        resolveCached(),
+        '',
+        resolveModes(options?.modes),
+        options?.colorSpace ?? 'srgb',
+        getEffectiveConfig().pastel,
+      );
+      return buildDtcgResolver(result, options);
+    },
+
+    tailwind(options?: GlazeTailwindOptions): string {
+      const modes = resolveModes(options?.modes);
+      return buildTailwindMap(
+        resolveCached(),
+        '',
+        options?.namespace ?? 'color-',
+        modes,
+        options?.format ?? 'oklch',
+        options?.darkSelector ?? '.dark',
+        options?.highContrastSelector ?? '.high-contrast',
         getEffectiveConfig().pastel,
       );
     },

@@ -811,10 +811,41 @@ export function formatOklch(
   l: number,
   pastel = false,
 ): string {
-  const [L, a, b] = okhslToOklab(h, s / 100, l / 100, pastel);
-  const C = Math.sqrt(a * a + b * b);
-  let hh = Math.atan2(b, a) * (180 / Math.PI);
-  hh = constrainAngle(hh);
-
+  const [L, C, hh] = okhslToOklch(h, s / 100, l / 100, pastel);
   return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 2)})`;
+}
+
+// ============================================================================
+// Structured (non-string) color accessors — used by the DTCG exporter.
+// ============================================================================
+
+/**
+ * Convert gamma-encoded sRGB channels (0–1) to a 6-digit lowercase hex
+ * string (`#rrggbb`). Channels are clamped to [0,1] and rounded to 8-bit.
+ * Alpha is not encoded here — DTCG carries it as a separate `alpha` field.
+ */
+export function srgbToHex(rgb: [number, number, number]): `#${string}` {
+  const toByte = (c: number): number =>
+    Math.max(0, Math.min(255, Math.round(c * 255)));
+  const r = toByte(rgb[0]);
+  const g = toByte(rgb[1]);
+  const b = toByte(rgb[2]);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/**
+ * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to OKLCH components `[L, C, H]`.
+ * L: 0–1, C: 0–~0.4 (chroma), H: 0–360 (hue). Shared by `formatOklch` and
+ * the DTCG `oklch` colorSpace exporter so the two never drift apart.
+ */
+export function okhslToOklch(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): [number, number, number] {
+  const [L, a, b] = okhslToOklab(h, s, l, pastel);
+  const C = Math.sqrt(a * a + b * b);
+  const hh = constrainAngle(Math.atan2(b, a) * (180 / Math.PI));
+  return [L, C, hh];
 }
