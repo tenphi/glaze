@@ -3,31 +3,41 @@
  *
  * Composes multiple themes into a single token namespace with optional
  * theme-name prefixes and a "primary theme" that also surfaces an
- * unprefixed copy of its tokens. All four export methods (`tokens` /
- * `tasty` / `json` / `css`) share a `buildPaletteOutput` driver that
- * handles validation, per-theme iteration, prefix resolution, collision
- * filtering, and primary duplication.
+ * unprefixed copy of its tokens. All seven export methods (`tokens` /
+ * `tasty` / `json` / `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a
+ * `buildPaletteOutput` driver that handles validation, per-theme iteration,
+ * prefix resolution, collision filtering, and primary duplication.
  */
 
 import { getConfig } from './config';
 import {
   buildCssMap,
+  buildDtcgMap,
+  buildDtcgResolver,
   buildFlatTokenMap,
   buildJsonMap,
+  buildTailwindLines,
   buildTokenMap,
+  emitTailwindCss,
   resolveModes,
 } from './formatters';
 import type {
   GlazeCssOptions,
   GlazeCssResult,
+  GlazeDtcgOptions,
+  GlazeDtcgResolverDocument,
+  GlazeDtcgResolverOptions,
+  GlazeDtcgResult,
   GlazeJsonOptions,
   GlazePalette,
   GlazePaletteExportOptions,
   GlazePaletteOptions,
+  GlazeTailwindOptions,
   GlazeTheme,
   GlazeTokenOptions,
   ResolvedColor,
 } from './types';
+import type { GlazeTailwindLines } from './formatters';
 
 type PaletteInput = Record<string, GlazeTheme>;
 
@@ -159,6 +169,39 @@ export function createPalette(
 ): GlazePalette {
   validatePrimaryTheme(paletteOptions?.primary, themes);
 
+  const buildDtcgResult = (
+    options?: GlazeDtcgOptions & GlazePaletteExportOptions,
+  ): GlazeDtcgResult => {
+    const modes = resolveModes(options?.modes);
+    const colorSpace = options?.colorSpace ?? 'srgb';
+    return buildPaletteOutput<GlazeDtcgResult, GlazeDtcgResult>(
+      themes,
+      paletteOptions,
+      options,
+      (filtered, prefix, pastel) =>
+        buildDtcgMap(filtered, prefix, modes, colorSpace, pastel),
+      (acc, part) => {
+        Object.assign(acc.light, part.light);
+        if (part.dark) {
+          acc.dark = Object.assign(acc.dark ?? {}, part.dark);
+        }
+        if (part.lightContrast) {
+          acc.lightContrast = Object.assign(
+            acc.lightContrast ?? {},
+            part.lightContrast,
+          );
+        }
+        if (part.darkContrast) {
+          acc.darkContrast = Object.assign(
+            acc.darkContrast ?? {},
+            part.darkContrast,
+          );
+        }
+      },
+      () => ({ light: {} }),
+    );
+  };
+
   return {
     tokens(
       options?: GlazeJsonOptions & GlazePaletteExportOptions,
@@ -275,6 +318,55 @@ export function createPalette(
         lightContrast: lines.lightContrast.join('\n'),
         darkContrast: lines.darkContrast.join('\n'),
       };
+    },
+
+    dtcg(
+      options?: GlazeDtcgOptions & GlazePaletteExportOptions,
+    ): GlazeDtcgResult {
+      return buildDtcgResult(options);
+    },
+
+    dtcgResolver(
+      options?: GlazeDtcgResolverOptions & GlazePaletteExportOptions,
+    ): GlazeDtcgResolverDocument {
+      return buildDtcgResolver(buildDtcgResult(options), options);
+    },
+
+    tailwind(
+      options?: GlazeTailwindOptions & GlazePaletteExportOptions,
+    ): string {
+      const modes = resolveModes(options?.modes);
+      const cssPrefix = options?.namespace ?? 'color-';
+      const format = options?.format ?? 'oklch';
+      const darkSelector = options?.darkSelector ?? '.dark';
+      const highContrastSelector =
+        options?.highContrastSelector ?? '.high-contrast';
+
+      const lines = buildPaletteOutput<GlazeTailwindLines, GlazeTailwindLines>(
+        themes,
+        paletteOptions,
+        options,
+        (filtered, prefix, pastel) =>
+          buildTailwindLines(filtered, prefix, cssPrefix, format, pastel),
+        (acc, part) => {
+          for (const variant of [
+            'light',
+            'dark',
+            'lightContrast',
+            'darkContrast',
+          ] as const) {
+            acc[variant].push(...part[variant]);
+          }
+        },
+        () => ({
+          light: [],
+          dark: [],
+          lightContrast: [],
+          darkContrast: [],
+        }),
+      );
+
+      return emitTailwindCss(lines, modes, darkSelector, highContrastSelector);
     },
   };
 }

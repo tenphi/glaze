@@ -186,6 +186,130 @@ theme.css();
 
 `GlazeCssResult` always contains all four keys (`light`, `dark`, `lightContrast`, `darkContrast`); empty if no colors are defined for that variant.
 
+### `theme.dtcg(options?)`
+
+W3C [Design Tokens Format Module (2025.10)](https://www.designtokens.org/) documents — the vendor-neutral JSON format consumed by Figma, Tokens Studio, Style Dictionary v4+, Terrazzo, Penpot, and every DTCG-compatible tool. Returns one spec-conformant token tree per scheme variant.
+
+```ts
+theme.dtcg()
+// → {
+//   light: {
+//     surface: {
+//       $type: 'color',
+//       $value: { colorSpace: 'srgb', components: [0.96, 0.94, 0.98], hex: '#f5f0fa' },
+//     },
+//   },
+//   dark: {
+//     surface: {
+//       $type: 'color',
+//       $value: { colorSpace: 'srgb', components: [0.16, 0.14, 0.2], hex: '#292333' },
+//     },
+//   },
+// }
+```
+
+Write each document to its own `.tokens.json` file — one file per scheme is the most tool-compatible convention (one per Style Dictionary theme / Tokens Studio set / Figma variable mode).
+
+`GlazeDtcgOptions`:
+
+| Option | Default | Description |
+|---|---|---|
+| `colorSpace` | `'srgb'` | Color space for `$value`. `'srgb'` emits gamma sRGB `components` (0–1) plus a `hex` hint — universally understood. `'oklch'` emits `[L, C, H]` components with no hex — Glaze-native, wide-gamut. |
+| `modes` | global config | Which scheme variants to include. `light` is always present. |
+
+`alpha` is included on `$value` only when the color's opacity is below 1. `$type` is always `'color'`.
+
+### `theme.dtcgResolver(options?)`
+
+A single W3C [DTCG Resolver-Module](https://www.designtokens.org/) document describing **every scheme variant in one file** — an alternative to `dtcg()`'s per-scheme files for tools that resolve sets + modifiers (e.g. Dispersa). The light document becomes `sets.base.sources[0]` (the default context); each other variant becomes a context override on a single `scheme` modifier.
+
+```ts
+theme.dtcgResolver({ modes: { highContrast: true } })
+// → {
+//   version: '2025.10',
+//   sets: {
+//     base: {
+//       sources: [
+//         {
+//           surface: {
+//             $type: 'color',
+//             $value: { colorSpace: 'srgb', components: [0.96, 0.94, 0.98], hex: '#f5f0fa' },
+//           },
+//         },
+//       ],
+//     },
+//   },
+//   modifiers: {
+//     scheme: {
+//       default: 'light',
+//       contexts: {
+//         light: [],
+//         dark: [
+//           {
+//             surface: {
+//               $type: 'color',
+//               $value: { colorSpace: 'srgb', components: [0.16, 0.14, 0.2], hex: '#292333' },
+//             },
+//           },
+//         ],
+//         lightContrast: [ /* … */ ],
+//         darkContrast: [ /* … */ ],
+//       },
+//     },
+//   },
+//   resolutionOrder: [
+//     { $ref: '#/sets/base' },
+//     { $ref: '#/modifiers/scheme' },
+//   ],
+// }
+```
+
+**Why one modifier with four contexts.** Glaze resolves `darkContrast` independently — it is not `dark` + `lightContrast` layered. The resolver model composes modifiers additively (last in `resolutionOrder` wins on conflict), so two independent modifiers (`scheme` × `contrast`) would produce wrong values for the dark + high-contrast permutation. One `scheme` modifier with a context per variant keeps every resolved value exact. Choose `dtcgResolver()` when you want single-file theming and feed it to a resolver tool; choose `dtcg()` for maximum per-file tool compatibility.
+
+`GlazeDtcgResolverOptions` (extends `GlazeDtcgOptions`, so `modes` and `colorSpace` pass through):
+
+| Option | Default | Description |
+|---|---|---|
+| `colorSpace` | `'srgb'` | Same as `dtcg()` — flows through to every source and context. |
+| `modes` | global config | Which scheme variants to emit as contexts. `light` is always present (the default); absent variants are omitted. |
+| `setName` | `'base'` | Name of the single set holding the default (light) token tree. |
+| `modifierName` | `'scheme'` | Name of the modifier describing the scheme axis. |
+| `contextNames` | identity | Override the four context names (`light` / `dark` / `lightContrast` / `darkContrast`) — e.g. `{ dark: 'night' }`. |
+| `version` | `'2025.10'` | Resolver document version. |
+
+### `theme.tailwind(options?)`
+
+A Tailwind CSS v4 `@theme` block (light baseline) plus dark / high-contrast overrides under configurable selectors. Returns a single ready-to-paste CSS string. The `--color-*` namespace auto-generates `bg-*` / `text-*` / `border-*` utilities.
+
+```css
+@theme {
+  --color-surface: oklch(0.96 0.01 280);
+  --color-text: oklch(0.3 0.05 280);
+}
+.dark {
+  --color-surface: oklch(0.16 0.01 280);
+  --color-text: oklch(0.85 0.05 280);
+}
+.high-contrast {
+  --color-surface: oklch(0.98 0.01 280);
+  --color-text: oklch(0.1 0.05 280);
+}
+.dark.high-contrast {
+  --color-surface: oklch(0.05 0.01 280);
+  --color-text: oklch(0.95 0.05 280);
+}
+```
+
+`GlazeTailwindOptions`:
+
+| Option | Default | Description |
+|---|---|---|
+| `format` | `'oklch'` | Output color format for the values. |
+| `namespace` | `'color-'` | CSS custom property namespace, forming `--<namespace><name>` (e.g. `--color-surface`). Named `namespace` to avoid clashing with the palette theme-prefix option. |
+| `darkSelector` | `'.dark'` | Selector wrapping the dark overrides. Pass an at-rule like `'@media (prefers-color-scheme: dark)'` to drive dark mode from the OS preference (it nests `:root` automatically). |
+| `highContrastSelector` | `'.high-contrast'` | Selector wrapping the light high-contrast overrides. The combined dark + high-contrast block uses `${darkSelector}${highContrastSelector}` (e.g. `.dark.high-contrast`). |
+| `modes` | global config | Which scheme variants to include. The `@theme` block (light) is always emitted when colors exist. |
+
 ### `theme.export()`
 
 ```ts
@@ -512,9 +636,12 @@ A `GlazeColorToken` exposes:
 |---|---|
 | `token.resolve()` | Resolve as a `ResolvedColor` (light/dark/lightContrast/darkContrast variants). |
 | `token.token(options?)` | Flat token map (no color-name key). Options: `format`, `modes`, `states`. |
-| `token.tasty(options?)` | Tasty state map (no color-name key). Same options as `token.token`. |
+| `token.tasty(options?)` | [Tasty](https://tasty.style) state map (no color-name key). Same options as `token.token`. |
 | `token.json(options?)` | JSON map (no color-name key). Options: `format`, `modes`. |
 | `token.css({ name, format?, suffix? })` | CSS custom property declarations grouped by scheme variant. `name` is **required** and becomes the variable identifier (`'brand'` → `--brand-color`). Defaults: `format: 'rgb'`, `suffix: '-color'` (matches `theme.css`). |
+| `token.dtcg(options?)` | DTCG color tokens, one per scheme variant (no color-name key). Each entry is a full `{ $type: 'color', $value }` token. Options: `colorSpace` (`'srgb'` \| `'oklch'`), `modes`. |
+| `token.dtcgResolver({ name, ... })` | A single DTCG Resolver-Module document for this color, keyed by `name` across all scheme variants. `name` is **required**. Same options as `theme.dtcgResolver()` plus `name`. |
+| `token.tailwind({ name, ... })` | Tailwind v4 `@theme` block + dark / high-contrast overrides for this color. `name` is **required** (forms `--color-<name>`). Same options as `theme.tailwind()` plus `name`. |
 | `token.export()` | JSON-safe snapshot — pass to `glaze.colorFrom(...)` to rehydrate. |
 
 ### Per-instance config override
@@ -963,6 +1090,56 @@ const stylesheet = `
 `palette.css()` accepts the same `GlazeCssOptions` as `theme.css()` plus `GlazePaletteExportOptions`.
 It does not accept `modes`; all four result fields are always returned.
 
+### `palette.dtcg()`
+
+DTCG export for a palette. Prefix defaults to `true` and the palette-level `primary` is honored (the primary theme's tokens are duplicated without prefix as aliases).
+
+```ts
+palette.dtcg()
+// → {
+//   light: {
+//     'primary-surface': { $type: 'color', $value: { ... } },
+//     'surface':         { $type: 'color', $value: { ... } },  // unprefixed alias
+//     'danger-surface':  { $type: 'color', $value: { ... } },
+//   },
+//   dark: { ... },
+// }
+```
+
+Accepts `GlazeDtcgOptions` plus `GlazePaletteExportOptions`.
+
+### `palette.dtcgResolver()`
+
+Resolver-Module export for a palette. Same as `theme.dtcgResolver()` but merges every theme (with prefix / `primary` aliasing) into the single `sets.base` source and each `scheme` context. Prefix defaults to `true`; the palette-level `primary` is honored.
+
+```ts
+palette.dtcgResolver()
+// → {
+//   version: '2025.10',
+//   sets: { base: { sources: [ { 'primary-surface': {…}, 'surface': {…}, 'danger-surface': {…} } ] } },
+//   modifiers: { scheme: { default: 'light', contexts: { light: [], dark: [ {…} ] } } },
+//   resolutionOrder: [ { $ref: '#/sets/base' }, { $ref: '#/modifiers/scheme' } ],
+// }
+```
+
+Accepts `GlazeDtcgResolverOptions` plus `GlazePaletteExportOptions`.
+
+### `palette.tailwind()`
+
+Tailwind export for a palette. All themes are merged into a single `@theme` block (plus dark / high-contrast overrides), so each color is reachable as a Tailwind utility. Prefix defaults to `true`.
+
+```ts
+const css = palette.tailwind();
+// @theme {
+//   --color-primary-surface: oklch(...);
+//   --color-surface: oklch(...);          /* unprefixed alias */
+//   --color-danger-surface: oklch(...);
+// }
+// .dark { ... }
+```
+
+Accepts `GlazeTailwindOptions` plus `GlazePaletteExportOptions`. The palette `prefix` option (theme prefixing) is separate from `GlazeTailwindOptions.namespace` (the `--color-*` CSS namespace).
+
 ---
 
 ## Output formats
@@ -985,7 +1162,9 @@ theme.tokens({ format: 'oklch' }); // 'oklch(0.965 0.0123 280)'
 
 All numeric output strips trailing zeros for cleaner CSS (e.g. `95` not `95.0`).
 
-The `format` option works on every export: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, the same on `palette`, and on `token.token()` / `.tasty()` / `.json()` / `.css()`.
+The `format` option works on every CSS-string export: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `theme.tailwind()`, the same on `palette`, and on `token.token()` / `.tasty()` / `.json()` / `.css()` / `.tailwind()`.
+
+`theme.dtcg()` / `theme.dtcgResolver()` / `palette.dtcg()` / `palette.dtcgResolver()` ignore `format` — DTCG emits structured `$value` objects, not CSS strings. Use the `colorSpace` option (`'srgb'` or `'oklch'`) to pick the color representation instead.
 
 ---
 

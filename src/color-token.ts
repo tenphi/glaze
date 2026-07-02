@@ -26,23 +26,32 @@ import { isAbsoluteTone, pairNormal } from './hc-pair';
 import { resolveAllColors } from './resolver';
 import {
   buildCssMap,
+  buildDtcgMap,
+  buildDtcgResolver,
   buildJsonMap,
+  buildTailwindMap,
   buildTokenMap,
   resolveModes,
 } from './formatters';
 import type {
   ColorMap,
   GlazeColorCssOptions,
+  GlazeColorDtcgResolverOptions,
+  GlazeColorDtcgResult,
   GlazeColorInput,
   GlazeColorInputExport,
   GlazeColorOverrides,
   GlazeColorOverridesExport,
+  GlazeColorTailwindOptions,
   GlazeColorToken,
   GlazeColorTokenExport,
   GlazeColorValue,
   GlazeCssResult,
   GlazeConfigOverride,
   GlazeConfigResolved,
+  GlazeDtcgOptions,
+  GlazeDtcgResolverDocument,
+  GlazeDtcgResult,
   GlazeJsonOptions,
   GlazeTokenOptions,
   OkhslColor,
@@ -626,6 +635,64 @@ function createColorTokenFromDefs(
         '',
         options.suffix ?? '-color',
         options.format ?? 'rgb',
+        effectiveConfig.pastel,
+      );
+    },
+
+    dtcg(options?: GlazeDtcgOptions): GlazeColorDtcgResult {
+      const modes = resolveModes(options?.modes);
+      const doc = buildDtcgMap(
+        resolveOnce(),
+        '',
+        modes,
+        options?.colorSpace ?? 'srgb',
+        effectiveConfig.pastel,
+      );
+      const result: GlazeColorDtcgResult = { light: doc.light[primary] };
+      if (doc.dark) result.dark = doc.dark[primary];
+      if (doc.lightContrast) {
+        result.lightContrast = doc.lightContrast[primary];
+      }
+      if (doc.darkContrast) result.darkContrast = doc.darkContrast[primary];
+      return result;
+    },
+
+    dtcgResolver(
+      options: GlazeColorDtcgResolverOptions,
+    ): GlazeDtcgResolverDocument {
+      const doc = buildDtcgMap(
+        resolveOnce(),
+        '',
+        resolveModes(options?.modes),
+        options?.colorSpace ?? 'srgb',
+        effectiveConfig.pastel,
+      );
+      const name = options.name;
+      const result: GlazeDtcgResult = {
+        light: { [name]: doc.light[primary] },
+      };
+      if (doc.dark) result.dark = { [name]: doc.dark[primary] };
+      if (doc.lightContrast) {
+        result.lightContrast = { [name]: doc.lightContrast[primary] };
+      }
+      if (doc.darkContrast) {
+        result.darkContrast = { [name]: doc.darkContrast[primary] };
+      }
+      return buildDtcgResolver(result, options);
+    },
+
+    tailwind(options: GlazeColorTailwindOptions): string {
+      const renamed = new Map<string, ResolvedColor>([
+        [options.name, resolveOnce().get(primary)!],
+      ]);
+      return buildTailwindMap(
+        renamed,
+        '',
+        options.namespace ?? 'color-',
+        resolveModes(options?.modes),
+        options.format ?? 'oklch',
+        options.darkSelector ?? '.dark',
+        options.highContrastSelector ?? '.high-contrast',
         effectiveConfig.pastel,
       );
     },
