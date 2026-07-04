@@ -9,7 +9,9 @@
  * prefix resolution, collision filtering, and primary duplication.
  */
 
+import type { ChannelCtx } from './channels';
 import { getConfig } from './config';
+import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
   buildCssMap,
   buildDtcgMap,
@@ -22,6 +24,7 @@ import {
   resolveModes,
 } from './formatters';
 import type {
+  ColorMap,
   GlazeCssOptions,
   GlazeCssResult,
   GlazeDtcgOptions,
@@ -109,6 +112,42 @@ function filterCollisions(
   return filtered;
 }
 
+function colorMapFromTheme(theme: GlazeTheme): ColorMap {
+  const defs: ColorMap = {};
+  for (const name of theme.list()) {
+    const def = theme.color(name);
+    if (def !== undefined) defs[name] = def;
+  }
+  return defs;
+}
+
+function channelCtxForTheme(
+  theme: GlazeTheme,
+  themeName: string,
+  passPrefix: string,
+  themedPrefix: string,
+  splitChannels: boolean | undefined,
+  format: string,
+  modes: ReturnType<typeof resolveModes>,
+  filtered: Map<string, ResolvedColor>,
+): ChannelCtx | undefined {
+  if (!splitChannels || format !== 'oklch') return undefined;
+  assertAllPastel(filtered, modes);
+  return {
+    seedHue: theme.hue,
+    baseName: themeName,
+    // Hue var names always follow the themed prefix so the primary's
+    // unprefixed alias references `--{themeName}-*-hue` rather than colliding
+    // with other themes' base vars.
+    prefix: themedPrefix,
+    defs: colorMapFromTheme(theme),
+    mode: 'theme',
+    // Emit declarations only in the pass whose color-prop prefix matches the
+    // themed prefix (the prefixed pass, or the single pass when prefix:false).
+    emitDeclarations: passPrefix === themedPrefix,
+  };
+}
+
 /**
  * Shared per-theme driver for `tokens` / `tasty` / `css`. `json` skips
  * this because it doesn't do collision filtering or primary duplication.
@@ -126,6 +165,8 @@ function buildPaletteOutput<T, R>(
     resolved: Map<string, ResolvedColor>,
     prefix: string,
     pastel: boolean,
+    themeName: string,
+    theme: GlazeTheme,
   ) => T,
   merge: (acc: R, part: T) => void,
   empty: () => R,
@@ -146,7 +187,7 @@ function buildPaletteOutput<T, R>(
     const pastel = theme.getConfig().pastel;
     const prefix = resolvePrefix(options, themeName, true);
     const filtered = filterCollisions(resolved, prefix, seen, themeName);
-    merge(acc, buildOne(filtered, prefix, pastel));
+    merge(acc, buildOne(filtered, prefix, pastel, themeName, theme));
 
     if (themeName === effectivePrimary) {
       const primaryFiltered = filterCollisions(
@@ -156,7 +197,7 @@ function buildPaletteOutput<T, R>(
         themeName,
         true,
       );
-      merge(acc, buildOne(primaryFiltered, '', pastel));
+      merge(acc, buildOne(primaryFiltered, '', pastel, themeName, theme));
     }
   }
 
@@ -178,7 +219,7 @@ export function createPalette(
       themes,
       paletteOptions,
       options,
-      (filtered, prefix, pastel) =>
+      (filtered, prefix, pastel, _themeName, _theme) =>
         buildDtcgMap(filtered, prefix, modes, colorSpace, pastel),
       (acc, part) => {
         Object.assign(acc.light, part.light);
@@ -206,6 +247,8 @@ export function createPalette(
     tokens(
       options?: GlazeJsonOptions & GlazePaletteExportOptions,
     ): Record<string, Record<string, string>> {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'tokens');
       const modes = resolveModes(options?.modes);
       return buildPaletteOutput<
         Record<string, Record<string, string>>,
@@ -215,7 +258,7 @@ export function createPalette(
         paletteOptions,
         options,
         (filtered, prefix, pastel) =>
-          buildFlatTokenMap(filtered, prefix, modes, options?.format, pastel),
+          buildFlatTokenMap(filtered, prefix, modes, format, pastel),
         (acc, part) => {
           for (const variant of Object.keys(part)) {
             if (!acc[variant]) {
@@ -237,6 +280,7 @@ export function createPalette(
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
       };
       const modes = resolveModes(options?.modes);
+      const format = options?.format ?? 'okhsl';
       return buildPaletteOutput<
         Record<string, Record<string, string>>,
         Record<string, Record<string, string>>
@@ -244,15 +288,28 @@ export function createPalette(
         themes,
         paletteOptions,
         options,
-        (filtered, prefix, pastel) =>
-          buildTokenMap(
+        (filtered, prefix, pastel, themeName, theme) => {
+          const themedPrefix = resolvePrefix(options, themeName, true);
+          const channelCtx = channelCtxForTheme(
+            theme,
+            themeName,
+            prefix,
+            themedPrefix,
+            options?.splitChannels,
+            format,
+            modes,
+            filtered,
+          );
+          return buildTokenMap(
             filtered,
             prefix,
             states,
             modes,
-            options?.format,
+            format,
             pastel,
-          ),
+            channelCtx,
+          );
+        },
         (acc, part) => Object.assign(acc, part),
         () => ({}),
       );
@@ -263,6 +320,8 @@ export function createPalette(
         prefix?: boolean | Record<string, string>;
       },
     ): Record<string, Record<string, Record<string, string>>> {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'json');
       const modes = resolveModes(options?.modes);
       const result: Record<string, Record<string, Record<string, string>>> = {};
 
@@ -271,7 +330,7 @@ export function createPalette(
         result[themeName] = buildJsonMap(
           resolved,
           modes,
-          options?.format,
+          format,
           theme.getConfig().pastel,
         );
       }
@@ -282,6 +341,8 @@ export function createPalette(
     css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult {
       const suffix = options?.suffix ?? '-color';
       const format = options?.format ?? 'rgb';
+      assertNativeFormat(format, 'css');
+      const modes = resolveModes();
 
       const lines = buildPaletteOutput<
         GlazeCssResult,
@@ -290,8 +351,27 @@ export function createPalette(
         themes,
         paletteOptions,
         options,
-        (filtered, prefix, pastel) =>
-          buildCssMap(filtered, prefix, suffix, format, pastel),
+        (filtered, prefix, pastel, themeName, theme) => {
+          const themedPrefix = resolvePrefix(options, themeName, true);
+          const channelCtx = channelCtxForTheme(
+            theme,
+            themeName,
+            prefix,
+            themedPrefix,
+            options?.splitChannels,
+            format,
+            modes,
+            filtered,
+          );
+          return buildCssMap(
+            filtered,
+            prefix,
+            suffix,
+            format,
+            pastel,
+            channelCtx,
+          );
+        },
         (acc, part) => {
           for (const key of [
             'light',
@@ -338,6 +418,7 @@ export function createPalette(
       const modes = resolveModes(options?.modes);
       const cssPrefix = options?.namespace ?? 'color-';
       const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'tailwind');
       const darkSelector = options?.darkSelector ?? '.dark';
       const highContrastSelector =
         options?.highContrastSelector ?? '.high-contrast';
@@ -346,7 +427,7 @@ export function createPalette(
         themes,
         paletteOptions,
         options,
-        (filtered, prefix, pastel) =>
+        (filtered, prefix, pastel, _themeName, _theme) =>
           buildTailwindLines(filtered, prefix, cssPrefix, format, pastel),
         (acc, part) => {
           for (const variant of [

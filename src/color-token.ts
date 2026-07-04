@@ -15,6 +15,8 @@
  */
 
 import { defaultConfig, getConfig, mergeConfig } from './config';
+import type { ChannelCtx } from './channels';
+import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
   hslToSrgb,
   oklabToOkhsl,
@@ -617,25 +619,46 @@ function createColorTokenFromDefs(
     tasty: tokenLike,
 
     json(options?: GlazeJsonOptions): Record<string, string> {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'json');
       const jsonMap = buildJsonMap(
         resolveOnce(),
         resolveModes(options?.modes),
-        options?.format,
+        format,
         effectiveConfig.pastel,
       );
       return jsonMap[primary];
     },
 
     css(options: GlazeColorCssOptions): GlazeCssResult {
+      const format = options.format ?? 'rgb';
+      assertNativeFormat(format, 'css');
+      const resolved = resolveOnce().get(primary)!;
       const renamed = new Map<string, ResolvedColor>([
-        [options.name, resolveOnce().get(primary)!],
+        [options.name, resolved],
       ]);
+
+      let channelCtx: ChannelCtx | undefined;
+      if (options.splitChannels && format === 'oklch') {
+        const modes = resolveModes();
+        assertAllPastel(renamed, modes);
+        channelCtx = {
+          seedHue,
+          baseName: options.name,
+          prefix: '',
+          defs: { [options.name]: defs[primary] },
+          mode: 'standalone',
+          resolvedHue: resolved.light.h,
+        };
+      }
+
       return buildCssMap(
         renamed,
         '',
         options.suffix ?? '-color',
-        options.format ?? 'rgb',
+        format,
         effectiveConfig.pastel,
+        channelCtx,
       );
     },
 
@@ -682,6 +705,8 @@ function createColorTokenFromDefs(
     },
 
     tailwind(options: GlazeColorTailwindOptions): string {
+      const format = options.format ?? 'oklch';
+      assertNativeFormat(format, 'tailwind');
       const renamed = new Map<string, ResolvedColor>([
         [options.name, resolveOnce().get(primary)!],
       ]);
@@ -690,7 +715,7 @@ function createColorTokenFromDefs(
         '',
         options.namespace ?? 'color-',
         resolveModes(options?.modes),
-        options.format ?? 'oklch',
+        format,
         options.darkSelector ?? '.dark',
         options.highContrastSelector ?? '.high-contrast',
         effectiveConfig.pastel,

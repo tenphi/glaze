@@ -975,7 +975,7 @@ describe('glaze', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97 } });
       const tokens = theme.tokens();
-      expect(tokens.light.surface).toMatch(/^okhsl\(/);
+      expect(tokens.light.surface).toMatch(/^oklch\(/);
       expect(tokens.dark.surface).toBeDefined();
     });
   });
@@ -985,7 +985,7 @@ describe('glaze', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97 } });
       const json = theme.json();
-      expect(json.surface.light).toMatch(/^okhsl\(/);
+      expect(json.surface.light).toMatch(/^oklch\(/);
       expect(json.surface.dark).toBeDefined();
     });
   });
@@ -1023,7 +1023,7 @@ describe('glaze', () => {
       const json = setup().json();
       expect(json.primary).toBeDefined();
       expect(json.danger).toBeDefined();
-      expect(json.primary.surface.light).toMatch(/^okhsl\(/);
+      expect(json.primary.surface.light).toMatch(/^oklch\(/);
     });
 
     it('defaults to prefix: true for palette tokens', () => {
@@ -1149,13 +1149,36 @@ describe('glaze', () => {
   });
 
   describe('format option', () => {
-    it('supports rgb / hsl / okhsl / oklch output', () => {
+    it('supports rgb / hsl / oklch output on tokens and json', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97 } });
       expect(theme.tokens({ format: 'rgb' }).light.surface).toMatch(/^rgb/);
       expect(theme.tokens({ format: 'hsl' }).light.surface).toMatch(/^hsl/);
-      expect(theme.tokens({ format: 'okhsl' }).light.surface).toMatch(/^okhsl/);
       expect(theme.tokens({ format: 'oklch' }).light.surface).toMatch(/^oklch/);
+      expect(theme.json({ format: 'oklch' }).surface.light).toMatch(/^oklch\(/);
+    });
+
+    it('rejects okhsl and okhst on non-tasty exports', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      for (const format of ['okhsl', 'okhst'] as const) {
+        expect(() => theme.tokens({ format })).toThrow(
+          /only supported by tasty/,
+        );
+        expect(() => theme.json({ format })).toThrow(/only supported by tasty/);
+        expect(() => theme.css({ format })).toThrow(/only supported by tasty/);
+        expect(() => theme.tailwind({ format })).toThrow(
+          /only supported by tasty/,
+        );
+      }
+    });
+
+    it('emits okhst via tasty()', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      expect(theme.tasty({ format: 'okhst' })['#surface']['']).toMatch(
+        /^okhst\(/,
+      );
     });
   });
 
@@ -1166,6 +1189,197 @@ describe('glaze', () => {
       const css = theme.css();
       expect(css.light).toMatch(/--surface-color:/);
       expect(css.dark).toMatch(/--surface-color:/);
+    });
+  });
+
+  describe('splitChannels export', () => {
+    function pastelTheme() {
+      glaze.configure({ pastel: true });
+      const theme = glaze(240, 18);
+      theme.colors({
+        surface: { tone: 35 },
+        accent: { hue: '+20', tone: 52, saturation: 0.5 },
+      });
+      return theme;
+    }
+
+    it('throws when any color is not pastel', () => {
+      const theme = glaze(240, 18);
+      theme.colors({ surface: { tone: 35 } });
+      expect(() => theme.css({ format: 'oklch', splitChannels: true })).toThrow(
+        /requires every color to be pastel/,
+      );
+    });
+
+    it('css emits theme hue var and var()-referenced oklch colors', () => {
+      const theme = pastelTheme();
+      const css = theme.css({
+        format: 'oklch',
+        splitChannels: true,
+        name: 'brand',
+      });
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.light).toContain('--accent-hue: calc(var(--brand-hue) + 20);');
+      expect(css.light).toMatch(
+        /--surface-color: oklch\([^)]*var\(--brand-hue\)/,
+      );
+      expect(css.light).toMatch(
+        /--accent-color: oklch\([^)]*var\(--accent-hue\)/,
+      );
+    });
+
+    it('tasty emits #brand-hue and var()-referenced oklch colors', () => {
+      const theme = pastelTheme();
+      const tokens = theme.tasty({
+        format: 'oklch',
+        splitChannels: true,
+        name: 'brand',
+      });
+      expect(tokens['#brand-hue']['']).toBe('240');
+      expect(tokens['#accent-hue']['']).toBe('calc(var(--brand-hue) + 20)');
+      expect(tokens['#surface']['']).toMatch(/oklch\([^)]*var\(--brand-hue\)/);
+      expect(tokens['#accent']['']).toMatch(/oklch\([^)]*var\(--accent-hue\)/);
+    });
+
+    it('is a no-op for hsl and rgb formats', () => {
+      const theme = pastelTheme();
+      const inline = theme.css({ format: 'rgb' });
+      const withFlag = theme.css({ format: 'rgb', splitChannels: true });
+      expect(withFlag.light).toBe(inline.light);
+    });
+
+    it('palette scopes hue vars per theme', () => {
+      glaze.configure({ pastel: true });
+      const brand = glaze(240, 18);
+      brand.colors({ surface: { tone: 35 } });
+      const accent = brand.extend({ hue: 23 });
+      accent.colors({ surface: { tone: 40 } });
+      const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+      const css = palette.css({
+        format: 'oklch',
+        splitChannels: true,
+      });
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.light).toContain('--accent-hue: 23;');
+      expect(css.light).toMatch(
+        /--surface-color: oklch\([^)]*var\(--brand-hue\)/,
+      );
+      expect(css.light).toMatch(
+        /--accent-surface-color: oklch\([^)]*var\(--accent-hue\)/,
+      );
+    });
+
+    it('standalone css emits constant --name-hue for pastel tokens', () => {
+      const color = glaze.color({
+        hue: 240,
+        saturation: 18,
+        tone: 52,
+        pastel: true,
+      });
+      const css = color.css({
+        name: 'brand',
+        format: 'oklch',
+        splitChannels: true,
+      });
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.light).toMatch(
+        /--brand-color: oklch\([^)]*var\(--brand-hue\)/,
+      );
+    });
+
+    it('standalone css throws when token is not pastel', () => {
+      const color = glaze.color({ hue: 240, saturation: 18, tone: 52 });
+      expect(() =>
+        color.css({ name: 'brand', format: 'oklch', splitChannels: true }),
+      ).toThrow(/requires every color to be pastel/);
+    });
+
+    it('inlines achromatic, shadow, and mix colors and preserves alpha', () => {
+      glaze.configure({ pastel: true });
+      const theme = glaze(240, 18);
+      theme.colors({
+        surface: { tone: 50 },
+        accent: { hue: 280, tone: 52 },
+        border: { tone: 50, saturation: 0 },
+        text: { base: 'surface', tone: 5, contrast: 4.5 },
+        shadow: {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 0.5,
+        },
+        ghost: {
+          type: 'mix',
+          base: 'surface',
+          target: 'accent',
+          value: 0.5,
+        },
+        overlay: { tone: 50, opacity: 0.5 },
+      });
+      const css = theme.css({
+        format: 'oklch',
+        splitChannels: true,
+        name: 'brand',
+      });
+      // absolute hue override → per-color var
+      expect(css.light).toContain('--accent-hue: 280;');
+      // achromatic → inline oklch(L 0 0), no hue var
+      expect(css.light).toMatch(/--border-color: oklch\([\d.]+ 0 0\)/);
+      // shadow → inline (no var()), with alpha
+      expect(css.light).toMatch(
+        /--shadow-color: oklch\([\d.]+ [\d.]+ [\d.]+ \/ [\d.]+\)/,
+      );
+      expect(css.light).not.toMatch(/--shadow-color:[^;]*var\(/);
+      // mix → inline (no var())
+      expect(css.light).toMatch(/--ghost-color: oklch\([\d.]+ [\d.]+ [\d.]+\)/);
+      expect(css.light).not.toMatch(/--ghost-color:[^;]*var\(/);
+      // alpha < 1 preserved with hue var
+      expect(css.light).toMatch(
+        /--overlay-color: oklch\([^)]*var\(--brand-hue\) \/ 0.5\)/,
+      );
+    });
+
+    it('does not re-emit hue vars for the palette primary unprefixed alias', () => {
+      glaze.configure({ pastel: true });
+      const brand = glaze(240, 18);
+      brand.colors({ surface: { tone: 35 }, accent: { hue: '+20', tone: 52 } });
+      const warning = glaze(23, 18);
+      warning.colors({ surface: { tone: 40 } });
+      const palette = glaze.palette({ brand, warning }, { primary: 'brand' });
+      const css = palette.css({ format: 'oklch', splitChannels: true });
+      // brand-hue declared once (by the prefixed pass)
+      expect(css.light.match(/--brand-hue: 240;/g)).toHaveLength(1);
+      // unprefixed primary alias references the themed per-color hue var
+      expect(css.light).toMatch(
+        /--accent-color: oklch\([^)]*var\(--brand-accent-hue\)/,
+      );
+      // no unprefixed --accent-hue colliding with the warning theme's base
+      expect(css.light).not.toMatch(/--accent-hue: calc/);
+    });
+
+    it('okhst round-trips through the color parser', () => {
+      const color = glaze.color('okhst(280 60% 52%)');
+      expect(color.tasty({ format: 'okhst' })['']).toBe('okhst(280 60% 52%)');
+    });
+
+    it('okhst pastel output renders identically to the non-pastel equivalent', () => {
+      const pastel = glaze.color(
+        { hue: 280, saturation: 80, tone: 52 },
+        { pastel: true },
+      );
+      const okhstStr = pastel.tasty({ format: 'okhst' })[''];
+      // Re-parse the emitted okhst string as a non-pastel color; it should
+      // render the same 8-bit RGB as the original pastel token (2-decimal
+      // saturation rounding stays within 8-bit quantization).
+      const reparsed = glaze.color(okhstStr);
+      const round8 = (s: string): string =>
+        s
+          .match(/[\d.]+/g)!
+          .map((n) => String(Math.round(Number(n))))
+          .join(' ');
+      expect(round8(reparsed.css({ name: 'x', format: 'rgb' }).light)).toBe(
+        round8(pastel.css({ name: 'x', format: 'rgb' }).light),
+      );
     });
   });
 
@@ -1478,11 +1692,30 @@ describe('glaze', () => {
       expect(resolved.dark.t).toBeGreaterThan(0.4);
     });
 
-    it('exports token / tasty / json with okhsl strings', () => {
+    it('exports token / tasty with okhsl and json with oklch by default', () => {
       const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
       expect(color.token()['']).toMatch(/^okhsl\(/);
       expect(color.tasty()['']).toMatch(/^okhsl\(/);
-      expect(color.json().light).toMatch(/^okhsl\(/);
+      expect(color.json().light).toMatch(/^oklch\(/);
+    });
+
+    it('emits okhst via token() and tasty()', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      expect(color.token({ format: 'okhst' })['']).toMatch(/^okhst\(/);
+      expect(color.tasty({ format: 'okhst' })['']).toMatch(/^okhst\(/);
+    });
+
+    it('rejects okhsl and okhst on css / json / tailwind', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      for (const format of ['okhsl', 'okhst'] as const) {
+        expect(() => color.css({ name: 'brand', format })).toThrow(
+          /only supported by tasty/,
+        );
+        expect(() => color.json({ format })).toThrow(/only supported by tasty/);
+        expect(() => color.tailwind({ name: 'brand', format })).toThrow(
+          /only supported by tasty/,
+        );
+      }
     });
 
     it('supports format option', () => {

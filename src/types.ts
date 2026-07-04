@@ -92,7 +92,7 @@ export type ExtremeValue = 'max' | 'min';
 export type ToneValue = number | RelativeValue | ExtremeValue;
 
 /** Color format for output. */
-export type GlazeColorFormat = 'okhsl' | 'rgb' | 'hsl' | 'oklch';
+export type GlazeColorFormat = 'okhsl' | 'okhst' | 'rgb' | 'hsl' | 'oklch';
 
 /**
  * Controls which scheme variants are generated in the export.
@@ -740,6 +740,11 @@ export interface GlazeColorCssOptions {
    * `theme.css` default).
    */
   suffix?: string;
+  /**
+   * Emit hue as a separate custom property, referenced via `var()`.
+   * Requires `format: 'oklch'` and a pastel token. oklch + all-pastel only.
+   */
+  splitChannels?: boolean;
 }
 
 /** Return type for `glaze.color()`. */
@@ -968,6 +973,16 @@ export interface GlazeTokenOptions {
   modes?: GlazeOutputModes;
   /** Output color format. Default: 'okhsl'. */
   format?: GlazeColorFormat;
+  /**
+   * Emit hue as a separate custom property, referenced via `var()`.
+   * Requires `format: 'oklch'` and every color to be pastel.
+   */
+  splitChannels?: boolean;
+  /**
+   * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
+   * Palette export auto-derives this from the theme name.
+   */
+  name?: string;
 }
 
 export interface GlazeJsonOptions {
@@ -982,6 +997,16 @@ export interface GlazeCssOptions {
   format?: GlazeColorFormat;
   /** Suffix appended to each CSS custom property name. Default: '-color'. */
   suffix?: string;
+  /**
+   * Emit hue as a separate custom property, referenced via `var()`.
+   * Requires `format: 'oklch'` and every color to be pastel.
+   */
+  splitChannels?: boolean;
+  /**
+   * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
+   * Palette export auto-derives this from the theme name.
+   */
+  name?: string;
 }
 
 /** CSS custom property declarations grouped by scheme variant. */
@@ -1228,6 +1253,11 @@ export interface GlazePaletteExportOptions {
    * When omitted, inherits the palette-level `primary`.
    */
   primary?: string | false;
+  /**
+   * Emit hue as a separate custom property, referenced via `var()`.
+   * Requires `format: 'oklch'` and every color to be pastel.
+   */
+  splitChannels?: boolean;
 }
 
 export interface GlazePalette {

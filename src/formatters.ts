@@ -13,8 +13,15 @@
  */
 
 import {
+  buildHuePlans,
+  collectHueDeclarations,
+  type ChannelCtx,
+  type HuePlan,
+} from './channels';
+import {
   formatHsl,
   formatOkhsl,
+  formatOkhst,
   formatOklch,
   formatRgb,
   okhslToOklch,
@@ -39,8 +46,10 @@ import type {
   ResolvedColorVariant,
 } from './types';
 
+export type { ChannelCtx } from './channels';
+
 const formatters: Record<
-  GlazeColorFormat,
+  Exclude<GlazeColorFormat, 'okhst'>,
   (h: number, s: number, l: number, pastel: boolean) => string
 > = {
   okhsl: formatOkhsl,
@@ -62,11 +71,59 @@ export function formatVariant(
   // Per-variant `pastel` (set by the resolver from def or config fallback)
   // wins over the format-time fallback, so output matches resolution.
   const effectivePastel = v.pastel ?? pastel;
-  const { l } = variantToOkhsl(v);
-  const base = formatters[format](v.h, v.s * 100, l * 100, effectivePastel);
+
+  let base: string;
+  if (format === 'okhst') {
+    base = formatOkhst(v.h, v.s * 100, v.t * 100, effectivePastel);
+  } else {
+    const { l } = variantToOkhsl(v);
+    base = formatters[format](v.h, v.s * 100, l * 100, effectivePastel);
+  }
+
   if (v.alpha >= 1) return base;
   const closing = base.lastIndexOf(')');
   return `${base.slice(0, closing)} / ${fmt(v.alpha, 4)})`;
+}
+
+/**
+ * Format a resolved variant as `oklch(L C <hueVar>)`, splicing a CSS hue var
+ * for `splitChannels` exports. Falls back to inline when the plan is inline.
+ */
+export function formatVariantHue(
+  v: ResolvedColorVariant,
+  plan: HuePlan,
+  pastel = false,
+): string {
+  const effectivePastel = v.pastel ?? pastel;
+  const { l } = variantToOkhsl(v);
+  const [L, C] = okhslToOklch(v.h, v.s, l, effectivePastel);
+
+  let base: string;
+  if (plan.inline) {
+    if (v.s <= 1e-6) {
+      base = `oklch(${fmt(L, 4)} 0 0)`;
+    } else {
+      base = formatOklch(v.h, v.s * 100, l * 100, effectivePastel);
+    }
+  } else {
+    base = `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${plan.hueVar})`;
+  }
+
+  if (v.alpha >= 1) return base;
+  const closing = base.lastIndexOf(')');
+  return `${base.slice(0, closing)} / ${fmt(v.alpha, 4)})`;
+}
+
+function formatColorValue(
+  v: ResolvedColorVariant,
+  format: GlazeColorFormat,
+  pastel: boolean,
+  huePlan?: HuePlan,
+): string {
+  if (format === 'oklch' && huePlan !== undefined) {
+    return formatVariantHue(v, huePlan, pastel);
+  }
+  return formatVariant(v, format, pastel);
 }
 
 export function resolveModes(
@@ -86,37 +143,86 @@ export function buildTokenMap(
   modes: Required<GlazeOutputModes>,
   format: GlazeColorFormat = 'okhsl',
   pastel = false,
+  channelCtx?: ChannelCtx,
 ): Record<string, Record<string, string>> {
   const tokens: Record<string, Record<string, string>> = {};
+  const huePlans =
+    channelCtx !== undefined && format === 'oklch'
+      ? buildHuePlans(resolved, channelCtx)
+      : undefined;
+
+  if (huePlans !== undefined && channelCtx !== undefined) {
+    const emitDecls = channelCtx.emitDeclarations !== false;
+    if (emitDecls && channelCtx.mode === 'theme') {
+      tokens[`#${channelCtx.baseName}-hue`] = {
+        '': String(channelCtx.seedHue),
+      };
+    }
+    for (const [name, color] of resolved) {
+      const plan = huePlans.get(name)!;
+      if (emitDecls) {
+        for (const decl of plan.declarations) {
+          const key = `#${decl.prop.slice(2)}`;
+          if (!(key in tokens)) {
+            tokens[key] = { '': decl.value };
+          }
+        }
+      }
+      const colorKey = `#${prefix}${name}`;
+      const planForColor = huePlans.get(name);
+      tokens[colorKey] = buildTokenEntry(
+        color,
+        states,
+        modes,
+        format,
+        pastel,
+        planForColor,
+      );
+    }
+    return tokens;
+  }
 
   for (const [name, color] of resolved) {
     const key = `#${prefix}${name}`;
-    const entry: Record<string, string> = {
-      '': formatVariant(color.light, format, pastel),
-    };
-
-    if (modes.dark) {
-      entry[states.dark] = formatVariant(color.dark, format, pastel);
-    }
-    if (modes.highContrast) {
-      entry[states.highContrast] = formatVariant(
-        color.lightContrast,
-        format,
-        pastel,
-      );
-    }
-    if (modes.dark && modes.highContrast) {
-      entry[`${states.dark} & ${states.highContrast}`] = formatVariant(
-        color.darkContrast,
-        format,
-        pastel,
-      );
-    }
-
-    tokens[key] = entry;
+    tokens[key] = buildTokenEntry(color, states, modes, format, pastel);
   }
 
   return tokens;
+}
+
+function buildTokenEntry(
+  color: ResolvedColor,
+  states: { dark: string; highContrast: string },
+  modes: Required<GlazeOutputModes>,
+  format: GlazeColorFormat,
+  pastel: boolean,
+  huePlan?: HuePlan,
+): Record<string, string> {
+  const entry: Record<string, string> = {
+    '': formatColorValue(color.light, format, pastel, huePlan),
+  };
+
+  if (modes.dark) {
+    entry[states.dark] = formatColorValue(color.dark, format, pastel, huePlan);
+  }
+  if (modes.highContrast) {
+    entry[states.highContrast] = formatColorValue(
+      color.lightContrast,
+      format,
+      pastel,
+      huePlan,
+    );
+  }
+  if (modes.dark && modes.highContrast) {
+    entry[`${states.dark} & ${states.highContrast}`] = formatColorValue(
+      color.darkContrast,
+      format,
+      pastel,
+      huePlan,
+    );
+  }
+
+  return entry;
 }
 
 export function buildFlatTokenMap(
@@ -202,6 +308,7 @@ export function buildCssMap(
   suffix: string,
   format: GlazeColorFormat,
   pastel = false,
+  channelCtx?: ChannelCtx,
 ): GlazeCssResult {
   const lines: Record<keyof GlazeCssResult, string[]> = {
     light: [],
@@ -210,15 +317,31 @@ export function buildCssMap(
     darkContrast: [],
   };
 
+  const huePlans =
+    channelCtx !== undefined && format === 'oklch'
+      ? buildHuePlans(resolved, channelCtx)
+      : undefined;
+
+  if (huePlans !== undefined && channelCtx !== undefined) {
+    for (const decl of collectHueDeclarations(resolved, channelCtx)) {
+      lines.light.push(`${decl.prop}: ${decl.value};`);
+    }
+  }
+
   for (const [name, color] of resolved) {
     const prop = `--${prefix}${name}${suffix}`;
-    lines.light.push(`${prop}: ${formatVariant(color.light, format, pastel)};`);
-    lines.dark.push(`${prop}: ${formatVariant(color.dark, format, pastel)};`);
+    const plan = huePlans?.get(name);
+    lines.light.push(
+      `${prop}: ${formatColorValue(color.light, format, pastel, plan)};`,
+    );
+    lines.dark.push(
+      `${prop}: ${formatColorValue(color.dark, format, pastel, plan)};`,
+    );
     lines.lightContrast.push(
-      `${prop}: ${formatVariant(color.lightContrast, format, pastel)};`,
+      `${prop}: ${formatColorValue(color.lightContrast, format, pastel, plan)};`,
     );
     lines.darkContrast.push(
-      `${prop}: ${formatVariant(color.darkContrast, format, pastel)};`,
+      `${prop}: ${formatColorValue(color.darkContrast, format, pastel, plan)};`,
     );
   }
 

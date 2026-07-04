@@ -68,7 +68,31 @@ Relative `tone` offsets that overshoot `[0, 100]` now **mirror to the other side
 
 ### Resolved variants store tone
 
-`ResolvedColorVariant` now exposes `t` (tone, 0–1) instead of `l`. If you read resolved internals, convert with `variantToOkhsl(variant).l`. Token/CSS/JSON output is unchanged — Glaze still emits `okhsl(...)` / `rgb(...)` etc. (`okhst` is input-only and is never emitted).
+`ResolvedColorVariant` now exposes `t` (tone, 0–1) instead of `l`. If you read resolved internals, convert with `variantToOkhsl(variant).l`. Token/CSS/JSON output uses native formats by default (`oklch` for `tokens()` / `json()`, `okhsl` for `tasty()`); use `tasty({ format: 'okhsl' })` or `tasty({ format: 'okhst' })` for Glaze-native spaces.
+
+### 0.16.0 — output format defaults and Tasty-only spaces
+
+**Breaking changes in 0.16.0:**
+
+| Export | Old default | New default |
+|---|---|---|
+| `tokens()` / `json()` (theme + palette) | `okhsl` | `oklch` |
+| Standalone `.json()` | `okhsl` | `oklch` |
+| `tasty()` | `okhsl` (unchanged) | `okhsl` |
+
+`'okhsl'` and the new `'okhst'` output format are **Tasty-only**. Passing either to `css()`, `tailwind()`, `tokens()`, or `json()` throws. Migrate:
+
+```ts
+// before
+theme.tokens({ format: 'okhsl' })
+theme.json()
+
+// after — pick one
+theme.tasty({ format: 'okhsl' })   // Tasty #name keys, okhsl strings
+theme.tokens({ format: 'oklch' })    // native CSS (new default)
+```
+
+**New:** `splitChannels` on `css()` / `tasty()` (theme + palette) and standalone `color.css()` emits hue as a separate custom property for runtime re-skinning. Requires `format: 'oklch'` and every color to be pastel. See [api.md → Hue channel splitting](api.md#hue-channel-splitting-splitchannels).
 
 ### Export snapshots
 
@@ -88,7 +112,7 @@ Glaze emits the same resolved colors in six shapes. Pick one based on your rende
 | `palette.dtcgResolver(options?)` | `{ version, sets, modifiers, resolutionOrder }` | W3C DTCG **Resolver-Module** — a single document describing every scheme variant as `sets` + a `scheme` modifier with a context per variant. For resolver tools such as Dispersa. |
 | `palette.tailwind(options?)` | `'@theme { --color-*: ... } .dark { ... } ...'` | Tailwind CSS v4. A single ready-to-paste `@theme` block plus dark / high-contrast overrides. |
 
-`tasty()`, `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, and `tailwind()` accept `modes` (`{ dark, highContrast }`). `css()` always returns all four strings (`light`, `dark`, `lightContrast`, `darkContrast`). The CSS-string exports accept `format` (`'okhsl' \| 'rgb' \| 'hsl' \| 'oklch'`); `dtcg()` and `dtcgResolver()` use `colorSpace` (`'srgb' \| 'oklch'`) instead. See [api.md → Palette](api.md#palette) for full options.
+`tasty()`, `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, and `tailwind()` accept `modes` (`{ dark, highContrast }`). `css()` always returns all four strings (`light`, `dark`, `lightContrast`, `darkContrast`). The CSS-string exports accept `format` (`'rgb' \| 'hsl' \| 'oklch'` on `tokens`/`json`/`css`/`tailwind`; `'okhsl' \| 'okhst'` on `tasty()` only); `dtcg()` and `dtcgResolver()` use `colorSpace` (`'srgb' \| 'oklch'`) instead. See [api.md → Palette](api.md#palette) for full options.
 
 ## Wiring exports into the app
 

@@ -79,6 +79,9 @@ export type {
   RoleInput,
 } from './types';
 
+export type { ChannelCtx, HuePlan, HueDeclaration } from './channels';
+export { assertNativeFormat, assertAllPastel } from './format-guard';
+
 // Re-export contrast solver utilities for advanced use
 export {
   findToneForContrast,
@@ -136,6 +139,7 @@ export {
   formatOkhsl,
   formatRgb,
   formatHsl,
+  formatOkhst,
   formatOklch,
   srgbToHex,
   okhslToOklch,

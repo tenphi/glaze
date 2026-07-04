@@ -752,6 +752,32 @@ export function formatOkhsl(
 }
 
 /**
+ * Format OKHST values as a CSS `okhst(H S% T%)` string.
+ * h: 0–360, s: 0–100, t: 0–100 (percentage scale for s and t).
+ *
+ * Pastel recompute matches `formatOkhsl`: convert via OKLab so external
+ * parsers that only understand non-pastel OKHST render identically.
+ */
+export function formatOkhst(
+  h: number,
+  s: number,
+  t: number,
+  pastel = false,
+): string {
+  let outS = s;
+  if (pastel) {
+    const REF_EPS = 0.05;
+    const den = Math.log(1 + REF_EPS) - Math.log(REF_EPS);
+    const y = Math.exp((t / 100) * den + Math.log(REF_EPS)) - REF_EPS;
+    const l = toe(Math.cbrt(Math.max(0, y)));
+    const oklab = okhslToOklab(h, s / 100, l, true);
+    const normalOkhsl = oklabToOkhsl(oklab, false);
+    outS = normalOkhsl[1] * 100;
+  }
+  return `okhst(${fmt(h, 2)} ${fmt(outS, 2)}% ${fmt(t, 2)}%)`;
+}
+
+/**
  * Format OKHSL values as a CSS `rgb(R G B)` string.
  * Uses 2 decimal places to avoid 8-bit quantization contrast loss.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).

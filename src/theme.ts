@@ -12,7 +12,9 @@
  * `configVersion` to avoid rebuilding it on every export call.
  */
 
+import type { ChannelCtx } from './channels';
 import { getConfig, getConfigVersion, mergeConfig } from './config';
+import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
   buildCssMap,
   buildDtcgMap,
@@ -75,6 +77,32 @@ export function createTheme(
 
   function invalidate(): void {
     cache = null;
+  }
+
+  function channelCtxFor(
+    options:
+      | {
+          splitChannels?: boolean;
+          name?: string;
+          format?: GlazeCssOptions['format'];
+          modes?: GlazeJsonOptions['modes'];
+        }
+      | undefined,
+    formatDefault: 'rgb' | 'oklch' | 'okhsl',
+    prefix: string,
+  ): ChannelCtx | undefined {
+    const format = options?.format ?? formatDefault;
+    if (!options?.splitChannels || format !== 'oklch') return undefined;
+    const resolved = resolveCached();
+    const modes = resolveModes(options?.modes);
+    assertAllPastel(resolved, modes);
+    return {
+      seedHue: hue,
+      baseName: options.name ?? 'theme',
+      prefix,
+      defs: colorDefs,
+      mode: 'theme',
+    };
   }
 
   const theme: GlazeTheme = {
@@ -164,12 +192,14 @@ export function createTheme(
     },
 
     tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>> {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'tokens');
       const modes = resolveModes(options?.modes);
       return buildFlatTokenMap(
         resolveCached(),
         '',
         modes,
-        options?.format,
+        format,
         getEffectiveConfig().pastel,
       );
     },
@@ -181,33 +211,42 @@ export function createTheme(
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
       };
       const modes = resolveModes(options?.modes);
+      const format = options?.format ?? 'okhsl';
+      const channelCtx = channelCtxFor(options, 'okhsl', '');
       return buildTokenMap(
         resolveCached(),
         '',
         states,
         modes,
-        options?.format,
+        format,
         cfg.pastel,
+        channelCtx,
       );
     },
 
     json(options?: GlazeJsonOptions): Record<string, Record<string, string>> {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'json');
       const modes = resolveModes(options?.modes);
       return buildJsonMap(
         resolveCached(),
         modes,
-        options?.format,
+        format,
         getEffectiveConfig().pastel,
       );
     },
 
     css(options?: GlazeCssOptions): GlazeCssResult {
+      const format = options?.format ?? 'rgb';
+      assertNativeFormat(format, 'css');
+      const channelCtx = channelCtxFor(options, 'rgb', '');
       return buildCssMap(
         resolveCached(),
         '',
         options?.suffix ?? '-color',
-        options?.format ?? 'rgb',
+        format,
         getEffectiveConfig().pastel,
+        channelCtx,
       );
     },
 
@@ -236,13 +275,15 @@ export function createTheme(
     },
 
     tailwind(options?: GlazeTailwindOptions): string {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'tailwind');
       const modes = resolveModes(options?.modes);
       return buildTailwindMap(
         resolveCached(),
         '',
         options?.namespace ?? 'color-',
         modes,
-        options?.format ?? 'oklch',
+        format,
         options?.darkSelector ?? '.dark',
         options?.highContrastSelector ?? '.high-contrast',
         getEffectiveConfig().pastel,
