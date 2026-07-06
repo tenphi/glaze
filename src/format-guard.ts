@@ -42,7 +42,7 @@ const SCHEME_FIELDS: {
 ];
 
 /**
- * Throw when `splitChannels` is enabled but any exported color is not pastel.
+ * Throw when `splitHue` is enabled but any exported color is not pastel.
  * Hue rotation is only clip-free when chroma is bounded by the hue-independent
  * safe chroma (`computeSafeChromaOKLCH`).
  */
@@ -66,9 +66,9 @@ export function assertAllPastel(
   if (nonPastel.length === 0) return;
 
   throw new Error(
-    'glaze: splitChannels requires every color to be pastel (hue rotation is only ' +
+    'glaze: splitHue requires every color to be pastel (hue rotation is only ' +
       'clip-free when chroma is bounded by the hue-independent safe chroma). ' +
       `Non-pastel: ${nonPastel.join(', ')}. ` +
-      'Set pastel: true (global or per-color) or drop splitChannels.',
+      'Set pastel: true (global or per-color) or drop splitHue.',
   );
 }

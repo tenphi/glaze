@@ -82,7 +82,7 @@ export function createTheme(
   function channelCtxFor(
     options:
       | {
-          splitChannels?: boolean;
+          splitHue?: boolean;
           name?: string;
           format?: GlazeCssOptions['format'];
           modes?: GlazeJsonOptions['modes'];
@@ -92,7 +92,7 @@ export function createTheme(
     prefix: string,
   ): ChannelCtx | undefined {
     const format = options?.format ?? formatDefault;
-    if (!options?.splitChannels || format !== 'oklch') return undefined;
+    if (!options?.splitHue || format !== 'oklch') return undefined;
     const resolved = resolveCached();
     const modes = resolveModes(options?.modes);
     assertAllPastel(resolved, modes);

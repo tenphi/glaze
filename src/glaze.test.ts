@@ -1192,7 +1192,7 @@ describe('glaze', () => {
     });
   });
 
-  describe('splitChannels export', () => {
+  describe('splitHue export', () => {
     function pastelTheme() {
       glaze.configure({ pastel: true });
       const theme = glaze(240, 18);
@@ -1206,7 +1206,7 @@ describe('glaze', () => {
     it('throws when any color is not pastel', () => {
       const theme = glaze(240, 18);
       theme.colors({ surface: { tone: 35 } });
-      expect(() => theme.css({ format: 'oklch', splitChannels: true })).toThrow(
+      expect(() => theme.css({ format: 'oklch', splitHue: true })).toThrow(
         /requires every color to be pastel/,
       );
     });
@@ -1215,7 +1215,7 @@ describe('glaze', () => {
       const theme = pastelTheme();
       const css = theme.css({
         format: 'oklch',
-        splitChannels: true,
+        splitHue: true,
         name: 'brand',
       });
       expect(css.light).toContain('--brand-hue: 240;');
@@ -1232,7 +1232,7 @@ describe('glaze', () => {
       const theme = pastelTheme();
       const tokens = theme.tasty({
         format: 'oklch',
-        splitChannels: true,
+        splitHue: true,
         name: 'brand',
       });
       expect(tokens['#brand-hue']['']).toBe('240');
@@ -1244,7 +1244,7 @@ describe('glaze', () => {
     it('is a no-op for hsl and rgb formats', () => {
       const theme = pastelTheme();
       const inline = theme.css({ format: 'rgb' });
-      const withFlag = theme.css({ format: 'rgb', splitChannels: true });
+      const withFlag = theme.css({ format: 'rgb', splitHue: true });
       expect(withFlag.light).toBe(inline.light);
     });
 
@@ -1257,7 +1257,7 @@ describe('glaze', () => {
       const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
       const css = palette.css({
         format: 'oklch',
-        splitChannels: true,
+        splitHue: true,
       });
       expect(css.light).toContain('--brand-hue: 240;');
       expect(css.light).toContain('--accent-hue: 23;');
@@ -1279,7 +1279,7 @@ describe('glaze', () => {
       const css = color.css({
         name: 'brand',
         format: 'oklch',
-        splitChannels: true,
+        splitHue: true,
       });
       expect(css.light).toContain('--brand-hue: 240;');
       expect(css.light).toMatch(
@@ -1290,7 +1290,7 @@ describe('glaze', () => {
     it('standalone css throws when token is not pastel', () => {
       const color = glaze.color({ hue: 240, saturation: 18, tone: 52 });
       expect(() =>
-        color.css({ name: 'brand', format: 'oklch', splitChannels: true }),
+        color.css({ name: 'brand', format: 'oklch', splitHue: true }),
       ).toThrow(/requires every color to be pastel/);
     });
 
@@ -1318,7 +1318,7 @@ describe('glaze', () => {
       });
       const css = theme.css({
         format: 'oklch',
-        splitChannels: true,
+        splitHue: true,
         name: 'brand',
       });
       // absolute hue override → per-color var
@@ -1346,7 +1346,7 @@ describe('glaze', () => {
       const warning = glaze(23, 18);
       warning.colors({ surface: { tone: 40 } });
       const palette = glaze.palette({ brand, warning }, { primary: 'brand' });
-      const css = palette.css({ format: 'oklch', splitChannels: true });
+      const css = palette.css({ format: 'oklch', splitHue: true });
       // brand-hue declared once (by the prefixed pass)
       expect(css.light.match(/--brand-hue: 240;/g)).toHaveLength(1);
       // unprefixed primary alias references the themed per-color hue var

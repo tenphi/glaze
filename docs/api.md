@@ -145,7 +145,7 @@ theme.tasty()
 | `modes` | global config | Which scheme variants to include. |
 | `states.dark` | `'@dark'` (or global config) | State alias for dark mode tokens. |
 | `states.highContrast` | `'@high-contrast'` (or global config) | State alias for high-contrast tokens. |
-| `splitChannels` | `false` | Emit hue as a separate custom property (`#name-hue` token + `var()` in `oklch` values). Requires `format: 'oklch'` and every color to be pastel. |
+| `splitHue` | `false` | Emit hue as a separate custom property (`#name-hue` token + `var()` in `oklch` values). Requires `format: 'oklch'` and every color to be pastel. |
 | `name` | `'theme'` | Base name for the theme-level hue var (`#theme-hue` / `--theme-hue`). Palette export auto-derives this from the theme name. |
 | `prefix` | (palette only) | See [Palette](#palette). |
 
@@ -185,7 +185,7 @@ theme.css();
 |---|---|---|
 | `format` | `'rgb'` | Output color format. `'okhsl'` and `'okhst'` throw — use `tasty()` for those. |
 | `suffix` | `'-color'` | Suffix appended to each CSS property name. Pass `''` for bare property names. |
-| `splitChannels` | `false` | Emit hue as a separate `--*-hue` custom property referenced via `var()` in `oklch` color values. Requires `format: 'oklch'` and every color to be pastel. Shadow/mix colors stay inline (blended hue; they do not follow `--hue` rotation). |
+| `splitHue` | `false` | Emit hue as a separate `--*-hue` custom property referenced via `var()` in `oklch` color values. Requires `format: 'oklch'` and every color to be pastel. Shadow/mix colors stay inline (blended hue; they do not follow `--hue` rotation). |
 | `name` | `'theme'` | Base name for the theme-level hue var (`--theme-hue`). Palette export auto-derives this from the theme name. |
 
 `GlazeCssResult` always contains all four keys (`light`, `dark`, `lightContrast`, `darkContrast`); empty if no colors are defined for that variant.
@@ -1154,7 +1154,7 @@ Control the color format with the `format` option on any export method:
 |---|---|---|---|
 | `'okhsl'` (default for `tasty()`) | `okhsl(H S% L%)` | `okhsl(H S% L% / A)` | Glaze's native format, not a CSS function. **Tasty-only** (`tasty()`, `token()`, `.tasty()`). |
 | `'okhst'` | `okhst(H S% T%)` | `okhst(H S% T% / A)` | OKHST tone axis. **Tasty-only** — same restriction as `okhsl`. |
-| `'oklch'` (default for `tokens()` / `json()`) | `oklch(L C H)` | `oklch(L C H / A)` | OKLab-based LCH. Native CSS. Required for `splitChannels`. |
+| `'oklch'` (default for `tokens()` / `json()`) | `oklch(L C H)` | `oklch(L C H / A)` | OKLab-based LCH. Native CSS. Required for `splitHue`. |
 | `'rgb'` (default for `css()`) | `rgb(R G B)` | `rgb(R G B / A)` | Rounded integers, modern space syntax. |
 | `'hsl'` | `hsl(H S% L%)` | `hsl(H S% L% / A)` | Modern space syntax. |
 
@@ -1169,12 +1169,12 @@ All numeric output strips trailing zeros for cleaner CSS (e.g. `95` not `95.0`).
 
 The `format` option works on CSS-string exports: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `theme.tailwind()`, the same on `palette`, and on `token.token()` / `.tasty()` / `.json()` / `.css()` / `.tailwind()`. **`okhsl` and `okhst` throw on non-Tasty exports** (`tokens`, `json`, `css`, `tailwind`) — they are not native CSS color spaces.
 
-### Hue channel splitting (`splitChannels`)
+### Hue channel splitting (`splitHue`)
 
-On `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and standalone `color.css()` with `format: 'oklch'`, set `splitChannels: true` to emit hue as its own custom property so consumers can re-skin at runtime:
+On `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and standalone `color.css()` with `format: 'oklch'`, set `splitHue: true` to emit hue as its own custom property so consumers can re-skin at runtime:
 
 ```css
-/* theme.css({ format: 'oklch', splitChannels: true, name: 'brand' }) */
+/* theme.css({ format: 'oklch', splitHue: true, name: 'brand' }) */
 --brand-hue: 240;
 --accent-hue: calc(var(--brand-hue) + 20);
 --surface-color: oklch(0.52 0.06 var(--brand-hue));
@@ -1183,7 +1183,7 @@ On `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and stand
 
 **Requirements:** every exported color must be pastel (`pastel: true` globally or per-color). Pastel mode bounds chroma by the hue-independent safe chroma at each lightness, so emitted `C` stays in sRGB for any rotated hue. Non-pastel palettes throw rather than emit values that would clip under rotation.
 
-**Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow and mix colors stay inline (blended hue). Standalone `.token()` / `.tasty()` do not support `splitChannels` (return shape cannot carry the `#name-hue` declaration).
+**Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow and mix colors stay inline (blended hue). Standalone `.token()` / `.tasty()` do not support `splitHue` (return shape cannot carry the `#name-hue` declaration).
 
 `theme.dtcg()` / `theme.dtcgResolver()` / `palette.dtcg()` / `palette.dtcgResolver()` ignore `format` — DTCG emits structured `$value` objects, not CSS strings. Use the `colorSpace` option (`'srgb'` or `'oklch'`) to pick the color representation instead.
 

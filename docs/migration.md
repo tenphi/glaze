@@ -92,7 +92,7 @@ theme.tasty({ format: 'okhsl' })   // Tasty #name keys, okhsl strings
 theme.tokens({ format: 'oklch' })    // native CSS (new default)
 ```
 
-**New:** `splitChannels` on `css()` / `tasty()` (theme + palette) and standalone `color.css()` emits hue as a separate custom property for runtime re-skinning. Requires `format: 'oklch'` and every color to be pastel. See [api.md → Hue channel splitting](api.md#hue-channel-splitting-splitchannels).
+**New:** `splitHue` on `css()` / `tasty()` (theme + palette) and standalone `color.css()` emits hue as a separate custom property for runtime re-skinning. Requires `format: 'oklch'` and every color to be pastel. See [api.md → Hue channel splitting](api.md#hue-channel-splitting-splithue).
 
 ### Export snapshots
 

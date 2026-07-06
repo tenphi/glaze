@@ -744,7 +744,7 @@ export interface GlazeColorCssOptions {
    * Emit hue as a separate custom property, referenced via `var()`.
    * Requires `format: 'oklch'` and a pastel token. oklch + all-pastel only.
    */
-  splitChannels?: boolean;
+  splitHue?: boolean;
 }
 
 /** Return type for `glaze.color()`. */
@@ -977,7 +977,7 @@ export interface GlazeTokenOptions {
    * Emit hue as a separate custom property, referenced via `var()`.
    * Requires `format: 'oklch'` and every color to be pastel.
    */
-  splitChannels?: boolean;
+  splitHue?: boolean;
   /**
    * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
    * Palette export auto-derives this from the theme name.
@@ -1001,7 +1001,7 @@ export interface GlazeCssOptions {
    * Emit hue as a separate custom property, referenced via `var()`.
    * Requires `format: 'oklch'` and every color to be pastel.
    */
-  splitChannels?: boolean;
+  splitHue?: boolean;
   /**
    * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
    * Palette export auto-derives this from the theme name.
@@ -1257,7 +1257,7 @@ export interface GlazePaletteExportOptions {
    * Emit hue as a separate custom property, referenced via `var()`.
    * Requires `format: 'oklch'` and every color to be pastel.
    */
-  splitChannels?: boolean;
+  splitHue?: boolean;
 }
 
 export interface GlazePalette {

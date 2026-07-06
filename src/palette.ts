@@ -126,12 +126,12 @@ function channelCtxForTheme(
   themeName: string,
   passPrefix: string,
   themedPrefix: string,
-  splitChannels: boolean | undefined,
+  splitHue: boolean | undefined,
   format: string,
   modes: ReturnType<typeof resolveModes>,
   filtered: Map<string, ResolvedColor>,
 ): ChannelCtx | undefined {
-  if (!splitChannels || format !== 'oklch') return undefined;
+  if (!splitHue || format !== 'oklch') return undefined;
   assertAllPastel(filtered, modes);
   return {
     seedHue: theme.hue,
@@ -295,7 +295,7 @@ export function createPalette(
             themeName,
             prefix,
             themedPrefix,
-            options?.splitChannels,
+            options?.splitHue,
             format,
             modes,
             filtered,
@@ -358,7 +358,7 @@ export function createPalette(
             themeName,
             prefix,
             themedPrefix,
-            options?.splitChannels,
+            options?.splitHue,
             format,
             modes,
             filtered,

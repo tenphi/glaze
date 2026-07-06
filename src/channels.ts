@@ -1,5 +1,5 @@
 /**
- * Hue channel planning for `splitChannels` exports.
+ * Hue channel planning for `splitHue` exports.
  *
  * Builds per-color hue var references and scheme-independent `--*-hue`
  * declarations for oklch CSS / Tasty output when every color is pastel.

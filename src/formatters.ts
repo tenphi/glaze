@@ -87,7 +87,7 @@ export function formatVariant(
 
 /**
  * Format a resolved variant as `oklch(L C <hueVar>)`, splicing a CSS hue var
- * for `splitChannels` exports. Falls back to inline when the plan is inline.
+ * for `splitHue` exports. Falls back to inline when the plan is inline.
  */
 export function formatVariantHue(
   v: ResolvedColorVariant,

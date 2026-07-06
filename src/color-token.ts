@@ -639,7 +639,7 @@ function createColorTokenFromDefs(
       ]);
 
       let channelCtx: ChannelCtx | undefined;
-      if (options.splitChannels && format === 'oklch') {
+      if (options.splitHue && format === 'oklch') {
         const modes = resolveModes();
         assertAllPastel(renamed, modes);
         channelCtx = {
