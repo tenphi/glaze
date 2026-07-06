@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.16.1
+
+### Patch Changes
+
+- [`f7aaa85`](https://github.com/tenphi/glaze/commit/f7aaa8580048868f1fe3d32f79049c64513e494d) Thanks [@tenphi](https://github.com/tenphi)! - Fixes the tasty() output for splitHue feature.
+
 ## 0.16.0
 
 ### Minor Changes
