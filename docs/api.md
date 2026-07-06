@@ -145,8 +145,8 @@ theme.tasty()
 | `modes` | global config | Which scheme variants to include. |
 | `states.dark` | `'@dark'` (or global config) | State alias for dark mode tokens. |
 | `states.highContrast` | `'@high-contrast'` (or global config) | State alias for high-contrast tokens. |
-| `splitHue` | `false` | Emit hue as a separate custom property (`#name-hue` token + `var()` in `oklch` values). Requires `format: 'oklch'` and every color to be pastel. |
-| `name` | `'theme'` | Base name for the theme-level hue var (`#theme-hue` / `--theme-hue`). Palette export auto-derives this from the theme name. |
+| `splitHue` | `false` | Emit hue as a separate custom property (`$name-hue` token + `var()` in `oklch` values). Requires `format: 'oklch'` and every color to be pastel. |
+| `name` | `'theme'` | Base name for the theme-level hue var (`$theme-hue` / `--theme-hue`). Palette export auto-derives this from the theme name. |
 | `prefix` | (palette only) | See [Palette](#palette). |
 
 When both `dark` and `highContrast` modes are enabled, dark high-contrast variants are emitted under the combined key `<dark> & <highContrast>` (e.g. `'@dark & @high-contrast'`).
@@ -1183,7 +1183,7 @@ On `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and stand
 
 **Requirements:** every exported color must be pastel (`pastel: true` globally or per-color). Pastel mode bounds chroma by the hue-independent safe chroma at each lightness, so emitted `C` stays in sRGB for any rotated hue. Non-pastel palettes throw rather than emit values that would clip under rotation.
 
-**Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow and mix colors stay inline (blended hue). Standalone `.token()` / `.tasty()` do not support `splitHue` (return shape cannot carry the `#name-hue` declaration).
+**Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow and mix colors stay inline (blended hue). Standalone `.token()` / `.tasty()` do not support `splitHue` (return shape cannot carry the `$name-hue` declaration).
 
 `theme.dtcg()` / `theme.dtcgResolver()` / `palette.dtcg()` / `palette.dtcgResolver()` ignore `format` — DTCG emits structured `$value` objects, not CSS strings. Use the `colorSpace` option (`'srgb'` or `'oklch'`) to pick the color representation instead.
 

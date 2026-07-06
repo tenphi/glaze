@@ -154,7 +154,7 @@ export function buildTokenMap(
   if (huePlans !== undefined && channelCtx !== undefined) {
     const emitDecls = channelCtx.emitDeclarations !== false;
     if (emitDecls && channelCtx.mode === 'theme') {
-      tokens[`#${channelCtx.baseName}-hue`] = {
+      tokens[`$${channelCtx.baseName}-hue`] = {
         '': String(channelCtx.seedHue),
       };
     }
@@ -162,7 +162,7 @@ export function buildTokenMap(
       const plan = huePlans.get(name)!;
       if (emitDecls) {
         for (const decl of plan.declarations) {
-          const key = `#${decl.prop.slice(2)}`;
+          const key = `$${decl.prop.slice(2)}`;
           if (!(key in tokens)) {
             tokens[key] = { '': decl.value };
           }

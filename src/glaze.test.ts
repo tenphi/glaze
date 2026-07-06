@@ -1228,15 +1228,15 @@ describe('glaze', () => {
       );
     });
 
-    it('tasty emits #brand-hue and var()-referenced oklch colors', () => {
+    it('tasty emits $brand-hue and var()-referenced oklch colors', () => {
       const theme = pastelTheme();
       const tokens = theme.tasty({
         format: 'oklch',
         splitHue: true,
         name: 'brand',
       });
-      expect(tokens['#brand-hue']['']).toBe('240');
-      expect(tokens['#accent-hue']['']).toBe('calc(var(--brand-hue) + 20)');
+      expect(tokens['$brand-hue']['']).toBe('240');
+      expect(tokens['$accent-hue']['']).toBe('calc(var(--brand-hue) + 20)');
       expect(tokens['#surface']['']).toMatch(/oklch\([^)]*var\(--brand-hue\)/);
       expect(tokens['#accent']['']).toMatch(/oklch\([^)]*var\(--accent-hue\)/);
     });
