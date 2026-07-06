@@ -1,5 +1,34 @@
 # @tenphi/glaze
 
+## 0.16.0
+
+### Minor Changes
+
+- [#69](https://github.com/tenphi/glaze/pull/69) [`86c3d27`](https://github.com/tenphi/glaze/commit/86c3d271bd08efb392b5bfd2b83962b7500cc440) Thanks [@tenphi](https://github.com/tenphi)! - Add opt-in DTCG Resolver-Module export (`dtcgResolver()`)
+  - **New export.** `theme.dtcgResolver()`, `palette.dtcgResolver()`, and `glaze.color().dtcgResolver()` emit a single W3C DTCG Resolver-Module document describing every scheme variant in one file — `sets` (the light tokens as the default source) plus a single `scheme` modifier with a context per variant (`light` / `dark` / `lightContrast` / `darkContrast`) and a `resolutionOrder`. An alternative to `dtcg()`'s per-scheme files for resolver tools such as Dispersa.
+  - **Why one modifier.** Glaze resolves `darkContrast` independently (it is not `dark` + `lightContrast` layered), so the four-context shape keeps every resolved value exact. Two independent modifiers would compose additively and produce wrong dark + high-contrast values.
+  - **Options.** `GlazeDtcgResolverOptions` extends `GlazeDtcgOptions` (`modes` + `colorSpace` pass through) with `setName` (default `'base'`), `modifierName` (default `'scheme'`), `contextNames` (rename the four contexts), and `version` (default `'2025.10'`). Standalone `glaze.color().dtcgResolver()` requires `name`.
+  - New public types: `GlazeDtcgResolverDocument`, `GlazeDtcgResolverOptions`, `GlazeColorDtcgResolverOptions`, `DtcgTokenTree`, `DtcgResolverSet`, `DtcgResolverModifier`, `DtcgResolverRef`.
+
+- [#69](https://github.com/tenphi/glaze/pull/69) [`86c3d27`](https://github.com/tenphi/glaze/commit/86c3d271bd08efb392b5bfd2b83962b7500cc440) Thanks [@tenphi](https://github.com/tenphi)! - Add DTCG and Tailwind CSS v4 token exports
+  - **`dtcg()`** — W3C [Design Tokens Format Module (2025.10)](https://www.designtokens.org/) export. Available on themes, palettes, and standalone `glaze.color()` tokens. Returns one spec-conformant token document per scheme variant (`light` / `dark` / `lightContrast` / `darkContrast``), each a `{ name: { $type: 'color', $value } }` tree consumable by Figma, Tokens Studio, Style Dictionary v4+, Terrazzo, Penpot, and every DTCG-compatible tool. The `colorSpace` option selects the `$value`representation:`'srgb'`(default — gamma sRGB`components`in 0–1 plus a`hex`hint) or`'oklch'`(Glaze-native, wide-gamut`[L, C, H]`, no hex). `alpha` is emitted only when opacity is below 1. One document per scheme is the most tool-compatible convention (one file per Style Dictionary theme / Tokens Studio set / Figma variable mode).
+  - **`tailwind()`** — Tailwind CSS v4 export. Returns a single ready-to-paste CSS string: an `@theme` block (light baseline) plus dark / high-contrast overrides under configurable selectors. The `--color-*` namespace (configurable via `namespace`) auto-generates `bg-*` / `text-*` / `border-*` utilities. `darkSelector` (default `.dark`) accepts an at-rule like `'@media (prefers-color-scheme: dark)'` (nests `:root` automatically); `highContrastSelector` (default `.high-contrast`) covers the HC variants, with the combined block at `${darkSelector}${highContrastSelector}`. Default `format` is `'oklch'`.
+  - **New types** exported from the package entry: `DtcgColorSpace`, `DtcgSrgbColorValue`, `DtcgOklchColorValue`, `DtcgColorValue`, `DtcgColorToken`, `DtcgDocument`, `GlazeDtcgResult`, `GlazeColorDtcgResult`, `GlazeDtcgOptions`, `GlazeTailwindOptions`, `GlazeColorTailwindOptions`.
+  - **New color-math helpers** exported for advanced use: `srgbToHex(rgb)` (sRGB 0–1 → `#rrggbb`) and `okhslToOklch(h, s, l, pastel?)` (OKHSL → `[L, C, H]`), shared by `formatOklch` and the DTCG exporter.
+  - Both new exports honor `modes` (dark / high-contrast gating) and the palette `prefix` / `primary` options. On `palette.tailwind()`, the palette theme-prefix `prefix` is separate from `GlazeTailwindOptions.namespace` (the `--color-*` CSS namespace).
+
+- [#69](https://github.com/tenphi/glaze/pull/69) [`86c3d27`](https://github.com/tenphi/glaze/commit/86c3d271bd08efb392b5bfd2b83962b7500cc440) Thanks [@tenphi](https://github.com/tenphi)! - feat+breaking: oklch hue channel splitting (pastel-only); add okhst tasty-only output; okhsl/okhst are tasty-only; tokens/json default to oklch
+  - Add `splitHue` on `css()` / `tasty()` (theme + palette) and standalone `color.css()` — emits hue as a separate custom property referenced via `var()` in `oklch` values. Requires every exported color to be pastel.
+  - Add `'okhst'` output format (`okhst(H S% T%)`) for Tasty exports.
+  - `okhsl` and `okhst` throw on non-Tasty exports (`css`, `tailwind`, `tokens`, `json`).
+  - `tokens()` / `json()` default format changes from `okhsl` to `oklch` (theme, palette, standalone `.json()`).
+
+- [#69](https://github.com/tenphi/glaze/pull/69) [`86c3d27`](https://github.com/tenphi/glaze/commit/86c3d271bd08efb392b5bfd2b83962b7500cc440) Thanks [@tenphi](https://github.com/tenphi)! - Add semantic color roles with APCA polarity and APCA presets
+  - **Roles.** Colors now carry a semantic `role` (`'text'` | `'surface'` | `'border'`, with aliases like `bg`/`fg`/`divider`/`outline`/`fill`/`ink`/…). The role fixes **APCA contrast polarity** — which side is the foreground vs the background — so the APCA solver uses the correct argument order instead of always treating the resolved color as text. WCAG is symmetric and unaffected.
+  - **Role inference.** Roles are inferred from the color name by default (`inferRole: true`), with the last recognized token winning (`button-text` → `text`, `input-bg` → `surface`, `card-outline` → `border`). When a name doesn't infer, the opposite of the base's role is used; otherwise the color defaults to `text` (foreground), preserving previous behavior. Set `glaze.configure({ inferRole: false })` to opt out of name inference.
+  - **APCA presets.** APCA targets accept named Bronze Simple Mode presets: `'preferred'` (Lc 90), `'body'` (75), `'content'` (60, ~AA), `'large'` (45, ~3:1), `'non-text'` (30), `'min'` (15). Use anywhere an APCA target is accepted, e.g. `contrast: { apca: 'content' }` or `contrast: { apca: ['content', 'body'] }`. Presets are role-independent.
+  - `role` is also available on `MixColorDef` and standalone `glaze.color()` inputs and survives the `export()` / `glaze.colorFrom()` round-trip.
+
 ## 0.15.1
 
 ### Patch Changes
