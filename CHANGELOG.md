@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.16.2
+
+### Patch Changes
+
+- [`fa25eda`](https://github.com/tenphi/glaze/commit/fa25eda04b2394afbf77b31ecf61494a9371f1e2) Thanks [@tenphi](https://github.com/tenphi)! - Default export format is now `oklch` for all exporters (`tasty()`, `token()`, `css()`, and internal formatter defaults). Use `{ format: 'okhsl' }` or `{ format: 'rgb' }` to opt into other formats.
+
 ## 0.16.1
 
 ### Patch Changes
