@@ -752,6 +752,32 @@ export function formatOkhsl(
 }
 
 /**
+ * Format OKHST values as a CSS `okhst(H S% T%)` string.
+ * h: 0–360, s: 0–100, t: 0–100 (percentage scale for s and t).
+ *
+ * Pastel recompute matches `formatOkhsl`: convert via OKLab so external
+ * parsers that only understand non-pastel OKHST render identically.
+ */
+export function formatOkhst(
+  h: number,
+  s: number,
+  t: number,
+  pastel = false,
+): string {
+  let outS = s;
+  if (pastel) {
+    const REF_EPS = 0.05;
+    const den = Math.log(1 + REF_EPS) - Math.log(REF_EPS);
+    const y = Math.exp((t / 100) * den + Math.log(REF_EPS)) - REF_EPS;
+    const l = toe(Math.cbrt(Math.max(0, y)));
+    const oklab = okhslToOklab(h, s / 100, l, true);
+    const normalOkhsl = oklabToOkhsl(oklab, false);
+    outS = normalOkhsl[1] * 100;
+  }
+  return `okhst(${fmt(h, 2)} ${fmt(outS, 2)}% ${fmt(t, 2)}%)`;
+}
+
+/**
  * Format OKHSL values as a CSS `rgb(R G B)` string.
  * Uses 2 decimal places to avoid 8-bit quantization contrast loss.
  * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
@@ -811,10 +837,41 @@ export function formatOklch(
   l: number,
   pastel = false,
 ): string {
-  const [L, a, b] = okhslToOklab(h, s / 100, l / 100, pastel);
-  const C = Math.sqrt(a * a + b * b);
-  let hh = Math.atan2(b, a) * (180 / Math.PI);
-  hh = constrainAngle(hh);
-
+  const [L, C, hh] = okhslToOklch(h, s / 100, l / 100, pastel);
   return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 2)})`;
+}
+
+// ============================================================================
+// Structured (non-string) color accessors — used by the DTCG exporter.
+// ============================================================================
+
+/**
+ * Convert gamma-encoded sRGB channels (0–1) to a 6-digit lowercase hex
+ * string (`#rrggbb`). Channels are clamped to [0,1] and rounded to 8-bit.
+ * Alpha is not encoded here — DTCG carries it as a separate `alpha` field.
+ */
+export function srgbToHex(rgb: [number, number, number]): `#${string}` {
+  const toByte = (c: number): number =>
+    Math.max(0, Math.min(255, Math.round(c * 255)));
+  const r = toByte(rgb[0]);
+  const g = toByte(rgb[1]);
+  const b = toByte(rgb[2]);
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+}
+
+/**
+ * Convert OKHSL (h: 0–360, s: 0–1, l: 0–1) to OKLCH components `[L, C, H]`.
+ * L: 0–1, C: 0–~0.4 (chroma), H: 0–360 (hue). Shared by `formatOklch` and
+ * the DTCG `oklch` colorSpace exporter so the two never drift apart.
+ */
+export function okhslToOklch(
+  h: number,
+  s: number,
+  l: number,
+  pastel = false,
+): [number, number, number] {
+  const [L, a, b] = okhslToOklab(h, s, l, pastel);
+  const C = Math.sqrt(a * a + b * b);
+  const hh = constrainAngle(Math.atan2(b, a) * (180 / Math.PI));
+  return [L, C, hh];
 }

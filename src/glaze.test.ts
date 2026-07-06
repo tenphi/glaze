@@ -3,10 +3,16 @@ import {
   contrastRatioFromLuminance,
   okhslToLinearSrgb,
   gamutClampedLuminance,
+  apcaLuminanceFromLinearRgb,
   parseHex,
 } from './okhsl-color-math';
+import { apcaContrast } from './contrast-solver';
 import { variantToOkhsl } from './okhst';
-import type { GlazeColorTokenExport, ResolvedColorVariant } from './types';
+import type {
+  DtcgColorToken,
+  GlazeColorTokenExport,
+  ResolvedColorVariant,
+} from './types';
 
 /** OKHSL lightness (0–1) of a resolved variant (stored as tone). */
 function llOf(v: ResolvedColorVariant): number {
@@ -22,6 +28,25 @@ function variantContrast(
   const yA = gamutClampedLuminance(okhslToLinearSrgb(ca.h, ca.s, ca.l));
   const yB = gamutClampedLuminance(okhslToLinearSrgb(cb.h, cb.s, cb.l));
   return contrastRatioFromLuminance(yA, yB);
+}
+
+/** APCA Lc magnitude of `candidate` against `base`, ordered by `polarity`. */
+function variantApca(
+  candidate: ResolvedColorVariant,
+  base: ResolvedColorVariant,
+  polarity: 'fg' | 'bg',
+): number {
+  const cc = variantToOkhsl(candidate);
+  const cb = variantToOkhsl(base);
+  const yC = apcaLuminanceFromLinearRgb(
+    okhslToLinearSrgb(cc.h, cc.s, cc.l, candidate.pastel),
+  );
+  const yB = apcaLuminanceFromLinearRgb(
+    okhslToLinearSrgb(cb.h, cb.s, cb.l, base.pastel),
+  );
+  return Math.abs(
+    polarity === 'bg' ? apcaContrast(yB, yC) : apcaContrast(yC, yB),
+  );
 }
 
 describe('glaze', () => {
@@ -774,6 +799,149 @@ describe('glaze', () => {
     });
   });
 
+  describe('role inference', () => {
+    it("infers 'border' from the name with no special pastel default", () => {
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10' },
+      });
+      const r = theme.resolve();
+      // Borders fall through to the config pastel default (no special default).
+      expect(r.get('border')!.light.pastel).toBe(false);
+    });
+
+    it('border pastel follows the global config like any other color', () => {
+      glaze.configure({ pastel: true });
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10' },
+        text: { base: 'surface', tone: '-40' },
+      });
+      const r = theme.resolve();
+      expect(r.get('border')!.light.pastel).toBe(true);
+      expect(r.get('text')!.light.pastel).toBe(true);
+    });
+
+    it('explicit pastel on a border still applies', () => {
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10', pastel: true },
+      });
+      const r = theme.resolve();
+      expect(r.get('border')!.light.pastel).toBe(true);
+    });
+
+    it('non-border names keep the config pastel default (false)', () => {
+      const theme = glaze(280, 60);
+      theme.colors({
+        surface: { tone: 90 },
+        text: { base: 'surface', tone: '-40' },
+      });
+      const r = theme.resolve();
+      expect(r.get('text')!.light.pastel).toBe(false);
+    });
+
+    it('last recognized name token wins (button-text -> text, input-bg -> surface)', () => {
+      // Observable via APCA polarity: a text (fg) and a surface (bg) against
+      // the same base converge to different tones for the same Lc floor.
+      const theme = glaze(0, 50);
+      theme.colors({
+        bg: { tone: 80 },
+        'button-text': { base: 'bg', contrast: { apca: 45 } },
+        'input-bg': { base: 'bg', contrast: { apca: 45 } },
+      });
+      const r = theme.resolve();
+      const asText = r.get('button-text')!.light;
+      const asSurface = r.get('input-bg')!.light;
+      const base = r.get('bg')!.light;
+      // 'button-text' infers text (fg); 'input-bg' infers surface (bg).
+      expect(variantApca(asText, base, 'fg')).toBeGreaterThanOrEqual(45);
+      expect(variantApca(asSurface, base, 'bg')).toBeGreaterThanOrEqual(45);
+      expect(Math.abs(llOf(asText) - llOf(asSurface))).toBeGreaterThan(0.01);
+    });
+
+    it('explicit role overrides name inference', () => {
+      const theme = glaze(0, 50);
+      theme.colors({
+        bg: { tone: 90 },
+        // Named like text but forced to a surface role.
+        text: { base: 'bg', role: 'surface', contrast: { apca: 45 } },
+        // A plain text name with default role (inferred text).
+        label: { base: 'bg', contrast: { apca: 45 } },
+      });
+      const r = theme.resolve();
+      const asSurface = r.get('text')!.light;
+      const asText = r.get('label')!.light;
+      const base = r.get('bg')!.light;
+      // Polarity flips the APCA argument order, so the two converge differently.
+      expect(Math.abs(llOf(asSurface) - llOf(asText))).toBeGreaterThan(0.01);
+      expect(variantApca(asSurface, base, 'bg')).toBeGreaterThanOrEqual(45);
+      expect(variantApca(asText, base, 'fg')).toBeGreaterThanOrEqual(45);
+    });
+
+    it("uses the opposite of the base's role when the name does not infer", () => {
+      const theme = glaze(0, 50);
+      theme.colors({
+        bg: { tone: 90 }, // name 'bg' infers surface
+        accent: { base: 'bg', contrast: { apca: 45 } }, // no keyword -> opposite of base
+      });
+      const r = theme.resolve();
+      // base 'bg' is a surface -> 'accent' defaults to text (fg polarity).
+      const base = r.get('bg')!.light;
+      const accent = r.get('accent')!.light;
+      expect(variantApca(accent, base, 'fg')).toBeGreaterThanOrEqual(45);
+    });
+
+    it('inferRole: false skips name inference and falls back to the base opposite', () => {
+      const theme = glaze(0, 50, { inferRole: false });
+      theme.colors({
+        surface: { tone: 90 },
+        border: { base: 'surface', tone: '-10' },
+      });
+      const r = theme.resolve();
+      // Without inference, 'border' is just a name; base 'surface' infers...
+      // but inference is off, so 'surface' falls to its default (root -> text),
+      // and 'border' takes the opposite -> surface. No pastel default applies.
+      expect(r.get('border')!.light.pastel).toBe(false);
+    });
+
+    it('APCA preset keywords resolve to role-independent Lc floors', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 97 },
+        body: { base: 'bg', contrast: { apca: 'content' } },
+        divider: { base: 'bg', role: 'border', contrast: { apca: 'min' } },
+      });
+      const r = theme.resolve();
+      const base = r.get('bg')!.light;
+      // 'content' -> Lc 60
+      expect(
+        variantApca(r.get('body')!.light, base, 'fg'),
+      ).toBeGreaterThanOrEqual(60);
+      // 'min' -> Lc 15 (border role -> bg-ordered? border is fg polarity)
+      expect(
+        variantApca(r.get('divider')!.light, base, 'fg'),
+      ).toBeGreaterThanOrEqual(15);
+    });
+
+    it('back-compat: a dependent with no role defaults to foreground (fg)', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 97 },
+        accent: { base: 'bg', tone: 50, contrast: { apca: 60 } },
+      });
+      const r = theme.resolve();
+      // 'accent' name does not infer; base 'bg' infers surface -> accent is fg.
+      const base = r.get('bg')!.light;
+      expect(
+        variantApca(r.get('accent')!.light, base, 'fg'),
+      ).toBeGreaterThanOrEqual(60);
+    });
+  });
+
   describe('extend', () => {
     it('inherits color defs and overrides the seed hue', () => {
       const base = glaze(280, 80);
@@ -807,7 +975,7 @@ describe('glaze', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97 } });
       const tokens = theme.tokens();
-      expect(tokens.light.surface).toMatch(/^okhsl\(/);
+      expect(tokens.light.surface).toMatch(/^oklch\(/);
       expect(tokens.dark.surface).toBeDefined();
     });
   });
@@ -817,7 +985,7 @@ describe('glaze', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97 } });
       const json = theme.json();
-      expect(json.surface.light).toMatch(/^okhsl\(/);
+      expect(json.surface.light).toMatch(/^oklch\(/);
       expect(json.surface.dark).toBeDefined();
     });
   });
@@ -855,7 +1023,7 @@ describe('glaze', () => {
       const json = setup().json();
       expect(json.primary).toBeDefined();
       expect(json.danger).toBeDefined();
-      expect(json.primary.surface.light).toMatch(/^okhsl\(/);
+      expect(json.primary.surface.light).toMatch(/^oklch\(/);
     });
 
     it('defaults to prefix: true for palette tokens', () => {
@@ -981,13 +1149,36 @@ describe('glaze', () => {
   });
 
   describe('format option', () => {
-    it('supports rgb / hsl / okhsl / oklch output', () => {
+    it('supports rgb / hsl / oklch output on tokens and json', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 97 } });
       expect(theme.tokens({ format: 'rgb' }).light.surface).toMatch(/^rgb/);
       expect(theme.tokens({ format: 'hsl' }).light.surface).toMatch(/^hsl/);
-      expect(theme.tokens({ format: 'okhsl' }).light.surface).toMatch(/^okhsl/);
       expect(theme.tokens({ format: 'oklch' }).light.surface).toMatch(/^oklch/);
+      expect(theme.json({ format: 'oklch' }).surface.light).toMatch(/^oklch\(/);
+    });
+
+    it('rejects okhsl and okhst on non-tasty exports', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      for (const format of ['okhsl', 'okhst'] as const) {
+        expect(() => theme.tokens({ format })).toThrow(
+          /only supported by tasty/,
+        );
+        expect(() => theme.json({ format })).toThrow(/only supported by tasty/);
+        expect(() => theme.css({ format })).toThrow(/only supported by tasty/);
+        expect(() => theme.tailwind({ format })).toThrow(
+          /only supported by tasty/,
+        );
+      }
+    });
+
+    it('emits okhst via tasty()', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      expect(theme.tasty({ format: 'okhst' })['#surface']['']).toMatch(
+        /^okhst\(/,
+      );
     });
   });
 
@@ -998,6 +1189,470 @@ describe('glaze', () => {
       const css = theme.css();
       expect(css.light).toMatch(/--surface-color:/);
       expect(css.dark).toMatch(/--surface-color:/);
+    });
+  });
+
+  describe('splitHue export', () => {
+    function pastelTheme() {
+      glaze.configure({ pastel: true });
+      const theme = glaze(240, 18);
+      theme.colors({
+        surface: { tone: 35 },
+        accent: { hue: '+20', tone: 52, saturation: 0.5 },
+      });
+      return theme;
+    }
+
+    it('throws when any color is not pastel', () => {
+      const theme = glaze(240, 18);
+      theme.colors({ surface: { tone: 35 } });
+      expect(() => theme.css({ format: 'oklch', splitHue: true })).toThrow(
+        /requires every color to be pastel/,
+      );
+    });
+
+    it('css emits theme hue var and var()-referenced oklch colors', () => {
+      const theme = pastelTheme();
+      const css = theme.css({
+        format: 'oklch',
+        splitHue: true,
+        name: 'brand',
+      });
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.light).toContain('--accent-hue: calc(var(--brand-hue) + 20);');
+      expect(css.light).toMatch(
+        /--surface-color: oklch\([^)]*var\(--brand-hue\)/,
+      );
+      expect(css.light).toMatch(
+        /--accent-color: oklch\([^)]*var\(--accent-hue\)/,
+      );
+    });
+
+    it('tasty emits #brand-hue and var()-referenced oklch colors', () => {
+      const theme = pastelTheme();
+      const tokens = theme.tasty({
+        format: 'oklch',
+        splitHue: true,
+        name: 'brand',
+      });
+      expect(tokens['#brand-hue']['']).toBe('240');
+      expect(tokens['#accent-hue']['']).toBe('calc(var(--brand-hue) + 20)');
+      expect(tokens['#surface']['']).toMatch(/oklch\([^)]*var\(--brand-hue\)/);
+      expect(tokens['#accent']['']).toMatch(/oklch\([^)]*var\(--accent-hue\)/);
+    });
+
+    it('is a no-op for hsl and rgb formats', () => {
+      const theme = pastelTheme();
+      const inline = theme.css({ format: 'rgb' });
+      const withFlag = theme.css({ format: 'rgb', splitHue: true });
+      expect(withFlag.light).toBe(inline.light);
+    });
+
+    it('palette scopes hue vars per theme', () => {
+      glaze.configure({ pastel: true });
+      const brand = glaze(240, 18);
+      brand.colors({ surface: { tone: 35 } });
+      const accent = brand.extend({ hue: 23 });
+      accent.colors({ surface: { tone: 40 } });
+      const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+      const css = palette.css({
+        format: 'oklch',
+        splitHue: true,
+      });
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.light).toContain('--accent-hue: 23;');
+      expect(css.light).toMatch(
+        /--surface-color: oklch\([^)]*var\(--brand-hue\)/,
+      );
+      expect(css.light).toMatch(
+        /--accent-surface-color: oklch\([^)]*var\(--accent-hue\)/,
+      );
+    });
+
+    it('standalone css emits constant --name-hue for pastel tokens', () => {
+      const color = glaze.color({
+        hue: 240,
+        saturation: 18,
+        tone: 52,
+        pastel: true,
+      });
+      const css = color.css({
+        name: 'brand',
+        format: 'oklch',
+        splitHue: true,
+      });
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.light).toMatch(
+        /--brand-color: oklch\([^)]*var\(--brand-hue\)/,
+      );
+    });
+
+    it('standalone css throws when token is not pastel', () => {
+      const color = glaze.color({ hue: 240, saturation: 18, tone: 52 });
+      expect(() =>
+        color.css({ name: 'brand', format: 'oklch', splitHue: true }),
+      ).toThrow(/requires every color to be pastel/);
+    });
+
+    it('inlines achromatic, shadow, and mix colors and preserves alpha', () => {
+      glaze.configure({ pastel: true });
+      const theme = glaze(240, 18);
+      theme.colors({
+        surface: { tone: 50 },
+        accent: { hue: 280, tone: 52 },
+        border: { tone: 50, saturation: 0 },
+        text: { base: 'surface', tone: 5, contrast: 4.5 },
+        shadow: {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 0.5,
+        },
+        ghost: {
+          type: 'mix',
+          base: 'surface',
+          target: 'accent',
+          value: 0.5,
+        },
+        overlay: { tone: 50, opacity: 0.5 },
+      });
+      const css = theme.css({
+        format: 'oklch',
+        splitHue: true,
+        name: 'brand',
+      });
+      // absolute hue override → per-color var
+      expect(css.light).toContain('--accent-hue: 280;');
+      // achromatic → inline oklch(L 0 0), no hue var
+      expect(css.light).toMatch(/--border-color: oklch\([\d.]+ 0 0\)/);
+      // shadow → inline (no var()), with alpha
+      expect(css.light).toMatch(
+        /--shadow-color: oklch\([\d.]+ [\d.]+ [\d.]+ \/ [\d.]+\)/,
+      );
+      expect(css.light).not.toMatch(/--shadow-color:[^;]*var\(/);
+      // mix → inline (no var())
+      expect(css.light).toMatch(/--ghost-color: oklch\([\d.]+ [\d.]+ [\d.]+\)/);
+      expect(css.light).not.toMatch(/--ghost-color:[^;]*var\(/);
+      // alpha < 1 preserved with hue var
+      expect(css.light).toMatch(
+        /--overlay-color: oklch\([^)]*var\(--brand-hue\) \/ 0.5\)/,
+      );
+    });
+
+    it('does not re-emit hue vars for the palette primary unprefixed alias', () => {
+      glaze.configure({ pastel: true });
+      const brand = glaze(240, 18);
+      brand.colors({ surface: { tone: 35 }, accent: { hue: '+20', tone: 52 } });
+      const warning = glaze(23, 18);
+      warning.colors({ surface: { tone: 40 } });
+      const palette = glaze.palette({ brand, warning }, { primary: 'brand' });
+      const css = palette.css({ format: 'oklch', splitHue: true });
+      // brand-hue declared once (by the prefixed pass)
+      expect(css.light.match(/--brand-hue: 240;/g)).toHaveLength(1);
+      // unprefixed primary alias references the themed per-color hue var
+      expect(css.light).toMatch(
+        /--accent-color: oklch\([^)]*var\(--brand-accent-hue\)/,
+      );
+      // no unprefixed --accent-hue colliding with the warning theme's base
+      expect(css.light).not.toMatch(/--accent-hue: calc/);
+    });
+
+    it('okhst round-trips through the color parser', () => {
+      const color = glaze.color('okhst(280 60% 52%)');
+      expect(color.tasty({ format: 'okhst' })['']).toBe('okhst(280 60% 52%)');
+    });
+
+    it('okhst pastel output renders identically to the non-pastel equivalent', () => {
+      const pastel = glaze.color(
+        { hue: 280, saturation: 80, tone: 52 },
+        { pastel: true },
+      );
+      const okhstStr = pastel.tasty({ format: 'okhst' })[''];
+      // Re-parse the emitted okhst string as a non-pastel color; it should
+      // render the same 8-bit RGB as the original pastel token (2-decimal
+      // saturation rounding stays within 8-bit quantization).
+      const reparsed = glaze.color(okhstStr);
+      const round8 = (s: string): string =>
+        s
+          .match(/[\d.]+/g)!
+          .map((n) => String(Math.round(Number(n))))
+          .join(' ');
+      expect(round8(reparsed.css({ name: 'x', format: 'rgb' }).light)).toBe(
+        round8(pastel.css({ name: 'x', format: 'rgb' }).light),
+      );
+    });
+  });
+
+  describe('DTCG export', () => {
+    it('emits a spec-conformant color token per scheme (srgb)', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const dtcg = theme.dtcg();
+      const lightToken = dtcg.light.surface;
+      expect(lightToken.$type).toBe('color');
+      const value = lightToken.$value;
+      expect(value.colorSpace).toBe('srgb');
+      expect(value.components).toHaveLength(3);
+      for (const c of value.components) {
+        expect(c).toBeGreaterThanOrEqual(0);
+        expect(c).toBeLessThanOrEqual(1);
+      }
+      // No alpha when opaque.
+      expect(value.alpha).toBeUndefined();
+      // hex is a 7-char #rrggbb and parses back to the same components.
+      expect(value.hex).toMatch(/^#[0-9a-f]{6}$/);
+      const [r, g, b] = parseHex(value.hex)!;
+      expect(r).toBeCloseTo(value.components[0], 2);
+      expect(g).toBeCloseTo(value.components[1], 2);
+      expect(b).toBeCloseTo(value.components[2], 2);
+      // dark is present by default.
+      expect(dtcg.dark?.surface.$value.colorSpace).toBe('srgb');
+    });
+
+    it('emits oklch components with no hex', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const value = theme.dtcg({ colorSpace: 'oklch' }).light.surface.$value;
+      expect(value.colorSpace).toBe('oklch');
+      expect(value.components).toHaveLength(3);
+      // L in 0..1, C >= 0, H in 0..360.
+      expect(value.components[0]).toBeGreaterThanOrEqual(0);
+      expect(value.components[0]).toBeLessThanOrEqual(1);
+      expect(value.components[1]).toBeGreaterThanOrEqual(0);
+      expect(value.components[2]).toBeGreaterThanOrEqual(0);
+      expect(value.components[2]).toBeLessThanOrEqual(360);
+      expect((value as { hex?: string }).hex).toBeUndefined();
+    });
+
+    it('gates dark / high-contrast by modes', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const noDark = theme.dtcg({ modes: { dark: false } });
+      expect(noDark.light).toBeDefined();
+      expect(noDark.dark).toBeUndefined();
+      const withHc = theme.dtcg({ modes: { highContrast: true } });
+      expect(withHc.lightContrast).toBeDefined();
+      expect(withHc.darkContrast).toBeDefined();
+    });
+
+    it('includes alpha when opacity is below 1', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97, opacity: 0.5 } });
+      const value = theme.dtcg().light.surface.$value;
+      expect(value.alpha).toBeCloseTo(0.5, 4);
+    });
+
+    it('palette dtcg prefixes and duplicates the primary theme', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { tone: 97 } });
+      const danger = primary.extend({ hue: 23 });
+      const palette = glaze.palette({ primary, danger });
+      const dtcg = palette.dtcg({ primary: 'primary' });
+      expect(dtcg.light['primary-surface']).toBeDefined();
+      expect(dtcg.light['danger-surface']).toBeDefined();
+      // primary duplication → unprefixed alias
+      expect(dtcg.light['surface']).toBeDefined();
+      expect(dtcg.light['surface']).toEqual(dtcg.light['primary-surface']);
+    });
+  });
+
+  describe('DTCG Resolver-Module export', () => {
+    it('wraps every scheme variant into one resolver document', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const doc = theme.dtcgResolver({ modes: { highContrast: true } });
+      const full = theme.dtcg({ modes: { highContrast: true } });
+
+      expect(doc.version).toBe('2025.10');
+      // The light document is the default set source.
+      expect(doc.sets.base.sources[0]).toEqual(full.light);
+      // Single `scheme` modifier, light is the default context (no overrides).
+      expect(doc.modifiers.scheme.default).toBe('light');
+      expect(doc.modifiers.scheme.contexts.light).toEqual([]);
+      // Each other context holds that variant's full document.
+      expect(doc.modifiers.scheme.contexts.dark?.[0]).toEqual(full.dark);
+      expect(doc.modifiers.scheme.contexts.lightContrast?.[0]).toEqual(
+        full.lightContrast,
+      );
+      expect(doc.modifiers.scheme.contexts.darkContrast?.[0]).toEqual(
+        full.darkContrast,
+      );
+      expect(doc.resolutionOrder).toEqual([
+        { $ref: '#/sets/base' },
+        { $ref: '#/modifiers/scheme' },
+      ]);
+    });
+
+    it('gates dark / high-contrast contexts by modes', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const noHc = theme.dtcgResolver({ modes: { highContrast: false } });
+      expect(noHc.modifiers.scheme.contexts.dark).toBeDefined();
+      expect(noHc.modifiers.scheme.contexts.lightContrast).toBeUndefined();
+      expect(noHc.modifiers.scheme.contexts.darkContrast).toBeUndefined();
+
+      const noDark = theme.dtcgResolver({ modes: { dark: false } });
+      expect(noDark.modifiers.scheme.contexts.dark).toBeUndefined();
+      expect(noDark.modifiers.scheme.contexts.light).toEqual([]);
+    });
+
+    it('flows colorSpace through to every source and context', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const doc = theme.dtcgResolver({ colorSpace: 'oklch' });
+      const base = doc.sets.base.sources[0] as Record<string, DtcgColorToken>;
+      const dark = doc.modifiers.scheme.contexts.dark?.[0] as Record<
+        string,
+        DtcgColorToken
+      >;
+      expect(base.surface.$value.colorSpace).toBe('oklch');
+      expect((base.surface.$value as { hex?: string }).hex).toBeUndefined();
+      expect(dark.surface.$value.colorSpace).toBe('oklch');
+    });
+
+    it('honors custom set / modifier / context names', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const doc = theme.dtcgResolver({
+        setName: 'tokens',
+        modifierName: 'theme',
+        contextNames: { dark: 'night' },
+      });
+      expect(doc.sets.tokens).toBeDefined();
+      expect(doc.modifiers.theme).toBeDefined();
+      expect(doc.modifiers.theme.default).toBe('light');
+      expect(doc.modifiers.theme.contexts.night).toBeDefined();
+      expect(doc.modifiers.theme.contexts.dark).toBeUndefined();
+      expect(doc.resolutionOrder).toEqual([
+        { $ref: '#/sets/tokens' },
+        { $ref: '#/modifiers/theme' },
+      ]);
+    });
+
+    it('includes alpha when opacity is below 1', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97, opacity: 0.5 } });
+      const doc = theme.dtcgResolver();
+      const base = doc.sets.base.sources[0] as Record<string, DtcgColorToken>;
+      expect(base.surface.$value.alpha).toBeCloseTo(0.5, 4);
+    });
+
+    it('palette dtcgResolver prefixes and duplicates the primary theme', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { tone: 97 } });
+      const danger = primary.extend({ hue: 23 });
+      const palette = glaze.palette({ primary, danger });
+      const doc = palette.dtcgResolver({ primary: 'primary' });
+
+      const baseKeys = Object.keys(doc.sets.base.sources[0]);
+      expect(baseKeys).toContain('primary-surface');
+      expect(baseKeys).toContain('danger-surface');
+      // primary duplication → unprefixed alias
+      expect(baseKeys).toContain('surface');
+      // The dark context mirrors the same prefixed / aliased keys.
+      const darkKeys = Object.keys(doc.modifiers.scheme.contexts.dark[0]);
+      expect(darkKeys).toContain('primary-surface');
+      expect(darkKeys).toContain('surface');
+      expect(darkKeys).toContain('danger-surface');
+    });
+
+    it('standalone color dtcgResolver keys the token by name per context', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      const doc = color.dtcgResolver({
+        name: 'brand',
+        modes: { highContrast: true },
+      });
+      const base = doc.sets.base.sources[0] as Record<string, DtcgColorToken>;
+      expect(base.brand.$type).toBe('color');
+      expect(base.brand.$value.colorSpace).toBe('srgb');
+      const dark = doc.modifiers.scheme.contexts.dark?.[0] as Record<
+        string,
+        DtcgColorToken
+      >;
+      const darkContrast = doc.modifiers.scheme.contexts
+        .darkContrast?.[0] as Record<string, DtcgColorToken>;
+      // dark and darkContrast are distinct, resolved variants — not layered.
+      expect(dark.brand.$value).not.toEqual(base.brand.$value);
+      expect(darkContrast.brand.$value).not.toEqual(dark.brand.$value);
+    });
+  });
+
+  describe('Tailwind export', () => {
+    it('emits an @theme block plus a .dark override', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const css = theme.tailwind();
+      expect(css).toContain('@theme');
+      expect(css).toMatch(/--color-surface:\s*oklch\(/);
+      expect(css).toContain('.dark');
+      // The @theme block precedes the .dark override.
+      expect(css.indexOf('@theme')).toBeLessThan(css.indexOf('.dark'));
+    });
+
+    it('gates dark / high-contrast overrides by modes', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const noDark = theme.tailwind({ modes: { dark: false } });
+      expect(noDark).toContain('@theme');
+      expect(noDark).not.toContain('.dark');
+      const withHc = theme.tailwind({ modes: { highContrast: true } });
+      expect(withHc).toContain('.high-contrast');
+      expect(withHc).toContain('.dark.high-contrast');
+    });
+
+    it('honors custom namespace, format, and dark selector', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const css = theme.tailwind({
+        namespace: 'tw-',
+        format: 'rgb',
+        darkSelector: '[data-theme="dark"]',
+      });
+      expect(css).toMatch(/--tw-surface:\s*rgb\(/);
+      expect(css).toContain('[data-theme="dark"]');
+      expect(css).not.toContain('.dark');
+    });
+
+    it('nests :root inside an at-rule dark selector', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const css = theme.tailwind({
+        darkSelector: '@media (prefers-color-scheme: dark)',
+      });
+      expect(css).toContain('@media (prefers-color-scheme: dark)');
+      // The dark declarations live inside a :root nested in the media query.
+      const mediaIdx = css.indexOf('@media');
+      const rootIdx = css.indexOf(':root', mediaIdx);
+      expect(rootIdx).toBeGreaterThan(mediaIdx);
+    });
+
+    it('palette tailwind merges themes under one @theme block', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { tone: 97 } });
+      const danger = primary.extend({ hue: 23 });
+      const palette = glaze.palette({ primary, danger });
+      const css = palette.tailwind({ primary: 'primary' });
+      // Exactly one @theme block, containing both prefixed keys + the
+      // unprefixed primary alias.
+      expect(css.match(/@theme/g)).toHaveLength(1);
+      expect(css).toMatch(/--color-primary-surface:/);
+      expect(css).toMatch(/--color-danger-surface:/);
+      expect(css).toMatch(/--color-surface:/);
+    });
+
+    it('palette tailwind separates theme prefix from the css namespace', () => {
+      const primary = glaze(280, 80);
+      primary.colors({ surface: { tone: 97 } });
+      const danger = primary.extend({ hue: 23 });
+      const palette = glaze.palette({ primary, danger });
+      // `prefix` controls theme prefixing; `namespace` controls --<ns><name>.
+      const css = palette.tailwind({
+        prefix: { primary: 'p-', danger: 'd-' },
+        namespace: 'color-',
+      });
+      expect(css).toMatch(/--color-p-surface:/);
+      expect(css).toMatch(/--color-d-surface:/);
+      expect(css).not.toMatch(/--color-primary-surface:/);
     });
   });
 
@@ -1037,17 +1692,60 @@ describe('glaze', () => {
       expect(resolved.dark.t).toBeGreaterThan(0.4);
     });
 
-    it('exports token / tasty / json with okhsl strings', () => {
+    it('exports token / tasty with okhsl and json with oklch by default', () => {
       const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
       expect(color.token()['']).toMatch(/^okhsl\(/);
       expect(color.tasty()['']).toMatch(/^okhsl\(/);
-      expect(color.json().light).toMatch(/^okhsl\(/);
+      expect(color.json().light).toMatch(/^oklch\(/);
+    });
+
+    it('emits okhst via token() and tasty()', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      expect(color.token({ format: 'okhst' })['']).toMatch(/^okhst\(/);
+      expect(color.tasty({ format: 'okhst' })['']).toMatch(/^okhst\(/);
+    });
+
+    it('rejects okhsl and okhst on css / json / tailwind', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      for (const format of ['okhsl', 'okhst'] as const) {
+        expect(() => color.css({ name: 'brand', format })).toThrow(
+          /only supported by tasty/,
+        );
+        expect(() => color.json({ format })).toThrow(/only supported by tasty/);
+        expect(() => color.tailwind({ name: 'brand', format })).toThrow(
+          /only supported by tasty/,
+        );
+      }
     });
 
     it('supports format option', () => {
       const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
       expect(color.token({ format: 'rgb' })['']).toMatch(/^rgb\(/);
       expect(color.json({ format: 'hsl' }).light).toMatch(/^hsl\(/);
+    });
+
+    it('exports dtcg tokens per scheme', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      const dtcg = color.dtcg();
+      expect(dtcg.light.$type).toBe('color');
+      expect(dtcg.light.$value.colorSpace).toBe('srgb');
+      expect(dtcg.light.$value.components).toHaveLength(3);
+      expect(dtcg.dark?.$value.colorSpace).toBe('srgb');
+    });
+
+    it('exports dtcg in oklch color space', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      const value = color.dtcg({ colorSpace: 'oklch' }).light.$value;
+      expect(value.colorSpace).toBe('oklch');
+      expect((value as { hex?: string }).hex).toBeUndefined();
+    });
+
+    it('exports a tailwind @theme block for a given name', () => {
+      const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
+      const css = color.tailwind({ name: 'brand' });
+      expect(css).toContain('@theme');
+      expect(css).toMatch(/--color-brand:\s*oklch\(/);
+      expect(css).toContain('.dark');
     });
 
     describe('value-shorthand', () => {

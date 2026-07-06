@@ -12,6 +12,7 @@ import {
   relativeLuminanceFromLinearRgb,
   contrastRatioFromLuminance,
   gamutClampedLuminance,
+  apcaLuminanceFromLinearRgb,
 } from './okhsl-color-math';
 import { fromTone, REF_EPS } from './okhst';
 import { glaze } from './glaze';
@@ -89,7 +90,24 @@ describe('contrast-solver', () => {
       expect(resolveContrastForMode({ apca: 60 }, false)).toEqual({
         metric: 'apca',
         target: 60,
+        polarity: 'fg',
       });
+    });
+
+    it('passes the polarity through to the APCA result', () => {
+      expect(resolveContrastForMode({ apca: 60 }, false, 'bg')).toEqual({
+        metric: 'apca',
+        target: 60,
+        polarity: 'bg',
+      });
+    });
+
+    it('resolves APCA preset keywords to Lc', () => {
+      expect(resolveContrastForMode({ apca: 'content' }, false).target).toBe(
+        60,
+      );
+      expect(resolveContrastForMode({ apca: 'body' }, false).target).toBe(75);
+      expect(resolveContrastForMode({ apca: 'min' }, false).target).toBe(15);
     });
 
     it('resolves the inner { apca } HC pair by mode', () => {
@@ -280,6 +298,41 @@ describe('contrast-solver', () => {
       });
       expect(result.met).toBe(true);
       expect(result.contrast).toBeGreaterThanOrEqual(60);
+    });
+
+    it('polarity orders APCA arguments (fg vs bg converge differently)', () => {
+      const baseLinearRgb = okhslToLinearSrgb(0, 0, 0.5);
+      const yBase = apcaLuminanceFromLinearRgb(baseLinearRgb);
+
+      const fg = findToneForContrast({
+        hue: 0,
+        saturation: 0,
+        preferredTone: 0.5,
+        baseLinearRgb,
+        contrast: { metric: 'apca', target: 45, polarity: 'fg' },
+      });
+      const bg = findToneForContrast({
+        hue: 0,
+        saturation: 0,
+        preferredTone: 0.5,
+        baseLinearRgb,
+        contrast: { metric: 'apca', target: 45, polarity: 'bg' },
+      });
+
+      expect(fg.met).toBe(true);
+      expect(bg.met).toBe(true);
+      // APCA is asymmetric, so the two argument orders converge to different tones.
+      expect(Math.abs(fg.tone - bg.tone)).toBeGreaterThan(0.01);
+
+      // Each result meets the floor measured in its own polarity order.
+      const yFg = apcaLuminanceFromLinearRgb(
+        okhslToLinearSrgb(0, 0, fromTone(fg.tone * 100, REF_EPS)),
+      );
+      expect(Math.abs(apcaContrast(yFg, yBase))).toBeGreaterThanOrEqual(45);
+      const yBg = apcaLuminanceFromLinearRgb(
+        okhslToLinearSrgb(0, 0, fromTone(bg.tone * 100, REF_EPS)),
+      );
+      expect(Math.abs(apcaContrast(yBase, yBg))).toBeGreaterThanOrEqual(45);
     });
   });
 

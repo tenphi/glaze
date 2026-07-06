@@ -33,6 +33,7 @@ export function defaultConfig(): GlazeConfigResolved {
     },
     autoFlip: true,
     pastel: false,
+    inferRole: true,
   };
 }
 
@@ -81,6 +82,7 @@ export function configure(config: GlazeConfig): void {
     shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
     pastel: config.pastel ?? globalConfig.pastel,
+    inferRole: config.inferRole ?? globalConfig.inferRole,
   };
 }
 
@@ -111,5 +113,6 @@ export function mergeConfig(
     shadowTuning: override.shadowTuning ?? base.shadowTuning,
     autoFlip: override.autoFlip ?? base.autoFlip,
     pastel: override.pastel ?? base.pastel,
+    inferRole: override.inferRole ?? base.inferRole,
   };
 }

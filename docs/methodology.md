@@ -1,346 +1,561 @@
 # Methodology
 
-A practical guide for designing a real, production-grade Glaze palette. Recipe-ordered: the sections follow the same sequence you'd actually build a palette in, and each one ties the choice back to a Glaze behavior.
+A practical way to design a Glaze palette without fighting dark mode. Start from
+tone relationships, add contrast only where a role needs a readable floor, and
+let `extend()` carry the same decisions across status hues.
+
+For the full API surface, see [api.md](api.md). For the color model details, see
+[okhst.md](okhst.md).
 
 ## The mental model
 
-A Glaze palette is a **default neutral theme** plus a small fan of **colored sibling themes** (`success`, `danger`, `warning`, `note`, …) created via `extend()`. Most colors live in the default theme as neutrals; brand-tinted colors come from `extend()` swapping the hue.
+Glaze palettes work best as one default neutral theme plus a few colored sibling
+themes:
 
-The default theme is what most components consume — its tokens are emitted unprefixed (`#surface`, `#border`). Colored themes are scoped to status surfaces and accent variants, emitted with a theme-name prefix (`#success-surface`, `#danger-accent-surface`).
+- `default` owns the neutral system most components consume: `#surface`,
+  `#surface-text`, `#border`, `#disabled-surface`, and so on.
+- Status themes (`success`, `danger`, `warning`, `note`, ...) are created with
+  `extend()`. They swap the hue and keep only the inherited tokens that should
+  become status-aware.
+- `inherit: false` keeps a token local to the parent theme. Use it for neutral
+  ladders, shadows, code colors, overlays, and anything that should not be
+  repeated for every status hue.
 
-You design the default theme once, and `extend()` propagates that design across every status hue.
+The main simplification is OKHST tone. Dark mode is now a single inversion
+(`100 - t`) plus a scheme window, so relative tone shifts stay consistent between
+light and dark. A token that is `-4` tone from its base is the same kind of step
+in both schemes.
 
-Every color definition has an **`inherit`** flag (default: `true`) controlling whether it flows into child themes via `extend()`. Set `inherit: false` to scope a color to its parent theme only — this is how sibling themes stay lean, carrying only the tokens they actually need.
+## Authoring Rules
 
-## Hue / saturation seeds
+Use this order when defining a token:
 
-Declare hues as named constants up top, plus a single shared seed saturation:
+1. Pick the base it visually belongs to.
+2. Use `tone` for visual distance: surface ladders, soft chips, disabled states,
+   hover ramps, and other low-stakes relationships.
+3. Add `contrast` only when readability or recognizability needs a measured
+   floor.
+4. Use APCA presets for content-like colors:
+   `contrast: { apca: 'content' }` or
+   `contrast: { apca: ['content', 'body'] }`.
+5. Use WCAG numbers or presets when you specifically need a ratio target:
+   `contrast: 4.5`, `contrast: 'AAA'`, or `contrast: { wcag: [4.5, 7] }`.
+6. Let token names infer APCA roles. Names ending in `text`, `label`, `border`,
+   `surface`, `fill`, `bg`, and similar aliases already tell Glaze which side is
+   foreground or background. Set `role` only when a name is ambiguous.
+7. Add high-contrast pairs only where HC should intentionally tighten:
+   text/content contrast, border tone, shadow intensity, mix value, or similar.
+
+`mode: 'auto'` is the default and should be the default choice. Use
+`mode: 'fixed'` for brand fills or inverse surfaces that must stay recognizable
+instead of tone-inverting. Use `mode: 'static'` only when the exact authored tone
+must render in every scheme.
+
+## Seed and Configure
+
+Keep hue decisions named and configure output modes once:
 
 ```ts
-const PURPLE_HUE  = 280.3;
+const PURPLE_HUE = 280.3;
 const SUCCESS_HUE = 156.9;
-const DANGER_HUE  = 23.1;
+const DANGER_HUE = 23.1;
 const WARNING_HUE = 84.3;
-const NOTE_HUE    = 302.3;
+const NOTE_HUE = 302.3;
 
 const SEED_SATURATION = 80;
-```
 
-Hues are design tokens too — keeping them named in one place beats burying numbers in `extend()` calls. The shared `SEED_SATURATION` keeps every status theme on the same saturation budget; per-color `saturation` factors below are 0–1 *of this seed*, not absolute.
-
-## Global `glaze.configure()`
-
-Configure state aliases and output modes once at module load:
-
-```ts
 glaze.configure({
   states: { dark: '@dark', highContrast: '@hc' },
-  modes:  { dark: true,    highContrast: true },
+  modes: { dark: true, highContrast: true },
 });
 ```
 
-Match the state alias names to whatever your app wires into the global predefined states (`@dark` / `@hc` is what Tasty expects). Setting `modes.highContrast: true` makes every export emit four variants — HC tokens are then available globally without per-call overrides.
+Per-color `saturation` is a factor of the theme seed, not an absolute
+saturation. With `SEED_SATURATION = 80`, `saturation: 0.25` means one quarter of
+that seed.
 
-## Naming conventions
+## Naming
 
-A tight, predictable vocabulary that the rest of the doc relies on:
+Prefer purpose first and variant last:
 
-| Pattern | Tokens |
-|---|---|
-| Surface ladder | `surface`, `surface-2`, `surface-3` |
-| Text on surface (decreasing prominence) | `<surface>-text`, `<surface>-text-soft`, `<surface>-text-soft-2` |
-| Misc neutral primitives | `border`, `placeholder`, `focus`, `disabled` |
-| Neutral disabled chip | `disabled-surface`, `disabled-surface-text` |
-| Fixed-mode dark surface | `surface-inverse` |
-| Brand fills | `accent-surface`, `accent-surface-2`, `accent-surface-3`, `accent-surface-hover` |
-| Brand fill anchor | `accent-surface-text` (the fixed white token everything anchors to) |
-| Brand foregrounds on neutrals | `accent-text`, `accent-text-soft`, `accent-icon` |
-| Brand-tinted disabled | `accent-disabled-surface`, `accent-disabled-surface-text` |
-| Code syntax highlighting | `code-comment`, `code-keyword`, `code-string`, `code-number`, … |
-| Loading animation | `loading-face-1`, `loading-face-2`, `loading-face-3` |
-| Shadows | `shadow-sm`, `shadow-md`, `shadow-lg` |
-| Backdrop | `overlay` |
+- Surfaces: `surface`, `surface-2`, `surface-3`.
+- Foregrounds: `surface-text`, `surface-text-soft`, `surface-text-soft-2`.
+- Structure: `border`, `divider`, `outline`, `placeholder`, `focus`.
+- Fills: `accent-surface`, `accent-surface-2`,
+  `accent-surface-hover`.
+- Foregrounds on neutral surfaces: `accent-text`, `accent-text-soft`,
+  `accent-icon`.
+- Disabled states: `disabled-surface`, `disabled-surface-text`,
+  `accent-disabled-surface`, `accent-disabled-surface-text`.
+- Effects: `shadow-sm`, `shadow-md`, `shadow-lg`, `overlay`, `hover`, `tint`.
 
-**Rule of thumb:** *purpose-name first, variant suffix last* (`-2`, `-text`, `-soft`, `-hover`, `-disabled`).
+These names are not only readable. They also help APCA role inference pick the
+right polarity. For example, `button-text` is foreground, `input-bg` is a
+surface, and `card-outline` is a border.
 
-## Surfaces (root colors)
+## Build the Default Theme
 
-`surface` is a root color (absolute `tone`, no `base`) with a low saturation factor. The ladder chains off it via small relative offsets:
+Start with the surface family. It is mostly tone, with small saturation changes
+to keep the ladder visually coherent:
+
+```ts
+const defaultTheme = glaze(PURPLE_HUE, SEED_SATURATION);
+
+defaultTheme.colors({
+  surface: { tone: 100, saturation: 0.11 },
+  'surface-2': {
+    base: 'surface',
+    tone: '-2',
+    saturation: 0.15,
+    inherit: false,
+  },
+  'surface-3': {
+    base: 'surface',
+    tone: '-4',
+    saturation: 0.19,
+    inherit: false,
+  },
+});
+```
+
+Because tone shifts are consistent across schemes, these small relative offsets
+are enough. There is no separate dark-mode curve to tune.
+
+### Text and Borders
+
+Use a hard edge tone for maximum-prominence text, and APCA floors for softer
+content:
 
 ```ts
 defaultTheme.colors({
-  surface:     { tone: 100, saturation: 0.11 },
-  'surface-2': { base: 'surface', tone: '-2', saturation: 0.15, inherit: false },
-  'surface-3': { base: 'surface', tone: '-4', saturation: 0.19, inherit: false },
+  'surface-text': {
+    base: 'surface',
+    tone: 2,
+    saturation: 0.475,
+  },
+  'surface-text-soft': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.375,
+    contrast: { apca: ['content', 'body'] },
+    inherit: false,
+  },
+  'surface-text-soft-2': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.24,
+    contrast: { apca: ['large', 'content'] },
+    inherit: false,
+  },
+  border: {
+    base: 'surface',
+    tone: ['-10', '-20'],
+    saturation: 0.175,
+    inherit: false,
+  },
 });
 ```
 
-A factor of `0.11` of the seed gives a barely-noticeable hue shift — enough that light/dark surfaces feel branded, not enough to look tinted. The slight saturation bump on `-2` / `-3` compensates for perceived saturation dropping as tone drops, so the ladder reads as one consistent surface family.
+`surface-text` does not need a contrast floor because it is intentionally pinned
+near the edge. The soft variants use `tone: '-1'` as the direction and APCA as
+the readable floor. `border` uses an HC tone pair because borders usually need a
+larger visible step in high contrast.
 
-`mode: 'auto'` (the default) inverts these in tone (`100 − t`) and remaps into the dark window, so a `tone: 100` light-mode surface lands at the dark window's floor in dark mode. Because tone is contrast-uniform, the relative deltas (`-2`, `-4`) translate to the same contrast steps in both schemes — no fitted curve required. `inherit: false` on `-2` / `-3` keeps colored sibling themes lean — they only need a single tinted `surface`, not the whole ladder.
+Repeat the same pattern for `surface-2` and `surface-3` only if components need
+text directly on those surfaces.
 
-## Text on surfaces (anchor at the edge)
+### Neutral Utility Tokens
 
-The headline trick of the whole methodology. Strong text uses an **absolute `tone` near the edge of the window**; soft variants use a **directional relative hint plus a numeric `contrast`**.
+Keep neutral-only primitives local to the default theme:
 
 ```ts
-'surface-text': {
-  base: 'surface', tone: 2, saturation: 0.475,
-},
-'surface-text-soft': {
-  base: 'surface', tone: '-1', saturation: 0.375,
-  contrast: [9, 11], inherit: false,
-},
-'surface-text-soft-2': {
-  base: 'surface', tone: '-1', saturation: 0.24,
-  contrast: [4.5, 5.5], inherit: false,
-},
+defaultTheme.colors({
+  placeholder: {
+    base: 'surface',
+    tone: 67,
+    saturation: 0.175,
+    inherit: false,
+  },
+  focus: {
+    base: 'surface',
+    tone: 71,
+    saturation: 0.8625,
+    inherit: false,
+  },
+  disabled: {
+    tone: 80.8,
+    saturation: 0.4,
+    inherit: false,
+  },
+});
 ```
 
-Repeat the same triple anchored to each subordinate surface (`surface-2-text`, `surface-2-text-soft`, `surface-3-text`, …) so the ladder stays self-consistent.
+Absolute tones are fine for primitives whose job is visual placement rather than
+a strict relationship to a specific surface.
 
-The strong-text `tone: 2` pins the light-mode resolved value near the bottom of the light window (close to black against the near-white surface) and inverts to near-white in dark mode — both yielding very high contrast against their surface. A `contrast: 'AAA'` solver pass would have stopped at the AAA floor (cr = 7) and no further. **Anchoring at the edge** beats the contrast solver because the solver only needs to *meet* the floor, not exceed it.
+## Chips and Disabled States
 
-The soft variants use `tone: '-1'` only as a *directional hint* — the real positioning comes from the numeric `contrast`. Numeric ratios give designers precise perceived weight where presets would only guarantee the AA/AAA floor.
-
-In high-contrast mode the tone window is bypassed entirely (full `[0, 100]` range), so `tone: 2` reaches close to black in light HC and close to white in dark HC — maximal contrast against the surface in both.
-
-## Other neutral primitives
-
-Borders, placeholders, focus rings, and the floating "muted text" tone — all default-only:
+For subtle fills, tone is usually clearer than contrast:
 
 ```ts
-border:      { base: 'surface', tone: ['-10', '-20'], saturation: 0.175,  inherit: false },
-placeholder: { base: 'surface', tone: 67,             saturation: 0.175,  inherit: false },
-focus:       { base: 'surface', tone: 71,             saturation: 0.8625, inherit: false },
-disabled:    { tone: 80.8, saturation: 0.4,                                inherit: false },
+defaultTheme.colors({
+  'disabled-surface': {
+    base: 'surface',
+    tone: '-3',
+    saturation: 0.2,
+    inherit: false,
+  },
+  'disabled-surface-text': {
+    base: 'disabled-surface',
+    tone: '+18',
+    saturation: 0.3,
+    flip: false,
+    inherit: false,
+  },
+});
 ```
 
-`border` uses an HC pair — the border darkens twice as much in high-contrast mode for visibility. `placeholder` and `focus` give a `base` for namespacing but use absolute tone independently. `disabled` is a root color (no `base`) — it's used as a plain "muted text" token in some places, free of the surface chain.
+This says exactly what the pair should do: the chip sits a few tone steps off
+the page, and the label sits a muted distance from the chip. `flip: false` keeps
+the relative label offset on the authored side when it reaches the edge.
 
-## Disabled chip (contrast-driven for scheme symmetry)
-
-The disabled chip + label pair uses `mode: 'auto'` and **explicit numeric contrast** against `surface`, not preset `'AA'` / `'AAA'`:
+Use contrast instead when the chip must hit an explicit accessibility floor:
 
 ```ts
-'disabled-surface': {
-  base: 'surface', tone: '-1', saturation: 0.2,
-  contrast: [1.5, 2], inherit: false,
-},
-'disabled-surface-text': {
-  base: 'disabled-surface', tone: '+1', saturation: 0.3,
-  contrast: 3, inherit: false,
-},
+defaultTheme.colors({
+  'disabled-surface-text': {
+    base: 'disabled-surface',
+    tone: '+1',
+    saturation: 0.3,
+    contrast: { apca: 'non-text' },
+    inherit: false,
+  },
+});
 ```
 
-Each token anchors to its immediate parent surface — `*-surface` contrasts against the root `surface`, while `*-surface-text` contrasts against its own chip (`disabled-surface`). This keeps the disabled state self-contained and resolves to consistent ratios in light, dark, and HC (chip ≈ 1.5–2× vs surface, label ≈ 3× on chip). An alpha-tinted overlay would have asymmetric behavior — composited alpha against a near-white light surface produces a much weaker chip than the same overlay against a near-dark dark surface, and the disabled state would stop *looking* disabled in one of the schemes.
+When a token needs the scheme extreme, use `tone: 'min'` or `tone: 'max'`
+directly. Avoid large magic numbers or fake contrast floors just to push a color
+to the edge.
 
-The general rule: when a color needs to *feel the same across schemes*, anchor it with `mode: 'auto'` + a numeric contrast against a surface, not with a preset.
+## Fixed Surfaces and Accent Fills
 
-## `surface-inverse` (the fixed-mode escape hatch)
+Use `mode: 'fixed'` when the authored color should stay recognizable across
+schemes.
 
 ```ts
-'surface-inverse': {
-  tone: 12, saturation: 0.475, mode: 'fixed', inherit: false,
-},
+defaultTheme.colors({
+  'surface-inverse': {
+    tone: 12,
+    saturation: 0.475,
+    mode: 'fixed',
+    inherit: false,
+  },
+
+  'accent-surface-text': {
+    tone: 100,
+    mode: 'fixed',
+  },
+  'accent-surface': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: { apca: ['content', 'body'] },
+    mode: 'fixed',
+  },
+  'accent-surface-2': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: { apca: [65, 80] },
+    mode: 'fixed',
+  },
+  'accent-surface-hover': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: { apca: ['body', 'preferred'] },
+    mode: 'fixed',
+  },
+});
 ```
 
-`mode: 'fixed'` skips the dark-scheme tone inversion and only remaps the tone into the dark window, so `surface-inverse` reads as a dark surface in *every* scheme — light, dark, and HC. In high-contrast variants the window is bypassed entirely (identity), so the color stays at its raw tone across all four schemes.
+The accent fill family is a fixed chain against a fixed text anchor. The names
+infer `surface` and `text` roles, so APCA gets the right polarity without extra
+fields.
 
-Use it for tooltips, code blocks, popovers with their own dark theme. Pair with `#white` for foreground text.
+## Adaptive Accent Foregrounds
 
-This is the canonical "I want this color to stay recognizable" pattern. The other `mode: 'fixed'` use is the entire accent system below.
-
-## Accent system (anchor pattern)
-
-The load-bearing trick. Define a single fixed white anchor `accent-surface-text`, then derive every accent surface from it with a small relative tone offset and a numeric contrast under `mode: 'fixed'`:
+Brand foregrounds that sit on neutral surfaces should stay adaptive:
 
 ```ts
-'accent-surface-text': { tone: 100, mode: 'fixed' },
-
-'accent-surface':       { base: 'accent-surface-text', tone: '-1', contrast: [4.5, 7],   mode: 'fixed' },
-'accent-surface-2':     { base: 'accent-surface-text', tone: '-1', contrast: [4.8, 7.5], mode: 'fixed' },
-'accent-surface-3':     { base: 'accent-surface-text', tone: '-1', contrast: [5.2, 8],   mode: 'fixed' },
-'accent-surface-hover': { base: 'accent-surface-text', tone: '-1', contrast: [6,   8.5], mode: 'fixed' },
+defaultTheme.colors({
+  'accent-text': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 1,
+    contrast: { apca: ['content', 'body'] },
+  },
+  'accent-text-soft': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 1,
+    contrast: { apca: ['large', 'content'] },
+  },
+  'accent-icon': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.9375,
+    contrast: { apca: ['non-text', 'large'] },
+  },
+});
 ```
 
-Three things make this work:
+Anchor these to `surface`, not to `accent-surface`. Their real job is to remain
+readable on neutral UI, so `mode: 'auto'` and a surface base are the right
+defaults.
 
-- **One anchor, one chain.** All accent surfaces stay in the same hue family because they all derive from `accent-surface-text`.
-- **`mode: 'fixed'` keeps the brand recognizable.** Without it, the dark-scheme tone inversion would turn the brand fill into a tone-inverted counterpart that may no longer read as the intended brand surface. Fixed remaps the tone into the dark window without inverting, so a `tone: 52` brand color stays mid-toned in dark mode — still recognizably the same color.
-- **Numeric contrasts, not presets.** `'AA'` / `'AAA'` would let the solver push the color far away from its anchor in dark schemes, breaking the relationship between `accent-surface` and its neighbors. Numeric ratios make the darkening between `accent-surface` (4.5/7), `-2` (4.8/7.5), `-3` (5.2/8), and `-hover` (6/8.5) a tight, designed sequence — a stepped gradient rather than four solver-generated outliers.
-
-The hover variant is a dedicated *fixed* token. Reusing `accent-text` (which is `mode: 'auto'` and inverts direction in dark) would break the hover feel.
-
-## Adaptive accent foregrounds
-
-The opposite of the fills. Brand-colored *foregrounds* are anchored to **`surface`, not `accent-surface`**, with `mode: 'auto'` (default) and full saturation:
+Brand-tinted disabled states can usually be pure tone:
 
 ```ts
-'accent-text':      { base: 'surface', tone: '-1', saturation: 1,      contrast: [6.4, 10] },
-'accent-text-soft': { base: 'surface', tone: '-1', saturation: 1,      contrast: [4.5, 7]  },
-'accent-icon':      { base: 'surface', tone: '-1', saturation: 0.9375, contrast: [3.2, 5]  },
+defaultTheme.colors({
+  'accent-disabled-surface': {
+    base: 'surface',
+    tone: '+3',
+    saturation: 0.5,
+  },
+  'accent-disabled-surface-text': {
+    base: 'accent-disabled-surface',
+    tone: '+18',
+    saturation: 0.4,
+    flip: false,
+  },
+});
 ```
 
-Foregrounds need to stay readable on the surface they actually sit on — anchoring to the brand fill would only enforce contrast against that fill, leaving the dark-mode color washed out against the actual surface (e.g. SECONDARY button labels sit on `surface`, not on the brand fill). Anchoring to `surface` + `mode: 'auto'` lets the solver lift the tone in dark mode so the contrast floor holds in both schemes.
+These are inherited, so status themes automatically get
+`success-accent-disabled-surface`, `danger-accent-disabled-surface`, and the
+matching text tokens.
 
-`accent-text-soft` shares the anchor and saturation but relaxes the contrast floor for a visibly less prominent secondary foreground (link base color, subdued labels). Critically, it stays `mode: 'auto'` — a fixed version would collapse to cr≈3 against the dark surface and break AA.
+## Special Purpose Colors
 
-## Brand-tinted disabled
-
-Mirrors the neutral disabled pair from above but with higher saturation so the chip reads as a *muted brand color* rather than fully neutral grey. A disabled chip has no contrast *requirement* — it just needs to sit a hair off the surface and carry a faint label. That's a job for **tone**, not the contrast solver:
+Use absolute `hue` overrides for tokens that should come from another hue family
+but keep the same adaptation behavior:
 
 ```ts
-'accent-disabled-surface': {
-  base: 'surface', tone: '+3', saturation: 0.5,
-},
-'accent-disabled-surface-text': {
-  base: 'accent-disabled-surface', tone: '+18', saturation: 0.4,
-  flip: false,
-},
+defaultTheme.colors({
+  'code-comment': {
+    base: 'surface',
+    hue: 280,
+    saturation: 0.1,
+    tone: '-1',
+    contrast: { apca: ['large', 'content'] },
+    inherit: false,
+  },
+  'code-keyword': {
+    base: 'surface',
+    hue: 348,
+    saturation: 1,
+    tone: '-1',
+    contrast: { apca: ['content', 'body'] },
+    inherit: false,
+  },
+  'code-string': {
+    base: 'surface',
+    hue: SUCCESS_HUE,
+    saturation: 1,
+    tone: '-1',
+    contrast: { apca: ['large', 'content'] },
+    inherit: false,
+  },
+});
 ```
 
-Tone offsets say what we mean directly: the chip is three tone steps off `surface`, the label eighteen steps off the chip — a deliberately low-contrast pair, no solver involved. Because tone is contrast-uniform, those steps look the same in light and dark, and `mode: 'auto'` (the default) keeps the relationship intact when the scheme inverts.
-
-`flip: false` on the label is the safety rail. A relative `tone: '+18'` lands above the chip; if the chip is already near the top of the range (a light surface), `+18` would overshoot 100. With flip on (the default), Glaze mirrors the offset to `-18` so it reflects back into range — handy for contrast tokens, but here it would put the label on the *wrong* side of the chip. Turning flip off clamps to the boundary instead, keeping the label on the side you authored.
-
-When a token genuinely needs the extreme — the lightest or darkest tone the scheme allows — reach for `'max'` / `'min'` rather than a large number or a contrast hack:
+Use small tone ramps for decorative motion:
 
 ```ts
-'card-floor':  { tone: 'min' }, // darkest tone (root, no base needed)
-'card-ceil':   { tone: 'max' }, // lightest tone
+defaultTheme.colors({
+  'loading-face-1': {
+    base: 'surface',
+    tone: 98,
+    saturation: 0.3,
+    inherit: false,
+  },
+  'loading-face-2': {
+    base: 'surface',
+    tone: 91,
+    saturation: 0.62,
+    inherit: false,
+  },
+  'loading-face-3': {
+    base: 'surface',
+    tone: 79,
+    saturation: 0.66,
+    inherit: false,
+  },
+});
 ```
 
-`'max'` resolves to the scheme's highest authored tone (100) and `'min'` to the lowest (0); neither needs a `base`. They flow through scheme mapping like any absolute tone, so under `mode: 'auto'` they invert in dark — `'max'` is the lightest tone in light mode and, after inversion, the *darkest* in dark. Use `mode: 'static'` if you want the same extreme pinned across every scheme, or `mode: 'fixed'` to keep it on the same end without inverting. Either way: no magic numbers, no contrast floor standing in for "push it all the way".
+Since tone steps now invert consistently across schemes, the same ramp keeps its
+spacing in light and dark without involving the contrast solver. Use an HC tone
+pair only when the animation should become more pronounced in high contrast.
 
-These are inherited (no `inherit: false`), so each colored sibling theme automatically emits `<theme>-accent-disabled-surface` and `<theme>-accent-disabled-surface-text`. PRIMARY-style disabled buttons stay tinted with the active theme's hue (danger-tinted danger button, success-tinted success button), preserving brand identity even in the disabled state.
+## Effects
 
-## Per-color hue overrides (code highlighting)
-
-The `code-*` tokens use **absolute `hue` numbers** regardless of the seed. Each is `base: 'surface'` with `mode: 'auto'`, a per-token saturation, and a numeric contrast floor:
+Define one neutral shadow system:
 
 ```ts
-'code-comment': { base: 'surface', hue: 280,        saturation: 0.1, tone: '-1', contrast: [4.5, 7], inherit: false },
-'code-keyword': { base: 'surface', hue: 348,        saturation: 1,   tone: '-1', contrast: [5, 7.5], inherit: false },
-'code-string':  { base: 'surface', hue: SUCCESS_HUE, saturation: 1, tone: '-1', contrast: [4.5, 7], inherit: false },
-// …code-punctuation, code-number, code-function, code-attribute follow the same shape
+defaultTheme.colors({
+  'shadow-sm': {
+    type: 'shadow',
+    bg: 'surface',
+    fg: 'surface-text',
+    intensity: 5,
+    inherit: false,
+  },
+  'shadow-md': {
+    type: 'shadow',
+    bg: 'surface',
+    fg: 'surface-text',
+    intensity: [10, 20],
+    inherit: false,
+  },
+  'shadow-lg': {
+    type: 'shadow',
+    bg: 'surface',
+    fg: 'surface-text',
+    intensity: [15, 30],
+    inherit: false,
+  },
+});
 ```
 
-The canonical pattern for "I want a color from a different hue family but the same adaptive behavior". Absolute `hue` overrides the theme seed for a single color; everything else (contrast against `surface`, dark adaptation, HC tightening) still works. `inherit: false` because syntax highlighting is a default-only concern.
+Including `fg` lets shadow strength follow the resolved foreground/background
+gap. Use an HC pair for shadows that should deepen in high contrast.
 
-## Loading-animation faces
-
-A 3-step ramp using *absolute* tones with high saturation factors and tight numeric contrasts:
+Use `opacity` for one fixed-alpha color:
 
 ```ts
-'loading-face-1': { base: 'surface', tone: 98, saturation: 0.3,  contrast: [1.04, 1.5], inherit: false },
-'loading-face-2': { base: 'surface', tone: 91, saturation: 0.62, contrast: [1.24, 2.5], inherit: false },
-'loading-face-3': { base: 'surface', tone: 79, saturation: 0.66, contrast: [1.75, 4],   inherit: false },
+defaultTheme.colors({
+  overlay: { tone: 10, opacity: 0.5, inherit: false },
+});
 ```
 
-Combines absolute tone positioning (so the ramp is deterministic in light mode) with a numeric contrast floor (so the ramp still reads in dark and HC). The HC contrast jumps significantly (`1.04 → 1.5`, `1.24 → 2.5`, `1.75 → 4`) so the animation stays perceivable for low-vision users.
-
-## Shadows
-
-Three sizes, all sharing `bg: 'surface'` and `fg: 'surface-text'`, varying only `intensity`:
+Use mixes when one color should tint through another:
 
 ```ts
-'shadow-sm': { type: 'shadow', bg: 'surface', fg: 'surface-text', intensity: 5,  inherit: false },
-'shadow-md': { type: 'shadow', bg: 'surface', fg: 'surface-text', intensity: 10, inherit: false },
-'shadow-lg': { type: 'shadow', bg: 'surface', fg: 'surface-text', intensity: 15, inherit: false },
+defaultTheme.colors({
+  hover: {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent-surface',
+    value: 8,
+    blend: 'transparent',
+  },
+  tint: {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent-surface',
+    value: 20,
+  },
+});
 ```
 
-Including `fg` matters: shadow strength scales with `|l_bg − l_fg|`, so anchoring `fg` to `surface-text` (which is anchored at the edge of the window) makes shadows *automatically deeper* in dark mode where the bg/fg gap is larger. All shadows are `inherit: false` — there's only one shadow system for the whole UI, and colored sibling themes don't carry their own.
+Transparent mixes are good for hover overlays. Opaque mixes are good for solid
+tints. Mix colors can also use `contrast`; the solver adjusts the value or
+opacity to hit the floor.
 
-For HC, pass `intensity: [normal, hc]` (e.g. `[10, 20]`) to deepen shadows in high-contrast mode. The full algorithm and tuning knobs are in [api.md → Shadows](api.md#shadows).
+## Extend into Status Themes
 
-## Overlay (fixed opacity)
-
-```ts
-overlay: { tone: 10, opacity: 0.5, inherit: false },
-```
-
-The shortcut for *one solid color with a fixed alpha* — no shadow algorithm, no mix. `opacity` on a regular color attaches an alpha component to every variant. Use it for backdrops, scrims, modal overlays. (Combining `opacity` with `contrast` is not recommended — perceived lightness becomes unpredictable when alpha is fixed; Glaze emits a `console.warn`.)
-
-## Mixes for hover / tint
-
-Reach for mix tokens when you want one color to "tint through" another:
+Once the default theme is shaped, create colored siblings by replacing hue and
+overriding only the root surface that should become visibly tinted:
 
 ```ts
-hover: {
-  type: 'mix', base: 'surface', target: 'accent-surface',
-  value: 8, blend: 'transparent',
-},
-// hover → accent-surface with alpha = 0.08
-
-tint: {
-  type: 'mix', base: 'surface', target: 'accent-surface',
-  value: 20,
-},
-```
-
-- **Transparent mix** — *the target color with controlled alpha*. Useful for hover overlays.
-- **Opaque mix** — solid blend of two colors. Good for subtle tints.
-
-Choose `space: 'okhsl'` (default) for design tokens — perceptually uniform, consistent with the rest of Glaze. Choose `space: 'srgb'` to match what the browser would render with a plain CSS overlay. Mix colors support the same `contrast` prop as regular colors; the solver adjusts the mix ratio (opaque) or opacity (transparent) to meet the target.
-
-## Colored sibling themes via `extend()`
-
-One shared `TINTED_SURFACE_OVERRIDE`, applied to every colored theme, with only the `hue` changing per status:
-
-```ts
-const TINTED_SURFACE_OVERRIDE: ColorMap = {
+const TINTED_SURFACE_OVERRIDE = {
   surface: { tone: 96, saturation: 0.8 },
 };
 
-const primaryTheme = defaultTheme.extend({                       colors: TINTED_SURFACE_OVERRIDE });
-const successTheme = defaultTheme.extend({ hue: SUCCESS_HUE,     colors: TINTED_SURFACE_OVERRIDE });
-const dangerTheme  = defaultTheme.extend({ hue: DANGER_HUE,      colors: TINTED_SURFACE_OVERRIDE });
-const warningTheme = defaultTheme.extend({ hue: WARNING_HUE,     colors: TINTED_SURFACE_OVERRIDE });
-const noteTheme    = defaultTheme.extend({ hue: NOTE_HUE,        colors: TINTED_SURFACE_OVERRIDE });
+const primaryTheme = defaultTheme.extend({
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const successTheme = defaultTheme.extend({
+  hue: SUCCESS_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const dangerTheme = defaultTheme.extend({
+  hue: DANGER_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const warningTheme = defaultTheme.extend({
+  hue: WARNING_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const noteTheme = defaultTheme.extend({
+  hue: NOTE_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
 ```
 
-Colored themes need a visibly tinted surface for status banners — saturation jumps from the neutral `0.11` (default theme) to `0.8`. The `inherit: false` discipline pays off here: because most neutrals (`surface-2`, `surface-3`, `border`, `placeholder`, `disabled-*`, `code-*`, `loading-*`, `shadow-*`) are flagged default-only, each colored theme inherits *only* the accent + tinted surface chain and emits a small, focused token set.
+The inherited accent and disabled tokens now resolve in each status hue. Tokens
+marked `inherit: false` stay default-only, so sibling themes remain small.
 
-`primaryTheme` keeps the default hue but gets the tinted surface — useful for places that want a brand-tinted banner without semantic status meaning.
+## Export the Palette
 
-## Palette composition
-
-Compose all themes into a palette so they can be exported as one token set:
+Compose the themes once:
 
 ```ts
 const palette = glaze.palette({
   default: defaultTheme,
   primary: primaryTheme,
   success: successTheme,
-  danger:  dangerTheme,
+  danger: dangerTheme,
   warning: warningTheme,
-  note:    noteTheme,
+  note: noteTheme,
 });
 ```
 
-The default theme is conventionally exported unprefixed (its tokens land as `#surface`, `#border`); colored themes are prefixed with their name. See [migration.md](migration.md) for the prefix map shape, alias patterns, and how to wire the resulting tokens into Tasty / CSS / framework-agnostic JSON.
+The usual export shape is default unprefixed and status themes prefixed:
 
-## High-contrast strategy
+```ts
+palette.tasty({
+  prefix: {
+    default: '',
+    primary: 'primary-',
+    success: 'success-',
+    danger: 'danger-',
+    warning: 'warning-',
+    note: 'note-',
+  },
+});
+```
 
-Glaze's high-contrast mode is opt-in per token: anywhere `tone`, `contrast`, `intensity`, or `value` accepts an HC pair, you can pass `[normal, hc]` to tighten the HC variant. The heuristic is to pair anything that's already contrast-driven:
+See [migration.md](migration.md) for export shapes, prefix maps, Tasty wiring,
+CSS variables, and JSON integration.
 
-- Text-against-surface contrasts (`[9, 11]`, `[4.5, 5.5]`, `[6.4, 10]`).
-- The accent surface ladder (`[4.5, 7]` → `[5.2, 8]` → `[6, 8.5]`).
-- The loading ramp's contrasts.
-- Shadow `intensity` (e.g. `intensity: [10, 20]`).
-- `border` tone (e.g. `tone: ['-10', '-20']`).
+## High Contrast
 
-In HC the tone window is **bypassed entirely** — light HC and dark HC operate on the full `[0, 100]` range. That's why edge-anchored absolute tones like `surface-text: { tone: 2 }` reach close to black in light HC and close to white in dark HC, exactly what you want for maximum contrast.
+High contrast is not a separate palette. Any value that accepts an HC pair can
+tighten the HC variant: `tone`, `contrast`, shadow `intensity`, and mix `value`.
 
-## Closing checklist
+Use HC pairs where users should actually get more separation:
+
+- Text/content contrast: `{ apca: ['content', 'body'] }`.
+- Accent fills: `{ apca: ['content', 'body'] }` or stronger.
+- Borders: `tone: ['-10', '-20']`.
+- Shadows: `intensity: [10, 20]`.
+- Decorative ramps that must stay perceivable.
+
+In HC variants, Glaze bypasses the normal tone window and uses the full
+`[0, 100]` range. Edge tones can reach the edge; contrast floors have more room
+to solve.
+
+## Checklist
 
 Before shipping a palette, verify:
 
-- [ ] Every text token has an explicit `contrast` *or* an edge-anchored absolute `tone`.
-- [ ] Every accent surface uses `mode: 'fixed'` + numeric `contrast` (not preset `'AA'` / `'AAA'`).
-- [ ] Every brand foreground (`accent-text*`, `accent-icon`) is anchored to `surface`, **not** to `accent-surface`.
-- [ ] Every `inherit: false` is intentional — colored sibling themes only carry the tokens they actually need.
-- [ ] HC pairs are present on every contrast-driven token, not just the strong ones.
-- [ ] Shadow `fg` is set when you want shadows to deepen in dark mode.
-- [ ] `glaze.configure({ states, modes })` matches the global predefined states wired in your app's root.
+- Text, icon, and content tokens either have APCA/WCAG contrast or are
+  deliberately edge-anchored.
+- Accent fills use `mode: 'fixed'`; accent foregrounds on neutral UI stay
+  `mode: 'auto'` and are based on `surface`.
+- Ambiguous APCA tokens have an explicit `role`; obvious names rely on inference.
+- Low-stakes visual relationships use relative `tone` instead of fake contrast
+  floors.
+- `inherit: false` is set on default-only tokens so status themes stay focused.
+- HC pairs exist where high contrast should visibly tighten.
+- `glaze.configure({ states, modes })` matches the states registered in the app.

@@ -51,12 +51,36 @@ export type {
   GlazeColorOverrides,
   GlazeColorOverridesExport,
   GlazeColorCssOptions,
+  GlazeDtcgOptions,
+  GlazeDtcgResult,
+  GlazeColorDtcgResult,
+  GlazeTailwindOptions,
+  GlazeColorTailwindOptions,
+  DtcgColorSpace,
+  DtcgSrgbColorValue,
+  DtcgOklchColorValue,
+  DtcgColorValue,
+  DtcgColorToken,
+  DtcgDocument,
+  DtcgTokenTree,
+  DtcgResolverSet,
+  DtcgResolverModifier,
+  DtcgResolverRef,
+  GlazeDtcgResolverDocument,
+  GlazeDtcgResolverOptions,
+  GlazeDtcgResolverContextNames,
+  GlazeColorDtcgResolverOptions,
   GlazeFromInput,
   GlazeShadowInput,
   GlazePalette,
   GlazePaletteOptions,
   GlazePaletteExportOptions,
+  Role,
+  RoleInput,
 } from './types';
+
+export type { ChannelCtx, HuePlan, HueDeclaration } from './channels';
+export { assertNativeFormat, assertAllPastel } from './format-guard';
 
 // Re-export contrast solver utilities for advanced use
 export {
@@ -64,16 +88,27 @@ export {
   findValueForMixContrast,
   resolveMinContrast,
   resolveContrastForMode,
+  resolveApcaTarget,
   apcaContrast,
 } from './contrast-solver';
 export type {
   ContrastPreset,
+  ApcaPreset,
   ResolvedContrast,
   FindToneForContrastOptions,
   FindToneForContrastResult,
   FindValueForMixContrastOptions,
   FindValueForMixContrastResult,
 } from './contrast-solver';
+
+// Re-export role helpers for advanced use
+export {
+  normalizeRole,
+  inferRoleFromName,
+  roleToPolarity,
+  oppositeRole,
+} from './roles';
+export type { Polarity } from './roles';
 
 // Re-export OKHST tone utilities for advanced use
 export {
@@ -104,5 +139,8 @@ export {
   formatOkhsl,
   formatRgb,
   formatHsl,
+  formatOkhst,
   formatOklch,
+  srgbToHex,
+  okhslToOklch,
 } from './okhsl-color-math';

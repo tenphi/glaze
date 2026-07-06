@@ -3,7 +3,8 @@
  *
  * Wraps a hue/saturation seed, a mutable `ColorMap`, and an optional
  * per-theme `GlazeConfigOverride`. Exposes `tokens()` / `tasty()` /
- * `json()` / `css()` / `resolve()` / `export()` / `extend()`.
+ * `json()` / `css()` / `dtcg()` / `dtcgResolver()` / `tailwind()` / `resolve()` /
+ * `export()` / `extend()`.
  *
  * The per-theme config override is **merged over the live global config at
  * resolve time** so the theme still reacts to later `configure()` calls
@@ -11,11 +12,16 @@
  * `configVersion` to avoid rebuilding it on every export call.
  */
 
+import type { ChannelCtx } from './channels';
 import { getConfig, getConfigVersion, mergeConfig } from './config';
+import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
   buildCssMap,
+  buildDtcgMap,
+  buildDtcgResolver,
   buildFlatTokenMap,
   buildJsonMap,
+  buildTailwindMap,
   buildTokenMap,
   resolveModes,
 } from './formatters';
@@ -27,8 +33,13 @@ import type {
   GlazeCssResult,
   GlazeConfigOverride,
   GlazeConfigResolved,
+  GlazeDtcgOptions,
+  GlazeDtcgResolverDocument,
+  GlazeDtcgResolverOptions,
+  GlazeDtcgResult,
   GlazeExtendOptions,
   GlazeJsonOptions,
+  GlazeTailwindOptions,
   GlazeTheme,
   GlazeThemeExport,
   GlazeTokenOptions,
@@ -66,6 +77,32 @@ export function createTheme(
 
   function invalidate(): void {
     cache = null;
+  }
+
+  function channelCtxFor(
+    options:
+      | {
+          splitHue?: boolean;
+          name?: string;
+          format?: GlazeCssOptions['format'];
+          modes?: GlazeJsonOptions['modes'];
+        }
+      | undefined,
+    formatDefault: 'rgb' | 'oklch' | 'okhsl',
+    prefix: string,
+  ): ChannelCtx | undefined {
+    const format = options?.format ?? formatDefault;
+    if (!options?.splitHue || format !== 'oklch') return undefined;
+    const resolved = resolveCached();
+    const modes = resolveModes(options?.modes);
+    assertAllPastel(resolved, modes);
+    return {
+      seedHue: hue,
+      baseName: options.name ?? 'theme',
+      prefix,
+      defs: colorDefs,
+      mode: 'theme',
+    };
   }
 
   const theme: GlazeTheme = {
@@ -155,12 +192,14 @@ export function createTheme(
     },
 
     tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>> {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'tokens');
       const modes = resolveModes(options?.modes);
       return buildFlatTokenMap(
         resolveCached(),
         '',
         modes,
-        options?.format,
+        format,
         getEffectiveConfig().pastel,
       );
     },
@@ -172,32 +211,81 @@ export function createTheme(
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
       };
       const modes = resolveModes(options?.modes);
+      const format = options?.format ?? 'okhsl';
+      const channelCtx = channelCtxFor(options, 'okhsl', '');
       return buildTokenMap(
         resolveCached(),
         '',
         states,
         modes,
-        options?.format,
+        format,
         cfg.pastel,
+        channelCtx,
       );
     },
 
     json(options?: GlazeJsonOptions): Record<string, Record<string, string>> {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'json');
       const modes = resolveModes(options?.modes);
       return buildJsonMap(
         resolveCached(),
         modes,
-        options?.format,
+        format,
         getEffectiveConfig().pastel,
       );
     },
 
     css(options?: GlazeCssOptions): GlazeCssResult {
+      const format = options?.format ?? 'rgb';
+      assertNativeFormat(format, 'css');
+      const channelCtx = channelCtxFor(options, 'rgb', '');
       return buildCssMap(
         resolveCached(),
         '',
         options?.suffix ?? '-color',
-        options?.format ?? 'rgb',
+        format,
+        getEffectiveConfig().pastel,
+        channelCtx,
+      );
+    },
+
+    dtcg(options?: GlazeDtcgOptions): GlazeDtcgResult {
+      const modes = resolveModes(options?.modes);
+      return buildDtcgMap(
+        resolveCached(),
+        '',
+        modes,
+        options?.colorSpace ?? 'srgb',
+        getEffectiveConfig().pastel,
+      );
+    },
+
+    dtcgResolver(
+      options?: GlazeDtcgResolverOptions,
+    ): GlazeDtcgResolverDocument {
+      const result = buildDtcgMap(
+        resolveCached(),
+        '',
+        resolveModes(options?.modes),
+        options?.colorSpace ?? 'srgb',
+        getEffectiveConfig().pastel,
+      );
+      return buildDtcgResolver(result, options);
+    },
+
+    tailwind(options?: GlazeTailwindOptions): string {
+      const format = options?.format ?? 'oklch';
+      assertNativeFormat(format, 'tailwind');
+      const modes = resolveModes(options?.modes);
+      return buildTailwindMap(
+        resolveCached(),
+        '',
+        options?.namespace ?? 'color-',
+        modes,
+        format,
+        options?.darkSelector ?? '.dark',
+        options?.highContrastSelector ?? '.high-contrast',
         getEffectiveConfig().pastel,
       );
     },

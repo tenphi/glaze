@@ -68,7 +68,31 @@ Relative `tone` offsets that overshoot `[0, 100]` now **mirror to the other side
 
 ### Resolved variants store tone
 
-`ResolvedColorVariant` now exposes `t` (tone, 0–1) instead of `l`. If you read resolved internals, convert with `variantToOkhsl(variant).l`. Token/CSS/JSON output is unchanged — Glaze still emits `okhsl(...)` / `rgb(...)` etc. (`okhst` is input-only and is never emitted).
+`ResolvedColorVariant` now exposes `t` (tone, 0–1) instead of `l`. If you read resolved internals, convert with `variantToOkhsl(variant).l`. Token/CSS/JSON output uses native formats by default (`oklch` for `tokens()` / `json()`, `okhsl` for `tasty()`); use `tasty({ format: 'okhsl' })` or `tasty({ format: 'okhst' })` for Glaze-native spaces.
+
+### 0.16.0 — output format defaults and Tasty-only spaces
+
+**Breaking changes in 0.16.0:**
+
+| Export | Old default | New default |
+|---|---|---|
+| `tokens()` / `json()` (theme + palette) | `okhsl` | `oklch` |
+| Standalone `.json()` | `okhsl` | `oklch` |
+| `tasty()` | `okhsl` (unchanged) | `okhsl` |
+
+`'okhsl'` and the new `'okhst'` output format are **Tasty-only**. Passing either to `css()`, `tailwind()`, `tokens()`, or `json()` throws. Migrate:
+
+```ts
+// before
+theme.tokens({ format: 'okhsl' })
+theme.json()
+
+// after — pick one
+theme.tasty({ format: 'okhsl' })   // Tasty #name keys, okhsl strings
+theme.tokens({ format: 'oklch' })    // native CSS (new default)
+```
+
+**New:** `splitHue` on `css()` / `tasty()` (theme + palette) and standalone `color.css()` emits hue as a separate custom property for runtime re-skinning. Requires `format: 'oklch'` and every color to be pastel. See [api.md → Hue channel splitting](api.md#hue-channel-splitting-splithue).
 
 ### Export snapshots
 
@@ -76,16 +100,19 @@ Relative `tone` offsets that overshoot `[0, 100]` now **mirror to the other side
 
 ## Choosing an export
 
-Glaze emits the same resolved colors in four shapes. Pick one based on your renderer.
+Glaze emits the same resolved colors in six shapes. Pick one based on your renderer / tooling.
 
 | Method | Output shape | Use it for |
 |---|---|---|
 | `palette.tasty(options?)` | `{ '#name': { '': value, '@dark': value, '@hc': value } }` | The [Tasty](https://tasty.style/docs) style system. Single object, state aliases keyed inside each token. |
 | `palette.tokens(options?)` | `{ light: { name: value }, dark: { name: value }, ... }` | Most CSS-in-JS systems. Per-variant flat maps, easy to feed into a `:root { ... }` selector via your framework's globals. |
 | `palette.css(options?)` | `{ light: '--name-color: rgb(...);', dark: '...', ... }` | Framework-free CSS / static stylesheets. Variant-grouped CSS custom property strings ready to wrap in `:root` and `prefers-color-scheme` queries. |
-| `palette.json(options?)` | `{ themeName: { name: { light, dark, ... } } }` | Tooling, JSON pipelines, design-token exporters (Style Dictionary, etc.). |
+| `palette.json(options?)` | `{ themeName: { name: { light, dark, ... } } }` | Tooling, JSON pipelines. |
+| `palette.dtcg(options?)` | `{ light: { name: { $type, $value } }, dark: { ... }, ... }` | W3C [DTCG 2025.10](https://www.designtokens.org/) `.tokens.json` — Figma, Tokens Studio, Style Dictionary, Terrazzo, Penpot. One document per scheme. |
+| `palette.dtcgResolver(options?)` | `{ version, sets, modifiers, resolutionOrder }` | W3C DTCG **Resolver-Module** — a single document describing every scheme variant as `sets` + a `scheme` modifier with a context per variant. For resolver tools such as Dispersa. |
+| `palette.tailwind(options?)` | `'@theme { --color-*: ... } .dark { ... } ...'` | Tailwind CSS v4. A single ready-to-paste `@theme` block plus dark / high-contrast overrides. |
 
-All four accept `format` (`'okhsl' \| 'rgb' \| 'hsl' \| 'oklch'`). `tokens()`, `tasty()`, and `json()` also accept `modes` (`{ dark, highContrast }`). `css()` always returns all four strings (`light`, `dark`, `lightContrast`, `darkContrast`). See [api.md → Palette](api.md#palette) for full options.
+`tasty()`, `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, and `tailwind()` accept `modes` (`{ dark, highContrast }`). `css()` always returns all four strings (`light`, `dark`, `lightContrast`, `darkContrast`). The CSS-string exports accept `format` (`'rgb' \| 'hsl' \| 'oklch'` on `tokens`/`json`/`css`/`tailwind`; `'okhsl' \| 'okhst'` on `tasty()` only); `dtcg()` and `dtcgResolver()` use `colorSpace` (`'srgb' \| 'oklch'`) instead. See [api.md → Palette](api.md#palette) for full options.
 
 ## Wiring exports into the app
 
@@ -164,9 +191,47 @@ const data = palette.json();
 
 Feed into your tooling pipeline. Each color is grouped by theme name, then by token name, then by variant — no prefix logic to undo.
 
+### W3C DTCG (`.tokens.json`)
+
+```ts
+import { writeFileSync } from 'node:fs';
+const dtcg = palette.dtcg();
+
+writeFileSync('tokens.light.tokens.json', JSON.stringify(dtcg.light, null, 2));
+if (dtcg.dark) {
+  writeFileSync('tokens.dark.tokens.json', JSON.stringify(dtcg.dark, null, 2));
+}
+```
+
+Each document is a spec-conformant token tree. One file per scheme is the most tool-compatible convention — Style Dictionary treats them as themes, Tokens Studio as sets, and Figma as variable modes. Use `colorSpace: 'oklch'` for wide-gamut, Glaze-native values (no `hex`); the default `'srgb'` emits components plus a `hex` hint that every reader understands. Feed the files straight into Style Dictionary v4+, Tokens Studio, or any DTCG-compatible tool — no Glaze-specific transform needed.
+
+### W3C DTCG Resolver-Module (single document)
+
+When you want **one file** describing every scheme variant — for a resolver tool such as [Dispersa](https://github.com/dispersa-core/dispersa) — use `dtcgResolver()` instead of `dtcg()`:
+
+```ts
+import { writeFileSync } from 'node:fs';
+const resolver = palette.dtcgResolver({ modes: { highContrast: true } });
+
+writeFileSync('resolver.json', JSON.stringify(resolver, null, 2));
+```
+
+The document places the light tokens in `sets.base.sources[0]` (the default context) and emits a single `scheme` modifier with a context per variant (`light` / `dark` / `lightContrast` / `darkContrast`). Each non-default context holds that variant's exact resolved tokens — Glaze resolves `darkContrast` independently, so the four-context shape keeps every value correct (two independent modifiers would compose additively and produce wrong dark + high-contrast values). Rename the set, modifier, or contexts via `setName` / `modifierName` / `contextNames` if your resolver expects different labels. Prefer `dtcg()` when you need maximum per-file tool compatibility; prefer `dtcgResolver()` when a resolver tool consumes the document for you.
+
+### Tailwind CSS v4
+
+```ts
+const css = palette.tailwind();
+// Write to your CSS entry, or paste into a `@import "tailwindcss"` stylesheet:
+// @theme { --color-primary-surface: oklch(...); ... }
+// .dark { --color-primary-surface: oklch(...); ... }
+```
+
+The `--color-*` namespace makes every color available as `bg-*` / `text-*` / `border-*`. Drive dark mode from the OS preference instead of a class with `darkSelector: '@media (prefers-color-scheme: dark)'` (it nests `:root` automatically). High-contrast overrides land under `.high-contrast` and `.dark.high-contrast` by default; both are omitted unless `modes.highContrast` is enabled.
+
 ## Prefix map strategies
 
-`palette.tokens()` / `tasty()` / `css()` accept a `prefix` option:
+`palette.tokens()` / `tasty()` / `css()` / `dtcg()` / `tailwind()` accept a `prefix` option:
 
 | Value | Result |
 |---|---|

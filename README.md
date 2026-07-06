@@ -29,6 +29,9 @@ Glaze generates robust **light**, **dark**, and **high-contrast** color schemes 
 - **Per-color hue override** — absolute or relative hue shifts within a theme
 - **Multi-format output** — `okhsl`, `rgb`, `hsl`, `oklch` with modern CSS space syntax
 - **CSS custom properties export** — ready-to-use `--var: value;` declarations per scheme
+- **W3C DTCG export** — spec-conformant `.tokens.json` (2025.10) for Figma, Tokens Studio, Style Dictionary, and every DTCG tool
+- **W3C DTCG Resolver-Module export** — opt-in single-document `dtcgResolver()` (sets + a `scheme` modifier with a context per variant) for resolver tools such as Dispersa
+- **Tailwind CSS v4 export** — `@theme` block + dark / high-contrast overrides
 - **Import/Export** — serialize and restore theme configurations
 - **Create from hex/RGB** — start from an existing brand color
 - **Zero dependencies** — pure math, runs anywhere (Node.js, browser, edge)

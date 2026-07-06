@@ -37,6 +37,12 @@ import {
   resolveEffectiveHue,
 } from './hc-pair';
 import {
+  inferRoleFromName,
+  normalizeRole,
+  oppositeRole,
+  roleToPolarity,
+} from './roles';
+import {
   computeShadow,
   circularLerp,
   isMixDef,
@@ -65,6 +71,7 @@ import type {
   RegularColorDef,
   ResolvedColor,
   ResolvedColorVariant,
+  Role,
   ShadowColorDef,
 } from './types';
 
@@ -75,6 +82,8 @@ export interface ResolveContext {
   resolved: Map<string, ResolvedColor>;
   /** Fully-merged effective config for this resolve pass. */
   config: GlazeConfigResolved;
+  /** Per-name role memo (filled lazily by `resolveRole`). */
+  roles: Map<string, Role>;
 }
 
 type ResolvedField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
@@ -112,12 +121,90 @@ function toToneVariant(v: OkhslVariant): ResolvedColorVariant {
   return { h: c.h, s: c.s, t: c.t, alpha: v.alpha };
 }
 
+// ============================================================================
+// Role resolution
+// ============================================================================
+
+/**
+ * Resolve the role of a base color referenced by `baseName`, returning the
+ * role the *dependent* color should take (the opposite of the base's role).
+ * A base that lives in `defs` recursively resolves and is inverted via
+ * `oppositeRole`; an external base (no local def, e.g. an injected standalone
+ * token) is treated as a background, so the dependent defaults to foreground
+ * (`'text'`).
+ */
+function resolveBaseRoleInMap(
+  baseName: string | undefined,
+  defs: ColorMap,
+  inferRole: boolean,
+  roles: Map<string, Role>,
+): Role | undefined {
+  if (!baseName) return undefined;
+  const baseDef = defs[baseName];
+  if (!baseDef) return 'text';
+  return oppositeRole(
+    resolveRoleInMap(baseName, baseDef, defs, inferRole, roles),
+  );
+}
+
+/**
+ * Role-resolution core that does not need a full `ResolveContext`. Shared by
+ * the resolver (via `resolveRole`) and `verifyContrastDrift`.
+ */
+function resolveRoleInMap(
+  name: string,
+  def: ColorDef,
+  defs: ColorMap,
+  inferRole: boolean,
+  roles: Map<string, Role>,
+): Role {
+  const cached = roles.get(name);
+  if (cached) return cached;
+
+  let role: Role | undefined;
+  if (isShadowDef(def)) {
+    role = 'surface';
+  } else if (isMixDef(def)) {
+    role =
+      normalizeRole(def.role) ??
+      (inferRole ? inferRoleFromName(name) : undefined) ??
+      resolveBaseRoleInMap(def.base, defs, inferRole, roles) ??
+      'text';
+  } else {
+    const regDef = def as RegularColorDef;
+    role =
+      normalizeRole(regDef.role) ??
+      (inferRole ? inferRoleFromName(name) : undefined) ??
+      resolveBaseRoleInMap(regDef.base, defs, inferRole, roles) ??
+      'text';
+  }
+
+  const finalRole = role ?? 'text';
+  roles.set(name, finalRole);
+  return finalRole;
+}
+
+/**
+ * Resolve a color's semantic `role` (text / surface / border) per the chain:
+ *   1. explicit `def.role` (normalized)
+ *   2. inferred from the color name when `config.inferRole` is on
+ *   3. opposite of the base's role
+ *   4. `'text'` (foreground) default
+ *
+ * Memoized on `ctx.roles` so the four scheme passes share one resolution.
+ * Shadows have no contrast participation and default to `'surface'`.
+ */
+function resolveRole(name: string, def: ColorDef, ctx: ResolveContext): Role {
+  return resolveRoleInMap(name, def, ctx.defs, ctx.config.inferRole, ctx.roles);
+}
+
 function resolveContrastSpec(
   spec: HCPair<ContrastSpec>,
   isHighContrast: boolean,
+  polarity?: 'fg' | 'bg',
 ): ResolvedContrast {
   const outer = isHighContrast ? pairHC(spec) : pairNormal(spec);
-  return resolveContrastForMode(outer, isHighContrast);
+  return resolveContrastForMode(outer, isHighContrast, polarity);
 }
 
 /**
@@ -155,6 +242,8 @@ function resolveDependentColor(
   isHighContrast: boolean,
   isDark: boolean,
   effectiveHue: number,
+  polarity: 'fg' | 'bg',
+  effectivePastel: boolean,
 ): { tone: number; satFactor: number } {
   const baseName = def.base!;
   const baseResolved = ctx.resolved.get(baseName);
@@ -167,7 +256,7 @@ function resolveDependentColor(
   const mode = def.mode ?? 'auto';
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
   const flip = def.flip ?? ctx.config.autoFlip;
-  const pastel = def.pastel ?? ctx.config.pastel;
+  const pastel = effectivePastel;
 
   const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);
   const baseTone = baseVariant.t * 100;
@@ -221,7 +310,11 @@ function resolveDependentColor(
 
   const rawContrast = def.contrast;
   if (rawContrast !== undefined) {
-    const resolvedContrast = resolveContrastSpec(rawContrast, isHighContrast);
+    const resolvedContrast = resolveContrastSpec(
+      rawContrast,
+      isHighContrast,
+      polarity,
+    );
 
     const effectiveSat = isDark
       ? mapSaturationDark((satFactor * ctx.saturation) / 100, mode, ctx.config)
@@ -284,13 +377,15 @@ function resolveColorForScheme(
   }
 
   if (isMixDef(def)) {
-    return resolveMixForScheme(def, ctx, isDark, isHighContrast);
+    return resolveMixForScheme(name, def, ctx, isDark, isHighContrast);
   }
 
   const regDef = def as RegularColorDef;
   const mode = regDef.mode ?? 'auto';
   const isRoot = isAbsoluteTone(regDef.tone) && !regDef.base;
   const effectiveHue = resolveEffectiveHue(ctx.hue, regDef.hue);
+  const role = resolveRole(name, def, ctx);
+  const polarity = roleToPolarity(role);
   const pastel = regDef.pastel ?? ctx.config.pastel;
 
   let finalTone: number;
@@ -314,6 +409,8 @@ function resolveColorForScheme(
       isHighContrast,
       isDark,
       effectiveHue,
+      polarity,
+      pastel,
     );
     finalTone = dep.tone;
     satFactor = dep.satFactor;
@@ -411,6 +508,7 @@ function linearRgbToToneVariant(
 }
 
 function resolveMixForScheme(
+  name: string,
   def: MixColorDef,
   ctx: ResolveContext,
   isDark: boolean,
@@ -430,6 +528,8 @@ function resolveMixForScheme(
 
   const blend = def.blend ?? 'opaque';
   const space = def.space ?? 'okhsl';
+  const role = resolveRole(name, def, ctx);
+  const polarity = roleToPolarity(role);
   const pastel = def.pastel ?? ctx.config.pastel;
   const baseLinear = okhslVariantToLinearRgb(
     baseVariant,
@@ -441,7 +541,11 @@ function resolveMixForScheme(
   );
 
   if (def.contrast !== undefined) {
-    const resolvedContrast = resolveContrastSpec(def.contrast, isHighContrast);
+    const resolvedContrast = resolveContrastSpec(
+      def.contrast,
+      isHighContrast,
+      polarity,
+    );
     const metric = resolvedContrast.metric;
 
     let luminanceAt: (v: number) => number;
@@ -570,6 +674,7 @@ function verifyContrastDrift(
   result: Map<string, ResolvedColor>,
   config: GlazeConfigResolved,
 ): void {
+  const roles = new Map<string, Role>();
   for (const name of order) {
     const def = defs[name];
     if (isShadowDef(def) || isMixDef(def)) continue;
@@ -578,6 +683,9 @@ function verifyContrastDrift(
     const color = result.get(name);
     const base = result.get(regDef.base);
     if (!color || !base) continue;
+
+    const role = resolveRoleInMap(name, def, defs, config.inferRole, roles);
+    const polarity = roleToPolarity(role);
 
     const schemes: {
       isDark: boolean;
@@ -591,7 +699,11 @@ function verifyContrastDrift(
     ];
 
     for (const s of schemes) {
-      const spec = resolveContrastSpec(regDef.contrast, s.isHighContrast);
+      const spec = resolveContrastSpec(
+        regDef.contrast,
+        s.isHighContrast,
+        polarity,
+      );
       const cVariant = color[s.field];
       const bVariant = base[s.field];
       const cOkhsl = toOkhslVariant(cVariant);
@@ -631,6 +743,7 @@ export function resolveAllColors(
     defs,
     resolved: new Map(),
     config,
+    roles: new Map(),
   };
 
   // Pre-seed externally-resolved bases. The per-pass loops iterate only
