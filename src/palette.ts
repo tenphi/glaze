@@ -280,7 +280,7 @@ export function createPalette(
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
       };
       const modes = resolveModes(options?.modes);
-      const format = options?.format ?? 'okhsl';
+      const format = options?.format ?? 'oklch';
       return buildPaletteOutput<
         Record<string, Record<string, string>>,
         Record<string, Record<string, string>>
@@ -340,7 +340,7 @@ export function createPalette(
 
     css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult {
       const suffix = options?.suffix ?? '-color';
-      const format = options?.format ?? 'rgb';
+      const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
       const modes = resolveModes();
 

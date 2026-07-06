@@ -967,7 +967,7 @@ describe('glaze', () => {
       theme.colors({ surface: { tone: 97 } });
       const tokens = theme.tasty();
       expect(tokens['#surface']).toBeDefined();
-      expect(tokens['#surface']['']).toMatch(/^okhsl\(/);
+      expect(tokens['#surface']['']).toMatch(/^oklch\(/);
       expect(tokens['#surface']['@dark']).toBeDefined();
     });
 
@@ -1692,10 +1692,10 @@ describe('glaze', () => {
       expect(resolved.dark.t).toBeGreaterThan(0.4);
     });
 
-    it('exports token / tasty with okhsl and json with oklch by default', () => {
+    it('exports token / tasty / json with oklch by default', () => {
       const color = glaze.color({ hue: 280, saturation: 80, tone: 52 });
-      expect(color.token()['']).toMatch(/^okhsl\(/);
-      expect(color.tasty()['']).toMatch(/^okhsl\(/);
+      expect(color.token()['']).toMatch(/^oklch\(/);
+      expect(color.tasty()['']).toMatch(/^oklch\(/);
       expect(color.json().light).toMatch(/^oklch\(/);
     });
 
@@ -1904,7 +1904,7 @@ describe('glaze', () => {
 
       it('names the token for messages without changing output keys', () => {
         const token = glaze.color({ from: '#26fcb2', name: 'accent' }).token();
-        expect(token['']).toMatch(/^okhsl\(/);
+        expect(token['']).toMatch(/^oklch\(/);
       });
     });
 

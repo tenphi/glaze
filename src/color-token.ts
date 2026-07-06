@@ -604,7 +604,7 @@ function createColorTokenFromDefs(
       '',
       resolveStates(options),
       resolveModes(options?.modes),
-      options?.format,
+      options?.format ?? 'oklch',
       effectiveConfig.pastel,
     );
     return tokenMap[`#${primary}`];
@@ -631,7 +631,7 @@ function createColorTokenFromDefs(
     },
 
     css(options: GlazeColorCssOptions): GlazeCssResult {
-      const format = options.format ?? 'rgb';
+      const format = options.format ?? 'oklch';
       assertNativeFormat(format, 'css');
       const resolved = resolveOnce().get(primary)!;
       const renamed = new Map<string, ResolvedColor>([

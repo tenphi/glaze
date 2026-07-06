@@ -733,7 +733,7 @@ export interface GlazeColorCssOptions {
    * `name: 'brand'` → `--brand-color: …`.
    */
   name: string;
-  /** Output color format. Default: 'rgb' (matches `theme.css` default). */
+  /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
   /**
    * Suffix appended to the name. Default: '-color' (matches
@@ -971,7 +971,7 @@ export interface GlazeTokenOptions {
   };
   /** Override which scheme variants to include. */
   modes?: GlazeOutputModes;
-  /** Output color format. Default: 'okhsl'. */
+  /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
   /**
    * Emit hue as a separate custom property, referenced via `var()`.
@@ -988,12 +988,12 @@ export interface GlazeTokenOptions {
 export interface GlazeJsonOptions {
   /** Override which scheme variants to include. */
   modes?: GlazeOutputModes;
-  /** Output color format. Default: 'okhsl'. */
+  /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
 }
 
 export interface GlazeCssOptions {
-  /** Output color format. Default: 'rgb'. */
+  /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
   /** Suffix appended to each CSS custom property name. Default: '-color'. */
   suffix?: string;

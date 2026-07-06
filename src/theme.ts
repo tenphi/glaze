@@ -211,8 +211,8 @@ export function createTheme(
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
       };
       const modes = resolveModes(options?.modes);
-      const format = options?.format ?? 'okhsl';
-      const channelCtx = channelCtxFor(options, 'okhsl', '');
+      const format = options?.format ?? 'oklch';
+      const channelCtx = channelCtxFor(options, 'oklch', '');
       return buildTokenMap(
         resolveCached(),
         '',
@@ -237,9 +237,9 @@ export function createTheme(
     },
 
     css(options?: GlazeCssOptions): GlazeCssResult {
-      const format = options?.format ?? 'rgb';
+      const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
-      const channelCtx = channelCtxFor(options, 'rgb', '');
+      const channelCtx = channelCtxFor(options, 'oklch', '');
       return buildCssMap(
         resolveCached(),
         '',

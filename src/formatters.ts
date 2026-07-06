@@ -64,7 +64,7 @@ function fmt(value: number, decimals: number): string {
 
 export function formatVariant(
   v: ResolvedColorVariant,
-  format: GlazeColorFormat = 'okhsl',
+  format: GlazeColorFormat = 'oklch',
   pastel = false,
 ): string {
   // Variants store canonical tone; convert to OKHSL lightness at the edge.
@@ -141,7 +141,7 @@ export function buildTokenMap(
   prefix: string,
   states: { dark: string; highContrast: string },
   modes: Required<GlazeOutputModes>,
-  format: GlazeColorFormat = 'okhsl',
+  format: GlazeColorFormat = 'oklch',
   pastel = false,
   channelCtx?: ChannelCtx,
 ): Record<string, Record<string, string>> {
@@ -229,7 +229,7 @@ export function buildFlatTokenMap(
   resolved: Map<string, ResolvedColor>,
   prefix: string,
   modes: Required<GlazeOutputModes>,
-  format: GlazeColorFormat = 'okhsl',
+  format: GlazeColorFormat = 'oklch',
   pastel = false,
 ): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {
@@ -276,7 +276,7 @@ export function buildFlatTokenMap(
 export function buildJsonMap(
   resolved: Map<string, ResolvedColor>,
   modes: Required<GlazeOutputModes>,
-  format: GlazeColorFormat = 'okhsl',
+  format: GlazeColorFormat = 'oklch',
   pastel = false,
 ): Record<string, Record<string, string>> {
   const result: Record<string, Record<string, string>> = {};
