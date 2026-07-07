@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.17.0
+
+### Minor Changes
+
+- [`10c0c0a`](https://github.com/tenphi/glaze/commit/10c0c0a29c0cb51a1cedd59cfb9fe6a0e5c96e40) Thanks [@tenphi](https://github.com/tenphi)! - Rename the per-color `flip` configuration property to `autoFlip` to match the global configuration key and avoid confusion with dark-mode/scheme tone inversion.
+
 ## 0.16.2
 
 ### Patch Changes
