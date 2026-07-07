@@ -534,7 +534,7 @@ function buildStandaloneValueDefs(
     tone: toneOption ?? seedTone,
     contrast: options?.contrast,
     mode: options?.mode ?? 'auto',
-    flip: options?.flip,
+    autoFlip: options?.autoFlip,
     opacity: options?.opacity,
     pastel: options?.pastel,
     role: options?.role,
@@ -798,7 +798,7 @@ export function createColorToken(
       tone: input.tone,
       saturation: input.saturationFactor,
       mode: input.mode ?? 'auto',
-      flip: input.flip,
+      autoFlip: input.autoFlip,
       contrast: input.contrast,
       opacity: input.opacity,
       pastel: input.pastel,
@@ -905,7 +905,7 @@ function buildOverridesExport(
     out.saturationFactor = options.saturationFactor;
   }
   if (options.mode !== undefined) out.mode = options.mode;
-  if (options.flip !== undefined) out.flip = options.flip;
+  if (options.autoFlip !== undefined) out.autoFlip = options.autoFlip;
   if (options.contrast !== undefined) out.contrast = options.contrast;
   if (options.opacity !== undefined) out.opacity = options.opacity;
   if (options.name !== undefined) out.name = options.name;
@@ -931,7 +931,7 @@ function buildStructuredInputExport(
     out.saturationFactor = input.saturationFactor;
   }
   if (input.mode !== undefined) out.mode = input.mode;
-  if (input.flip !== undefined) out.flip = input.flip;
+  if (input.autoFlip !== undefined) out.autoFlip = input.autoFlip;
   if (input.opacity !== undefined) out.opacity = input.opacity;
   if (input.contrast !== undefined) out.contrast = input.contrast;
   if (input.name !== undefined) out.name = input.name;
@@ -970,7 +970,7 @@ function rehydrateOverrides(
     out.saturationFactor = data.saturationFactor;
   }
   if (data.mode !== undefined) out.mode = data.mode;
-  if (data.flip !== undefined) out.flip = data.flip;
+  if (data.autoFlip !== undefined) out.autoFlip = data.autoFlip;
   if (data.contrast !== undefined) out.contrast = data.contrast;
   if (data.opacity !== undefined) out.opacity = data.opacity;
   if (data.name !== undefined) out.name = data.name;
@@ -996,7 +996,7 @@ function rehydrateStructuredInput(
     out.saturationFactor = data.saturationFactor;
   }
   if (data.mode !== undefined) out.mode = data.mode;
-  if (data.flip !== undefined) out.flip = data.flip;
+  if (data.autoFlip !== undefined) out.autoFlip = data.autoFlip;
   if (data.opacity !== undefined) out.opacity = data.opacity;
   if (data.contrast !== undefined) out.contrast = data.contrast;
   if (data.name !== undefined) out.name = data.name;

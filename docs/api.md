@@ -345,7 +345,7 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 | `base` | `string` | Name of another color in the same theme — makes this a *dependent* color. |
 | `contrast` | `HCPair<ContrastSpec>` | Contrast floor against `base`. Requires `base`. See [`contrast`](#contrast-floor). |
 | `mode` | `'auto' \| 'fixed' \| 'static'` | Adaptation mode. Default: `'auto'`. See [Adaptation modes](#adaptation-modes). |
-| `flip` | `boolean` | Flip out-of-bounds results (relative `tone` overshoot / unmet `contrast`) to the opposite side instead of clamping. Default: the global `autoFlip` (`true`). See [`flip`](#flip). |
+| `autoFlip` | `boolean` | Flip out-of-bounds results (relative `tone` overshoot / unmet `contrast`) to the opposite side instead of clamping. Default: the global `autoFlip` (`true`). See [`autoFlip`](#autoflip). |
 | `opacity` | `number` | Fixed alpha 0–1. Output includes alpha in the CSS value. Combining with `contrast` is not recommended (a `console.warn` is emitted). |
 | `pastel` | `boolean` | Per-color override for the hue-independent "safe" chroma limit used in OKHSL↔sRGB conversions (luminance, contrast solving, output formatting). Falls through to the global / per-theme `pastel` config when omitted. Default: unset. See [Per-color `pastel`](#per-color-pastel). |
 | `role` | `RoleInput` | Semantic role against `base` (`'text'` / `'surface'` / `'border'` or an alias). Fixes APCA contrast polarity. Resolved via: explicit `role` → name inference → opposite of the base's role → `'text'`. See [Roles](#roles). |
@@ -364,20 +364,20 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 
 **Absolute tone** on a dependent color (`base` set) positions the color independently. In dark mode it is tone-mapped (inverted + windowed) on its own. The `contrast` solver acts as a safety net.
 
-**Relative tone** applies a signed delta to the base color's resolved tone. Because tone is contrast-uniform, a fixed delta yields a fixed contrast step. In dark mode with `mode: 'auto'`, the offset is anchored to the base's per-scheme tone. If `base + delta` falls outside `[0, 100]`, the result is clamped to the boundary, or — with `flip` (default on) — mirrored to the other side of the base.
+**Relative tone** applies a signed delta to the base color's resolved tone. Because tone is contrast-uniform, a fixed delta yields a fixed contrast step. In dark mode with `mode: 'auto'`, the offset is anchored to the base's per-scheme tone. If `base + delta` falls outside `[0, 100]`, the result is clamped to the boundary, or — with `autoFlip` (default on) — mirrored to the other side of the base.
 
 **Extreme tone** (`'max'` / `'min'`) forces the color to the scheme's tone extreme without a contrast hack or a magic number. `'max'` resolves to author tone 100 and `'min'` to 0; both flow through scheme mapping like an absolute tone, so under `mode: 'auto'` they invert in dark (`'max'` is lightest in light, darkest in dark). Use `mode: 'static'` to pin the same extreme across schemes, or `mode: 'fixed'` to keep the same end without inverting. No `base` required.
 
 A dependent color with `base` but no `tone` inherits the base's tone (equivalent to a delta of 0).
 
-#### `flip`
+#### `autoFlip`
 
-`flip` governs what happens when a result would fall outside its valid range:
+`autoFlip` governs what happens when a result would fall outside its valid range:
 
-- **Relative `tone` overshoot:** when `base ± delta` exceeds `[0, 100]`, `flip` mirrors the delta to the other side of the base (e.g. `'+30'` becomes `'-30'`) instead of clamping to the boundary.
-- **`contrast` direction:** when the requested tone direction can't meet the floor, `flip` lets the solver try the opposite side (the same behavior as the global `autoFlip`).
+- **Relative `tone` overshoot:** when `base ± delta` exceeds `[0, 100]`, `autoFlip` mirrors the delta to the other side of the base (e.g. `'+30'` becomes `'-30'`) instead of clamping to the boundary.
+- **`contrast` direction:** when the requested tone direction can't meet the floor, `autoFlip` lets the solver try the opposite side (the same behavior as the global `autoFlip`).
 
-`flip` defaults to the global `autoFlip` (`true`). Set `flip: false` on a color to clamp instead of mirror — useful when you want a relative offset to stay on the authored side of the base, or to keep an unmet contrast pinned to one direction's extreme.
+`autoFlip` defaults to the global `autoFlip` (`true`). Set `autoFlip: false` on a color to clamp instead of mirror — useful when you want a relative offset to stay on the authored side of the base, or to keep an unmet contrast pinned to one direction's extreme.
 
 #### `contrast` (floor)
 
@@ -417,7 +417,7 @@ APCA preset keywords (Bronze Simple Mode conformance levels, role-independent):
 
 The floor is applied independently per scheme — if the `tone` already satisfies it the tone is kept, otherwise the solver searches in tone (contrast-uniform → a closed-form WCAG seed and fast convergence) until the target is met.
 
-By default, the solver crosses to the opposite side of the base color when the requested tone direction cannot satisfy the floor. This is controlled per-color by [`flip`](#flip) (which defaults to the global `autoFlip`). Set `glaze.configure({ autoFlip: false })` — or `flip: false` on a single color — to keep strict directionality: unmet colors pin to that direction's 0 or 100 tone extreme instead of falling back to the original requested value.
+By default, the solver crosses to the opposite side of the base color when the requested tone direction cannot satisfy the floor. This is controlled per-color by [`autoFlip`](#autoflip) (which defaults to the global `autoFlip`). Set `glaze.configure({ autoFlip: false })` — or `autoFlip: false` on a single color — to keep strict directionality: unmet colors pin to that direction's 0 or 100 tone extreme instead of falling back to the original requested value.
 
 **Full tone spectrum in HC mode:** in high-contrast variants the `lightTone` and `darkTone` window constraints are bypassed entirely (the window is forced to `[0, 100]`). Colors can reach the full range, maximizing perceivable contrast.
 
@@ -576,7 +576,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `tone` | `HCPair<number \| ExtremeValue>` | 0–100 (contrast-uniform) or `'max'`/`'min'`, optional HC pair. |
 | `saturationFactor` | `number` | Multiplier on the seed (0–1). Default: `1`. |
 | `mode` | `AdaptationMode` | Default: `'auto'`. |
-| `flip` | `boolean` | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. |
+| `autoFlip` | `boolean` | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. |
 | `opacity` | `number` | Fixed alpha 0–1. |
 | `base` | `GlazeColorToken \| GlazeColorValue` | Optional dependency. See [Pairing colors](#pairing-colors). |
 | `contrast` | `HCPair<ContrastSpec>` | Contrast floor against `base` (WCAG or APCA). Without `base`, anchored to the literal seed. |
@@ -594,7 +594,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `tone` | Number (absolute 0–100), `'+N'`/`'-N'`, or `'max'`/`'min'`. Without `base`, relative anchors to the seed; with `base`, anchors to `base`'s tone per scheme. |
 | `saturationFactor` | Multiplier on the seed (0–1). |
 | `mode` | `'auto'` (default) / `'fixed'` / `'static'`. |
-| `flip` | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. |
+| `autoFlip` | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. |
 | `contrast` | Contrast floor (WCAG or APCA). Without `base`, anchored to the literal seed; with `base`, solved per scheme. |
 | `base` | `GlazeColorToken` or raw `GlazeColorValue`. See [Pairing colors](#pairing-colors). |
 | `opacity` | Fixed alpha 0–1. Combining with `contrast` is not recommended — `console.warn` is emitted. |
@@ -659,7 +659,7 @@ The optional `config` second argument (`GlazeConfigOverride`) overrides the reso
 | `lightTone` | `[10, 100]` | Light tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
 | `darkTone` | `[15, 95]` | Dark tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping). |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
-| `autoFlip` | `true` | Default for each color's `flip`: when solving `contrast` (or applying a relative `tone` that overshoots), allow crossing to the opposite side instead of clamping. |
+| `autoFlip` | `true` | Default for each color's `autoFlip`: when solving `contrast` (or applying a relative `tone` that overshoots), allow crossing to the opposite side instead of clamping. |
 | `shadowTuning` | `undefined` | Default shadow tuning (meaningful for themes; harmless on color tokens). |
 
 Config overrides apply to both `glaze.color()` tokens and `glaze()` themes:
@@ -1216,7 +1216,7 @@ Light: accent-fill tone=52, accent-text tone='+20' → lighter than the fill
 Dark:  accent-fill maps into the dark window, sign preserved
 ```
 
-Offsets that would push past `[0, 100]` clamp to the boundary, or — with `flip` (default on) — mirror to the other side of the base. Set `flip: false` to keep the authored side and clamp instead.
+Offsets that would push past `[0, 100]` clamp to the boundary, or — with `autoFlip` (default on) — mirror to the other side of the base. Set `autoFlip: false` to keep the authored side and clamp instead.
 
 **`static`** — no adaptation, same tone in every scheme.
 
@@ -1304,7 +1304,7 @@ A `ToneWindow` is `[lo, hi]` (OKHSL-lightness endpoints, reference eps — the c
 | `modes.dark` | `true` | Include dark variants in exports. |
 | `modes.highContrast` | `false` | Include HC variants. |
 | `shadowTuning` | `undefined` | Default tuning for all shadow colors. Per-color tuning merges field-by-field. |
-| `autoFlip` | `true` | Default for each color's `flip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`flip`](#flip). |
+| `autoFlip` | `true` | Default for each color's `autoFlip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`autoFlip`](#autoflip). |
 | `pastel` | `false` | Hue-independent "safe" chroma limit across all colors so scaling saturation never exceeds the sRGB boundary at any hue for the given lightness. Override per color via [`pastel`](#per-color-pastel). |
 | `inferRole` | `true` | Infer each color's [`role`](#roles) from its name when no explicit `role` is set. Set to `false` to opt out of name-based inference (the base-opposite and foreground-default fallbacks still apply). |
 
@@ -1350,7 +1350,7 @@ Resolution priority (highest first):
 | Relative `tone` without `base` in a **theme** color | Validation error |
 | `contrast` without `base` in `glaze.color()` | Anchors against the literal seed (no error) |
 | Relative `tone` without `base` in `glaze.color()` | Anchors against the literal seed (no error) |
-| Relative `tone` overshoots `[0, 100]` | Mirror to the other side of the base (`flip` on, default), or clamp to the boundary (`flip` off) |
+| Relative `tone` overshoots `[0, 100]` | Mirror to the other side of the base (`autoFlip` on, default), or clamp to the boundary (`autoFlip` off) |
 | `tone` resolves outside 0–100 | Clamp silently |
 | `'max'` / `'min'` without `base` | Allowed — resolves to the scheme's tone extreme (root color) |
 | `saturation` outside 0–1 | Clamp silently |

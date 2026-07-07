@@ -255,7 +255,7 @@ function resolveDependentColor(
 
   const mode = def.mode ?? 'auto';
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
-  const flip = def.flip ?? ctx.config.autoFlip;
+  const flip = def.autoFlip ?? ctx.config.autoFlip;
   const pastel = effectivePastel;
 
   const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);

@@ -59,12 +59,14 @@ For colors that should sit at the scheme's tone extreme (pure-white knockouts, n
 // before — low contrast as a proxy for "stay near the surface"
 'disabled-text': { base: 'chip', tone: '+1', contrast: 1.51, mode: 'fixed' }
 // after — say it directly with tone
-'disabled-text': { base: 'chip', tone: '+18', saturation: 0.4, flip: false }
+'disabled-text': { base: 'chip', tone: '+18', saturation: 0.4, autoFlip: false }
 ```
 
-### The `flip` prop
+### The `autoFlip` prop (previously `flip`)
 
-Relative `tone` offsets that overshoot `[0, 100]` now **mirror to the other side of the base by default** (controlled by the new per-color `flip`, which inherits the global `autoFlip`, default `true`). Previously such offsets always clamped to the boundary. If you relied on clamping — e.g. `tone: '+48'` to stack a color up to 100 — set `flip: false` on that color (or `glaze.configure({ autoFlip: false })` globally) to restore the clamping behavior. `flip` also governs the contrast solver's direction (its previous sole role).
+The per-color configuration property `flip` has been renamed to `autoFlip` to align with the global `autoFlip` configuration option and to avoid confusion with dark-mode/scheme tone inversion (which is handled automatically by the system).
+
+Relative `tone` offsets that overshoot `[0, 100]` now **mirror to the other side of the base by default** (controlled by the per-color `autoFlip`, which inherits the global `autoFlip`, default `true`). Previously such offsets always clamped to the boundary. If you relied on clamping — e.g. `tone: '+48'` to stack a color up to 100 — set `autoFlip: false` on that color (or `glaze.configure({ autoFlip: false })` globally) to restore the clamping behavior. `autoFlip` also governs the contrast solver's direction (its previous sole role).
 
 ### Resolved variants store tone
 
@@ -362,7 +364,7 @@ After migration, mark every default-only token (borders, shadows, disabled chip,
 | Brand color flips to its complement in dark mode. | Default `mode: 'auto'` inverts the tone. | Set `mode: 'fixed'` so the tone is remapped (not inverted). |
 | Brand text washes out against the dark surface. | Foreground was anchored to `accent-surface` (the brand fill), so contrast was only enforced against that fill — not the actual surface. | Anchor `accent-text` etc. to `surface` with `mode: 'auto'`. |
 | Tokens look right in light, broken in HC. | The HC pass bypasses the tone window — solver runs over the full `[0, 100]` range. | Add explicit `[normal, hc]` pairs to `tone` / `contrast` for the affected tokens. |
-| A relative `tone` like `'+48'` lands on the *wrong* (darker) side of its base. | Overshooting offsets now mirror to the other side of the base by default (`flip` inherits `autoFlip`). | Set `flip: false` on the color to clamp to the boundary instead, or use `tone: 'max'`/`'min'` to force the extreme. |
+| A relative `tone` like `'+48'` lands on the *wrong* (darker) side of its base. | Overshooting offsets now mirror to the other side of the base by default (`autoFlip` inherits `autoFlip`). | Set `autoFlip: false` on the color to clamp to the boundary instead, or use `tone: 'max'`/`'min'` to force the extreme. |
 | `palette.tokens()` emits unexpected unprefixed names. | A `primary` was set on the palette (or per-call) and is duplicating the theme's tokens without prefix. | Pass `primary: false` to disable for that export, or rename `glaze.palette(themes, { primary })`. |
 | `console.warn: token "foo" collides with theme "bar"`. | Two themes resolved to the same output key under your prefix config. | Adjust the prefix map so each token is unique, or accept the first-write-wins behavior. |
 | `console.warn: color "X" cannot meet contrast`. | The requested contrast target is physically unreachable for the color's hue/saturation against its base. | Lower the floor, change the base, or accept the closest passing variant. Use the `name` override on standalone colors to make the warning identifiable. |

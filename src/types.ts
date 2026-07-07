@@ -182,7 +182,7 @@ export interface RegularColorDef {
    * Defaults to the global `autoFlip` config (default `true`). Set `false`
    * to clamp instead.
    */
-  flip?: boolean;
+  autoFlip?: boolean;
 
   /**
    * Fixed opacity (0–1).
@@ -541,7 +541,7 @@ export interface GlazeColorInput {
   saturationFactor?: number;
   mode?: AdaptationMode;
   /** Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. */
-  flip?: boolean;
+  autoFlip?: boolean;
   /**
    * Fixed opacity (0–1). Output includes alpha in the CSS value.
    * Combining with `contrast` is not recommended (perceived tone
@@ -646,7 +646,7 @@ export interface GlazeColorOverrides {
    * `contrast`) to the opposite side instead of clamping. Defaults to
    * the global `autoFlip`.
    */
-  flip?: boolean;
+  autoFlip?: boolean;
 
   /**
    * Contrast floor. By default solved against the literal seed
@@ -831,7 +831,7 @@ export interface GlazeColorInputExport {
   tone: HCPair<number | ExtremeValue>;
   saturationFactor?: number;
   mode?: AdaptationMode;
-  flip?: boolean;
+  autoFlip?: boolean;
   opacity?: number;
   base?: GlazeColorTokenExport | GlazeColorValue;
   contrast?: HCPair<ContrastSpec>;
@@ -850,7 +850,7 @@ export interface GlazeColorOverridesExport {
   tone?: HCPair<ToneValue>;
   saturationFactor?: number;
   mode?: AdaptationMode;
-  flip?: boolean;
+  autoFlip?: boolean;
   contrast?: HCPair<ContrastSpec>;
   base?: GlazeColorTokenExport | GlazeColorValue;
   opacity?: number;

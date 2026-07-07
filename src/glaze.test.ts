@@ -363,18 +363,18 @@ describe('glaze', () => {
       expect(llOf(text.light)).toBeGreaterThan(llOf(fill.light));
     });
 
-    it('clamps to the boundary when flip is disabled', () => {
+    it('clamps to the boundary when autoFlip is disabled', () => {
       const theme = glaze(0, 0);
       theme.colors({
         fill: { tone: 52 },
-        text: { base: 'fill', tone: '+48', flip: false },
+        text: { base: 'fill', tone: '+48', autoFlip: false },
       });
       const r = theme.resolve();
       // 0.5556 + 0.48 overshoots → clamps to light window hi (1.0)
       expect(llOf(r.get('text')!.light)).toBeCloseTo(1.0, 2);
     });
 
-    it('mirrors an overshooting offset by default (flip inherits autoFlip)', () => {
+    it('mirrors an overshooting offset by default (autoFlip inherits config)', () => {
       const theme = glaze(0, 0);
       theme.colors({
         fill: { tone: 52 },
@@ -383,7 +383,7 @@ describe('glaze', () => {
       const r = theme.resolve();
       const fill = r.get('fill')!;
       const text = r.get('text')!;
-      // default flip (autoFlip true) mirrors +0.48 → -0.48 below the base
+      // default autoFlip (config autoFlip true) mirrors +0.48 → -0.48 below the base
       expect(text.light.t).toBeCloseTo(fill.light.t - 0.48, 3);
     });
 
@@ -485,23 +485,23 @@ describe('glaze', () => {
     });
   });
 
-  describe('flip prop', () => {
-    it('flip: false clamps an overshooting relative tone to the boundary', () => {
+  describe('autoFlip prop', () => {
+    it('autoFlip: false clamps an overshooting relative tone to the boundary', () => {
       const theme = glaze(0, 0);
       theme.colors({
         surface: { tone: 90 },
-        chip: { base: 'surface', tone: '+30', flip: false },
+        chip: { base: 'surface', tone: '+30', autoFlip: false },
       });
       const chip = theme.resolve().get('chip')!;
       // 0.907 + 0.30 = 1.207 → clamps to 1.0
       expect(chip.light.t).toBeCloseTo(1, 4);
     });
 
-    it('flip: true mirrors an overshooting relative tone to the other side', () => {
+    it('autoFlip: true mirrors an overshooting relative tone to the other side', () => {
       const theme = glaze(0, 0);
       theme.colors({
         surface: { tone: 90 },
-        chip: { base: 'surface', tone: '+30', flip: true },
+        chip: { base: 'surface', tone: '+30', autoFlip: true },
       });
       const r = theme.resolve();
       const surface = r.get('surface')!;
@@ -511,23 +511,23 @@ describe('glaze', () => {
       expect(chip.light.t).toBeLessThan(surface.light.t);
     });
 
-    it('flip does not change an in-range relative tone', () => {
-      const flipOff = glaze(0, 0);
-      flipOff.colors({
+    it('autoFlip does not change an in-range relative tone', () => {
+      const autoFlipOff = glaze(0, 0);
+      autoFlipOff.colors({
         surface: { tone: 50 },
-        text: { base: 'surface', tone: '+20', flip: false },
+        text: { base: 'surface', tone: '+20', autoFlip: false },
       });
-      const flipOn = glaze(0, 0);
-      flipOn.colors({
+      const autoFlipOn = glaze(0, 0);
+      autoFlipOn.colors({
         surface: { tone: 50 },
-        text: { base: 'surface', tone: '+20', flip: true },
+        text: { base: 'surface', tone: '+20', autoFlip: true },
       });
-      const a = flipOff.resolve().get('text')!;
-      const b = flipOn.resolve().get('text')!;
+      const a = autoFlipOff.resolve().get('text')!;
+      const b = autoFlipOn.resolve().get('text')!;
       expect(a.light.t).toBeCloseTo(b.light.t, 4);
     });
 
-    it('flip defaults to the global autoFlip config', () => {
+    it('autoFlip defaults to the global autoFlip config', () => {
       glaze.configure({ autoFlip: false });
       try {
         const theme = glaze(0, 0);

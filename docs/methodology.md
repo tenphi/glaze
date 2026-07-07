@@ -209,14 +209,14 @@ defaultTheme.colors({
     base: 'disabled-surface',
     tone: '+18',
     saturation: 0.3,
-    flip: false,
+    autoFlip: false,
     inherit: false,
   },
 });
 ```
 
 This says exactly what the pair should do: the chip sits a few tone steps off
-the page, and the label sits a muted distance from the chip. `flip: false` keeps
+the page, and the label sits a muted distance from the chip. `autoFlip: false` keeps
 the relative label offset on the authored side when it reaches the edge.
 
 Use contrast instead when the chip must hit an explicit accessibility floor:
@@ -324,7 +324,7 @@ defaultTheme.colors({
     base: 'accent-disabled-surface',
     tone: '+18',
     saturation: 0.4,
-    flip: false,
+    autoFlip: false,
   },
 });
 ```
