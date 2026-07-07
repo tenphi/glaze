@@ -90,6 +90,9 @@ export {
   resolveContrastForMode,
   resolveApcaTarget,
   apcaContrast,
+  APCA_PRESETS,
+  APCA_HC_ENHANCEMENT,
+  APCA_MAX_LC,
 } from './contrast-solver';
 export type {
   ContrastPreset,

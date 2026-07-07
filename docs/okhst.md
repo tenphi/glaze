@@ -239,6 +239,55 @@ contrast: { apca: 'content' }          // Lc 60
 contrast: { apca: ['content', 'body'] } // HC pair: 60 normal, 75 high-contrast
 ```
 
+#### Enhanced Level (high-contrast auto-boost)
+
+When an APCA target is given as a **bare scalar** (no `[normal, hc]` pair at
+either the outer `contrast` level or the inner `apca` level), Glaze
+automatically applies the APCA-W3 "Enhanced Level" delta — **+15 Lc** — in
+high-contrast mode, analogous to WCAG's AAA-over-AA step. This is on by
+default; provide an explicit HC value via either pair to override it.
+
+```ts
+contrast: { apca: 60 }          // Lc 60 normal, Lc 75 high-contrast (auto)
+contrast: { apca: 'content' }   // Lc 60 normal, Lc 75 high-contrast (auto)
+contrast: { apca: [60, 90] }    // Lc 60 normal, Lc 90 high-contrast (explicit)
+contrast: [{ apca: 60 }, { apca: 90 }] // outer pair: explicit HC, no boost
+contrast: { apca: 'preferred' } // Lc 90 normal, Lc 105 high-contrast (auto)
+contrast: { apca: 100 }         // Lc 100 normal, Lc 106 high-contrast (clamped)
+```
+
+The enhanced target is clamped to `APCA_MAX_LC` (106).
+
+> **Large-text glare caveat.** APCA-W3 also defines Lc 90 as a *maximum* for
+> very large/bold text (>36px bold) and large areas of color, to prevent
+> excessive glare. The +15 HC boost can therefore push a high baseline (e.g.
+> `preferred` Lc 90 → 105) past that glare ceiling. This is intentional for
+> small/standard text in HC (low-vision readability trumps glare, and small
+> fonts have no APCA maximum), but if your HC tokens serve large/bold text,
+> pass an explicit HC pair (`{ apca: [90, 90] }`) to hold the glare ceiling.
+> Glaze does not model font size, so it can't enforce the large-text cap
+> automatically.
+
+#### WCAG HC auto-promotion
+
+A bare WCAG preset (no `[normal, hc]` pair at either the outer `contrast` or
+inner `wcag` level) is automatically promoted to its spec-defined "Enhanced"
+successor in high-contrast mode — WCAG SC 1.4.3 (Minimum) → SC 1.4.6
+(Enhanced), the direct analog of APCA's Enhanced Level:
+
+```ts
+contrast: 'AA'         // 4.5 normal, 7 high-contrast (auto -> AAA)
+contrast: 'AA-large'   // 3 normal, 4.5 high-contrast (auto -> AAA-large)
+contrast: 'AAA'        // 7 both modes (top tier, unchanged)
+contrast: 'AAA-large'  // 4.5 both modes (top tier, unchanged)
+contrast: 5.5          // 5.5 both modes (bare number, no successor tier)
+contrast: { wcag: ['AA', 'AA'] } // 4.5 both modes (explicit HC, no promotion)
+```
+
+`AAA` and `AAA-large` are already the top WCAG tier and are left unchanged; bare
+numeric targets have no defined successor tier and are also left unchanged. An
+explicit HC value via either pair overrides and skips the promotion.
+
 ## Verification (APCA / WCAG drift)
 
 Because chromatic swatches inherit gray's tone-derived lightness but drift in

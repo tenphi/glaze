@@ -203,8 +203,14 @@ function resolveContrastSpec(
   isHighContrast: boolean,
   polarity?: 'fg' | 'bg',
 ): ResolvedContrast {
+  const outerExplicitHC = Array.isArray(spec);
   const outer = isHighContrast ? pairHC(spec) : pairNormal(spec);
-  return resolveContrastForMode(outer, isHighContrast, polarity);
+  return resolveContrastForMode(
+    outer,
+    isHighContrast,
+    polarity,
+    outerExplicitHC,
+  );
 }
 
 /**

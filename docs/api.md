@@ -403,12 +403,29 @@ A bare number or preset means **WCAG**. Use `{ wcag }` / `{ apca }` to pick the 
 contrast: 4.5                  // WCAG 4.5
 contrast: 'AAA'                // WCAG 7
 contrast: { wcag: 6 }          // WCAG 6
-contrast: { wcag: [4.5, 7] }   // WCAG 4.5 normal / 7 high-contrast
-contrast: { apca: 60 }         // APCA Lc 60
-contrast: { apca: [45, 60] }   // APCA Lc 45 normal / 60 high-contrast
-contrast: { apca: 'content' }  // APCA preset -> Lc 60
-contrast: { apca: ['content', 'body'] } // Lc 60 normal / 75 high-contrast
+contrast: { wcag: [4.5, 7] }   // WCAG 4.5 normal / 7 high-contrast (explicit)
+contrast: { apca: 60 }         // APCA Lc 60 normal / 75 high-contrast (auto)
+contrast: { apca: [45, 60] }   // APCA Lc 45 normal / 60 high-contrast (explicit)
+contrast: { apca: 'content' }  // APCA preset -> Lc 60 normal / 75 high-contrast (auto)
+contrast: { apca: ['content', 'body'] } // Lc 60 normal / 75 high-contrast (explicit)
 ```
+
+**WCAG HC auto-promotion:** a bare WCAG preset (no `[normal, hc]` pair at either
+the outer `contrast` or inner `wcag` level) is automatically promoted to its
+spec-defined "Enhanced" successor in high-contrast mode — `AA` → `AAA` (4.5 → 7)
+and `AA-large` → `AAA-large` (3 → 4.5), per WCAG SC 1.4.3 → 1.4.6. `AAA` and
+`AAA-large` are already the top WCAG tier and are left unchanged; bare numeric
+targets have no successor tier and are also left unchanged. An explicit HC value
+via either pair overrides and skips the promotion.
+
+**APCA Enhanced Level (HC auto-boost):** a bare APCA scalar (no `[normal, hc]`
+pair at either the outer `contrast` or inner `apca` level) is automatically
+boosted by **+15 Lc** in high-contrast mode, the APCA analog of WCAG's
+AAA-over-AA step. On by default; an explicit HC value via either pair
+overrides it and skips the boost. The enhanced target is clamped to 106 Lc.
+For large/bold text (where APCA caps contrast at Lc 90 to avoid glare), pass
+an explicit HC pair to hold that ceiling — see
+[`docs/okhst.md`](okhst.md) §Enhanced Level.
 
 APCA preset keywords (Bronze Simple Mode conformance levels, role-independent):
 `'preferred'` (Lc 90), `'body'` (75), `'content'` (60, ~AA), `'large'` (45, ~3:1),
@@ -1465,9 +1482,11 @@ import {
 |---|---|
 | `findToneForContrast(opts)` | Binary-search for the tone (0–1) that meets a contrast floor (WCAG or APCA) against a base color. Returns `{ tone, contrast, met, branch, flipped? }`. |
 | `findValueForMixContrast(opts)` | Same, but searches for a mix `value` (0–1) that meets a contrast floor between a base and a target. |
-| `resolveContrastForMode(spec, isHC)` | Resolves a `ContrastSpec` to `{ metric: 'wcag' \| 'apca', target }` for the requested mode (picks the normal or HC entry of any pair). |
+| `resolveContrastForMode(spec, isHC, polarity?, outerExplicitHC?)` | Resolves a `ContrastSpec` to `{ metric: 'wcag' \| 'apca', target }` for the requested mode (picks the normal or HC entry of any pair). In HC, applies the metric's auto-enhancement unless `outerExplicitHC` is set or the inner metric pair carries an explicit HC value: APCA +15 Lc (clamped to 106); WCAG AA → AAA / AA-large → AAA-large (AAA-family and bare numbers unchanged). |
 | `resolveMinContrast(value)` | Resolves a `MinContrast` (WCAG preset or number) to a numeric ratio. |
 | `apcaContrast(yText, yBg)` | APCA Lc magnitude (0–106) for two relative luminances. |
+
+Exported constants: `APCA_PRESETS`, `APCA_HC_ENHANCEMENT` (`15`, the Enhanced Level delta), `APCA_MAX_LC` (`106`).
 
 `findToneForContrast` options:
 

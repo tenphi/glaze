@@ -75,6 +75,17 @@ export const APCA_PRESETS: Record<ApcaPreset, number> = {
 };
 
 /**
+ * APCA-W3 "Enhanced Level" delta added to a bare APCA target in high-contrast
+ * mode when no explicit HC value is provided (analogous to WCAG AAA over AA).
+ * Only applied when neither the outer `contrast` pair nor the inner `apca`
+ * pair carries an explicit HC entry.
+ */
+export const APCA_HC_ENHANCEMENT = 15;
+
+/** Upper bound for an APCA Lc target after HC enhancement. */
+export const APCA_MAX_LC = 106;
+
+/**
  * Resolve an APCA target — a raw Lc number (kept as-is) or an `ApcaPreset`
  * keyword mapped to its Lc value. The magnitude is forced non-negative.
  */
@@ -108,11 +119,44 @@ const CONTRAST_PRESETS: Record<ContrastPreset, number> = {
   'AAA-large': 4.5,
 };
 
+/**
+ * WCAG high-contrast auto-promotion (analog of APCA's Enhanced Level). A bare
+ * AA / AA-large preset is promoted to its spec-defined "Enhanced" successor
+ * (SC 1.4.3 → SC 1.4.6) in high-contrast mode. AAA / AAA-large are already
+ * the top WCAG tier and are left unchanged. Bare numeric targets have no
+ * defined successor tier and are also left unchanged. An explicit HC value
+ * (outer or inner pair) always overrides.
+ */
+const WCAG_HC_PROMOTION: Partial<Record<ContrastPreset, ContrastPreset>> = {
+  AA: 'AAA',
+  'AA-large': 'AAA-large',
+};
+
 export function resolveMinContrast(value: MinContrast): number {
   if (typeof value === 'number') {
     return Math.max(1, value);
   }
   return CONTRAST_PRESETS[value];
+}
+
+/**
+ * Resolve a WCAG target (number or preset) for a mode, applying the
+ * high-contrast auto-promotion when `explicitHC` is false and the value is an
+ * AA-family preset. Bare numbers and AAA-family presets pass through.
+ */
+function resolveWcagTarget(
+  value: number | ContrastPreset,
+  isHighContrast: boolean,
+  explicitHC: boolean,
+): number {
+  if (typeof value === 'number') {
+    return resolveMinContrast(value);
+  }
+  if (isHighContrast && !explicitHC) {
+    const promoted = WCAG_HC_PROMOTION[value];
+    if (promoted !== undefined) return resolveMinContrast(promoted);
+  }
+  return resolveMinContrast(value);
 }
 
 function pickPair<T>(p: HCPair<T>, isHighContrast: boolean): T {
@@ -124,26 +168,52 @@ function pickPair<T>(p: HCPair<T>, isHighContrast: boolean): T {
  * given mode into `{ metric, target }`. Handles the inner metric HC pair and
  * preset resolution. `polarity` is passed through to the result for the APCA
  * branch (it controls argument order in the solver); WCAG ignores it.
+ *
+ * `outerExplicitHC` indicates whether the caller selected this `spec` from an
+ * explicit high-contrast entry of the outer `contrast` pair. Together with the
+ * inner metric pair, it decides whether the HC auto-enhancement fires:
+ *  - APCA: +15 Lc "Enhanced Level" boost when neither level is explicit.
+ *  - WCAG: AA → AAA / AA-large → AAA-large promotion (SC 1.4.3 → 1.4.6) when
+ *    neither level is explicit. AAA-family presets and bare numbers are left
+ *    unchanged (AAA is the top WCAG tier).
+ * Defaults to `false` (correct for direct callers, which pass a single
+ * selected spec rather than an outer pair).
  */
 export function resolveContrastForMode(
   spec: ContrastSpec,
   isHighContrast: boolean,
   polarity?: 'fg' | 'bg',
+  outerExplicitHC?: boolean,
 ): ResolvedContrast {
   if (typeof spec === 'number' || typeof spec === 'string') {
     // A bare string here is a WCAG preset ('AA' / 'AAA' / ...).
-    return { metric: 'wcag', target: resolveMinContrast(spec) };
+    return {
+      metric: 'wcag',
+      target: resolveWcagTarget(spec, isHighContrast, !!outerExplicitHC),
+    };
   }
   if ('apca' in spec) {
+    const baseTarget = resolveApcaTarget(pickPair(spec.apca, isHighContrast));
+    const innerExplicitHC = Array.isArray(spec.apca);
+    const enhanced =
+      isHighContrast && !outerExplicitHC && !innerExplicitHC
+        ? Math.min(baseTarget + APCA_HC_ENHANCEMENT, APCA_MAX_LC)
+        : baseTarget;
     return {
       metric: 'apca',
-      target: resolveApcaTarget(pickPair(spec.apca, isHighContrast)),
+      target: enhanced,
       polarity: polarity ?? 'fg',
     };
   }
+  const innerExplicitHC = Array.isArray(spec.wcag);
+  const picked = pickPair(spec.wcag, isHighContrast);
   return {
     metric: 'wcag',
-    target: resolveMinContrast(pickPair(spec.wcag, isHighContrast)),
+    target: resolveWcagTarget(
+      picked,
+      isHighContrast,
+      !!outerExplicitHC || innerExplicitHC,
+    ),
   };
 }
 

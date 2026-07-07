@@ -9,6 +9,7 @@ import {
 import { apcaContrast } from './contrast-solver';
 import { variantToOkhsl } from './okhst';
 import type {
+  ContrastSpec,
   DtcgColorToken,
   GlazeColorTokenExport,
   ResolvedColorVariant,
@@ -796,6 +797,90 @@ describe('glaze', () => {
       expect(
         variantContrast(r.get('fg')!.lightContrast, r.get('bg')!.lightContrast),
       ).toBeGreaterThanOrEqual(7);
+    });
+
+    it('auto-enhances a bare APCA floor by +15 Lc in high-contrast', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 97 },
+        fg: { base: 'bg', tone: 50, contrast: { apca: 60 } },
+      });
+      const r = theme.resolve();
+      const base = r.get('bg')!;
+      const fg = r.get('fg')!;
+      const normalLc = variantApca(fg.light, base.light, 'fg');
+      const hcLc = variantApca(fg.lightContrast, base.lightContrast, 'fg');
+      // HC targets Lc 75 (60 + 15) and so produces strictly more contrast.
+      expect(hcLc).toBeGreaterThan(normalLc);
+      expect(hcLc).toBeGreaterThanOrEqual(75);
+    });
+
+    it('does not auto-enhance when the inner apca pair gives an explicit HC value', () => {
+      const mk = (contrast: ContrastSpec) => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          bg: { tone: 97 },
+          fg: { base: 'bg', tone: 50, contrast },
+        });
+        return theme.resolve();
+      };
+      const explicit = mk({ apca: [60, 60] });
+      const boosted = mk({ apca: 60 });
+      const explicitHcLc = variantApca(
+        explicit.get('fg')!.lightContrast,
+        explicit.get('bg')!.lightContrast,
+        'fg',
+      );
+      const boostedHcLc = variantApca(
+        boosted.get('fg')!.lightContrast,
+        boosted.get('bg')!.lightContrast,
+        'fg',
+      );
+      // The bare target auto-enhances to Lc 75; the explicit [60, 60] pair
+      // pins HC at 60 and so converges well below the boosted HC result.
+      expect(boostedHcLc).toBeGreaterThan(explicitHcLc);
+      expect(explicitHcLc).toBeLessThan(75);
+    });
+
+    it('auto-promotes a bare WCAG AA floor to AAA in high-contrast', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 97 },
+        fg: { base: 'bg', tone: 50, contrast: 'AA' },
+      });
+      const r = theme.resolve();
+      const base = r.get('bg')!;
+      const fg = r.get('fg')!;
+      // Normal targets AA (4.5); HC auto-promotes to AAA (7).
+      expect(variantContrast(fg.light, base.light)).toBeGreaterThanOrEqual(4.5);
+      expect(
+        variantContrast(fg.lightContrast, base.lightContrast),
+      ).toBeGreaterThanOrEqual(7);
+    });
+
+    it('does not auto-promote when the inner wcag pair gives an explicit HC value', () => {
+      const mk = (contrast: ContrastSpec) => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          bg: { tone: 97 },
+          fg: { base: 'bg', tone: 50, contrast },
+        });
+        return theme.resolve();
+      };
+      const explicit = mk({ wcag: ['AA', 'AA'] });
+      const promoted = mk('AA');
+      const explicitHc = variantContrast(
+        explicit.get('fg')!.lightContrast,
+        explicit.get('bg')!.lightContrast,
+      );
+      const promotedHc = variantContrast(
+        promoted.get('fg')!.lightContrast,
+        promoted.get('bg')!.lightContrast,
+      );
+      // The bare preset promotes to AAA (7) in HC; the explicit ['AA','AA']
+      // pair pins HC at AA (4.5) and so converges below the promoted result.
+      expect(promotedHc).toBeGreaterThan(explicitHc);
+      expect(explicitHc).toBeLessThan(7);
     });
   });
 

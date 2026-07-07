@@ -86,6 +86,35 @@ describe('contrast-solver', () => {
       expect(resolveContrastForMode({ wcag: [4.5, 7] }, true).target).toBe(7);
     });
 
+    it('auto-promotes a bare WCAG AA preset to AAA in HC (SC 1.4.3 -> 1.4.6)', () => {
+      expect(resolveContrastForMode('AA', true).target).toBe(7);
+      expect(resolveContrastForMode('AA', false).target).toBe(4.5);
+      expect(resolveContrastForMode('AA-large', true).target).toBe(4.5);
+      expect(resolveContrastForMode('AA-large', false).target).toBe(3);
+    });
+
+    it('leaves AAA-family WCAG presets unchanged in HC (top tier)', () => {
+      expect(resolveContrastForMode('AAA', true).target).toBe(7);
+      expect(resolveContrastForMode('AAA-large', true).target).toBe(4.5);
+    });
+
+    it('leaves a bare WCAG number unchanged in HC (no successor tier)', () => {
+      expect(resolveContrastForMode(5.5, true).target).toBe(5.5);
+      expect(resolveContrastForMode({ wcag: 6 }, true).target).toBe(6);
+    });
+
+    it('does not promote when the inner wcag pair carries an explicit HC value', () => {
+      expect(resolveContrastForMode({ wcag: ['AA', 'AA'] }, true).target).toBe(
+        4.5,
+      );
+    });
+
+    it('does not promote when outerExplicitHC is signaled by the caller', () => {
+      expect(resolveContrastForMode('AA', true, undefined, true).target).toBe(
+        4.5,
+      );
+    });
+
     it('resolves { apca } with a scalar', () => {
       expect(resolveContrastForMode({ apca: 60 }, false)).toEqual({
         metric: 'apca',
@@ -117,6 +146,36 @@ describe('contrast-solver', () => {
 
     it('takes the magnitude of an APCA target', () => {
       expect(resolveContrastForMode({ apca: -60 }, false).target).toBe(60);
+    });
+
+    it('auto-enhances a bare APCA scalar by +15 Lc in HC (Enhanced Level)', () => {
+      expect(resolveContrastForMode({ apca: 60 }, true).target).toBe(75);
+      // normal mode is untouched
+      expect(resolveContrastForMode({ apca: 60 }, false).target).toBe(60);
+    });
+
+    it('auto-enhances an APCA preset by +15 Lc in HC', () => {
+      expect(resolveContrastForMode({ apca: 'content' }, true).target).toBe(75);
+    });
+
+    it('clamps the HC enhancement to APCA_MAX_LC', () => {
+      // 'preferred' -> 90; +15 = 105, under the 106 cap
+      expect(resolveContrastForMode({ apca: 'preferred' }, true).target).toBe(
+        105,
+      );
+      // a near-max baseline clamps to 106
+      expect(resolveContrastForMode({ apca: 100 }, true).target).toBe(106);
+    });
+
+    it('does not enhance when the inner apca pair carries an explicit HC value', () => {
+      expect(resolveContrastForMode({ apca: [60, 60] }, true).target).toBe(60);
+      expect(resolveContrastForMode({ apca: [60, 90] }, true).target).toBe(90);
+    });
+
+    it('does not enhance when outerExplicitHC is signaled by the caller', () => {
+      expect(
+        resolveContrastForMode({ apca: 60 }, true, 'fg', true).target,
+      ).toBe(60);
     });
   });
 
