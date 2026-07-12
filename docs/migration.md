@@ -106,7 +106,7 @@ Glaze emits the same resolved colors in six shapes. Pick one based on your rende
 
 | Method | Output shape | Use it for |
 |---|---|---|
-| `palette.tasty(options?)` | `{ '#name': { '': value, '@dark': value, '@hc': value } }` | The [Tasty](https://tasty.style/docs) style system. Single object, state aliases keyed inside each token. |
+| `palette.tasty(options?)` | `{ '#name': { '': value, '@media(prefers-color-scheme: dark)': value, '@media(prefers-contrast: more)': value } }` | The [Tasty](https://tasty.style/docs) style system. Single object, state aliases keyed inside each token. |
 | `palette.tokens(options?)` | `{ light: { name: value }, dark: { name: value }, ... }` | Most CSS-in-JS systems. Per-variant flat maps, easy to feed into a `:root { ... }` selector via your framework's globals. |
 | `palette.css(options?)` | `{ light: '--name-color: rgb(...);', dark: '...', ... }` | Framework-free CSS / static stylesheets. Variant-grouped CSS custom property strings ready to wrap in `:root` and `prefers-color-scheme` queries. |
 | `palette.json(options?)` | `{ themeName: { name: { light, dark, ... } } }` | Tooling, JSON pipelines. |
@@ -136,11 +136,14 @@ useGlobalStyles('body', PALETTE_TOKENS);
 tastyStatic('body', PALETTE_TOKENS);
 ```
 
-For the `@dark` / `@hc` state aliases to do anything, your app needs to register what those states *mean*:
+By default the dark / high-contrast variants are keyed by media-query states — `'@media(prefers-color-scheme: dark)'` and `'@media(prefers-contrast: more)'` — so the tokens react to the OS preference out of the box, with no extra Tasty setup.
+
+If you'd rather drive the schemes from custom aliases (e.g. a manual toggle that also falls back to the OS preference), set your own [`glaze.configure({ states })`](api.md#configuration) and register what those states *mean*:
 
 ```ts
 import { setGlobalPredefinedStates } from '@tenphi/tasty';
 
+// glaze.configure({ states: { dark: '@dark', highContrast: '@hc' } });
 setGlobalPredefinedStates({
   '@dark':
     '@root(schema=dark) | (!@root(schema) & @media(prefers-color-scheme: dark))',

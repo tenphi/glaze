@@ -127,12 +127,12 @@ theme.tokens()
 
 ### `theme.tasty(options?)`
 
-Tasty style-to-state bindings for the [Tasty style system](https://tasty.style/docs). Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
+Tasty style-to-state bindings for the [Tasty style system](https://tasty.style/docs). Uses `#name` color token keys and state aliases. By default the dark and high-contrast variants are keyed by media-query states (`'@media(prefers-color-scheme: dark)'`, `'@media(prefers-contrast: more)'`) so tokens work without registering custom states.
 
 ```ts
 theme.tasty()
 // → {
-//   '#surface': { '': 'okhsl(...)', '@dark': 'okhsl(...)' },
+//   '#surface': { '': 'okhsl(...)', '@media(prefers-color-scheme: dark)': 'okhsl(...)' },
 //   ...
 // }
 ```
@@ -143,13 +143,13 @@ theme.tasty()
 |---|---|---|
 | `format` | `'okhsl'` | Output color format. `'okhsl'` and `'okhst'` are supported here (Tasty-only spaces). |
 | `modes` | global config | Which scheme variants to include. |
-| `states.dark` | `'@dark'` (or global config) | State alias for dark mode tokens. |
-| `states.highContrast` | `'@high-contrast'` (or global config) | State alias for high-contrast tokens. |
+| `states.dark` | `'@media(prefers-color-scheme: dark)'` (or global config) | State alias for dark mode tokens. |
+| `states.highContrast` | `'@media(prefers-contrast: more)'` (or global config) | State alias for high-contrast tokens. |
 | `splitHue` | `false` | Emit hue as a separate custom property (`$name-hue` token + `var()` in `oklch` values). Requires `format: 'oklch'` and every color to be pastel. |
 | `name` | `'theme'` | Base name for the theme-level hue var (`$theme-hue` / `--theme-hue`). Palette export auto-derives this from the theme name. |
 | `prefix` | (palette only) | See [Palette](#palette). |
 
-When both `dark` and `highContrast` modes are enabled, dark high-contrast variants are emitted under the combined key `<dark> & <highContrast>` (e.g. `'@dark & @high-contrast'`).
+When both `dark` and `highContrast` modes are enabled, dark high-contrast variants are emitted under the combined key `<dark> & <highContrast>` (e.g. `'@media(prefers-color-scheme: dark) & @media(prefers-contrast: more)'`).
 
 ### `theme.json(options?)`
 
@@ -1293,8 +1293,8 @@ glaze.configure({
   darkTone: [15, 95],   // [lo, hi]; or { lo, hi, eps } / false to disable clamping
   darkDesaturation: 0.1,
   states: {
-    dark: '@dark',
-    highContrast: '@high-contrast',
+    dark: '@media(prefers-color-scheme: dark)',
+    highContrast: '@media(prefers-contrast: more)',
   },
   modes: {
     dark: true,
@@ -1316,8 +1316,8 @@ A `ToneWindow` is `[lo, hi]` (OKHSL-lightness endpoints, reference eps — the c
 | `lightTone` | `[10, 100]` | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
 | `darkTone` | `[15, 95]` | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC. |
 | `darkDesaturation` | `0.1` | Saturation reduction in dark scheme (0–1). |
-| `states.dark` | `'@dark'` | State alias for dark mode tokens (Tasty export). |
-| `states.highContrast` | `'@high-contrast'` | State alias for HC tokens. |
+| `states.dark` | `'@media(prefers-color-scheme: dark)'` | State alias for dark mode tokens (Tasty export). Defaults to a media query so tokens react to the OS preference without registering custom states. |
+| `states.highContrast` | `'@media(prefers-contrast: more)'` | State alias for HC tokens (Tasty export). |
 | `modes.dark` | `true` | Include dark variants in exports. |
 | `modes.highContrast` | `false` | Include HC variants. |
 | `shadowTuning` | `undefined` | Default tuning for all shadow colors. Per-color tuning merges field-by-field. |

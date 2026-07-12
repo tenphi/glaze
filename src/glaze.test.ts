@@ -1053,7 +1053,9 @@ describe('glaze', () => {
       const tokens = theme.tasty();
       expect(tokens['#surface']).toBeDefined();
       expect(tokens['#surface']['']).toMatch(/^oklch\(/);
-      expect(tokens['#surface']['@dark']).toBeDefined();
+      expect(
+        tokens['#surface']['@media(prefers-color-scheme: dark)'],
+      ).toBeDefined();
     });
 
     it('flat token map has a light entry', () => {

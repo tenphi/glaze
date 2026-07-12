@@ -24,8 +24,8 @@ export function defaultConfig(): GlazeConfigResolved {
     darkTone: { lo: 15, hi: 95, eps: 0.05 },
     darkDesaturation: 0.1,
     states: {
-      dark: '@dark',
-      highContrast: '@high-contrast',
+      dark: '@media(prefers-color-scheme: dark)',
+      highContrast: '@media(prefers-contrast: more)',
     },
     modes: {
       dark: true,
