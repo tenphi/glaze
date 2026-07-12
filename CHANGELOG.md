@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 0.19.0
+
+### Minor Changes
+
+- [#75](https://github.com/tenphi/glaze/pull/75) [`04e794f`](https://github.com/tenphi/glaze/commit/04e794ff6e9ad4577e958818b34ae293cda12dc6) Thanks [@tenphi](https://github.com/tenphi)! - Tasty exports now default to media-query state aliases (`@media(prefers-color-scheme: dark)` and `@media(prefers-contrast: more)`) instead of the custom `@dark` / `@high-contrast` aliases. Tokens now react to the OS preference out of the box without registering custom Tasty states. Override via `glaze.configure({ states })` or per-export `states` to keep the old aliases.
+
 ## 0.18.0
 
 ### Minor Changes
