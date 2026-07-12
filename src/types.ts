@@ -404,7 +404,11 @@ export interface GlazeConfig {
   darkTone?: ToneWindow;
   /** Saturation reduction factor for dark scheme (0–1). Default: 0.1. */
   darkDesaturation?: number;
-  /** State alias names for token export. */
+  /**
+   * State alias names for Tasty token export. Default to media-query states
+   * (`'@media(prefers-color-scheme: dark)'` / `'@media(prefers-contrast: more)'`)
+   * so tokens react to the OS preference without registering custom states.
+   */
   states?: {
     dark?: string;
     highContrast?: string;
@@ -755,7 +759,7 @@ export interface GlazeColorToken {
   token(options?: GlazeTokenOptions): Record<string, string>;
   /**
    * Export as a tasty style-to-state binding (no color name key).
-   * Uses `#name` keys and state aliases (`''`, `@dark`, etc.).
+   * Uses `#name` keys and state aliases (`''`, `'@media(prefers-color-scheme: dark)'`, etc.).
    * @see https://tasty.style/docs
    */
   tasty(options?: GlazeTokenOptions): Record<string, string>;
@@ -912,7 +916,7 @@ export interface GlazeTheme {
 
   /**
    * Export as tasty style-to-state bindings.
-   * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
+   * Uses `#name` color token keys and state aliases (`''`, `'@media(prefers-color-scheme: dark)'`, etc.).
    * Spread into component styles or register as a recipe via `configure({ recipes })`.
    * @see https://tasty.style/docs
    */
@@ -1278,7 +1282,7 @@ export interface GlazePalette {
 
   /**
    * Export all themes as tasty style-to-state bindings.
-   * Uses `#name` color token keys and state aliases (`''`, `@dark`, etc.).
+   * Uses `#name` color token keys and state aliases (`''`, `'@media(prefers-color-scheme: dark)'`, etc.).
    * Prefix defaults to `true`. Inherits the palette-level `primary`.
    * @see https://tasty.style/docs
    */
