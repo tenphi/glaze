@@ -4,8 +4,9 @@ A practical way to design a Glaze palette without fighting dark mode. Start from
 tone relationships, add contrast only where a role needs a readable floor, and
 let `extend()` carry the same decisions across status hues.
 
-For the full API surface, see [api.md](api.md). For the color model details, see
-[okhst.md](okhst.md).
+For the full API surface, see [api.md](api.md). For the Glaze color-model
+overview, see [okhst.md](okhst.md); the derivation lives in the
+[canonical OKHST specification](https://github.com/tenphi/okhst).
 
 ## The mental model
 
@@ -21,24 +22,53 @@ themes:
   ladders, shadows, code colors, overlays, and anything that should not be
   repeated for every status hue.
 
-The main simplification is OKHST tone. Dark mode is now a single inversion
-(`100 - t`) plus a scheme window, so relative tone shifts stay consistent between
-light and dark. A token that is `-4` tone from its base is the same kind of step
-in both schemes.
+The main simplification is OKHST tone. Dark mode is a single inversion
+(`100 - t`) plus a scheme tone window, so a relative **tone delta** stays
+anchored to its base in every scheme. A token authored as `tone: '-4'` remains
+the same kind of visual step in light and dark. The step is exactly
+contrast-even for neutrals and approximate for chromatic colors; add a
+`contrast` floor when the measured result matters.
 
-## Authoring Rules
+Use `glaze.color()` instead of a theme when you need one standalone color or
+one base/dependent pair and do not need a named palette. The same tone,
+adaptation, and contrast rules apply; see
+[Standalone color tokens](api.md#standalone-color-tokens).
+
+## Implementation workflow
+
+Build in dependency order so every decision has a clear base:
+
+1. Configure the output schemes and application states once.
+2. Choose the default theme's hue and saturation seed.
+3. Define root surfaces with absolute tones.
+4. Add dependent surfaces, text, borders, and icons with tone deltas.
+5. Add contrast floors only to roles that need measured readability or
+   recognizability.
+6. Choose adaptation per color: `auto`, `fixed`, or `static`.
+7. Add explicit HC pairs where high contrast should increase separation.
+8. Mark default-only tokens `inherit: false`, then extend the shared
+   definitions into status themes.
+9. Compose and export the palette in the shape your application consumes.
+10. Verify complete screens in all emitted scheme variants.
+
+The sections below follow this order and build one palette incrementally.
+
+## Authoring decisions
 
 Use this order when defining a token:
 
 1. Pick the base it visually belongs to.
-2. Use `tone` for visual distance: surface ladders, soft chips, disabled states,
-   hover ramps, and other low-stakes relationships.
+2. Use an absolute numeric `tone` for independent placement. Use a signed
+   **tone delta** (`'+N'` / `'-N'`) for distance from a base: surface ladders,
+   soft chips, disabled states, hover ramps, and similar relationships.
 3. Add `contrast` only when readability or recognizability needs a measured
    floor.
-4. Use APCA presets for content-like colors:
+4. Prefer APCA presets for content-like colors when perceptual readability is
+   the design goal:
    `contrast: { apca: 'content' }` or
    `contrast: { apca: ['content', 'body'] }`.
-5. Use WCAG numbers or presets when you specifically need a ratio target:
+5. Use WCAG numbers or presets when compatibility, policy, or migration
+   requires a WCAG ratio:
    `contrast: 4.5`, `contrast: 'AAA'`, or `contrast: { wcag: [4.5, 7] }`.
 6. Let token names infer APCA roles. Names ending in `text`, `label`, `border`,
    `surface`, `fill`, `bg`, and similar aliases already tell Glaze which side is
@@ -46,16 +76,35 @@ Use this order when defining a token:
 7. Add high-contrast pairs only where HC should intentionally tighten:
    text/content contrast, border tone, shadow intensity, mix value, or similar.
 
-`mode: 'auto'` is the default and should be the default choice. Use
-`mode: 'fixed'` for brand fills or inverse surfaces that must stay recognizable
-instead of tone-inverting. Use `mode: 'static'` only when the exact authored tone
-must render in every scheme.
+### Choosing adaptation mode
 
-## Seed and Configure
+| Mode             | Choose it when                                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `auto` (default) | The color should exchange light/dark positions through dark tone inversion. Typical for surfaces, text, borders, and icons. |
+| `fixed`          | A brand fill, status banner, or inverse surface should stay on the authored side of the tone scale.                         |
+| `static`         | The exact authored tone and saturation must render in every scheme, without tone-window mapping or dark desaturation.       |
+
+Dark tone inversion is controlled by `mode`; it is unrelated to `autoFlip`.
+`autoFlip` only allows an overshooting tone delta or an unsuccessful contrast
+direction to reverse around its base.
+
+### Root or dependent?
+
+- Use a root color when its tone has meaning on its own: the page surface, a
+  fixed brand anchor, or a scheme extreme.
+- Use a dependent color when its purpose exists relative to another token:
+  text on a surface, a border around a fill, or a tint of an accent.
+- Setting `base` with an absolute tone is valid when the color needs a contrast
+  relationship but not a tone delta. The absolute position is resolved
+  independently; `contrast` acts as a safety floor.
+
+## Seed and configure
 
 Keep hue decisions named and configure output modes once:
 
 ```ts
+import { glaze } from '@tenphi/glaze';
+
 const PURPLE_HUE = 280.3;
 const SUCCESS_HUE = 156.9;
 const DANGER_HUE = 23.1;
@@ -93,7 +142,7 @@ These names are not only readable. They also help APCA role inference pick the
 right polarity. For example, `button-text` is foreground, `input-bg` is a
 surface, and `card-outline` is a border.
 
-## Build the Default Theme
+## Build the default theme
 
 Start with the surface family. It is mostly tone, with small saturation changes
 to keep the ladder visually coherent:
@@ -118,10 +167,11 @@ defaultTheme.colors({
 });
 ```
 
-Because tone shifts are consistent across schemes, these small relative offsets
-are enough. There is no separate dark-mode curve to tune.
+Because each tone delta re-anchors to the resolved surface in every scheme,
+these small relative offsets are enough to define the ladder. There is no
+separate dark-mode curve to tune.
 
-### Text and Borders
+### Text and borders
 
 Use a hard edge tone for maximum-prominence text, and APCA floors for softer
 content:
@@ -156,15 +206,16 @@ defaultTheme.colors({
 });
 ```
 
-`surface-text` does not need a contrast floor because it is intentionally pinned
-near the edge. The soft variants use `tone: '-1'` as the direction and APCA as
-the readable floor. `border` uses an HC tone pair because borders usually need a
-larger visible step in high contrast.
+`surface-text` uses an absolute `tone: 2` despite having a base: it is
+intentionally edge-anchored, and the base records the relationship used by
+role inference. The soft variants use a `-1` tone delta as the preferred
+direction and APCA as the readable floor. `border` uses an HC tone-delta pair
+because borders usually need a larger visible step in high contrast.
 
 Repeat the same pattern for `surface-2` and `surface-3` only if components need
 text directly on those surfaces.
 
-### Neutral Utility Tokens
+### Neutral utility tokens
 
 Keep neutral-only primitives local to the default theme:
 
@@ -193,7 +244,7 @@ defaultTheme.colors({
 Absolute tones are fine for primitives whose job is visual placement rather than
 a strict relationship to a specific surface.
 
-## Chips and Disabled States
+## Chips and disabled states
 
 For subtle fills, tone is usually clearer than contrast:
 
@@ -215,9 +266,9 @@ defaultTheme.colors({
 });
 ```
 
-This says exactly what the pair should do: the chip sits a few tone steps off
-the page, and the label sits a muted distance from the chip. `autoFlip: false` keeps
-the relative label offset on the authored side when it reaches the edge.
+This says exactly what the pair should do: the chip sits a small tone delta off
+the page, and the label sits a muted delta from the chip. `autoFlip: false`
+keeps the label on the authored side when the delta reaches the edge.
 
 Use contrast instead when the chip must hit an explicit accessibility floor:
 
@@ -237,7 +288,7 @@ When a token needs the scheme extreme, use `tone: 'min'` or `tone: 'max'`
 directly. Avoid large magic numbers or fake contrast floors just to push a color
 to the edge.
 
-## Fixed Surfaces and Accent Fills
+## Fixed surfaces and accent fills
 
 Use `mode: 'fixed'` when the authored color should stay recognizable across
 schemes.
@@ -280,7 +331,7 @@ The accent fill family is a fixed chain against a fixed text anchor. The names
 infer `surface` and `text` roles, so APCA gets the right polarity without extra
 fields.
 
-## Adaptive Accent Foregrounds
+## Adaptive accent foregrounds
 
 Brand foregrounds that sit on neutral surfaces should stay adaptive:
 
@@ -333,7 +384,7 @@ These are inherited, so status themes automatically get
 `success-accent-disabled-surface`, `danger-accent-disabled-surface`, and the
 matching text tokens.
 
-## Special Purpose Colors
+## Special-purpose colors
 
 Use absolute `hue` overrides for tokens that should come from another hue family
 but keep the same adaptation behavior:
@@ -458,10 +509,12 @@ defaultTheme.colors({
 ```
 
 Transparent mixes are good for hover overlays. Opaque mixes are good for solid
-tints. Mix colors can also use `contrast`; the solver adjusts the value or
-opacity to hit the floor.
+tints. Opaque mixes default to perceptual OKHSL interpolation; choose `srgb`
+when matching channel compositing matters. Transparent mixes always composite
+in linear sRGB. Mix colors can also use `contrast`; the solver adjusts the
+value or opacity to hit the floor. See [Mix colors](api.md#mix-colors).
 
-## Extend into Status Themes
+## Extend into status themes
 
 Once the default theme is shaped, create colored siblings by replacing hue and
 overriding only the root surface that should become visibly tinted:
@@ -495,7 +548,7 @@ const noteTheme = defaultTheme.extend({
 The inherited accent and disabled tokens now resolve in each status hue. Tokens
 marked `inherit: false` stay default-only, so sibling themes remain small.
 
-## Export the Palette
+## Export the palette
 
 Compose the themes once:
 
@@ -513,22 +566,38 @@ const palette = glaze.palette({
 The usual export shape is default unprefixed and status themes prefixed:
 
 ```ts
-palette.tasty({
-  prefix: {
-    default: '',
-    primary: 'primary-',
-    success: 'success-',
-    danger: 'danger-',
-    warning: 'warning-',
-    note: 'note-',
-  },
-});
+const prefix = {
+  default: '',
+  primary: 'primary-',
+  success: 'success-',
+  danger: 'danger-',
+  warning: 'warning-',
+  note: 'note-',
+};
+
+palette.tasty({ prefix });
 ```
 
-See [migration.md](migration.md) for export shapes, prefix maps, Tasty wiring,
-CSS variables, and JSON integration.
+An explicit prefix map is the clearest choice when the palette has a neutral
+`default` theme. The separate palette `primary` option serves another pattern:
+it duplicates one named theme without a prefix while retaining its prefixed
+tokens. Do not combine the two accidentally; choose the token namespace your
+components expect.
 
-## High Contrast
+The palette design is independent of the exporter:
+
+```ts
+palette.tokens({ prefix }); // JavaScript maps, native oklch by default
+palette.css({ prefix }); // CSS custom-property declarations
+palette.dtcg({ prefix }); // one design-token tree per scheme
+palette.tailwind({ prefix }); // Tailwind CSS v4 theme
+```
+
+Use `palette.tasty({ prefix })` for Tasty state bindings. See
+[migration.md](migration.md#choosing-an-export) for output shapes, application
+wiring, and the `primary` alias pattern.
+
+## High contrast
 
 High contrast is not a separate palette. Any value that accepts an HC pair can
 tighten the HC variant: `tone`, `contrast`, shadow `intensity`, and mix `value`.
@@ -554,8 +623,14 @@ Before shipping a palette, verify:
 - Accent fills use `mode: 'fixed'`; accent foregrounds on neutral UI stay
   `mode: 'auto'` and are based on `surface`.
 - Ambiguous APCA tokens have an explicit `role`; obvious names rely on inference.
-- Low-stakes visual relationships use relative `tone` instead of fake contrast
+- Low-stakes visual relationships use tone deltas instead of fake contrast
   floors.
 - `inherit: false` is set on default-only tokens so status themes stay focused.
 - HC pairs exist where high contrast should visibly tighten.
 - `glaze.configure({ states, modes })` matches the states registered in the app.
+- Every emitted scheme (`light`, `dark`, `lightContrast`, `darkContrast`) has
+  been reviewed on complete screens, not only in a token grid.
+- Rendered WCAG/APCA results have been checked for chromatic foreground/base
+  pairs that carry accessibility requirements.
+- Resolution emits no unexplained unreachable-contrast or token-collision
+  warnings.

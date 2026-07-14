@@ -1,308 +1,170 @@
-# OKHST — the contrast-uniform tone space
+# OKHST in Glaze
 
-This is the canonical specification for the color model Glaze uses internally
-and accepts as input. It is the source of truth that [api.md](api.md),
-[methodology.md](methodology.md), and [migration.md](migration.md) reference.
+Glaze uses [OKHST](https://github.com/tenphi/okhst), an OKHSL-derived color
+space with a tone axis for stable palette authoring. This page explains how
+Glaze applies the model. The standalone repository is the canonical
+specification for the transfer functions, derivation, and color-model
+invariants.
 
-## What OKHST is
+For practical palette design, continue to [methodology.md](methodology.md). For
+every related option and utility, see [api.md](api.md).
 
-**OKHST is OKHSL with its lightness axis replaced by a contrast-uniform _tone_
-axis.** It shares OKHSL's hue (`h`, 0–360) and saturation (`s`, 0–1) verbatim;
-only the third coordinate changes:
+## What tone means
 
-| Space | Coords | Third axis |
-|---|---|---|
-| OKHSL | `h, s, l` | `l` — perceptual lightness (toe-adjusted OKLab L) |
-| OKHST | `h, s, t` | `t` — tone: a normalized log of luminance |
+OKHST keeps OKHSL hue and saturation and replaces authored lightness with
+**tone**:
 
-OKHST exists for one reason: in OKHSL, _equal lightness steps_ are perceptually
-even but produce _uneven contrast_ (the ratio between adjacent steps drifts).
-OKHST's tone axis is shaped so that _equal tone steps_ produce _even WCAG
-contrast_ between steps. Authoring ramps in tone gives you contrast-even ladders
-for free, and dark-mode inversion becomes a single subtraction (`100 - t`)
-instead of a fitted curve.
+| Space | Coordinates | Third coordinate     |
+| ----- | ----------- | -------------------- |
+| OKHSL | `h, s, l`   | Perceptual lightness |
+| OKHST | `h, s, t`   | Contrast-shaped tone |
 
-OKHST is an **input space only**. It is parseable as an `okhst(H S% T%)` string
-and an `{ h, s, t }` object, but it is **never emitted** — there is no CSS
-`okhst()` function, so output formats stay `okhsl | rgb | hsl | oklch`.
+Tone uses a `0–100` authoring scale. Its primary invariant is:
 
-## The tone transfer
+> The same tone maps to the same OKHSL lightness for every hue and saturation.
 
-For a gray (s = 0) at OKHSL lightness `l`, luminance is closed-form through the
-OKHSL toe and OKLab cube:
+For neutral colors, equal tone differences produce equal WCAG contrast ratios.
+For chromatic colors, they remain a useful progression but are not exact:
+hue, saturation, and gamut mapping can change the final sRGB luminance.
 
-```
-Y = toeInv(l) ** 3          // OKLab L = toeInv(l); luminance ≈ L³
-l = toe(cbrt(Y))            // exact inverse
-```
+This distinction informs two authoring rules:
 
-(`toe` / `toeInv` already exist in [okhsl-color-math.ts](../src/okhsl-color-math.ts).)
+- Use **tone deltas** for visual spacing within ramps and related UI colors.
+- Use `contrast` when a rendered color must meet a measured WCAG or APCA floor.
 
-Tone is a normalized natural-log of `Y`, offset by a small `eps`:
+## Tone vocabulary
 
-```
-toTone(Y, eps)   = (ln(Y + eps) - ln(eps)) / (ln(1 + eps) - ln(eps)) * 100
-fromTone(T, eps) = exp( (T / 100) * (ln(1 + eps) - ln(eps)) + ln(eps) ) - eps
-```
+### Absolute tone
 
-`toTone` and `fromTone` are exact analytic inverses, so a round-trip is lossless
-to ~1e-15. `toTone(0) = 0` and `toTone(1) = 100` for any `eps`, so tone is always
-a clean 0–100 scale.
-
-### Why `eps ≈ 0.05` makes tone contrast-uniform
-
-WCAG 2 contrast is `(Y_hi + 0.05) / (Y_lo + 0.05)`. Pick `eps = 0.05` and the
-tone transfer becomes a normalized `ln(Y + 0.05)`. Two colors that differ by a
-fixed tone delta `ΔT` then differ by a fixed _ratio_ of `(Y + 0.05)` — i.e. a
-fixed WCAG contrast ratio — regardless of where on the scale they sit:
-
-```
-cr(T2, T1) = (Y2 + 0.05) / (Y1 + 0.05)
-           = exp( (T2 - T1)/100 * (ln(1.05) - ln(0.05)) )
-```
-
-Empirically (gray, `eps = 0.05`), each `+10` tone multiplies contrast-vs-black by
-a near-constant factor:
-
-| tone | cr vs black |
-|---|---|
-| 10 | 1.36 |
-| 30 | 2.49 |
-| 50 | 4.58 |
-| 70 | 8.43 |
-| 90 | 15.49 |
-| 100 | 21.00 |
-
-So a tone ramp `[20, 40, 60, 80]` has _constant_ contrast between adjacent
-stops. That is the whole point.
-
-## Core invariant: `T → L` is independent of `H` and `S`
-
-`okhstToOkhsl({ h, s, t })` passes `h` and `s` through unchanged and sets
-`l = fromTone(t)`. `fromTone` is a pure function of `(t, eps)`; OKHSL's
-`l → OKLab L = toeInv(l)` map has no hue/saturation term — `h`/`s` enter only
-the chroma/cusp math. Therefore:
-
-> **A given tone yields the same OKHSL lightness for every hue and saturation.**
-
-OKHST inherits OKHSL's gamut and reversibility exactly: every `(h, s, t)` is
-realizable and round-trips.
-
-**This uniformity is in lightness, not luminance.** Equal tone gives equal
-OKHSL `L` for all `h`/`s`, but equal _WCAG/APCA contrast_ only for grays.
-A saturated yellow and a saturated blue at the same tone share a lightness yet
-differ in real luminance `Y`. This chromatic drift is the one honest
-approximation in the design — see [§10 Verification](#verification-apca--wcag-drift).
-The single deliberate exception to the invariant is the optional `contrast`
-solver, which shifts a stop's tone per `h`/`s` to meet a luminance-based floor.
-
-## Reference eps vs per-mode eps
-
-Two distinct roles, kept separate on purpose:
-
-- **Reference eps (`0.05`, fixed).** Defines the OKHST _color space_ and the
-  canonical stored tone. `okhst()` input, `{ h, s, t }` input, the internal
-  `ResolvedColorVariant.t`, relative `tone` offsets, and the contrast solver all
-  use the reference eps. This is what makes OKHST stable and scheme-independent.
-- **Per-mode eps (`lightTone.eps`, `darkTone.eps`).** A _rendering_ curvature
-  knob per scheme. It only affects how authored tone is mapped through a scheme
-  window before the result is stored. Defaults to the reference value, so by
-  default the two coincide and there is nothing to reconcile.
-
-When a mode's eps differs from the reference, `mapToneForScheme` maps using the
-mode eps to land a final OKHSL `l`, then stores `toTone(l, REF_EPS)` so offsets
-and contrast stay comparable across schemes.
-
-## Scheme pipeline (no Möbius)
-
-```
-author tone T (0–100)
-  → mode branch:
-      auto + dark : invert  T' = 100 - T
-      fixed / light: keep    T' = T
-      static      : identity, skip window
-  → window remap: T' into the scheme window [lo, hi] (tone units)
-  → render curvature (mode eps) → OKHSL l
-  → store canonical tone t = toTone(l, REF_EPS)        // variant {h, s, t, alpha}
-  → (edge only) fromTone(t, REF_EPS) → l → sRGB / luminance
-  optional: contrast floor (wcag/apca) searches in tone, overriding t
-```
-
-High-contrast is **not** a separate curve. It reuses the same math with the
-window forced to the full range `[0, 100]`, keeping the mode's eps. There is no
-`darkCurve` and no separate HC curve.
-
-`fixed` mode remaps into the window but does **not** invert (brand colors stay
-recognizable). `static` skips the window entirely (identity) so the same tone
-renders in every scheme.
-
-## Calibrated constants (defaults)
-
-Chosen as clean defaults that keep light mode close to the previous pipeline
-while the axis stays contrast-uniform (the old Möbius curve was intentionally
-non-uniform, which is what we are replacing). The light floor sits at `lo = 10`
-and the dark floor at `lo = 15`, so neither scheme bottoms out darker than the
-legacy pipeline produced. `eps` is pinned to the reference value `0.05` so the
-tone axis stays WCAG-uniform.
-
-| Config | lo | hi | eps |
-|---|---|---|---|
-| `lightTone` | 10 | 100 | 0.05 |
-| `darkTone` | 15 | 95 | 0.05 |
-
-A window is authored as `[lo, hi]` (reference eps — the common form),
-`{ lo, hi, eps }` (advanced: explicit per-mode render curvature), or `false`
-to disable clamping. `false` is the full range `[0, 100]` at the reference eps —
-it removes the **boundaries**, not the tone curve.
-
-Other defaults: `darkDesaturation = 0.1` (unchanged),
-`autoFlip = true`.
-
-Reference: `REF_EPS = 0.05`.
-
-## Contrast metric (unified)
-
-`contrast` is a single prop with a pluggable metric:
+A numeric `tone` places a color independently on the `0–100` authoring scale:
 
 ```ts
-type ContrastSpec =
-  | number                 // bare WCAG ratio
-  | ContrastPreset         // 'AA' | 'AAA' | 'AA-large' | 'AAA-large' (WCAG)
-  | { wcag: HCPair<number | ContrastPreset> }
-  | { apca: HCPair<number | ApcaPreset> };
-
-contrast?: HCPair<ContrastSpec>;
+surface: {
+  tone: 97;
+}
 ```
 
-A bare number or preset means WCAG. The `[normal, highContrast]` pair may live at
-the outer level (`[4.5, 7]`, `[{ wcag: 4.5 }, { wcag: 7 }]`) **or** inside the
-metric (`{ wcag: [4.5, 7] }`, `{ apca: [45, 60] }`, `{ apca: ['content', 'body'] }`). `resolveContrastForMode`
-peels the outer pair by mode, then the inner metric pair by the same mode, then
-resolves presets, returning `{ metric, target }`.
+`'max'` and `'min'` select the corresponding end of the active scheme.
 
-The solver searches in **tone** (contrast-uniform → fast convergence and a
-closed-form WCAG seed). For WCAG, the seed is the tone whose gray luminance hits
-`Y = R·(Y_base + 0.05) − 0.05`; chromatic drift is then refined by binary search.
-For APCA, it binary-searches tone against the APCA Lc target.
+### Tone delta
 
-### APCA
-
-`apcaContrast(yText, yBg)` implements SAPC/APCA Lc (soft-clamp of low luminances
-plus the polarity exponents for normal vs reverse contrast), returning a signed
-Lc whose magnitude the solver compares against the target. Its inputs are APCA
-*screen* luminances `Ys = 0.2126·R^2.4 + 0.7152·G^2.4 + 0.0722·B^2.4` over the
-gamma-encoded channels (`apcaLuminanceFromLinearRgb`), **not** WCAG relative
-luminance — the soft-clamp constants are calibrated against `Ys`, so the solver
-feeds it the matching basis. This is a faithful-but-simplified APCA (it omits
-the spatial/font-size lookup that maps Lc to a usable text size).
-
-#### Polarity (roles)
-
-APCA is **asymmetric**: `|apcaContrast(a, b)| ≠ |apcaContrast(b, a)|`, because
-the normal-polarity exponents (dark text on light bg) differ from the
-reverse-polarity exponents (light text on dark bg). Glaze picks the argument
-order from each color's semantic **role** against its base:
-
-| Role      | Polarity | Argument order                 | Aliases (name inference)                    |
-| --------- | -------- | ------------------------------ | ------------------------------------------- |
-| `text`    | `fg`     | `apcaContrast(candidate, base)`| `text`, `fg`, `foreground`, `content`, `ink`, `label`, `stroke` |
-| `border`  | `fg`     | `apcaContrast(candidate, base)`| `border`, `divider`, `outline`, `separator`, `hairline`, `rule` |
-| `surface` | `bg`     | `apcaContrast(base, candidate)`| `surface`, `bg`, `background`, `fill`, `canvas`, `paper`, `layer` |
-
-A color's role is resolved per the chain: explicit `role` → inferred from the
-color name (last recognized token wins, so `button-text` → `text`,
-`input-bg` → `surface`) → the opposite of the base's role → `'text'` (foreground)
-default. Name inference is on by default (`config.inferRole: true`) and can be
-disabled. WCAG is symmetric, so role never changes WCAG results — it only fixes
-APCA argument order.
-
-#### APCA presets
-
-APCA targets may be a raw Lc number or a named preset (APCA Bronze Simple Mode
-conformance levels), independent of role:
+A **tone delta** is the signed difference between a dependent color and its
+base. It is authored as a string:
 
 ```ts
-type ApcaPreset = 'preferred' | 'body' | 'content' | 'large' | 'non-text' | 'min';
+border: { base: 'surface', tone: '-8' }
 ```
 
-| Preset        | Lc  | Use case                                             |
-| ------------- | --- | ---------------------------------------------------- |
-| `'preferred'` | 90  | Preferred body / column text                         |
-| `'body'`      | 75  | Minimum body / column text                           |
-| `'content'`   | 60  | Readable non-body content (~WCAG AA 4.5:1)           |
-| `'large'`     | 45  | Large/bold headlines; fine icons/outlines (~3:1)     |
-| `'non-text'`  | 30  | Solid icons/controls; placeholder/disabled text      |
-| `'min'`       | 15  | Dividers/decorative; APCA "point of invisibility"    |
+Here, `-8` is the tone delta. The base is resolved separately for every scheme,
+then the delta is applied to that resolved base. This keeps related colors
+visually ordered across light, dark, and high-contrast variants.
+
+### Tone window
+
+A **tone window** is the scheme-specific render range configured by
+`lightTone` or `darkTone`:
 
 ```ts
-contrast: { apca: 'content' }          // Lc 60
-contrast: { apca: ['content', 'body'] } // HC pair: 60 normal, 75 high-contrast
+glaze.configure({
+  lightTone: [10, 100],
+  darkTone: [15, 95],
+});
 ```
 
-#### Enhanced Level (high-contrast auto-boost)
-
-When an APCA target is given as a **bare scalar** (no `[normal, hc]` pair at
-either the outer `contrast` level or the inner `apca` level), Glaze
-automatically applies the APCA-W3 "Enhanced Level" delta — **+15 Lc** — in
-high-contrast mode, analogous to WCAG's AAA-over-AA step. This is on by
-default; provide an explicit HC value via either pair to override it.
+In Glaze, `lo` and `hi` are OKHSL-lightness boundaries. Authored tone is
+positioned within the corresponding tone interval, then converted back to
+OKHSL lightness for rendering. The object form adds an advanced render
+curvature:
 
 ```ts
-contrast: { apca: 60 }          // Lc 60 normal, Lc 75 high-contrast (auto)
-contrast: { apca: 'content' }   // Lc 60 normal, Lc 75 high-contrast (auto)
-contrast: { apca: [60, 90] }    // Lc 60 normal, Lc 90 high-contrast (explicit)
-contrast: [{ apca: 60 }, { apca: 90 }] // outer pair: explicit HC, no boost
-contrast: { apca: 'preferred' } // Lc 90 normal, Lc 105 high-contrast (auto)
-contrast: { apca: 100 }         // Lc 100 normal, Lc 106 high-contrast (clamped)
+lightTone: { lo: 10, hi: 100, eps: 0.05 }
 ```
 
-The enhanced target is clamped to `APCA_MAX_LC` (106).
+Pass `false` to use the full range. High-contrast variants always bypass the
+ordinary boundaries and use the full range.
 
-> **Large-text glare caveat.** APCA-W3 also defines Lc 90 as a *maximum* for
-> very large/bold text (>36px bold) and large areas of color, to prevent
-> excessive glare. The +15 HC boost can therefore push a high baseline (e.g.
-> `preferred` Lc 90 → 105) past that glare ceiling. This is intentional for
-> small/standard text in HC (low-vision readability trumps glare, and small
-> fonts have no APCA maximum), but if your HC tokens serve large/bold text,
-> pass an explicit HC pair (`{ apca: [90, 90] }`) to hold the glare ceiling.
-> Glaze does not model font size, so it can't enforce the large-text cap
-> automatically.
+## Scheme adaptation
 
-#### WCAG HC auto-promotion
+Each regular color has an adaptation `mode`:
 
-A bare WCAG preset (no `[normal, hc]` pair at either the outer `contrast` or
-inner `wcag` level) is automatically promoted to its spec-defined "Enhanced"
-successor in high-contrast mode — WCAG SC 1.4.3 (Minimum) → SC 1.4.6
-(Enhanced), the direct analog of APCA's Enhanced Level:
+| Mode       | Light scheme                   | Dark scheme                                                          |
+| ---------- | ------------------------------ | -------------------------------------------------------------------- |
+| `'auto'`   | Map into the light tone window | Apply dark tone inversion (`100 - t`), then map into the dark window |
+| `'fixed'`  | Map into the light tone window | Map into the dark window without inversion                           |
+| `'static'` | Keep the authored tone         | Keep the authored tone                                               |
+
+Use `auto` for surfaces and foregrounds that should exchange light/dark
+positions. Use `fixed` for brand fills and inverse surfaces that should stay on
+the same side of the scale. Reserve `static` for colors that must not adapt.
+
+**Dark tone inversion** is different from `autoFlip`. Inversion is normal
+scheme adaptation controlled by `mode`. `autoFlip` handles a different local
+problem: it may reverse an overshooting tone delta or let the contrast solver
+try the opposite side of a base.
+
+The regular pipeline is:
+
+```text
+authored tone
+  -> choose the color's adaptation mode
+  -> invert for dark + auto
+  -> map through the active tone window
+  -> store canonical tone
+  -> convert to OKHSL at the rendering edge
+```
+
+Dark schemes also apply `darkDesaturation` unless the color is `static`.
+
+## Reference and render epsilon
+
+`REF_EPS = 0.05` defines Glaze's canonical tone scale. It is used for OKHST
+input, stored resolved tone, tone deltas, and contrast search.
+
+An object tone window may supply another `eps` as a scheme-specific rendering
+control. Glaze still converts the result back to the reference scale so tone
+deltas and contrast calculations remain comparable between schemes. Most
+palettes should use the default.
+
+## Contrast verification
+
+Tone provides an efficient starting point for contrast solving, but Glaze does
+not assume a chromatic tone has the neutral color's luminance. For a color with
+`base` and `contrast`, Glaze:
+
+1. resolves both colors for the active scheme;
+2. measures the requested WCAG ratio or APCA Lc;
+3. searches tone when the requested position misses the floor; and
+4. warns when the target is physically unreachable or rendered chroma drifts
+   below the expected result.
+
+`contrast` is therefore a floor, not a replacement for tone relationships.
+Detailed presets, HC promotion, polarity, and role inference are documented
+under [`contrast`](api.md#contrast-floor) and [roles](api.md#roles).
+
+## Input and output
+
+Glaze accepts OKHST through:
 
 ```ts
-contrast: 'AA'         // 4.5 normal, 7 high-contrast (auto -> AAA)
-contrast: 'AA-large'   // 3 normal, 4.5 high-contrast (auto -> AAA-large)
-contrast: 'AAA'        // 7 both modes (top tier, unchanged)
-contrast: 'AAA-large'  // 4.5 both modes (top tier, unchanged)
-contrast: 5.5          // 5.5 both modes (bare number, no successor tier)
-contrast: { wcag: ['AA', 'AA'] } // 4.5 both modes (explicit HC, no promotion)
+glaze.color('okhst(152 95% 70%)');
+glaze.color({ h: 152, s: 0.95, t: 0.7 });
+glaze.color({ hue: 152, saturation: 95, tone: 70 });
 ```
 
-`AAA` and `AAA-large` are already the top WCAG tier and are left unchanged; bare
-numeric targets have no defined successor tier and are also left unchanged. An
-explicit HC value via either pair overrides and skips the promotion.
+There is no native CSS `okhst()` function. Native exports use `oklch`, `rgb`,
+or `hsl`. Tasty integrations may request `format: 'okhst'` because Tasty can
+consume Glaze's custom serialization:
 
-## Verification (APCA / WCAG drift)
+```ts
+theme.tasty({ format: 'okhst' });
+```
 
-Because chromatic swatches inherit gray's tone-derived lightness but drift in
-real luminance, a color resolved with a `base` + `contrast` may land slightly
-under the contrast its tone implies. After resolving such a color, Glaze
-computes the actual WCAG ratio and APCA Lc of the chromatic result against its
-base and emits a deduped `console.warn` when it drifts below the gray-tone
-expectation. This is advisory: it surfaces the one approximation rather than
-hiding it. The dedupe cache is the existing 256-entry cache in
-[warnings.ts](../src/warnings.ts).
+## Bringing existing colors into Glaze
 
-## Migration from `lightness`
+When moving raw CSS colors or design tokens into Glaze, use `fromHex()`,
+`fromRgb()`, or `glaze.color()` to preserve the source color while you establish
+theme seeds and semantic relationships. Then replace one-off values with roots,
+tone deltas, and contrast floors as appropriate.
 
-`lightness` (OKHSL `l`, 0–100) is replaced by `tone` (0–100). They are **not**
-the same number — tone is the contrast-uniform reparameterization. To convert an
-old absolute `lightness: L` to the equivalent `tone`, use
-`toTone(L/100, 0.05)`. See [migration.md](migration.md) for the full guide and
-a conversion table.
+See [migration.md](migration.md#migrating-from-an-existing-color-system) for
+the implementation workflow.
