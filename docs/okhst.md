@@ -152,7 +152,7 @@ glaze.color({ hue: 152, saturation: 95, tone: 70 });
 ```
 
 There is no native CSS `okhst()` function. Native exports use `oklch`, `rgb`,
-or `hsl`. Tasty integrations may request `format: 'okhst'` because Tasty can
+or `hsl`. [Tasty](https://tasty.style) integrations may request `format: 'okhst'` because it can
 consume Glaze's custom serialization:
 
 ```ts

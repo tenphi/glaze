@@ -70,7 +70,7 @@ A `GlazeTheme` exposes:
 | `theme.extend(options)`         | Create a child theme inheriting all color definitions (see [`extend`](#themeextendoptions) below).  |
 | `theme.resolve()`               | Resolve all colors and return a `Map<string, ResolvedColor>`.                                       |
 | `theme.tokens(options?)`        | Export as a flat token map grouped by scheme variant.                                               |
-| `theme.tasty(options?)`         | Export as Tasty style-to-state bindings.                                                            |
+| `theme.tasty(options?)`         | Export as [Tasty](https://tasty.style) style-to-state bindings.                                                            |
 | `theme.json(options?)`          | Export as plain JSON.                                                                               |
 | `theme.css(options?)`           | Export as CSS custom property declarations.                                                         |
 | `theme.dtcg(options?)`          | Export one W3C DTCG token tree per scheme.                                                          |
@@ -147,12 +147,12 @@ theme.tokens();
 
 ### `theme.tasty(options?)`
 
-Tasty style-to-state bindings for the [Tasty style system](https://tasty.style/docs). Uses `#name` color token keys and state aliases. By default the dark and high-contrast variants are keyed by media-query states (`'@media(prefers-color-scheme: dark)'`, `'@media(prefers-contrast: more)'`) so tokens work without registering custom states.
+Style-to-state bindings for the [Tasty](https://tasty.style) style system. Uses `#name` color token keys and state aliases. By default the dark and high-contrast variants are keyed by media-query states (`'@media(prefers-color-scheme: dark)'`, `'@media(prefers-contrast: more)'`) so tokens work without registering custom states.
 
 ```ts
 theme.tasty();
 // → {
-//   '#surface': { '': 'okhsl(...)', '@media(prefers-color-scheme: dark)': 'okhsl(...)' },
+//   '#surface': { '': 'oklch(...)', '@media(prefers-color-scheme: dark)': 'oklch(...)' },
 //   ...
 // }
 ```
@@ -161,7 +161,7 @@ theme.tasty();
 
 | Option                | Default                                                   | Description                                                                                                                                      |
 | --------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `format`              | `'okhsl'`                                                 | Output color format. `'okhsl'` and `'okhst'` are supported here (Tasty-only spaces).                                                             |
+| `format`              | `'oklch'`                                                 | Output color format. `'okhsl'` and `'okhst'` are also supported here ([Tasty](https://tasty.style)-only spaces).                                                        |
 | `modes`               | global config                                             | Which scheme variants to include.                                                                                                                |
 | `states.dark`         | `'@media(prefers-color-scheme: dark)'` (or global config) | State alias for dark mode tokens.                                                                                                                |
 | `states.highContrast` | `'@media(prefers-contrast: more)'` (or global config)     | State alias for high-contrast tokens.                                                                                                            |
@@ -192,8 +192,8 @@ CSS custom property declaration strings, grouped by scheme variant.
 ```ts
 theme.css();
 // → {
-//   light: '--surface-color: rgb(...);\n--text-color: rgb(...);',
-//   dark:  '--surface-color: rgb(...);\n--text-color: rgb(...);',
+//   light: '--surface-color: oklch(...);\n--text-color: oklch(...);',
+//   dark:  '--surface-color: oklch(...);\n--text-color: oklch(...);',
 //   lightContrast: '...',
 //   darkContrast:  '...',
 // }
@@ -203,7 +203,7 @@ theme.css();
 
 | Option     | Default    | Description                                                                                                                                                                                                                                 |
 | ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format`   | `'rgb'`    | Output color format. `'okhsl'` and `'okhst'` throw — use `tasty()` for those.                                                                                                                                                               |
+| `format`   | `'oklch'`  | Output color format. One of `'rgb' \| 'hsl' \| 'oklch'`. `'okhsl'` and `'okhst'` throw — use `tasty()` for those.                                                                                                                           |
 | `suffix`   | `'-color'` | Suffix appended to each CSS property name. Pass `''` for bare property names.                                                                                                                                                               |
 | `splitHue` | `false`    | Emit hue as a separate `--*-hue` custom property referenced via `var()` in `oklch` color values. Requires `format: 'oklch'` and every color to be pastel. Shadow/mix colors stay inline (blended hue; they do not follow `--hue` rotation). |
 | `name`     | `'theme'`  | Base name for the theme-level hue var (`--theme-hue`). Palette export auto-derives this from the theme name.                                                                                                                                |
@@ -645,7 +645,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `rgb()`             | `'rgb(38 252 178)'`, `'rgb(38 252 178 / 0.8)'` | Modern space syntax. Alpha dropped with warning.                                                                                      |
 | `hsl()`             | `'hsl(152 97% 57%)'`                           | Modern space syntax. Alpha dropped with warning.                                                                                      |
 | `okhsl()`           | `'okhsl(152 95% 74%)'`                         | Glaze's own emit format. Alpha dropped with warning.                                                                                  |
-| `okhst()`           | `'okhst(152 95% 70%)'`                         | OKHST tone input (third value is tone 0–100). Not native CSS; it can also be serialized by Tasty exports. Alpha dropped with warning. |
+| `okhst()`           | `'okhst(152 95% 70%)'`                         | OKHST tone input (third value is tone 0–100). Not native CSS; it can also be serialized by [Tasty](https://tasty.style) exports. Alpha dropped with warning. |
 | `oklch()`           | `'oklch(0.85 0.18 152)'`                       | Glaze's own emit format. Alpha dropped with warning.                                                                                  |
 | `OkhslColor` object | `{ h: 152, s: 0.95, l: 0.74 }`                 | OKHSL shape (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l` throws with a hint to use the structured form.                            |
 | `OkhstColor` object | `{ h: 152, s: 0.95, t: 0.70 }`                 | Direct OKHST input shape (h: 0–360, s/t: 0–1). The `t` key disambiguates it from `{ h, s, l }`.                                       |
@@ -1088,7 +1088,7 @@ A `GlazePalette` exposes:
 | Method                           | Description                                                  |
 | -------------------------------- | ------------------------------------------------------------ |
 | `palette.tokens(options?)`       | Flat token map grouped by scheme variant.                    |
-| `palette.tasty(options?)`        | Tasty style-to-state bindings.                               |
+| `palette.tasty(options?)`        | [Tasty](https://tasty.style) style-to-state bindings.                               |
 | `palette.json(options?)`         | Per-theme JSON map (no prefix needed — keyed by theme name). |
 | `palette.css(options?)`          | CSS custom property declaration strings.                     |
 | `palette.dtcg(options?)`         | Per-scheme W3C DTCG token trees.                             |
@@ -1268,22 +1268,22 @@ Control the color format with the `format` option on any export method:
 
 | Format                                        | Output (alpha = 1) | Output (alpha < 1)   | Notes                                                                                         |
 | --------------------------------------------- | ------------------ | -------------------- | --------------------------------------------------------------------------------------------- |
-| `'okhsl'` (default for `tasty()`)             | `okhsl(H S% L%)`   | `okhsl(H S% L% / A)` | Glaze's native format, not a CSS function. **Tasty-only** (`tasty()`, `token()`, `.tasty()`). |
-| `'okhst'`                                     | `okhst(H S% T%)`   | `okhst(H S% T% / A)` | OKHST tone axis. **Tasty-only** — same restriction as `okhsl`.                                |
-| `'oklch'` (default for `tokens()` / `json()`) | `oklch(L C H)`     | `oklch(L C H / A)`   | OKLab-based LCH. Native CSS. Required for `splitHue`.                                         |
-| `'rgb'` (default for `css()`)                 | `rgb(R G B)`       | `rgb(R G B / A)`     | Rounded integers, modern space syntax.                                                        |
+| `'oklch'` (default for CSS-string exports)    | `oklch(L C H)`     | `oklch(L C H / A)`   | OKLab-based LCH. Native CSS. Required for `splitHue`.                                       |
+| `'rgb'`                                       | `rgb(R G B)`       | `rgb(R G B / A)`     | Rounded integers, modern space syntax.                                                        |
 | `'hsl'`                                       | `hsl(H S% L%)`     | `hsl(H S% L% / A)`   | Modern space syntax.                                                                          |
+| `'okhsl'`                                     | `okhsl(H S% L%)`   | `okhsl(H S% L% / A)` | Glaze's native format, not a CSS function. **[Tasty](https://tasty.style)-only** (`tasty()`, `token()`, `.tasty()`). |
+| `'okhst'`                                     | `okhst(H S% T%)`   | `okhst(H S% T% / A)` | OKHST tone axis. **[Tasty](https://tasty.style)-only** — same restriction as `okhsl`.                                |
 
 ```ts
 theme.tokens(); // 'oklch(0.965 0.0123 280)'  (default)
 theme.tokens({ format: 'rgb' }); // 'rgb(244 240 250)'
-theme.tasty(); // 'okhsl(280 60% 97%)'       (default)
+theme.tasty(); // 'oklch(0.965 0.0123 280)'   (default)
 theme.tasty({ format: 'okhst' }); // 'okhst(280 60% 97%)'
 ```
 
 All numeric output strips trailing zeros for cleaner CSS (e.g. `95` not `95.0`).
 
-The `format` option works on CSS-string exports: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `theme.tailwind()`, the same on `palette`, and on `token.token()` / `.tasty()` / `.json()` / `.css()` / `.tailwind()`. **`okhsl` and `okhst` throw on non-Tasty exports** (`tokens`, `json`, `css`, `tailwind`) — they are not native CSS color spaces.
+The `format` option works on CSS-string exports: `theme.tokens()`, `theme.tasty()`, `theme.json()`, `theme.css()`, `theme.tailwind()`, the same on `palette`, and on `token.token()` / `.tasty()` / `.json()` / `.css()` / `.tailwind()`. **`okhsl` and `okhst` throw on non-[Tasty](https://tasty.style) exports** (`tokens`, `json`, `css`, `tailwind`) — they are not native CSS color spaces.
 
 ### Hue channel splitting (`splitHue`)
 
@@ -1427,8 +1427,8 @@ boundaries, not the tone transfer.
 | `lightTone`           | `[10, 100]`                            | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC.                                                                                                                                                                                                                                                                                                                  |
 | `darkTone`            | `[15, 95]`                             | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC.                                                                                                                                                                                                                                                                                                                   |
 | `darkDesaturation`    | `0.1`                                  | Saturation reduction in dark scheme (0–1).                                                                                                                                                                                                                                                                                                                                                                                |
-| `states.dark`         | `'@media(prefers-color-scheme: dark)'` | State alias for dark mode tokens (Tasty export). Defaults to a media query so tokens react to the OS preference without registering custom states.                                                                                                                                                                                                                                                                        |
-| `states.highContrast` | `'@media(prefers-contrast: more)'`     | State alias for HC tokens (Tasty export).                                                                                                                                                                                                                                                                                                                                                                                 |
+| `states.dark`         | `'@media(prefers-color-scheme: dark)'` | State alias for dark mode tokens ([Tasty](https://tasty.style) export). Defaults to a media query so tokens react to the OS preference without registering custom states.                                                                                                                                                                                                                                                                        |
+| `states.highContrast` | `'@media(prefers-contrast: more)'`     | State alias for HC tokens ([Tasty](https://tasty.style) export).                                                                                                                                                                                                                                                                                                                                                                                 |
 | `modes.dark`          | `true`                                 | Include dark variants in exports.                                                                                                                                                                                                                                                                                                                                                                                         |
 | `modes.highContrast`  | `false`                                | Include HC variants.                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `shadowTuning`        | `undefined`                            | Default tuning for all shadow colors. Per-color tuning merges field-by-field.                                                                                                                                                                                                                                                                                                                                             |

@@ -34,7 +34,7 @@ contrast floor.
 - **Light + Dark + High-Contrast** — all schemes from one definition
 - **Per-color hue override** — absolute or relative hue shifts within a theme
 - **Multi-format output** — native `rgb`, `hsl`, and `oklch`, plus
-  Tasty-compatible `okhsl` and `okhst`
+  [Tasty](https://tasty.style)-compatible `okhsl` and `okhst`
 - **CSS custom properties export** — ready-to-use `--var: value;` declarations per scheme
 - **W3C DTCG export** — spec-conformant `.tokens.json` (2025.10) for Figma, Tokens Studio, Style Dictionary, and every DTCG tool
 - **W3C DTCG Resolver-Module export** — opt-in single-document `dtcgResolver()` (sets + a `scheme` modifier with a context per variant) for resolver tools such as Dispersa
@@ -127,12 +127,12 @@ const tokens = palette.tokens({
    deliberately in HC.
 
 In Glaze, a **scheme variant** is one of `light`, `dark`, `lightContrast`, or
-`darkContrast`. Export `modes` choose which variants are included; Tasty
+`darkContrast`. Export `modes` choose which variants are included; [Tasty](https://tasty.style)
 `states` choose how those variants are activated in an application.
 
 ## Choosing an output
 
-- `tasty()` returns Tasty `#token` bindings, including its custom `okhsl()` or
+- `tasty()` returns [Tasty](https://tasty.style) `#token` bindings, including its custom `okhsl()` or
   `okhst()` serialization.
 - `tokens()` and `json()` return JavaScript data and default to native
   `oklch()` values.

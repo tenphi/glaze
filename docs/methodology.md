@@ -593,7 +593,7 @@ palette.dtcg({ prefix }); // one design-token tree per scheme
 palette.tailwind({ prefix }); // Tailwind CSS v4 theme
 ```
 
-Use `palette.tasty({ prefix })` for Tasty state bindings. See
+Use `palette.tasty({ prefix })` for [Tasty](https://tasty.style) state bindings. See
 [migration.md](migration.md#choosing-an-export) for output shapes, application
 wiring, and the `primary` alias pattern.
 

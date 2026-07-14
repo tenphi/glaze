@@ -21,7 +21,7 @@ renderer or tooling.
 
 | Method                           | Output shape                                                                                                       | Use it for                                                                                                                                                                        |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `palette.tasty(options?)`        | `{ '#name': { '': value, '@media(prefers-color-scheme: dark)': value, '@media(prefers-contrast: more)': value } }` | The [Tasty](https://tasty.style/docs) style system. Single object, state aliases keyed inside each token.                                                                         |
+| `palette.tasty(options?)`        | `{ '#name': { '': value, '@media(prefers-color-scheme: dark)': value, '@media(prefers-contrast: more)': value } }` | The [Tasty](https://tasty.style) style system. Single object, state aliases keyed inside each token.                                                                         |
 | `palette.tokens(options?)`       | `{ light: { name: value }, dark: { name: value }, ... }`                                                           | Most CSS-in-JS systems. Per-variant flat maps, easy to feed into a `:root { ... }` selector via your framework's globals.                                                         |
 | `palette.css(options?)`          | `{ light: '--name-color: rgb(...);', dark: '...', ... }`                                                           | Framework-free CSS / static stylesheets. Variant-grouped CSS custom property strings ready to wrap in `:root` and `prefers-color-scheme` queries.                                 |
 | `palette.json(options?)`         | `{ themeName: { name: { light, dark, ... } } }`                                                                    | Tooling, JSON pipelines.                                                                                                                                                          |
@@ -29,11 +29,11 @@ renderer or tooling.
 | `palette.dtcgResolver(options?)` | `{ version, sets, modifiers, resolutionOrder }`                                                                    | W3C DTCG **Resolver-Module** — a single document describing every scheme variant as `sets` + a `scheme` modifier with a context per variant. For resolver tools such as Dispersa. |
 | `palette.tailwind(options?)`     | `'@theme { --color-*: ... } .dark { ... } ...'`                                                                    | Tailwind CSS v4. A single ready-to-paste `@theme` block plus dark / high-contrast overrides.                                                                                      |
 
-`tasty()`, `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, and `tailwind()` accept `modes` (`{ dark, highContrast }`). `css()` always returns all four strings (`light`, `dark`, `lightContrast`, `darkContrast`). The CSS-string exports accept `format` (`'rgb' \| 'hsl' \| 'oklch'` on `tokens`/`json`/`css`/`tailwind`; `'okhsl' \| 'okhst'` on `tasty()` only); `dtcg()` and `dtcgResolver()` use `colorSpace` (`'srgb' \| 'oklch'`) instead. See [api.md → Palette](api.md#palette) for full options.
+`tasty()`, `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, and `tailwind()` accept `modes` (`{ dark, highContrast }`). `css()` always returns all four strings (`light`, `dark`, `lightContrast`, `darkContrast`). CSS-string exports accept `format` and default to `'oklch'` (`tokens`/`json`/`css`/`tailwind`/`tasty`; `'rgb'` and `'hsl'` also available). `'okhsl'` and `'okhst'` are supported only on [Tasty](https://tasty.style)-shaped exports (`tasty()`, standalone `token()` / `.tasty()`). `dtcg()` and `dtcgResolver()` ignore `format` and use `colorSpace` instead (`'srgb'` default, `'oklch'` opt-in). See [api.md → Palette](api.md#palette) for full options.
 
 ## Wiring exports into the app
 
-### Tasty
+### [Tasty](https://tasty.style)
 
 Spread the result of `palette.tasty()` into a global style call:
 
@@ -53,7 +53,7 @@ useGlobalStyles('body', PALETTE_TOKENS);
 tastyStatic('body', PALETTE_TOKENS);
 ```
 
-By default the dark / high-contrast variants are keyed by media-query states — `'@media(prefers-color-scheme: dark)'` and `'@media(prefers-contrast: more)'` — so the tokens react to the OS preference out of the box, with no extra Tasty setup.
+By default the dark / high-contrast variants are keyed by media-query states — `'@media(prefers-color-scheme: dark)'` and `'@media(prefers-contrast: more)'` — so the tokens react to the OS preference out of the box, with no extra [Tasty](https://tasty.style) setup.
 
 If you'd rather drive the schemes from custom aliases (e.g. a manual toggle that also falls back to the OS preference), set your own [`glaze.configure({ states })`](api.md#configuration) and register what those states _mean_:
 
@@ -71,7 +71,7 @@ setGlobalPredefinedStates({
 
 The state names here must match the `states` you set in [`glaze.configure({ states })`](api.md#configuration).
 
-You can also register the tokens as a Tasty recipe instead of spreading them globally:
+You can also register the tokens as a [Tasty](https://tasty.style) recipe instead of spreading them globally:
 
 ```ts
 import { configure, tasty } from '@tenphi/tasty';
