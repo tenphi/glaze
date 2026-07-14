@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 1.0.0
+
+### Major Changes
+
+- [`5b6e1e5`](https://github.com/tenphi/glaze/commit/5b6e1e57d5e96a270f300b4163699c47f4713386) Thanks [@tenphi](https://github.com/tenphi)! - First stable release (1.0.0). The public API is now semver-stable.
+
 ## 0.19.0
 
 ### Minor Changes
