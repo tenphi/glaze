@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 1.1.0
+
+### Minor Changes
+
+- [#78](https://github.com/tenphi/glaze/pull/78) [`8690d87`](https://github.com/tenphi/glaze/commit/8690d87b1b42148a5ad3a3cbf5ab2ae040347e48) Thanks [@tenphi](https://github.com/tenphi)! - Add palette authoring round-trip (`palette.export()` / `glaze.paletteFrom()`), a restore triad with `glaze.themeFrom` (and `glaze.from` as alias), `kind`/`version` on all authoring exports, palette theme introspection (`theme` / `themes` / `list` / `primary`), and export type guards. Authoring `.export(override?)` freezes `getConfig() ∪ instance local ∪ override` at call time (nested color `base` exports receive the same override). Live themes and color tokens keep a sparse local override and track live `configure()` for omitted fields. Remove `pastel` from `glaze.configure()` / `GlazeConfig` — set it per-theme, per-token, or per-color instead.
+
 ## 1.0.0
 
 ### Major Changes
