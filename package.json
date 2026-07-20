@@ -1,6 +1,6 @@
 {
   "name": "@tenphi/glaze",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "OKHST-based color theme generator with WCAG contrast solving for light, dark, and high-contrast schemes",
   "type": "module",
   "main": "./dist/index.cjs",
