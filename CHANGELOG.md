@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 1.1.1
+
+### Patch Changes
+
+- [#80](https://github.com/tenphi/glaze/pull/80) [`9d0487e`](https://github.com/tenphi/glaze/commit/9d0487ec59bebf43ee54458222a1511363e3e452) Thanks [@tenphi](https://github.com/tenphi)! - Fix relative `tone` with `autoFlip`: when mirroring an overshooting delta still leaves `[0, 100]`, keep the original direction and clamp instead of pinning to the wrong extreme.
+
 ## 1.1.0
 
 ### Minor Changes
