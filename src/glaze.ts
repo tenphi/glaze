@@ -9,6 +9,7 @@
  * - `shadow.ts` — standalone shadow factory (`glaze.shadow`)
  * - `formatters.ts` — variant → string (`glaze.format`)
  * - `config.ts` — global config singleton
+ * - `serialize.ts` — authoring export type guards / version checks
  */
 
 import { parseHex, srgbToOkhsl } from './okhsl-color-math';
@@ -27,7 +28,16 @@ import {
 import { formatVariant } from './formatters';
 import { computeShadow, resolveShadowTuning } from './shadow';
 import { okhslToOkhst } from './okhst';
-import { createPalette } from './palette';
+import {
+  createPalette,
+  createPaletteFromExport,
+  createThemeFromExport,
+} from './palette';
+import {
+  isColorTokenExport,
+  isPaletteExport,
+  isThemeExport,
+} from './serialize';
 import { createTheme } from './theme';
 import type {
   GlazeColorFormat,
@@ -40,6 +50,7 @@ import type {
   GlazeConfigResolved,
   GlazeFromInput,
   GlazePalette,
+  GlazePaletteExport,
   GlazePaletteOptions,
   GlazeShadowInput,
   GlazeTheme,
@@ -96,10 +107,16 @@ glaze.palette = function palette(
   return createPalette(themes, options);
 };
 
-/** Create a theme from a serialized export. */
-glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
-  return createTheme(data.hue, data.saturation, data.colors, data.config);
+/**
+ * Create a theme from a serialized `theme.export()` snapshot.
+ * Prefer this over the legacy `glaze.from` alias.
+ */
+glaze.themeFrom = function themeFrom(data: GlazeThemeExport): GlazeTheme {
+  return createThemeFromExport(data);
 };
+
+/** Compat alias for `glaze.themeFrom`. */
+glaze.from = glaze.themeFrom;
 
 /**
  * Create a standalone single-color token.
@@ -116,8 +133,8 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
  * **arg2 — config override** (optional, all shapes):
  * Overrides the resolve-relevant global config fields for this token.
  * Fields that are omitted fall through to the live global config at
- * create time (and are snapshotted). Pass `false` for a tone window
- * to disable clamping entirely.
+ * resolve time. Pass `false` for a tone window to disable clamping
+ * entirely. `pastel` is instance-only (not set via `configure()`).
  *
  * ```ts
  * // Bare string — no overrides
@@ -136,8 +153,8 @@ glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
  *
  * Defaults: every form defaults to `mode: 'auto'`. Value-shorthand forms
  * (bare strings and value objects) preserve light tone exactly
- * (`lightTone: false` internally). Structured form snapshots both
- * tone windows from `globalConfig` at create time.
+ * (`lightTone: false` locally). Structured form falls through to the live
+ * global tone windows for omitted fields.
  *
  * Relative `tone: '+N'` and `contrast` anchor to the literal seed by
  * default; when `base` is set they anchor to the base's resolved variant
@@ -231,8 +248,8 @@ glaze.fromRgb = function fromRgb(r: number, g: number, b: number): GlazeTheme {
  *
  * The snapshot is a plain JSON-safe object containing the original
  * input value, overrides (with any `base` token recursively serialized),
- * and the effective config snapshot. The reconstructed token is identical
- * in behavior to the original at the time of export.
+ * and the effective config freeze from export time. The reconstructed
+ * token pins that freeze as its local override.
  *
  * @example
  * ```ts
@@ -248,6 +265,24 @@ glaze.colorFrom = function colorFrom(
 ): GlazeColorToken {
   return colorFromExport(data);
 };
+
+/**
+ * Rehydrate a palette from a `palette.export()` snapshot.
+ */
+glaze.paletteFrom = function paletteFrom(
+  data: GlazePaletteExport,
+): GlazePalette {
+  return createPaletteFromExport(data);
+};
+
+/** Type guard for theme authoring snapshots. */
+glaze.isThemeExport = isThemeExport;
+
+/** Type guard for color-token authoring snapshots. */
+glaze.isColorTokenExport = isColorTokenExport;
+
+/** Type guard for palette authoring snapshots. */
+glaze.isPaletteExport = isPaletteExport;
 
 /** Get the current global configuration (for testing/debugging). */
 glaze.getConfig = function getConfig(): GlazeConfigResolved {

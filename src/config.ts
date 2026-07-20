@@ -3,9 +3,12 @@
  *
  * `configure()` mutates the singleton; every other module reads it via
  * `getConfig()` at call time so changes take effect for subsequent
- * resolves. Standalone color tokens snapshot the relevant fields at
- * create time (see `color-token.ts`), so already-created tokens keep
- * their original behavior across later `configure()` calls.
+ * resolves. Per-instance overrides (themes / color tokens) stay sparse —
+ * omitted fields fall through to the live global at resolve time.
+ * Authoring exports freeze the effective merge at export call time.
+ *
+ * `pastel` is instance-only (theme / token override or per-color def),
+ * never set via `configure()`.
  */
 
 import type {
@@ -17,6 +20,8 @@ import type {
 /**
  * Build a fresh defaults object. Called from module init and from
  * `resetConfig()` so the two paths can't drift.
+ *
+ * `pastel: false` is a fixed instance default — not globally configurable.
  */
 export function defaultConfig(): GlazeConfigResolved {
   return {
@@ -81,7 +86,8 @@ export function configure(config: GlazeConfig): void {
     },
     shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
-    pastel: config.pastel ?? globalConfig.pastel,
+    // Instance-only; never configurable globally.
+    pastel: false,
     inferRole: config.inferRole ?? globalConfig.inferRole,
   };
 }
@@ -96,12 +102,17 @@ export function resetConfig(): void {
  * Only fields present in `override` are replaced; others fall through
  * from `base`. `false` for tone windows passes through as-is
  * (treated as the full range by `activeWindow()` in okhst.ts).
+ *
+ * `pastel` is instance-only: `override.pastel ?? false`, never inherited
+ * from the global base.
  */
 export function mergeConfig(
   base: GlazeConfigResolved,
   override?: GlazeConfigOverride,
 ): GlazeConfigResolved {
-  if (!override) return base;
+  if (!override) {
+    return base.pastel === false ? base : { ...base, pastel: false };
+  }
   return {
     lightTone:
       override.lightTone !== undefined ? override.lightTone : base.lightTone,
@@ -112,7 +123,36 @@ export function mergeConfig(
     modes: base.modes,
     shadowTuning: override.shadowTuning ?? base.shadowTuning,
     autoFlip: override.autoFlip ?? base.autoFlip,
-    pastel: override.pastel ?? base.pastel,
+    pastel: override.pastel ?? false,
     inferRole: override.inferRole ?? base.inferRole,
   };
+}
+
+/**
+ * Freeze `getConfig() ∪ instanceLocal ∪ exportArg` as a plain, resolve-relevant
+ * override for authoring export, so restored snapshots pin these fields. Later
+ * wins; nested objects (`shadowTuning`) replace wholesale. The final
+ * `structuredClone` detaches tone-window / shadow objects that `mergeConfig`
+ * may still share with the live global config.
+ */
+export function freezeConfigForExport(
+  instanceLocal?: GlazeConfigOverride,
+  exportArg?: GlazeConfigOverride,
+): GlazeConfigOverride {
+  const effective = mergeConfig(getConfig(), {
+    ...instanceLocal,
+    ...exportArg,
+  });
+  const out: GlazeConfigOverride = {
+    lightTone: effective.lightTone,
+    darkTone: effective.darkTone,
+    darkDesaturation: effective.darkDesaturation,
+    autoFlip: effective.autoFlip,
+    pastel: effective.pastel,
+    inferRole: effective.inferRole,
+  };
+  if (effective.shadowTuning !== undefined) {
+    out.shadowTuning = effective.shadowTuning;
+  }
+  return structuredClone(out);
 }

@@ -8,6 +8,13 @@
 
 export { glaze } from './glaze';
 
+export { GLAZE_EXPORT_VERSION } from './types';
+export {
+  isThemeExport,
+  isColorTokenExport,
+  isPaletteExport,
+} from './serialize';
+
 // Re-export types for consumers
 export type {
   HCPair,
@@ -73,8 +80,11 @@ export type {
   GlazeFromInput,
   GlazeShadowInput,
   GlazePalette,
+  GlazePaletteExport,
   GlazePaletteOptions,
   GlazePaletteExportOptions,
+  GlazeExportKind,
+  GlazeExportVersion,
   Role,
   RoleInput,
 } from './types';

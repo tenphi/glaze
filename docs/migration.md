@@ -16,6 +16,11 @@ If you're starting from scratch, see [methodology.md](methodology.md) first — 
 
 ## Choosing an export
 
+Glaze has two layers of “export”:
+
+1. **Authoring snapshots** — `theme.export(override?)` / `token.export(override?)` / `palette.export(override?)`, restored with `glaze.themeFrom` / `colorFrom` / `paletteFrom`. These carry definitions, relations, and a config freeze taken at export time (`kind` + `version`). Live instances keep only a sparse local override; omitted global fields track `configure()` until export.
+2. **Resolved output** — the seven shapes below. These are color strings / design-token documents for apps and tools, **not** restorable as authoring config.
+
 Glaze emits the same resolved colors in seven shapes. Pick one based on your
 renderer or tooling.
 

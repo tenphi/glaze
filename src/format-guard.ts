@@ -69,6 +69,6 @@ export function assertAllPastel(
     'glaze: splitHue requires every color to be pastel (hue rotation is only ' +
       'clip-free when chroma is bounded by the hue-independent safe chroma). ' +
       `Non-pastel: ${nonPastel.join(', ')}. ` +
-      'Set pastel: true (global or per-color) or drop splitHue.',
+      'Set pastel: true (per-theme, per-token, or per-color) or drop splitHue.',
   );
 }

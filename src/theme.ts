@@ -13,7 +13,12 @@
  */
 
 import type { ChannelCtx } from './channels';
-import { getConfig, getConfigVersion, mergeConfig } from './config';
+import {
+  freezeConfigForExport,
+  getConfig,
+  getConfigVersion,
+  mergeConfig,
+} from './config';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
   buildCssMap,
@@ -26,13 +31,14 @@ import {
   resolveModes,
 } from './formatters';
 import { resolveAllColors } from './resolver';
+import { GLAZE_EXPORT_VERSION } from './serialize';
 import type {
   ColorDef,
   ColorMap,
-  GlazeCssOptions,
-  GlazeCssResult,
   GlazeConfigOverride,
   GlazeConfigResolved,
+  GlazeCssOptions,
+  GlazeCssResult,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
   GlazeDtcgResolverOptions,
@@ -55,7 +61,7 @@ export function createTheme(
   let colorDefs: ColorMap = initialColors ? { ...initialColors } : {};
 
   let cache: {
-    map: Map<string, ResolvedColor>;
+    map: Map<string, ResolvedColor> | null;
     version: number;
     effectiveConfig: GlazeConfigResolved;
   } | null = null;
@@ -63,13 +69,15 @@ export function createTheme(
   function getEffectiveConfig(): GlazeConfigResolved {
     const version = getConfigVersion();
     if (cache && cache.version === version) return cache.effectiveConfig;
-    return mergeConfig(getConfig(), configOverride);
+    const effectiveConfig = mergeConfig(getConfig(), configOverride);
+    cache = { map: null, version, effectiveConfig };
+    return effectiveConfig;
   }
 
   function resolveCached(): Map<string, ResolvedColor> {
     const version = getConfigVersion();
-    if (cache && cache.version === version) return cache.map;
-    const effectiveConfig = mergeConfig(getConfig(), configOverride);
+    if (cache && cache.version === version && cache.map) return cache.map;
+    const effectiveConfig = getEffectiveConfig();
     const map = resolveAllColors(hue, saturation, colorDefs, effectiveConfig);
     cache = { map, version, effectiveConfig };
     return map;
@@ -150,14 +158,15 @@ export function createTheme(
       invalidate();
     },
 
-    export(): GlazeThemeExport {
-      const out: GlazeThemeExport = {
+    export(override?: GlazeConfigOverride): GlazeThemeExport {
+      return {
+        kind: 'theme',
+        version: GLAZE_EXPORT_VERSION,
         hue,
         saturation,
-        colors: { ...colorDefs },
+        colors: structuredClone(colorDefs),
+        config: freezeConfigForExport(configOverride, override),
       };
-      if (configOverride !== undefined) out.config = configOverride;
-      return out;
     },
 
     extend(options: GlazeExtendOptions): GlazeTheme {

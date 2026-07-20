@@ -7,6 +7,9 @@
  * `tasty` / `json` / `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a
  * `buildPaletteOutput` driver that handles validation, per-theme iteration,
  * prefix resolution, collision filtering, and primary duplication.
+ *
+ * Authoring round-trip: `palette.export()` / `createPaletteFromExport()`
+ * (wired as `glaze.paletteFrom`).
  */
 
 import type { ChannelCtx } from './channels';
@@ -23,20 +26,29 @@ import {
   emitTailwindCss,
   resolveModes,
 } from './formatters';
+import {
+  assertExportKind,
+  assertExportVersion,
+  GLAZE_EXPORT_VERSION,
+} from './serialize';
+import { createTheme } from './theme';
 import type {
   ColorMap,
   GlazeCssOptions,
   GlazeCssResult,
+  GlazeConfigOverride,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
   GlazeDtcgResolverOptions,
   GlazeDtcgResult,
   GlazeJsonOptions,
   GlazePalette,
+  GlazePaletteExport,
   GlazePaletteExportOptions,
   GlazePaletteOptions,
   GlazeTailwindOptions,
   GlazeTheme,
+  GlazeThemeExport,
   GlazeTokenOptions,
   ResolvedColor,
 } from './types';
@@ -204,6 +216,58 @@ function buildPaletteOutput<T, R>(
   return acc;
 }
 
+/** Rebuild a theme from a `theme.export()` snapshot. */
+export function createThemeFromExport(
+  data: GlazeThemeExport,
+  factory = 'glaze.themeFrom',
+): GlazeTheme {
+  if (data === null || typeof data !== 'object') {
+    throw new Error(
+      `${factory}: expected an object from theme.export(), got ${data === null ? 'null' : typeof data}.`,
+    );
+  }
+  assertExportKind(data, 'theme', factory);
+  assertExportVersion(data, factory);
+  if (typeof data.hue !== 'number' || typeof data.saturation !== 'number') {
+    throw new Error(
+      `${factory}: expected numeric "hue" and "saturation" fields.`,
+    );
+  }
+  return createTheme(data.hue, data.saturation, data.colors, data.config);
+}
+
+/**
+ * Rebuild a palette from a `palette.export()` snapshot.
+ */
+export function createPaletteFromExport(
+  data: GlazePaletteExport,
+): GlazePalette {
+  if (data === null || typeof data !== 'object') {
+    throw new Error(
+      `glaze.paletteFrom: expected an object from palette.export(), got ${data === null ? 'null' : typeof data}.`,
+    );
+  }
+  assertExportKind(data, 'palette', 'glaze.paletteFrom');
+  assertExportVersion(data, 'glaze.paletteFrom');
+  if (data.themes === null || typeof data.themes !== 'object') {
+    throw new Error(
+      `glaze.paletteFrom: expected a "themes" object map of theme exports.`,
+    );
+  }
+
+  const rebuilt: PaletteInput = {};
+  for (const [name, themeExport] of Object.entries(data.themes)) {
+    rebuilt[name] = createThemeFromExport(
+      themeExport,
+      `glaze.paletteFrom (theme "${name}")`,
+    );
+  }
+
+  return createPalette(rebuilt, {
+    primary: data.primary,
+  });
+}
+
 export function createPalette(
   themes: PaletteInput,
   paletteOptions?: GlazePaletteOptions,
@@ -244,6 +308,38 @@ export function createPalette(
   };
 
   return {
+    list(): string[] {
+      return Object.keys(themes);
+    },
+
+    get primary(): string | undefined {
+      return paletteOptions?.primary;
+    },
+
+    theme(name: string): GlazeTheme | undefined {
+      return themes[name];
+    },
+
+    themes(): Record<string, GlazeTheme> {
+      return { ...themes };
+    },
+
+    export(override?: GlazeConfigOverride): GlazePaletteExport {
+      const themesExport: Record<string, GlazeThemeExport> = {};
+      for (const [name, theme] of Object.entries(themes)) {
+        themesExport[name] = theme.export(override);
+      }
+      const out: GlazePaletteExport = {
+        kind: 'palette',
+        version: GLAZE_EXPORT_VERSION,
+        themes: themesExport,
+      };
+      if (paletteOptions?.primary !== undefined) {
+        out.primary = paletteOptions.primary;
+      }
+      return out;
+    },
+
     tokens(
       options?: GlazeJsonOptions & GlazePaletteExportOptions,
     ): Record<string, Record<string, string>> {
