@@ -69,7 +69,7 @@ describe('glaze', () => {
     });
 
     it('respects pastel config on theme creation', () => {
-      const theme = glaze(100, 100, undefined, { pastel: true });
+      const theme = glaze(100, 100, { pastel: true });
       theme.colors({ surface: { tone: 50, saturation: 1 } });
       const surface = theme.resolve().get('surface')!;
       expect(surface.light.s).toBeCloseTo(1, 3);
@@ -111,9 +111,9 @@ describe('glaze', () => {
         'rgb(',
       );
     });
-    it('honors per-color pastel override regardless of global config', () => {
+    it('honors per-color pastel override regardless of theme default', () => {
       // Two colors at the same seed: one opts into pastel via the def, the
-      // other follows the global `pastel: false` default. The resolved
+      // other follows the theme pastel default (false). The resolved
       // variants must carry the per-color flag through to formatting.
       const theme = glaze(280, 80);
       theme.colors({
@@ -205,11 +205,9 @@ describe('glaze', () => {
       expect(restored.resolve().light.pastel).toBe(true);
     });
 
-    it('value-shorthand pastel override beats the global config', () => {
-      glaze.configure({ pastel: false });
+    it('value-shorthand pastel override beats the theme/token default', () => {
       const token = glaze.color({ from: '#1e90ff', pastel: true });
       expect(token.resolve().light.pastel).toBe(true);
-      glaze.resetConfig();
     });
 
     it('resolves root colors with tone, hue and saturation', () => {
@@ -896,9 +894,8 @@ describe('glaze', () => {
       expect(r.get('border')!.light.pastel).toBe(false);
     });
 
-    it('border pastel follows the global config like any other color', () => {
-      glaze.configure({ pastel: true });
-      const theme = glaze(280, 60);
+    it('border pastel follows the theme pastel override like any other color', () => {
+      const theme = glaze(280, 60, { pastel: true });
       theme.colors({
         surface: { tone: 90 },
         border: { base: 'surface', tone: '-10' },
@@ -1236,23 +1233,32 @@ describe('glaze', () => {
     it('themeFrom is an alias of from and freezes against configure()', () => {
       const theme = glaze(280, 80);
       theme.colors({ surface: { tone: 50, saturation: 1 } });
-      const before = theme.resolve().get('surface')!.light.pastel;
       const exported = theme.export();
-      expect(before).toBe(false);
+      expect(exported.config?.inferRole).toBe(true);
 
-      glaze.configure({ pastel: true });
+      glaze.configure({ inferRole: false });
       try {
         const viaFrom = glaze.from(exported);
         const viaThemeFrom = glaze.themeFrom(
           JSON.parse(JSON.stringify(exported)),
         );
-        expect(viaFrom.resolve().get('surface')!.light.pastel).toBe(false);
-        expect(viaThemeFrom.resolve().get('surface')!.light.pastel).toBe(false);
+        expect(viaFrom.getConfig().inferRole).toBe(true);
+        expect(viaThemeFrom.getConfig().inferRole).toBe(true);
         // Live theme without frozen override still tracks global.
-        expect(theme.resolve().get('surface')!.light.pastel).toBe(true);
+        expect(theme.getConfig().inferRole).toBe(false);
       } finally {
         glaze.resetConfig();
       }
+    });
+
+    it('export(override) merges over instance local at export time', () => {
+      const theme = glaze(280, 80, { autoFlip: false });
+      theme.colors({ surface: { tone: 50 } });
+      const exported = theme.export({ pastel: true });
+      expect(exported.config?.autoFlip).toBe(false);
+      expect(exported.config?.pastel).toBe(true);
+      const restored = glaze.themeFrom(exported);
+      expect(restored.resolve().get('surface')!.light.pastel).toBe(true);
     });
 
     it('deep-clones colors on export', () => {
@@ -1468,8 +1474,7 @@ describe('glaze', () => {
 
   describe('splitHue export', () => {
     function pastelTheme() {
-      glaze.configure({ pastel: true });
-      const theme = glaze(240, 18);
+      const theme = glaze(240, 18, { pastel: true });
       theme.colors({
         surface: { tone: 35 },
         accent: { hue: '+20', tone: 52, saturation: 0.5 },
@@ -1523,8 +1528,7 @@ describe('glaze', () => {
     });
 
     it('palette scopes hue vars per theme', () => {
-      glaze.configure({ pastel: true });
-      const brand = glaze(240, 18);
+      const brand = glaze(240, 18, { pastel: true });
       brand.colors({ surface: { tone: 35 } });
       const accent = brand.extend({ hue: 23 });
       accent.colors({ surface: { tone: 40 } });
@@ -1569,8 +1573,7 @@ describe('glaze', () => {
     });
 
     it('inlines achromatic, shadow, and mix colors and preserves alpha', () => {
-      glaze.configure({ pastel: true });
-      const theme = glaze(240, 18);
+      const theme = glaze(240, 18, { pastel: true });
       theme.colors({
         surface: { tone: 50 },
         accent: { hue: 280, tone: 52 },
@@ -1614,10 +1617,9 @@ describe('glaze', () => {
     });
 
     it('does not re-emit hue vars for the palette primary unprefixed alias', () => {
-      glaze.configure({ pastel: true });
-      const brand = glaze(240, 18);
+      const brand = glaze(240, 18, { pastel: true });
       brand.colors({ surface: { tone: 35 }, accent: { hue: '+20', tone: 52 } });
-      const warning = glaze(23, 18);
+      const warning = glaze(23, 18, { pastel: true });
       warning.colors({ surface: { tone: 40 } });
       const palette = glaze.palette({ brand, warning }, { primary: 'brand' });
       const css = palette.css({ format: 'oklch', splitHue: true });
@@ -2063,11 +2065,12 @@ describe('glaze', () => {
         expect(llOf(resolved.dark)).toBeCloseTo(0.15, 2);
       });
 
-      it('snapshots the dark window at create time', () => {
+      it('tracks the live dark window for omitted fields', () => {
         const before = glaze.color('#ffffff');
+        expect(llOf(before.resolve().dark)).toBeCloseTo(0.15, 2);
         glaze.configure({ darkTone: { lo: 40, hi: 80, eps: 0.05 } });
         try {
-          expect(llOf(before.resolve().dark)).toBeCloseTo(0.15, 2);
+          expect(llOf(before.resolve().dark)).toBeCloseTo(0.4, 2);
           expect(llOf(glaze.color('#ffffff').resolve().dark)).toBeCloseTo(
             0.4,
             2,
@@ -2222,35 +2225,68 @@ describe('glaze', () => {
         expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
       });
 
-      it('export snapshots survive configure() after create', () => {
+      it('export freeze pins config against later configure()', () => {
         const tok = glaze.color({ h: 0, s: 0, l: 0 });
+        const data = tok.export();
+        expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
+        const frozenT = tok.resolve().dark.t;
         glaze.configure({ darkTone: { lo: 40, hi: 80, eps: 0.05 } });
         try {
-          const data = tok.export();
-          expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
+          // Live token tracks the new global window.
+          expect(llOf(tok.resolve().dark)).toBeCloseTo(0.8, 2);
           const restored = glaze.colorFrom(JSON.parse(JSON.stringify(data)));
-          expect(restored.resolve().dark.t).toBeCloseTo(
-            tok.resolve().dark.t,
-            6,
-          );
+          expect(restored.resolve().dark.t).toBeCloseTo(frozenT, 6);
         } finally {
           glaze.resetConfig();
         }
       });
 
       it('pastel / inferRole freeze survives configure()', () => {
-        glaze.configure({ pastel: true, inferRole: false });
+        const tok = glaze.color(
+          { hue: 150, saturation: 80, tone: 50 },
+          { pastel: true, inferRole: false },
+        );
+        const data = tok.export();
+        expect(data.config?.pastel).toBe(true);
+        expect(data.config?.inferRole).toBe(false);
+        glaze.configure({ inferRole: true });
         try {
-          const tok = glaze.color({ hue: 150, saturation: 80, tone: 50 });
-          const data = tok.export();
-          expect(data.config?.pastel).toBe(true);
-          expect(data.config?.inferRole).toBe(false);
-          glaze.configure({ pastel: false, inferRole: true });
           const restored = glaze.colorFrom(JSON.parse(JSON.stringify(data)));
           expect(restored.resolve().light.pastel).toBe(true);
+          expect(restored.export().config?.inferRole).toBe(false);
+          // Fresh token without local override freezes the new global inferRole.
+          expect(
+            glaze.color({ hue: 150, saturation: 80, tone: 50 }).export().config
+              ?.inferRole,
+          ).toBe(true);
         } finally {
           glaze.resetConfig();
         }
+      });
+
+      it('export(override) forwards to nested base snapshots', () => {
+        const base = glaze.color({ hue: 200, saturation: 50, tone: 40 });
+        const token = glaze.color({
+          hue: 200,
+          saturation: 50,
+          tone: 70,
+          base,
+        });
+        const data = token.export({ pastel: true });
+        expect(data.config?.pastel).toBe(true);
+        const nested = (data.input as { base?: GlazeColorTokenExport }).base;
+        expect(nested?.config?.pastel).toBe(true);
+      });
+
+      it('palette.export(override) lands on every nested theme', () => {
+        const brand = glaze(280, 80);
+        brand.colors({ surface: { tone: 97 } });
+        const danger = brand.extend({ hue: 23 });
+        const snapshot = glaze
+          .palette({ brand, danger }, { primary: 'brand' })
+          .export({ darkTone: false });
+        expect(snapshot.themes.brand.config?.darkTone).toBe(false);
+        expect(snapshot.themes.danger.config?.darkTone).toBe(false);
       });
     });
 

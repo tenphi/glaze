@@ -6,18 +6,16 @@
  * `{ l, c, h }`), the structured-input validator, the two factory paths
  * (value vs structured), and the JSON-safe export / rehydration round-trip.
  *
- * Standalone tokens snapshot the full effective config at create time
- * so later `configure()` calls do not retroactively change exported
- * tokens. The snapshot is built eagerly in
- * `buildValueFormConfigOverride()` / `buildStructuredConfigOverride()`.
- * The token's resolved variants are then memoized on first
- * `.resolve()` / `.token()` / ... call.
+ * Tokens store a sparse local config override only. Resolve merges the
+ * live global config with that local override (invalidated on
+ * `configure()`). Authoring `.export(override?)` freezes
+ * `getConfig() ∪ local ∪ override` at call time.
  */
 
 import {
-  buildEffectiveConfigOverride,
-  defaultConfig,
+  freezeConfigForExport,
   getConfig,
+  getConfigVersion,
   mergeConfig,
 } from './config';
 import {
@@ -94,45 +92,21 @@ const RESERVED_STANDALONE_NAMES = new Set([
 ]);
 
 // ============================================================================
-// Effective config snapshots
+// Sparse local config (no global freeze at create)
 // ============================================================================
 
 /**
- * Build the per-token effective config override for a value-form color.
- *
- * Light window defaults to `false` (preserve input tone exactly).
- * All other fields snapshot from global at create time via
- * `buildEffectiveConfigOverride`. User override fields win.
+ * Value-form local override: `lightTone` defaults to `false` (preserve
+ * input tone). User override fields win.
  */
-function buildValueFormConfigOverride(
+function sparseValueFormLocal(
   userOverride?: GlazeConfigOverride,
 ): GlazeConfigOverride {
-  return buildEffectiveConfigOverride({
+  return {
     ...userOverride,
     lightTone:
       userOverride?.lightTone !== undefined ? userOverride.lightTone : false,
-  });
-}
-
-/**
- * Build the per-token effective config override for a structured-form color.
- * Snapshots the full effective config (incl. pastel / inferRole).
- */
-function buildStructuredConfigOverride(
-  userOverride?: GlazeConfigOverride,
-): GlazeConfigOverride {
-  return buildEffectiveConfigOverride(userOverride);
-}
-
-/**
- * Build the `GlazeConfigResolved` to pass to `resolveAllColors` from a
- * snapshot override. Uses `defaultConfig()` as the base so all required
- * fields are present; the snapshot fields win.
- */
-function resolvedConfigFromOverride(
-  override: GlazeConfigOverride,
-): GlazeConfigResolved {
-  return mergeConfig(defaultConfig(), override);
+  };
 }
 
 // ============================================================================
@@ -558,25 +532,38 @@ function createColorTokenFromDefs(
   seedSaturation: number,
   defs: ColorMap,
   primary: string,
-  effectiveConfig: GlazeConfigResolved,
+  configOverride: GlazeConfigOverride | undefined,
   baseToken: GlazeColorToken | undefined,
-  exportData: () => GlazeColorTokenExport,
+  buildExport: (override?: GlazeConfigOverride) => GlazeColorTokenExport,
 ): GlazeColorToken {
-  // Cache the resolve result across token / tasty / json / css / resolve calls.
-  let cached: Map<string, ResolvedColor> | undefined;
+  let cache: {
+    map: Map<string, ResolvedColor>;
+    version: number;
+    effectiveConfig: GlazeConfigResolved;
+  } | null = null;
+
+  function getEffectiveConfig(): GlazeConfigResolved {
+    const version = getConfigVersion();
+    if (cache && cache.version === version) return cache.effectiveConfig;
+    return mergeConfig(getConfig(), configOverride);
+  }
+
   const resolveOnce = (): Map<string, ResolvedColor> => {
-    if (cached) return cached;
+    const version = getConfigVersion();
+    if (cache && cache.version === version) return cache.map;
+    const effectiveConfig = mergeConfig(getConfig(), configOverride);
     const externalBases = baseToken
       ? new Map([[STANDALONE_BASE, baseToken.resolve()]])
       : undefined;
-    cached = resolveAllColors(
+    const map = resolveAllColors(
       seedHue,
       seedSaturation,
       defs,
       effectiveConfig,
       externalBases,
     );
-    return cached;
+    cache = { map, version, effectiveConfig };
+    return map;
   };
 
   const resolveStates = (options?: GlazeTokenOptions) => {
@@ -594,7 +581,7 @@ function createColorTokenFromDefs(
       resolveStates(options),
       resolveModes(options?.modes),
       options?.format ?? 'oklch',
-      effectiveConfig.pastel,
+      getEffectiveConfig().pastel,
     );
     return tokenMap[`#${primary}`];
   };
@@ -614,7 +601,7 @@ function createColorTokenFromDefs(
         resolveOnce(),
         resolveModes(options?.modes),
         format,
-        effectiveConfig.pastel,
+        getEffectiveConfig().pastel,
       );
       return jsonMap[primary];
     },
@@ -646,7 +633,7 @@ function createColorTokenFromDefs(
         '',
         options.suffix ?? '-color',
         format,
-        effectiveConfig.pastel,
+        getEffectiveConfig().pastel,
         channelCtx,
       );
     },
@@ -658,7 +645,7 @@ function createColorTokenFromDefs(
         '',
         modes,
         options?.colorSpace ?? 'srgb',
-        effectiveConfig.pastel,
+        getEffectiveConfig().pastel,
       );
       const result: GlazeColorDtcgResult = { light: doc.light[primary] };
       if (doc.dark) result.dark = doc.dark[primary];
@@ -677,7 +664,7 @@ function createColorTokenFromDefs(
         '',
         resolveModes(options?.modes),
         options?.colorSpace ?? 'srgb',
-        effectiveConfig.pastel,
+        getEffectiveConfig().pastel,
       );
       const name = options.name;
       const result: GlazeDtcgResult = {
@@ -707,11 +694,13 @@ function createColorTokenFromDefs(
         format,
         options.darkSelector ?? '.dark',
         options.highContrastSelector ?? '.high-contrast',
-        effectiveConfig.pastel,
+        getEffectiveConfig().pastel,
       );
     },
 
-    export: exportData,
+    export(override?: GlazeConfigOverride): GlazeColorTokenExport {
+      return buildExport(override);
+    },
   };
 }
 
@@ -811,25 +800,22 @@ export function createColorToken(
     };
   }
 
-  const effectiveConfigOverride = buildStructuredConfigOverride(configOverride);
-  const effectiveConfig = resolvedConfigFromOverride(effectiveConfigOverride);
-
-  const exportData = (): GlazeColorTokenExport => ({
-    kind: 'color',
-    version: GLAZE_EXPORT_VERSION,
-    form: 'structured',
-    input: buildStructuredInputExport(input),
-    config: effectiveConfigOverride,
-  });
+  const localOverride = configOverride;
 
   return createColorTokenFromDefs(
     input.hue,
     input.saturation,
     defs,
     primary,
-    effectiveConfig,
+    localOverride,
     baseToken,
-    exportData,
+    (exportArg) => ({
+      kind: 'color',
+      version: GLAZE_EXPORT_VERSION,
+      form: 'structured',
+      input: buildStructuredInputExport(input, exportArg),
+      config: freezeConfigForExport(localOverride, exportArg),
+    }),
   );
 }
 
@@ -853,28 +839,25 @@ export function createColorTokenFromValue(
     options,
   );
 
-  const effectiveConfigOverride = buildValueFormConfigOverride(configOverride);
-  const effectiveConfig = resolvedConfigFromOverride(effectiveConfigOverride);
-
-  const exportData = (): GlazeColorTokenExport => ({
-    kind: 'color',
-    version: GLAZE_EXPORT_VERSION,
-    form: 'value',
-    input: value,
-    ...(options !== undefined
-      ? { overrides: buildOverridesExport(options) }
-      : {}),
-    config: effectiveConfigOverride,
-  });
+  const localOverride = sparseValueFormLocal(configOverride);
 
   return createColorTokenFromDefs(
     seedHue,
     seedSaturation,
     defs,
     primary,
-    effectiveConfig,
+    localOverride,
     linkingBase,
-    exportData,
+    (exportArg) => ({
+      kind: 'color',
+      version: GLAZE_EXPORT_VERSION,
+      form: 'value',
+      input: value,
+      ...(options !== undefined
+        ? { overrides: buildOverridesExport(options, exportArg) }
+        : {}),
+      config: freezeConfigForExport(localOverride, exportArg),
+    }),
   );
 }
 
@@ -889,6 +872,7 @@ export function createColorTokenFromValue(
  */
 function buildOverridesExport(
   options: GlazeColorOverrides,
+  exportArg?: GlazeConfigOverride,
 ): GlazeColorOverridesExport {
   const out: GlazeColorOverridesExport = {};
   if (options.hue !== undefined) out.hue = options.hue;
@@ -906,7 +890,7 @@ function buildOverridesExport(
   if (options.role !== undefined) out.role = options.role;
   if (options.base !== undefined) {
     out.base = isGlazeColorToken(options.base)
-      ? options.base.export()
+      ? options.base.export(exportArg)
       : options.base;
   }
   return out;
@@ -914,6 +898,7 @@ function buildOverridesExport(
 
 function buildStructuredInputExport(
   input: GlazeColorInput,
+  exportArg?: GlazeConfigOverride,
 ): GlazeColorInputExport {
   const out: GlazeColorInputExport = {
     hue: input.hue,
@@ -931,7 +916,9 @@ function buildStructuredInputExport(
   if (input.pastel !== undefined) out.pastel = input.pastel;
   if (input.role !== undefined) out.role = input.role;
   if (input.base !== undefined) {
-    out.base = isGlazeColorToken(input.base) ? input.base.export() : input.base;
+    out.base = isGlazeColorToken(input.base)
+      ? input.base.export(exportArg)
+      : input.base;
   }
   return out;
 }
@@ -1000,9 +987,9 @@ function rehydrateStructuredInput(
  * Rehydrate a token from its `.export()` snapshot. Recursively rebuilds
  * any base dependency. Inverse of `GlazeColorToken.export()`.
  *
- * The stored `config` field contains the full effective config override
- * snapshotted at creation time, so the rehydrated token is deterministic
- * regardless of subsequent `glaze.configure()` calls.
+ * The stored `config` field is the freeze from export time — passed as
+ * the instance local override so the rehydrated token stays pinned
+ * against later `glaze.configure()` calls.
  */
 export function colorFromExport(data: GlazeColorTokenExport): GlazeColorToken {
   if (data === null || typeof data !== 'object') {
@@ -1028,8 +1015,6 @@ export function colorFromExport(data: GlazeColorTokenExport): GlazeColorToken {
     const overrides = data.overrides
       ? rehydrateOverrides(data.overrides)
       : undefined;
-    // The stored `config` contains the full effective snapshot — pass it
-    // directly so the rehydrated token reproduces identical behavior.
     return createColorTokenFromValue(value, overrides, data.config);
   }
 

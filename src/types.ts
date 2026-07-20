@@ -196,8 +196,8 @@ export interface RegularColorDef {
   /**
    * Per-color override for the hue-independent "safe" chroma limit used in
    * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
-   * Falls through to the global / per-theme `pastel` config when omitted.
-   * @see GlazeConfig.pastel
+   * Falls through to the per-theme / per-token `pastel` override when omitted.
+   * @see GlazeConfigOverride.pastel
    */
   pastel?: boolean;
 
@@ -267,8 +267,8 @@ export interface ShadowColorDef {
   /**
    * Per-color override for the hue-independent "safe" chroma limit used in
    * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
-   * Falls through to the global / per-theme `pastel` config when omitted.
-   * @see GlazeConfig.pastel
+   * Falls through to the per-theme / per-token `pastel` override when omitted.
+   * @see GlazeConfigOverride.pastel
    */
   pastel?: boolean;
 
@@ -317,8 +317,8 @@ export interface MixColorDef {
   /**
    * Per-color override for the hue-independent "safe" chroma limit used in
    * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
-   * Falls through to the global / per-theme `pastel` config when omitted.
-   * @see GlazeConfig.pastel
+   * Falls through to the per-theme / per-token `pastel` override when omitted.
+   * @see GlazeConfigOverride.pastel
    */
   pastel?: boolean;
 
@@ -433,13 +433,6 @@ export interface GlazeConfig {
    */
   autoFlip?: boolean;
   /**
-   * If true, uses a hue-independent "safe" chroma limit across all colors
-   * so that scaling saturation never exceeds the sRGB boundary at any hue
-   * for the given lightness.
-   * @default false
-   */
-  pastel?: boolean;
-  /**
    * If true (default), infer a color's `role` from its name when no explicit
    * `role` is set. Set to `false` to opt out of name-based inference (the
    * base-opposite and default-foreground fallbacks still apply).
@@ -459,6 +452,11 @@ export interface GlazeConfigResolved {
   modes: Required<GlazeOutputModes>;
   shadowTuning?: ShadowTuning;
   autoFlip: boolean;
+  /**
+   * Instance-level pastel default (`def.pastel ?? config.pastel`).
+   * Not set via `glaze.configure()` — only via per-theme / per-token
+   * `GlazeConfigOverride` (default `false`).
+   */
   pastel: boolean;
   inferRole: boolean;
 }
@@ -466,7 +464,8 @@ export interface GlazeConfigResolved {
 /**
  * Per-instance config override for `glaze.color()` and `glaze()` themes.
  * Fields that are set take priority over the live global config. Fields
- * that are omitted fall through to the live global at resolve time.
+ * that are omitted fall through to the live global at resolve time
+ * (`pastel` is instance-only and defaults to `false` when omitted).
  *
  * `false` for a tone window disables clamping (full range at reference eps).
  */
@@ -480,9 +479,9 @@ export interface GlazeConfigOverride {
   /** Whether to auto-flip tone when contrast can't be met. */
   autoFlip?: boolean;
   /**
-   * If true, uses a hue-independent "safe" chroma limit across all colors
-   * so that scaling saturation never exceeds the sRGB boundary at any hue
-   * for the given lightness.
+   * Instance-level pastel default for colors that omit per-color `pastel`.
+   * Not available on `glaze.configure()` — set here or per-color.
+   * @default false
    */
   pastel?: boolean;
   /**
@@ -523,8 +522,8 @@ export interface GlazeThemeExport {
   saturation: number;
   colors: ColorMap;
   /**
-   * Effective config snapshot. Always written by `theme.export()` as a
-   * full freeze of resolve-relevant fields. May be sparse on legacy
+   * Effective config freeze from `.export()` —
+   * `getConfig() ∪ instance local ∪ exportArg`. May be sparse on legacy
    * snapshots (omitted fields fall through to the live global at restore).
    */
   config?: GlazeConfigOverride;
@@ -593,8 +592,8 @@ export interface GlazeColorInput {
   /**
    * Per-color override for the hue-independent "safe" chroma limit used in
    * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
-   * Falls through to the global / per-theme `pastel` config when omitted.
-   * @see GlazeConfig.pastel
+   * Falls through to the per-theme / per-token `pastel` override when omitted.
+   * @see GlazeConfigOverride.pastel
    */
   pastel?: boolean;
 
@@ -653,11 +652,11 @@ export interface GlazeColorOverrides {
   /**
    * Adaptation mode. Defaults to `'auto'` for every input form, so
    * colors automatically adapt between light and dark like an ordinary
-   * theme color. All value-shorthand inputs (strings and literal objects)
-   * preserve light tone (`lightTone: false`) and snapshot
-   * `globalConfig.darkTone` on the dark side. Only the structured
-   * `{ hue, saturation, tone }` form also snapshots
-   * `globalConfig.lightTone`.
+   * theme color. Value-shorthand inputs (strings and literal objects)
+   * preserve light tone via a local `lightTone: false` default; other
+   * omitted config fields fall through to the live global at resolve
+   * time. Structured `{ hue, saturation, tone }` form also falls
+   * through for both tone windows unless overridden.
    *
    * Pass `'fixed'` explicitly to opt back into the linear, non-
    * inverting mapping; pass `'static'` to pin the same tone
@@ -722,8 +721,8 @@ export interface GlazeColorOverrides {
   /**
    * Per-color override for the hue-independent "safe" chroma limit used in
    * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
-   * Falls through to the global / per-theme `pastel` config when omitted.
-   * @see GlazeConfig.pastel
+   * Falls through to the per-theme / per-token `pastel` override when omitted.
+   * @see GlazeConfigOverride.pastel
    */
   pastel?: boolean;
 
@@ -812,8 +811,9 @@ export interface GlazeColorToken {
    * Serialize the token as a JSON-safe object. Captures the original
    * input value, overrides, and config so it can be rehydrated via
    * `glaze.colorFrom(...)`. `base` is recursively serialized.
+   * Optional `override` is merged over the instance local at export time.
    */
-  export(): GlazeColorTokenExport;
+  export(override?: GlazeConfigOverride): GlazeColorTokenExport;
 }
 
 /**
@@ -839,10 +839,9 @@ export interface GlazeColorTokenExport {
    */
   overrides?: GlazeColorOverridesExport;
   /**
-   * Effective config snapshot at creation time — captures the merged
-   * result of the global config + any per-call override at the moment
-   * the token was created. Used by `glaze.colorFrom()` to reproduce
-   * deterministic behavior across `configure()` calls.
+   * Effective config freeze from `.export()` — `getConfig() ∪ local ∪
+   * exportArg` at call time. Used by `glaze.colorFrom()` to pin
+   * deterministic behavior across later `configure()` calls.
    */
   config?: GlazeConfigOverride;
 }
@@ -934,7 +933,7 @@ export interface GlazeTheme {
   reset(): void;
 
   /** Export the theme configuration as a JSON-safe object. */
-  export(): GlazeThemeExport;
+  export(override?: GlazeConfigOverride): GlazeThemeExport;
 
   /** Create a child theme inheriting all color definitions. */
   extend(options: GlazeExtendOptions): GlazeTheme;
@@ -1321,9 +1320,10 @@ export interface GlazePalette {
   /**
    * Export the palette authoring configuration as a JSON-safe object.
    * Restorable via `glaze.paletteFrom(...)`. Distinct from `json()`, which
-   * emits resolved color strings.
+   * emits resolved color strings. Optional `override` is forwarded to each
+   * nested `theme.export(override)`.
    */
-  export(): GlazePaletteExport;
+  export(override?: GlazeConfigOverride): GlazePaletteExport;
 
   /**
    * Export all themes as a flat token map grouped by scheme variant.

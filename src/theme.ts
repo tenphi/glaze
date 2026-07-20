@@ -14,7 +14,7 @@
 
 import type { ChannelCtx } from './channels';
 import {
-  buildEffectiveConfigOverride,
+  freezeConfigForExport,
   getConfig,
   getConfigVersion,
   mergeConfig,
@@ -156,14 +156,14 @@ export function createTheme(
       invalidate();
     },
 
-    export(): GlazeThemeExport {
+    export(override?: GlazeConfigOverride): GlazeThemeExport {
       return {
         kind: 'theme',
         version: GLAZE_EXPORT_VERSION,
         hue,
         saturation,
         colors: structuredClone(colorDefs),
-        config: structuredClone(buildEffectiveConfigOverride(configOverride)),
+        config: freezeConfigForExport(configOverride, override),
       };
     },
 

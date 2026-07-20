@@ -84,8 +84,8 @@ src/
 - `glaze.colorFrom(exported)` — restore a standalone color token
 - `glaze.fromHex(hex)` / `glaze.fromRgb(r,g,b)` — create from raw colors
 - `glaze.color(def)` — standalone color token factory
-- Theme methods: `extend()`, `export()`, `toTokens()`, `toJSON()`
-- Palette methods: `export()`, `theme()`, `themes()`, `list()`, `primary`, plus resolved-output exporters
+- Theme methods: `extend()`, `export(override?)`, `toTokens()`, `toJSON()`
+- Palette methods: `export(override?)`, `theme()`, `themes()`, `list()`, `primary`, plus resolved-output exporters
 
 ## Export Formats
 

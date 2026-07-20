@@ -82,7 +82,7 @@ A `GlazeTheme` exposes:
 | `theme.has(name)`               | Check if a color is defined.                                                                        |
 | `theme.list()`                  | List all defined color names.                                                                       |
 | `theme.reset()`                 | Clear all color definitions.                                                                        |
-| `theme.export()`                | Export the theme configuration as a JSON-safe object.                                               |
+| `theme.export(override?)`       | Export the theme configuration as a JSON-safe object (optional config override at export time).     |
 | `theme.extend(options)`         | Create a child theme inheriting all color definitions (see [`extend`](#themeextendoptions) below).  |
 | `theme.resolve()`               | Resolve all colors and return a `Map<string, ResolvedColor>`.                                       |
 | `theme.tokens(options?)`        | Export as a flat token map grouped by scheme variant.                                               |
@@ -350,7 +350,7 @@ A Tailwind CSS v4 `@theme` block (light baseline) plus dark / high-contrast over
 | `highContrastSelector` | `'.high-contrast'` | Selector wrapping the light high-contrast overrides. The combined dark + high-contrast block uses `${darkSelector}${highContrastSelector}` (e.g. `.dark.high-contrast`).       |
 | `modes`                | global config      | Which scheme variants to include. The `@theme` block (light) is always emitted when colors exist.                                                                              |
 
-### `theme.export()`
+### `theme.export(override?)`
 
 ```ts
 const snapshot = theme.export();
@@ -367,8 +367,9 @@ const restored = glaze.themeFrom(snapshot);
 ```
 
 Returns a deep-cloned, JSON-safe authoring snapshot (definitions + frozen
-effective config — not resolved color strings). Restored themes ignore later
-`glaze.configure()` for snapshotted fields. Distinct from `theme.json()`, which
+effective config — not resolved color strings). Freezes
+`getConfig() ∪ instance local ∪ override` at call time. Restored themes pin
+that freeze as their local override. Distinct from `theme.json()`, which
 emits resolved color strings.
 
 ---
@@ -421,7 +422,7 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 | `mode`       | `'auto' \| 'fixed' \| 'static'` | Adaptation mode. Default: `'auto'`. See [Adaptation modes](#adaptation-modes).                                                                                                                                                                                                     |
 | `autoFlip`   | `boolean`                       | Flip out-of-bounds results (relative `tone` overshoot / unmet `contrast`) to the opposite side instead of clamping. Default: the global `autoFlip` (`true`). See [`autoFlip`](#autoflip).                                                                                          |
 | `opacity`    | `number`                        | Fixed alpha 0–1. Output includes alpha in the CSS value. Combining with `contrast` is not recommended (a `console.warn` is emitted).                                                                                                                                               |
-| `pastel`     | `boolean`                       | Per-color override for the hue-independent "safe" chroma limit used in OKHSL↔sRGB conversions (luminance, contrast solving, output formatting). Falls through to the global / per-theme `pastel` config when omitted. Default: unset. See [Per-color `pastel`](#per-color-pastel). |
+| `pastel`     | `boolean`                       | Per-color override for the hue-independent "safe" chroma limit used in OKHSL↔sRGB conversions (luminance, contrast solving, output formatting). Falls through to the per-theme / per-token `pastel` override when omitted. Default: unset. See [Per-color `pastel`](#per-color-pastel). |
 | `role`       | `RoleInput`                     | Semantic role against `base` (`'text'` / `'surface'` / `'border'` or an alias). Fixes APCA contrast polarity. Resolved via: explicit `role` → name inference → opposite of the base's role → `'text'`. See [Roles](#roles).                                                        |
 | `inherit`    | `boolean`                       | Whether this color is inherited by child themes via `extend()`. Default: `true`. Set to `false` to make the color local to the current theme.                                                                                                                                      |
 
@@ -549,7 +550,7 @@ Relative hue is always relative to the **theme seed hue**, not to a base color.
 
 #### Per-color `pastel`
 
-`pastel: true` on a single color def overrides the global / per-theme `pastel` config for that color only. It toggles the hue-independent "safe" chroma limit used in every OKHSL↔sRGB conversion that touches this color: luminance calculations during contrast solving, gamut clamping during sRGB blend / mix edges, and output formatting. The effective flag is carried on the resolved variant (`ResolvedColorVariant.pastel`) so formatting matches the gamut mapping applied during resolution.
+`pastel: true` on a single color def overrides the per-theme / per-token `pastel` override for that color only. It toggles the hue-independent "safe" chroma limit used in every OKHSL↔sRGB conversion that touches this color: luminance calculations during contrast solving, gamut clamping during sRGB blend / mix edges, and output formatting. The effective flag is carried on the resolved variant (`ResolvedColorVariant.pastel`) so formatting matches the gamut mapping applied during resolution.
 
 ```ts
 const theme = glaze(280, 80);
@@ -561,7 +562,7 @@ theme.colors({
 // theme.css().light contains different rgb() triples for `--plain` and `--soft`
 ```
 
-Omit the field to inherit the global / per-theme `pastel` config — useful for keeping the default behavior while opting a single accent into the pastel gamut.
+Omit the field to inherit the theme/token `pastel` override (default `false`) — useful for keeping the default behavior while opting a single accent into the pastel gamut.
 
 The flag is part of the def object, so `extend()` copies it through to child themes alongside the rest of the def. Override it again on the child to flip a single color back:
 
@@ -691,7 +692,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `opacity`          | `number`                             | Fixed alpha 0–1.                                                                                                                                |
 | `base`             | `GlazeColorToken \| GlazeColorValue` | Optional dependency. See [Pairing colors](#pairing-colors).                                                                                     |
 | `contrast`         | `HCPair<ContrastSpec>`               | Contrast floor against `base` (WCAG or APCA). Without `base`, anchored to the literal seed.                                                     |
-| `pastel`           | `boolean`                            | Per-color `pastel` override. Falls through to the global / per-theme `pastel` config when omitted. See [Per-color `pastel`](#per-color-pastel). |
+| `pastel`           | `boolean`                            | Per-color `pastel` override. Falls through to the per-theme / per-token `pastel` override when omitted. See [Per-color `pastel`](#per-color-pastel). |
 | `role`             | `RoleInput`                          | Semantic role against `base` / the seed (see [Roles](#roles)). Fixes APCA polarity.                                                             |
 | `name`             | `string`                             | Debug label for warnings; doesn't change output keys. Reserved names (`'value'`, `'seed'`, `'externalBase'`) are rejected.                      |
 
@@ -709,7 +710,7 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `contrast`         | Contrast floor (WCAG or APCA). Without `base`, anchored to the literal seed; with `base`, solved per scheme.                                                |
 | `base`             | `GlazeColorToken` or raw `GlazeColorValue`. See [Pairing colors](#pairing-colors).                                                                          |
 | `opacity`          | Fixed alpha 0–1. Combining with `contrast` is not recommended — `console.warn` is emitted.                                                                  |
-| `pastel`           | Per-color `pastel` override. Falls through to the global / per-theme `pastel` config when omitted. See [Per-color `pastel`](#per-color-pastel).             |
+| `pastel`           | Per-color `pastel` override. Falls through to the per-theme / per-token `pastel` override when omitted. See [Per-color `pastel`](#per-color-pastel).             |
 | `role`             | Semantic role against `base` / the seed (see [Roles](#roles)). Fixes APCA polarity.                                                                         |
 | `name`             | Debug label only — surfaces in warnings/errors. Does not change output keys.                                                                                |
 
@@ -717,14 +718,14 @@ Named CSS colors (`'red'`, `'blueviolet'`) are not supported.
 
 ### Defaults
 
-Every input form defaults to `mode: 'auto'` so the resolved token adapts between light and dark like an ordinary theme color. The config snapshot taken at create time differs by input form:
+Every input form defaults to `mode: 'auto'` so the resolved token adapts between light and dark like an ordinary theme color. Tokens store a **sparse local** config override; omitted fields fall through to the live global at resolve time (same as themes). Authoring `.export(override?)` freezes `getConfig() ∪ local ∪ override` at call time.
 
 - **Value-shorthand** (bare strings, value objects, and `{ from, ...overrides }`):
-  - Light variant preserves the input tone exactly (`lightTone: false`).
-  - All other config fields (`darkTone`, `darkDesaturation`, `autoFlip`) snapshot from `globalConfig` at create time.
+  - Light variant preserves the input tone exactly (`lightTone: false` as a local default).
+  - Other omitted fields track the live global config.
 - **Structured input** (`{ hue, saturation, tone, ... }`):
-  - Both tone windows snapshot from `globalConfig` at create time (same as a theme color).
-- All fields are **snapshotted at color-creation time** — later `glaze.configure()` calls don't retroactively change existing tokens.
+  - Omitted tone windows and other fields track the live global config (same as a theme color).
+- `pastel` is instance-only — set via the config override or per-color `pastel`, not `glaze.configure()`.
 
 ```ts
 // Bare string — adapts automatically
@@ -757,25 +758,27 @@ A `GlazeColorToken` exposes:
 | `token.dtcg(options?)`                  | DTCG color tokens, one per scheme variant (no color-name key). Each entry is a full `{ $type: 'color', $value }` token. Options: `colorSpace` (`'srgb'` \| `'oklch'`), `modes`.                                            |
 | `token.dtcgResolver({ name, ... })`     | A single DTCG Resolver-Module document for this color, keyed by `name` across all scheme variants. `name` is **required**. Same options as `theme.dtcgResolver()` plus `name`.                                             |
 | `token.tailwind({ name, ... })`         | Tailwind v4 `@theme` block + dark / high-contrast overrides for this color. `name` is **required** (forms `--color-<name>`). Same options as `theme.tailwind()` plus `name`.                                               |
-| `token.export()`                        | JSON-safe snapshot — pass to `glaze.colorFrom(...)` to rehydrate.                                                                                                                                                          |
+| `token.export(override?)`               | JSON-safe snapshot — freezes effective config at call time; pass to `glaze.colorFrom(...)` to rehydrate. Optional `override` merges over the instance local (and nested `base` exports).                                  |
 
 ### Per-instance config override
 
 The optional `config` argument (`GlazeConfigOverride`) overrides
-resolve-relevant global fields for a token or theme. A tone window can be
-`[lo, hi]`, `{ lo, hi, eps }`, or `false` (full range). Standalone tokens
-snapshot omitted fields at creation; themes continue reading omitted fields
-from the live global config at resolve time.
+resolve-relevant fields for a token or theme. A tone window can be
+`[lo, hi]`, `{ lo, hi, eps }`, or `false` (full range). Both themes and
+standalone tokens keep a sparse local override — omitted fields (except
+instance-only `pastel`) fall through to the live global at resolve time.
 
 `GlazeConfigOverride`:
 
-| Field              | Default (from global) | Description                                                                                                                                                            |
-| ------------------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lightTone`        | `[10, 100]`           | Light tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping).                                                                                       |
-| `darkTone`         | `[15, 95]`            | Dark tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping).                                                                                        |
-| `darkDesaturation` | `0.1`                 | Saturation reduction in dark scheme (0–1).                                                                                                                             |
-| `autoFlip`         | `true`                | Default for each color's `autoFlip`: when solving `contrast` (or applying a relative `tone` that overshoots), allow crossing to the opposite side instead of clamping. |
-| `shadowTuning`     | `undefined`           | Default shadow tuning (meaningful for themes; harmless on color tokens).                                                                                               |
+| Field              | Default (from global / fixed) | Description                                                                                                                                                            |
+| ------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lightTone`        | `[10, 100]`                   | Light tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping).                                                                                       |
+| `darkTone`         | `[15, 95]`                    | Dark tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` (disable clamping).                                                                                        |
+| `darkDesaturation` | `0.1`                         | Saturation reduction in dark scheme (0–1).                                                                                                                             |
+| `autoFlip`         | `true`                        | Default for each color's `autoFlip`: when solving `contrast` (or applying a relative `tone` that overshoots), allow crossing to the opposite side instead of clamping. |
+| `pastel`           | `false` (instance-only)       | Theme/token-level pastel default for colors that omit per-color `pastel`. Not available on `glaze.configure()`.                                                         |
+| `inferRole`        | `true`                        | Infer color `role` from the name when unset.                                                                                                                           |
+| `shadowTuning`     | `undefined`                   | Default shadow tuning (meaningful for themes; harmless on color tokens).                                                                                               |
 
 Config overrides apply to both `glaze.color()` tokens and `glaze()` themes:
 
@@ -790,16 +793,13 @@ glaze.color('#000000', {
 });
 
 // Structured form with config override
-glaze.color({ hue: 152, saturation: 95, tone: 74 }, { darkTone: false });
+glaze.color({ hue: 152, saturation: 95, tone: 74 }, { darkTone: false, pastel: true });
 
 // Theme with config override
-const rawTheme = glaze(280, 80, { lightTone: false });
+const rawTheme = glaze(280, 80, { lightTone: false, pastel: true });
 ```
 
-Standalone color tokens snapshot their effective override at creation time
-(including `pastel` and `inferRole`). Live themes behave differently: overridden
-fields stay fixed, while fields omitted from the override are read from the live
-global config at resolve time. See [Theme config override](#theme-config-override).
+See [Theme config override](#theme-config-override).
 
 ### Theme config override
 
@@ -823,14 +823,17 @@ const child = t.extend({ config: { darkTone: false } });
 // child: lightTone { lo: 0, hi: 50 } (inherited) + darkTone: false (added)
 ```
 
-`theme.export()` always writes a **full effective** `config` freeze. Restoring
-via `glaze.themeFrom(data)` (or the compat alias `glaze.from`) pins those fields
-so later `configure()` calls no longer affect the restored theme — matching
+`theme.export(override?)` freezes `getConfig() ∪ instance local ∪ override` at
+call time. Restoring via `glaze.themeFrom(data)` (or the compat alias
+`glaze.from`) pins that freeze as the restored theme's local override — matching
 standalone color-token behavior.
 
 ### `glaze.colorFrom(data)`
 
-Inverse of `token.export()`. The exported snapshot includes the original input, all overrides (with any `base` token recursively serialized), and the full effective config — so later `glaze.configure()` calls don't change rehydrated tokens.
+Inverse of `token.export()`. The exported snapshot includes the original input,
+all overrides (with any `base` token recursively serialized), and the effective
+config freeze from export time — so later `glaze.configure()` calls don't change
+rehydrated tokens.
 
 ```ts
 const text = glaze.color({ from: '#1a1a1a', contrast: 'AA' });
@@ -1120,7 +1123,7 @@ A `GlazePalette` exposes:
 | `palette.primary`                | Primary theme name, if set.                                                                          |
 | `palette.theme(name)`            | Get a live theme instance by name.                                                                   |
 | `palette.themes()`               | Shallow copy of the theme map (same instances the palette holds).                                    |
-| `palette.export()`               | Authoring snapshot — restorable via `glaze.paletteFrom()`. Not the same as `palette.json()`.         |
+| `palette.export(override?)`      | Authoring snapshot — restorable via `glaze.paletteFrom()`. Optional override forwarded to themes.    |
 | `palette.tokens(options?)`       | Flat token map grouped by scheme variant.                                                            |
 | `palette.tasty(options?)`        | [Tasty](https://tasty.style) style-to-state bindings.                                                |
 | `palette.json(options?)`         | Per-theme **resolved** color JSON (not restorable as authoring config).                              |
@@ -1129,7 +1132,7 @@ A `GlazePalette` exposes:
 | `palette.dtcgResolver(options?)` | One DTCG Resolver-Module document for every scheme.                                                  |
 | `palette.tailwind(options?)`     | One Tailwind CSS v4 theme with scheme overrides.                                                     |
 
-### `palette.export()` / `glaze.paletteFrom()`
+### `palette.export(override?)` / `glaze.paletteFrom()`
 
 ```ts
 const snapshot = palette.export();
@@ -1144,6 +1147,7 @@ const restored = glaze.paletteFrom(JSON.parse(JSON.stringify(snapshot)));
 const brand = restored.theme('brand')!;
 ```
 
+Optional `override` is forwarded to each nested `theme.export(override)`.
 Config snapshot vs resolved output: use `export()` / `paletteFrom()` to
 persist and restore the authoring graph (themes, color defs, relations). Use
 `json()` / `tokens()` / `css()` / … to emit resolved color strings for apps
@@ -1351,7 +1355,7 @@ On `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and stand
 --accent-color: oklch(0.62 0.03 var(--accent-hue));
 ```
 
-**Requirements:** every exported color must be pastel (`pastel: true` globally or per-color). Pastel mode bounds chroma by the hue-independent safe chroma at each lightness, so emitted `C` stays in sRGB for any rotated hue. Non-pastel palettes throw rather than emit values that would clip under rotation.
+**Requirements:** every exported color must be pastel (`pastel: true` on the theme/token override or per-color). Pastel mode bounds chroma by the hue-independent safe chroma at each lightness, so emitted `C` stays in sRGB for any rotated hue. Non-pastel palettes throw rather than emit values that would clip under rotation.
 
 **Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow and mix colors stay inline (blended hue). Standalone `.token()` / `.tasty()` do not support `splitHue` (return shape cannot carry the `$name-hue` declaration).
 
@@ -1487,7 +1491,6 @@ boundaries, not the tone transfer.
 | `modes.highContrast`  | `false`                                | Include HC variants.                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `shadowTuning`        | `undefined`                            | Default tuning for all shadow colors. Per-color tuning merges field-by-field.                                                                                                                                                                                                                                                                                                                                             |
 | `autoFlip`            | `true`                                 | Default for each color's `autoFlip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`autoFlip`](#autoflip). |
-| `pastel`              | `false`                                | Hue-independent "safe" chroma limit across all colors so scaling saturation never exceeds the sRGB boundary at any hue for the given lightness. Override per color via [`pastel`](#per-color-pastel).                                                                                                                                                                                                                     |
 | `inferRole`           | `true`                                 | Infer each color's [`role`](#roles) from its name when no explicit `role` is set. Set to `false` to opt out of name-based inference (the base-opposite and foreground-default fallbacks still apply).                                                                                                                                                                                                                     |
 
 | Method                    | Description                                                                         |
@@ -1496,7 +1499,7 @@ boundaries, not the tone transfer.
 | `glaze.getConfig()`       | Snapshot the current resolved config (shallow copy).                                |
 | `glaze.resetConfig()`     | Reset to defaults (also bumps the version counter).                                 |
 
-Standalone `glaze.color()` tokens snapshot the resolve-relevant fields at create time, so later `configure()` calls don't change already-created tokens. Themes merge the live global at resolve time for fields not overridden via `GlazeConfigOverride`.
+Themes and standalone color tokens keep a sparse local `GlazeConfigOverride` and merge the live global at resolve time for omitted fields. Authoring `.export(override?)` freezes the effective merge at call time; restored instances pin that freeze. `pastel` is instance-only (theme/token override or per-color) — not set via `configure()`.
 
 ---
 

@@ -133,8 +133,8 @@ glaze.from = glaze.themeFrom;
  * **arg2 — config override** (optional, all shapes):
  * Overrides the resolve-relevant global config fields for this token.
  * Fields that are omitted fall through to the live global config at
- * create time (and are snapshotted). Pass `false` for a tone window
- * to disable clamping entirely.
+ * resolve time. Pass `false` for a tone window to disable clamping
+ * entirely. `pastel` is instance-only (not set via `configure()`).
  *
  * ```ts
  * // Bare string — no overrides
@@ -153,8 +153,8 @@ glaze.from = glaze.themeFrom;
  *
  * Defaults: every form defaults to `mode: 'auto'`. Value-shorthand forms
  * (bare strings and value objects) preserve light tone exactly
- * (`lightTone: false` internally). Structured form snapshots both
- * tone windows from `globalConfig` at create time.
+ * (`lightTone: false` locally). Structured form falls through to the live
+ * global tone windows for omitted fields.
  *
  * Relative `tone: '+N'` and `contrast` anchor to the literal seed by
  * default; when `base` is set they anchor to the base's resolved variant
@@ -248,8 +248,8 @@ glaze.fromRgb = function fromRgb(r: number, g: number, b: number): GlazeTheme {
  *
  * The snapshot is a plain JSON-safe object containing the original
  * input value, overrides (with any `base` token recursively serialized),
- * and the effective config snapshot. The reconstructed token is identical
- * in behavior to the original at the time of export.
+ * and the effective config freeze from export time. The reconstructed
+ * token pins that freeze as its local override.
  *
  * @example
  * ```ts

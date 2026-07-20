@@ -36,6 +36,7 @@ import type {
   ColorMap,
   GlazeCssOptions,
   GlazeCssResult,
+  GlazeConfigOverride,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
   GlazeDtcgResolverOptions,
@@ -215,12 +216,15 @@ function buildPaletteOutput<T, R>(
   return acc;
 }
 
-function themeFromExportData(data: GlazeThemeExport): GlazeTheme {
-  assertExportKind(data, 'theme', 'glaze.themeFrom');
-  assertExportVersion(data, 'glaze.themeFrom');
+function themeFromExportData(
+  data: GlazeThemeExport,
+  factory = 'glaze.themeFrom',
+): GlazeTheme {
+  assertExportKind(data, 'theme', factory);
+  assertExportVersion(data, factory);
   if (typeof data.hue !== 'number' || typeof data.saturation !== 'number') {
     throw new Error(
-      `glaze.themeFrom: expected numeric "hue" and "saturation" fields.`,
+      `${factory}: expected numeric "hue" and "saturation" fields.`,
     );
   }
   return createTheme(data.hue, data.saturation, data.colors, data.config);
@@ -252,7 +256,10 @@ export function createPaletteFromExport(
         `glaze.paletteFrom: theme "${name}" is not a valid theme export.`,
       );
     }
-    rebuilt[name] = themeFromExportData(themeExport);
+    rebuilt[name] = themeFromExportData(
+      themeExport,
+      `glaze.paletteFrom (theme "${name}")`,
+    );
   }
 
   return createPalette(rebuilt, {
@@ -326,10 +333,10 @@ export function createPalette(
       return { ...themes };
     },
 
-    export(): GlazePaletteExport {
+    export(override?: GlazeConfigOverride): GlazePaletteExport {
       const themesExport: Record<string, GlazeThemeExport> = {};
       for (const [name, theme] of Object.entries(themes)) {
-        themesExport[name] = theme.export();
+        themesExport[name] = theme.export(override);
       }
       const out: GlazePaletteExport = {
         kind: 'palette',
