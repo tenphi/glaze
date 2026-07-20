@@ -447,7 +447,8 @@ It gives an exact contrast step for neutrals and a stable visual progression for
 chromatic colors. In dark mode with `mode: 'auto'`, it is anchored to the
 base's per-scheme tone. If `base + delta` falls outside `[0, 100]`, the result
 is clamped to the boundary, or — with `autoFlip` (default on) — mirrored to the
-other side of the base.
+other side of the base. If the mirrored target is also out of range, the original
+delta is kept and clamped on the authored side.
 
 **Extreme tone** (`'max'` / `'min'`) forces the color to the scheme's tone extreme without a contrast hack or a magic number. `'max'` resolves to author tone 100 and `'min'` to 0; both flow through scheme mapping like an absolute tone, so under `mode: 'auto'` they invert in dark (`'max'` is lightest in light, darkest in dark). Use `mode: 'static'` to pin the same extreme across schemes, or `mode: 'fixed'` to keep the same end without inverting. No `base` required.
 
@@ -457,7 +458,7 @@ A dependent color with `base` but no `tone` inherits the base's tone (equivalent
 
 `autoFlip` governs what happens when a result would fall outside its valid range:
 
-- **Relative `tone` overshoot:** when `base ± delta` exceeds `[0, 100]`, `autoFlip` mirrors the delta to the other side of the base (e.g. `'+30'` becomes `'-30'`) instead of clamping to the boundary.
+- **Relative `tone` overshoot:** when `base ± delta` exceeds `[0, 100]`, `autoFlip` mirrors the delta to the other side of the base (e.g. `'+30'` becomes `'-30'`) instead of clamping to the boundary. If the mirrored target is also outside `[0, 100]`, the original delta is kept and clamped on the authored side.
 - **`contrast` direction:** when the requested tone direction can't meet the floor, `autoFlip` lets the solver try the opposite side (the same behavior as the global `autoFlip`).
 
 `autoFlip` defaults to the global `autoFlip` (`true`). Set `autoFlip: false` on a color to clamp instead of mirror — useful when you want a relative offset to stay on the authored side of the base, or to keep an unmet contrast pinned to one direction's extreme.
@@ -1390,7 +1391,7 @@ Light: accent-fill tone=52, accent-text tone='+20' → lighter than the fill
 Dark:  accent-fill maps into the dark window, sign preserved
 ```
 
-Offsets that would push past `[0, 100]` clamp to the boundary, or — with `autoFlip` (default on) — mirror to the other side of the base. Set `autoFlip: false` to keep the authored side and clamp instead.
+Offsets that would push past `[0, 100]` clamp to the boundary, or — with `autoFlip` (default on) — mirror to the other side of the base. If the mirror also overshoots, the original side is kept and clamped. Set `autoFlip: false` to keep the authored side and clamp instead.
 
 **`static`** — no adaptation, same tone in every scheme.
 
@@ -1541,7 +1542,7 @@ available result.
 | Relative `tone` without `base` in a **theme** color | Validation error                                                                                         |
 | `contrast` without `base` in `glaze.color()`        | Anchors against the literal seed (no error)                                                              |
 | Relative `tone` without `base` in `glaze.color()`   | Anchors against the literal seed (no error)                                                              |
-| Relative `tone` overshoots `[0, 100]`               | Mirror to the other side of the base (`autoFlip` on, default), or clamp to the boundary (`autoFlip` off) |
+| Relative `tone` overshoots `[0, 100]`               | Mirror to the other side of the base (`autoFlip` on, default), or clamp to the boundary (`autoFlip` off). If the mirror also overshoots, clamp on the authored side. |
 | `tone` resolves outside 0–100                       | Clamp silently                                                                                           |
 | `'max'` / `'min'` without `base`                    | Allowed — resolves to the scheme's tone extreme (root color)                                             |
 | `saturation` outside 0–1                            | Clamp silently                                                                                           |

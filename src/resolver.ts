@@ -216,15 +216,18 @@ function resolveContrastSpec(
 /**
  * Apply the relative-tone delta against a base, honoring `flip`.
  *
- * When `flip` is on and `base + delta` falls outside `[0, 100]`, mirror the
- * delta to the other side of the base (so an offset that would clamp instead
- * reflects back into range). When off, the caller clamps as usual.
+ * When `flip` is on and `base + delta` falls outside `[0, 100]`, try mirroring
+ * the delta to the other side of the base. If the mirrored target is also out
+ * of range, keep the original delta so the caller clamps on the authored side.
+ * When off, the caller clamps as usual.
  */
 function applyToneFlip(delta: number, baseTone: number, flip: boolean): number {
   if (!flip) return delta;
   const target = baseTone + delta;
   if (target >= 0 && target <= 100) return delta;
-  return -delta;
+  const mirrored = baseTone - delta;
+  if (mirrored >= 0 && mirrored <= 100) return -delta;
+  return delta;
 }
 
 function resolveRootColor(
