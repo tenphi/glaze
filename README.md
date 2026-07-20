@@ -39,7 +39,7 @@ contrast floor.
 - **W3C DTCG export** — spec-conformant `.tokens.json` (2025.10) for Figma, Tokens Studio, Style Dictionary, and every DTCG tool
 - **W3C DTCG Resolver-Module export** — opt-in single-document `dtcgResolver()` (sets + a `scheme` modifier with a context per variant) for resolver tools such as Dispersa
 - **Tailwind CSS v4 export** — `@theme` block + dark / high-contrast overrides
-- **Import/Export** — serialize and restore theme configurations
+- **Import/Export** — serialize and restore themes, color tokens, and entire palettes as JSON
 - **Create from hex/RGB** — start from an existing brand color
 - **Zero dependencies** — pure math, runs anywhere (Node.js, browser, edge)
 - **Tree-shakeable ESM + CJS** — dual-format package

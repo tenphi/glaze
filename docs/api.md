@@ -32,20 +32,36 @@ Full reference for every public method, option, and type exported by `@tenphi/gl
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `glaze(hue, saturation?, config?)`    | Create a theme from hue (0–360) and saturation (0–100). Optional `config` overrides the global config for this theme. |
 | `glaze({ hue, saturation }, config?)` | Create a theme from an options object, with optional per-theme config override.                                       |
-| `glaze.from(data)`                    | Create a theme from an exported configuration (`theme.export()` snapshot).                                            |
+| `glaze.themeFrom(data)`               | Create a theme from a `theme.export()` snapshot (`kind: 'theme'`).                                                    |
+| `glaze.from(data)`                    | Compat alias for `glaze.themeFrom`.                                                                                   |
 | `glaze.fromHex(hex)`                  | Create a theme from a hex color (`#rgb` or `#rrggbb`). Extracts hue and saturation.                                   |
 | `glaze.fromRgb(r, g, b)`              | Create a theme from RGB values (0–255). Extracts hue and saturation.                                                  |
+| `glaze.paletteFrom(data)`             | Create a palette from a `palette.export()` snapshot (`kind: 'palette'`).                                              |
+| `glaze.colorFrom(data)`               | Create a color token from a `token.export()` snapshot (`kind: 'color'`).                                              |
+| `glaze.isThemeExport(data)`           | Type guard for theme authoring snapshots.                                                                             |
+| `glaze.isColorTokenExport(data)`      | Type guard for color-token authoring snapshots.                                                                       |
+| `glaze.isPaletteExport(data)`         | Type guard for palette authoring snapshots.                                                                           |
 
 ```ts
 const a = glaze(280, 80);
 const b = glaze({ hue: 280, saturation: 80 });
 const c = glaze.fromHex('#7a4dbf');
 const d = glaze.fromRgb(122, 77, 191);
-const e = glaze.from(a.export());
+const e = glaze.themeFrom(a.export());
 
 // Per-theme config override:
 const rawTheme = glaze(280, 80, { lightTone: false, darkTone: false });
 ```
+
+Authoring restore triad (parallel to `.export()` on each instance):
+
+| Export | Restore |
+| ------ | ------- |
+| `theme.export()` | `glaze.themeFrom()` |
+| `token.export()` | `glaze.colorFrom()` |
+| `palette.export()` | `glaze.paletteFrom()` |
+
+Every snapshot includes `kind` + `version` (`GLAZE_EXPORT_VERSION`, currently `1`). Legacy snapshots without those fields still restore. Wrong `kind` or a future `version` throws.
 
 The optional `config` parameter is a `GlazeConfigOverride` — see [Per-instance config override](#per-instance-config-override).
 
@@ -338,12 +354,22 @@ A Tailwind CSS v4 `@theme` block (light baseline) plus dark / high-contrast over
 
 ```ts
 const snapshot = theme.export();
-// → { hue: 280, saturation: 80, colors: { surface: { ... }, ... } }
+// → {
+//     kind: 'theme',
+//     version: 1,
+//     hue: 280,
+//     saturation: 80,
+//     colors: { surface: { ... }, ... },
+//     config: { lightTone: {...}, darkTone: {...}, pastel: false, ... },
+//   }
 
-const restored = glaze.from(snapshot);
+const restored = glaze.themeFrom(snapshot);
 ```
 
-The export contains only the configuration — not resolved color values. Resolved values are recomputed on demand.
+Returns a deep-cloned, JSON-safe authoring snapshot (definitions + frozen
+effective config — not resolved color strings). Restored themes ignore later
+`glaze.configure()` for snapshotted fields. Distinct from `theme.json()`, which
+emits resolved color strings.
 
 ---
 
@@ -770,10 +796,10 @@ glaze.color({ hue: 152, saturation: 95, tone: 74 }, { darkTone: false });
 const rawTheme = glaze(280, 80, { lightTone: false });
 ```
 
-Standalone color tokens snapshot their effective override at creation time.
-Themes behave differently: overridden fields stay fixed, while fields omitted
-from the override are read from the live global config at resolve time. See
-[Theme config override](#theme-config-override).
+Standalone color tokens snapshot their effective override at creation time
+(including `pastel` and `inferRole`). Live themes behave differently: overridden
+fields stay fixed, while fields omitted from the override are read from the live
+global config at resolve time. See [Theme config override](#theme-config-override).
 
 ### Theme config override
 
@@ -797,7 +823,10 @@ const child = t.extend({ config: { darkTone: false } });
 // child: lightTone { lo: 0, hi: 50 } (inherited) + darkTone: false (added)
 ```
 
-`theme.export()` includes `config`; `glaze.from(data)` restores it.
+`theme.export()` always writes a **full effective** `config` freeze. Restoring
+via `glaze.themeFrom(data)` (or the compat alias `glaze.from`) pins those fields
+so later `configure()` calls no longer affect the restored theme — matching
+standalone color-token behavior.
 
 ### `glaze.colorFrom(data)`
 
@@ -1085,15 +1114,40 @@ const palette = glaze.palette(
 
 A `GlazePalette` exposes:
 
-| Method                           | Description                                                  |
-| -------------------------------- | ------------------------------------------------------------ |
-| `palette.tokens(options?)`       | Flat token map grouped by scheme variant.                    |
-| `palette.tasty(options?)`        | [Tasty](https://tasty.style) style-to-state bindings.                               |
-| `palette.json(options?)`         | Per-theme JSON map (no prefix needed — keyed by theme name). |
-| `palette.css(options?)`          | CSS custom property declaration strings.                     |
-| `palette.dtcg(options?)`         | Per-scheme W3C DTCG token trees.                             |
-| `palette.dtcgResolver(options?)` | One DTCG Resolver-Module document for every scheme.          |
-| `palette.tailwind(options?)`     | One Tailwind CSS v4 theme with scheme overrides.             |
+| Method                           | Description                                                                                          |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `palette.list()`                 | Theme names in insertion order.                                                                      |
+| `palette.primary`                | Primary theme name, if set.                                                                          |
+| `palette.theme(name)`            | Get a live theme instance by name.                                                                   |
+| `palette.themes()`               | Shallow copy of the theme map (same instances the palette holds).                                    |
+| `palette.export()`               | Authoring snapshot — restorable via `glaze.paletteFrom()`. Not the same as `palette.json()`.         |
+| `palette.tokens(options?)`       | Flat token map grouped by scheme variant.                                                            |
+| `palette.tasty(options?)`        | [Tasty](https://tasty.style) style-to-state bindings.                                                |
+| `palette.json(options?)`         | Per-theme **resolved** color JSON (not restorable as authoring config).                              |
+| `palette.css(options?)`          | CSS custom property declaration strings.                                                             |
+| `palette.dtcg(options?)`         | Per-scheme W3C DTCG token trees.                                                                     |
+| `palette.dtcgResolver(options?)` | One DTCG Resolver-Module document for every scheme.                                                  |
+| `palette.tailwind(options?)`     | One Tailwind CSS v4 theme with scheme overrides.                                                     |
+
+### `palette.export()` / `glaze.paletteFrom()`
+
+```ts
+const snapshot = palette.export();
+// → {
+//     kind: 'palette',
+//     version: 1,
+//     primary: 'brand',
+//     themes: { brand: { kind: 'theme', ... }, danger: { ... } },
+//   }
+
+const restored = glaze.paletteFrom(JSON.parse(JSON.stringify(snapshot)));
+const brand = restored.theme('brand')!;
+```
+
+Config snapshot vs resolved output: use `export()` / `paletteFrom()` to
+persist and restore the authoring graph (themes, color defs, relations). Use
+`json()` / `tokens()` / `css()` / … to emit resolved color strings for apps
+and design tools.
 
 ### `GlazePaletteExportOptions`
 

@@ -13,7 +13,12 @@
  */
 
 import type { ChannelCtx } from './channels';
-import { getConfig, getConfigVersion, mergeConfig } from './config';
+import {
+  buildEffectiveConfigOverride,
+  getConfig,
+  getConfigVersion,
+  mergeConfig,
+} from './config';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
   buildCssMap,
@@ -26,13 +31,14 @@ import {
   resolveModes,
 } from './formatters';
 import { resolveAllColors } from './resolver';
+import { GLAZE_EXPORT_VERSION } from './serialize';
 import type {
   ColorDef,
   ColorMap,
-  GlazeCssOptions,
-  GlazeCssResult,
   GlazeConfigOverride,
   GlazeConfigResolved,
+  GlazeCssOptions,
+  GlazeCssResult,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
   GlazeDtcgResolverOptions,
@@ -151,13 +157,14 @@ export function createTheme(
     },
 
     export(): GlazeThemeExport {
-      const out: GlazeThemeExport = {
+      return {
+        kind: 'theme',
+        version: GLAZE_EXPORT_VERSION,
         hue,
         saturation,
-        colors: { ...colorDefs },
+        colors: structuredClone(colorDefs),
+        config: structuredClone(buildEffectiveConfigOverride(configOverride)),
       };
-      if (configOverride !== undefined) out.config = configOverride;
-      return out;
     },
 
     extend(options: GlazeExtendOptions): GlazeTheme {

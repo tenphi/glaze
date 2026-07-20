@@ -501,12 +501,32 @@ export interface GlazeConfigOverride {
 // Serialization
 // ============================================================================
 
+/**
+ * Current authoring-export schema version. Bump when the export shape
+ * changes in a non-compatible way. Written on every `.export()` snapshot.
+ */
+export const GLAZE_EXPORT_VERSION = 1 as const;
+
+/** Literal type of {@link GLAZE_EXPORT_VERSION}. */
+export type GlazeExportVersion = typeof GLAZE_EXPORT_VERSION;
+
+/** Discriminator for authoring export snapshots. */
+export type GlazeExportKind = 'theme' | 'color' | 'palette';
+
 /** Serialized theme configuration (no resolved values). */
 export interface GlazeThemeExport {
+  /** Snapshot kind. Always written by `theme.export()`; optional on legacy hand-written configs. */
+  kind?: 'theme';
+  /** Schema version. Always written by `theme.export()`; optional on legacy configs. */
+  version?: number;
   hue: number;
   saturation: number;
   colors: ColorMap;
-  /** Per-theme config override, if any. */
+  /**
+   * Effective config snapshot. Always written by `theme.export()` as a
+   * full freeze of resolve-relevant fields. May be sparse on legacy
+   * snapshots (omitted fields fall through to the live global at restore).
+   */
   config?: GlazeConfigOverride;
 }
 
@@ -801,6 +821,10 @@ export interface GlazeColorToken {
  * `glaze.colorFrom(...)` to rehydrate.
  */
 export interface GlazeColorTokenExport {
+  /** Snapshot kind. Always written by `token.export()`; optional on legacy snapshots. */
+  kind?: 'color';
+  /** Schema version. Always written by `token.export()`; optional on legacy snapshots. */
+  version?: number;
   /**
    * Discriminator for the source overload that created the token.
    * - `'value'`: created via `glaze.color(value)` or `glaze.color({ from, ...overrides })`.
@@ -817,11 +841,25 @@ export interface GlazeColorTokenExport {
   /**
    * Effective config snapshot at creation time — captures the merged
    * result of the global config + any per-call override at the moment
-   * the token was created. Only fields that differ from their
-   * post-merge defaults are present. Used by `glaze.colorFrom()` to
-   * reproduce deterministic behavior across `configure()` calls.
+   * the token was created. Used by `glaze.colorFrom()` to reproduce
+   * deterministic behavior across `configure()` calls.
    */
   config?: GlazeConfigOverride;
+}
+
+/**
+ * JSON-safe serialization of a `glaze.palette()` composition.
+ * Pass to `glaze.paletteFrom(...)` to rehydrate.
+ */
+export interface GlazePaletteExport {
+  /** Snapshot kind. Always written by `palette.export()`. */
+  kind?: 'palette';
+  /** Schema version. Always written by `palette.export()`. */
+  version?: number;
+  /** Per-theme authoring snapshots keyed by theme name. */
+  themes: Record<string, GlazeThemeExport>;
+  /** Primary theme name, if set on the palette. */
+  primary?: string;
 }
 
 /**
@@ -1265,6 +1303,28 @@ export interface GlazePaletteExportOptions {
 }
 
 export interface GlazePalette {
+  /** Theme names in insertion order. */
+  list(): string[];
+
+  /** Primary theme name, if set at palette creation. */
+  readonly primary: string | undefined;
+
+  /** Get a theme by name. Returns the live instance held by the palette. */
+  theme(name: string): GlazeTheme | undefined;
+
+  /**
+   * Shallow copy of the theme map (same instances the palette holds).
+   * Mutating a returned theme affects subsequent palette exports.
+   */
+  themes(): Record<string, GlazeTheme>;
+
+  /**
+   * Export the palette authoring configuration as a JSON-safe object.
+   * Restorable via `glaze.paletteFrom(...)`. Distinct from `json()`, which
+   * emits resolved color strings.
+   */
+  export(): GlazePaletteExport;
+
   /**
    * Export all themes as a flat token map grouped by scheme variant.
    * Prefix defaults to `true` — all tokens are prefixed with the theme name.

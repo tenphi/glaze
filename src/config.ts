@@ -116,3 +116,26 @@ export function mergeConfig(
     inferRole: override.inferRole ?? base.inferRole,
   };
 }
+
+/**
+ * Freeze the resolve-relevant effective config as a plain override.
+ * Used by `theme.export()` and standalone color-token creation so
+ * restored snapshots ignore later `configure()` calls for these fields.
+ */
+export function buildEffectiveConfigOverride(
+  userOverride?: GlazeConfigOverride,
+): GlazeConfigOverride {
+  const effective = mergeConfig(getConfig(), userOverride);
+  const out: GlazeConfigOverride = {
+    lightTone: effective.lightTone,
+    darkTone: effective.darkTone,
+    darkDesaturation: effective.darkDesaturation,
+    autoFlip: effective.autoFlip,
+    pastel: effective.pastel,
+    inferRole: effective.inferRole,
+  };
+  if (effective.shadowTuning !== undefined) {
+    out.shadowTuning = { ...effective.shadowTuning };
+  }
+  return out;
+}

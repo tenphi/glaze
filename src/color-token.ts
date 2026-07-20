@@ -14,7 +14,18 @@
  * `.resolve()` / `.token()` / ... call.
  */
 
-import { defaultConfig, getConfig, mergeConfig } from './config';
+import {
+  buildEffectiveConfigOverride,
+  defaultConfig,
+  getConfig,
+  mergeConfig,
+} from './config';
+import {
+  assertExportKind,
+  assertExportVersion,
+  GLAZE_EXPORT_VERSION,
+  isColorTokenExport,
+} from './serialize';
 import type { ChannelCtx } from './channels';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
@@ -90,49 +101,27 @@ const RESERVED_STANDALONE_NAMES = new Set([
  * Build the per-token effective config override for a value-form color.
  *
  * Light window defaults to `false` (preserve input tone exactly).
- * All other fields snapshot from global at create time. User override
- * fields win over all defaults.
+ * All other fields snapshot from global at create time via
+ * `buildEffectiveConfigOverride`. User override fields win.
  */
 function buildValueFormConfigOverride(
   userOverride?: GlazeConfigOverride,
 ): GlazeConfigOverride {
-  const cfg = getConfig();
-  return {
+  return buildEffectiveConfigOverride({
+    ...userOverride,
     lightTone:
       userOverride?.lightTone !== undefined ? userOverride.lightTone : false,
-    darkTone:
-      userOverride?.darkTone !== undefined
-        ? userOverride.darkTone
-        : cfg.darkTone,
-    darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
-    autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
-    shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
-  };
+  });
 }
 
 /**
  * Build the per-token effective config override for a structured-form color.
- *
- * Both light and dark windows snapshot from global at create time.
- * User override fields win.
+ * Snapshots the full effective config (incl. pastel / inferRole).
  */
 function buildStructuredConfigOverride(
   userOverride?: GlazeConfigOverride,
 ): GlazeConfigOverride {
-  const cfg = getConfig();
-  return {
-    lightTone:
-      userOverride?.lightTone !== undefined
-        ? userOverride.lightTone
-        : cfg.lightTone,
-    darkTone:
-      userOverride?.darkTone !== undefined
-        ? userOverride.darkTone
-        : cfg.darkTone,
-    darkDesaturation: userOverride?.darkDesaturation ?? cfg.darkDesaturation,
-    autoFlip: userOverride?.autoFlip ?? cfg.autoFlip,
-    shadowTuning: userOverride?.shadowTuning ?? cfg.shadowTuning,
-  };
+  return buildEffectiveConfigOverride(userOverride);
 }
 
 /**
@@ -826,6 +815,8 @@ export function createColorToken(
   const effectiveConfig = resolvedConfigFromOverride(effectiveConfigOverride);
 
   const exportData = (): GlazeColorTokenExport => ({
+    kind: 'color',
+    version: GLAZE_EXPORT_VERSION,
     form: 'structured',
     input: buildStructuredInputExport(input),
     config: effectiveConfigOverride,
@@ -866,6 +857,8 @@ export function createColorTokenFromValue(
   const effectiveConfig = resolvedConfigFromOverride(effectiveConfigOverride);
 
   const exportData = (): GlazeColorTokenExport => ({
+    kind: 'color',
+    version: GLAZE_EXPORT_VERSION,
     form: 'value',
     input: value,
     ...(options !== undefined
@@ -949,14 +942,7 @@ function buildStructuredInputExport(
 function isExportedToken(
   candidate: GlazeColorTokenExport | GlazeColorValue,
 ): candidate is GlazeColorTokenExport {
-  return (
-    typeof candidate === 'object' &&
-    candidate !== null &&
-    !Array.isArray(candidate) &&
-    'form' in candidate &&
-    ((candidate as GlazeColorTokenExport).form === 'value' ||
-      (candidate as GlazeColorTokenExport).form === 'structured')
-  );
+  return isColorTokenExport(candidate);
 }
 
 function rehydrateOverrides(
@@ -1024,6 +1010,8 @@ export function colorFromExport(data: GlazeColorTokenExport): GlazeColorToken {
       `glaze.colorFrom: expected an object from token.export(), got ${data === null ? 'null' : typeof data}.`,
     );
   }
+  assertExportKind(data, 'color', 'glaze.colorFrom');
+  assertExportVersion(data, 'glaze.colorFrom');
   if (data.form !== 'value' && data.form !== 'structured') {
     throw new Error(
       `glaze.colorFrom: invalid "form" field — expected "value" or "structured" (got ${JSON.stringify((data as { form?: unknown }).form)}).`,

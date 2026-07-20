@@ -9,6 +9,7 @@
  * - `shadow.ts` — standalone shadow factory (`glaze.shadow`)
  * - `formatters.ts` — variant → string (`glaze.format`)
  * - `config.ts` — global config singleton
+ * - `serialize.ts` — authoring export type guards / version checks
  */
 
 import { parseHex, srgbToOkhsl } from './okhsl-color-math';
@@ -27,7 +28,16 @@ import {
 import { formatVariant } from './formatters';
 import { computeShadow, resolveShadowTuning } from './shadow';
 import { okhslToOkhst } from './okhst';
-import { createPalette } from './palette';
+import {
+  createPalette,
+  createPaletteFromExport,
+  createThemeFromExport,
+} from './palette';
+import {
+  isColorTokenExport,
+  isPaletteExport,
+  isThemeExport,
+} from './serialize';
 import { createTheme } from './theme';
 import type {
   GlazeColorFormat,
@@ -40,6 +50,7 @@ import type {
   GlazeConfigResolved,
   GlazeFromInput,
   GlazePalette,
+  GlazePaletteExport,
   GlazePaletteOptions,
   GlazeShadowInput,
   GlazeTheme,
@@ -96,10 +107,16 @@ glaze.palette = function palette(
   return createPalette(themes, options);
 };
 
-/** Create a theme from a serialized export. */
-glaze.from = function from(data: GlazeThemeExport): GlazeTheme {
-  return createTheme(data.hue, data.saturation, data.colors, data.config);
+/**
+ * Create a theme from a serialized `theme.export()` snapshot.
+ * Prefer this over the legacy `glaze.from` alias.
+ */
+glaze.themeFrom = function themeFrom(data: GlazeThemeExport): GlazeTheme {
+  return createThemeFromExport(data);
 };
+
+/** Compat alias for `glaze.themeFrom`. */
+glaze.from = glaze.themeFrom;
 
 /**
  * Create a standalone single-color token.
@@ -248,6 +265,24 @@ glaze.colorFrom = function colorFrom(
 ): GlazeColorToken {
   return colorFromExport(data);
 };
+
+/**
+ * Rehydrate a palette from a `palette.export()` snapshot.
+ */
+glaze.paletteFrom = function paletteFrom(
+  data: GlazePaletteExport,
+): GlazePalette {
+  return createPaletteFromExport(data);
+};
+
+/** Type guard for theme authoring snapshots. */
+glaze.isThemeExport = isThemeExport;
+
+/** Type guard for color-token authoring snapshots. */
+glaze.isColorTokenExport = isColorTokenExport;
+
+/** Type guard for palette authoring snapshots. */
+glaze.isPaletteExport = isPaletteExport;
 
 /** Get the current global configuration (for testing/debugging). */
 glaze.getConfig = function getConfig(): GlazeConfigResolved {

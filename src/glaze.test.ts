@@ -1217,6 +1217,193 @@ describe('glaze', () => {
       const b = restored.resolve().get('text')!;
       expect(b.light.t).toBeCloseTo(a.light.t, 4);
     });
+
+    it('theme.export includes kind, version, and frozen config', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const exported = theme.export();
+      expect(exported.kind).toBe('theme');
+      expect(exported.version).toBe(1);
+      expect(exported.config?.lightTone).toEqual({
+        lo: 10,
+        hi: 100,
+        eps: 0.05,
+      });
+      expect(exported.config?.pastel).toBe(false);
+      expect(exported.config?.inferRole).toBe(true);
+    });
+
+    it('themeFrom is an alias of from and freezes against configure()', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 50, saturation: 1 } });
+      const before = theme.resolve().get('surface')!.light.pastel;
+      const exported = theme.export();
+      expect(before).toBe(false);
+
+      glaze.configure({ pastel: true });
+      try {
+        const viaFrom = glaze.from(exported);
+        const viaThemeFrom = glaze.themeFrom(
+          JSON.parse(JSON.stringify(exported)),
+        );
+        expect(viaFrom.resolve().get('surface')!.light.pastel).toBe(false);
+        expect(viaThemeFrom.resolve().get('surface')!.light.pastel).toBe(false);
+        // Live theme without frozen override still tracks global.
+        expect(theme.resolve().get('surface')!.light.pastel).toBe(true);
+      } finally {
+        glaze.resetConfig();
+      }
+    });
+
+    it('deep-clones colors on export', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const exported = theme.export();
+      exported.colors.surface = { tone: 10 };
+      expect(theme.color('surface')!.tone).toBe(97);
+    });
+
+    it('accepts legacy theme snapshots without kind/version', () => {
+      const restored = glaze.themeFrom({
+        hue: 200,
+        saturation: 60,
+        colors: { surface: { tone: 90 } },
+      });
+      expect(restored.hue).toBe(200);
+      expect(restored.resolve().get('surface')).toBeDefined();
+    });
+
+    it('rejects wrong kind and future version', () => {
+      expect(() =>
+        glaze.themeFrom({
+          kind: 'palette',
+          version: 1,
+          hue: 0,
+          saturation: 0,
+          colors: {},
+        } as never),
+      ).toThrow(/expected kind "theme"/);
+      expect(() =>
+        glaze.themeFrom({
+          kind: 'theme',
+          version: 99,
+          hue: 0,
+          saturation: 0,
+          colors: {},
+        }),
+      ).toThrow(/unsupported export version 99/);
+    });
+  });
+
+  describe('palette export / paletteFrom', () => {
+    function richPalette() {
+      const brand = glaze(280, 80);
+      brand.colors({
+        surface: { tone: 97 },
+        text: { base: 'surface', tone: '-52', contrast: 'AA' },
+        shadow: {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: 10,
+        },
+        muted: {
+          type: 'mix',
+          base: 'surface',
+          target: 'text',
+          value: 40,
+        },
+      });
+      const danger = brand.extend({ hue: 23 });
+      return glaze.palette({ brand, danger }, { primary: 'brand' });
+    }
+
+    it('round-trips via JSON including shadow and mix relations', () => {
+      const palette = richPalette();
+      const snapshot = JSON.parse(JSON.stringify(palette.export()));
+      expect(snapshot.kind).toBe('palette');
+      expect(snapshot.version).toBe(1);
+      expect(snapshot.primary).toBe('brand');
+      expect(snapshot.themes.brand.kind).toBe('theme');
+
+      const restored = glaze.paletteFrom(snapshot);
+      expect(restored.list()).toEqual(['brand', 'danger']);
+      expect(restored.primary).toBe('brand');
+
+      const origText = palette.theme('brand')!.resolve().get('text')!;
+      const restText = restored.theme('brand')!.resolve().get('text')!;
+      expect(restText.light.t).toBeCloseTo(origText.light.t, 4);
+
+      const origShadow = palette.theme('brand')!.resolve().get('shadow')!;
+      const restShadow = restored.theme('brand')!.resolve().get('shadow')!;
+      expect(restShadow.light.t).toBeCloseTo(origShadow.light.t, 4);
+      expect(restShadow.light.alpha).toBeCloseTo(origShadow.light.alpha, 4);
+
+      const origMix = palette.theme('brand')!.resolve().get('muted')!;
+      const restMix = restored.theme('brand')!.resolve().get('muted')!;
+      expect(restMix.light.t).toBeCloseTo(origMix.light.t, 4);
+    });
+
+    it('exposes theme introspection with live references', () => {
+      const palette = richPalette();
+      expect(palette.theme('missing')).toBeUndefined();
+      const brand = palette.theme('brand')!;
+      brand.colors({ accent: { tone: 50 } });
+      expect(palette.tokens().light['brand-accent']).toBeDefined();
+      expect(Object.keys(palette.themes())).toEqual(['brand', 'danger']);
+    });
+
+    it('rejects bad primary and malformed themes', () => {
+      expect(() =>
+        glaze.paletteFrom({
+          kind: 'palette',
+          version: 1,
+          themes: { brand: { hue: 280, saturation: 80, colors: {} } },
+          primary: 'nope',
+        }),
+      ).toThrow(/primary theme "nope"/);
+      expect(() =>
+        glaze.paletteFrom({
+          kind: 'theme',
+          version: 1,
+          themes: {},
+        } as never),
+      ).toThrow(/expected kind "palette"/);
+      expect(() => glaze.paletteFrom(null as never)).toThrow(
+        /expected an object/,
+      );
+    });
+  });
+
+  describe('export type guards', () => {
+    it('discriminates theme, color, and palette snapshots', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 97 } });
+      const themeExp = theme.export();
+      const colorExp = glaze.color('#26fcb2').export();
+      const paletteExp = glaze
+        .palette({ brand: theme }, { primary: 'brand' })
+        .export();
+
+      expect(glaze.isThemeExport(themeExp)).toBe(true);
+      expect(glaze.isColorTokenExport(themeExp)).toBe(false);
+      expect(glaze.isPaletteExport(themeExp)).toBe(false);
+
+      expect(glaze.isColorTokenExport(colorExp)).toBe(true);
+      expect(glaze.isThemeExport(colorExp)).toBe(false);
+
+      expect(glaze.isPaletteExport(paletteExp)).toBe(true);
+      expect(glaze.isThemeExport(paletteExp)).toBe(false);
+
+      // Legacy shape without kind
+      expect(glaze.isThemeExport({ hue: 1, saturation: 2, colors: {} })).toBe(
+        true,
+      );
+      expect(glaze.isColorTokenExport({ form: 'value', input: '#fff' })).toBe(
+        true,
+      );
+      expect(glaze.isPaletteExport({ themes: {} })).toBe(true);
+    });
   });
 
   describe('fromHex / fromRgb', () => {
@@ -2017,8 +2204,12 @@ describe('glaze', () => {
 
       it('value-form snapshots the tone-window config (light=false, dark default)', () => {
         const data: GlazeColorTokenExport = glaze.color('#26fcb2').export();
+        expect(data.kind).toBe('color');
+        expect(data.version).toBe(1);
         expect(data.config?.lightTone).toBe(false);
         expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
+        expect(data.config?.pastel).toBe(false);
+        expect(data.config?.inferRole).toBe(true);
       });
 
       it('structured-form snapshots both tone windows', () => {
@@ -2026,6 +2217,7 @@ describe('glaze', () => {
           .color({ hue: 280, saturation: 50, tone: 50 })
           .export();
         expect(data.form).toBe('structured');
+        expect(data.kind).toBe('color');
         expect(data.config?.lightTone).toEqual({ lo: 10, hi: 100, eps: 0.05 });
         expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
       });
@@ -2041,6 +2233,21 @@ describe('glaze', () => {
             tok.resolve().dark.t,
             6,
           );
+        } finally {
+          glaze.resetConfig();
+        }
+      });
+
+      it('pastel / inferRole freeze survives configure()', () => {
+        glaze.configure({ pastel: true, inferRole: false });
+        try {
+          const tok = glaze.color({ hue: 150, saturation: 80, tone: 50 });
+          const data = tok.export();
+          expect(data.config?.pastel).toBe(true);
+          expect(data.config?.inferRole).toBe(false);
+          glaze.configure({ pastel: false, inferRole: true });
+          const restored = glaze.colorFrom(JSON.parse(JSON.stringify(data)));
+          expect(restored.resolve().light.pastel).toBe(true);
         } finally {
           glaze.resetConfig();
         }

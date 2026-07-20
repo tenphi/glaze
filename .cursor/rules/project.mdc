@@ -14,7 +14,7 @@ Package: `@tenphi/glaze` — zero-dependency color theme generator built on OKHS
 - Unified dark mode — single `100 − t` tone inversion, no fitted curve
 - Multi-scheme generation (light, dark, high-contrast)
 - Multi-format output (`okhsl`, `rgb`, `hsl`, `oklch`); `okhst` is input-only
-- Import/export (serialize/restore theme configs)
+- Import/export (serialize/restore theme, color-token, and palette configs)
 - Tree-shakeable ESM + CJS dual-format package
 - TypeScript-first with full type definitions
 
@@ -23,7 +23,7 @@ Package: `@tenphi/glaze` — zero-dependency color theme generator built on OKHS
 ```
 src/
   index.ts                 # Entry point, re-exports everything
-  glaze.ts                 # Core theme factory: glaze(), glaze.palette(), glaze.from(), etc.
+  glaze.ts                 # Core theme factory: glaze(), glaze.palette(), glaze.themeFrom(), etc.
   types.ts                 # All TypeScript type definitions
   okhst.ts                 # OKHST tone layer: tone↔lightness transfers, scheme mapping
   okhsl-color-math.ts      # OKHSL/sRGB/OKLab conversions, hex parsing, format functions
@@ -79,10 +79,13 @@ src/
 - `glaze(config)` — create a theme
 - `glaze.configure(opts)` — set global defaults
 - `glaze.palette(themes)` — compose multiple themes
-- `glaze.from(exported)` — restore from exported config
+- `glaze.themeFrom(exported)` / `glaze.from(exported)` — restore a theme (`from` is a compat alias)
+- `glaze.paletteFrom(exported)` — restore a palette
+- `glaze.colorFrom(exported)` — restore a standalone color token
 - `glaze.fromHex(hex)` / `glaze.fromRgb(r,g,b)` — create from raw colors
 - `glaze.color(def)` — standalone color token factory
-- Theme methods: `extend()`, `toTokens()`, `toJSON()`
+- Theme methods: `extend()`, `export()`, `toTokens()`, `toJSON()`
+- Palette methods: `export()`, `theme()`, `themes()`, `list()`, `primary`, plus resolved-output exporters
 
 ## Export Formats
 
