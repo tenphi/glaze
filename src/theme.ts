@@ -61,7 +61,7 @@ export function createTheme(
   let colorDefs: ColorMap = initialColors ? { ...initialColors } : {};
 
   let cache: {
-    map: Map<string, ResolvedColor>;
+    map: Map<string, ResolvedColor> | null;
     version: number;
     effectiveConfig: GlazeConfigResolved;
   } | null = null;
@@ -69,13 +69,15 @@ export function createTheme(
   function getEffectiveConfig(): GlazeConfigResolved {
     const version = getConfigVersion();
     if (cache && cache.version === version) return cache.effectiveConfig;
-    return mergeConfig(getConfig(), configOverride);
+    const effectiveConfig = mergeConfig(getConfig(), configOverride);
+    cache = { map: null, version, effectiveConfig };
+    return effectiveConfig;
   }
 
   function resolveCached(): Map<string, ResolvedColor> {
     const version = getConfigVersion();
-    if (cache && cache.version === version) return cache.map;
-    const effectiveConfig = mergeConfig(getConfig(), configOverride);
+    if (cache && cache.version === version && cache.map) return cache.map;
+    const effectiveConfig = getEffectiveConfig();
     const map = resolveAllColors(hue, saturation, colorDefs, effectiveConfig);
     cache = { map, version, effectiveConfig };
     return map;

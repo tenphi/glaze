@@ -129,13 +129,20 @@ export function mergeConfig(
 }
 
 /**
- * Freeze the resolve-relevant effective config as a plain override.
- * Used by authoring `.export()` so restored snapshots pin these fields.
+ * Freeze `getConfig() ∪ instanceLocal ∪ exportArg` as a plain, resolve-relevant
+ * override for authoring export, so restored snapshots pin these fields. Later
+ * wins; nested objects (`shadowTuning`) replace wholesale. The final
+ * `structuredClone` detaches tone-window / shadow objects that `mergeConfig`
+ * may still share with the live global config.
  */
-export function buildEffectiveConfigOverride(
-  userOverride?: GlazeConfigOverride,
+export function freezeConfigForExport(
+  instanceLocal?: GlazeConfigOverride,
+  exportArg?: GlazeConfigOverride,
 ): GlazeConfigOverride {
-  const effective = mergeConfig(getConfig(), userOverride);
+  const effective = mergeConfig(getConfig(), {
+    ...instanceLocal,
+    ...exportArg,
+  });
   const out: GlazeConfigOverride = {
     lightTone: effective.lightTone,
     darkTone: effective.darkTone,
@@ -145,20 +152,7 @@ export function buildEffectiveConfigOverride(
     inferRole: effective.inferRole,
   };
   if (effective.shadowTuning !== undefined) {
-    out.shadowTuning = { ...effective.shadowTuning };
+    out.shadowTuning = effective.shadowTuning;
   }
-  return out;
-}
-
-/**
- * Freeze `getConfig() ∪ instanceLocal ∪ exportArg` for authoring export.
- * Later wins; nested objects (`shadowTuning`) replace wholesale.
- */
-export function freezeConfigForExport(
-  instanceLocal?: GlazeConfigOverride,
-  exportArg?: GlazeConfigOverride,
-): GlazeConfigOverride {
-  return structuredClone(
-    buildEffectiveConfigOverride({ ...instanceLocal, ...exportArg }),
-  );
+  return structuredClone(out);
 }

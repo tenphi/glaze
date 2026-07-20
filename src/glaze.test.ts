@@ -1299,6 +1299,24 @@ describe('glaze', () => {
         }),
       ).toThrow(/unsupported export version 99/);
     });
+
+    it('rejects non-positive or non-integer version', () => {
+      const base = {
+        kind: 'theme' as const,
+        hue: 0,
+        saturation: 0,
+        colors: {},
+      };
+      expect(() => glaze.themeFrom({ ...base, version: 0 })).toThrow(
+        /invalid "version"/,
+      );
+      expect(() => glaze.themeFrom({ ...base, version: -1 })).toThrow(
+        /invalid "version"/,
+      );
+      expect(() => glaze.themeFrom({ ...base, version: 1.5 })).toThrow(
+        /invalid "version"/,
+      );
+    });
   });
 
   describe('palette export / paletteFrom', () => {

@@ -18,17 +18,22 @@ function isPlainObject(data: unknown): data is Record<string, unknown> {
 }
 
 /**
- * Reject unknown future schema versions. Missing `version` is allowed
- * (legacy snapshots). Older versions than current are accepted.
+ * Reject unknown / invalid schema versions. Missing `version` is allowed
+ * (legacy snapshots). Present versions must be an integer in
+ * `1..=GLAZE_EXPORT_VERSION`.
  */
 export function assertExportVersion(
   data: { version?: unknown },
   factory: string,
 ): void {
   if (data.version === undefined) return;
-  if (typeof data.version !== 'number' || !Number.isFinite(data.version)) {
+  if (
+    typeof data.version !== 'number' ||
+    !Number.isInteger(data.version) ||
+    data.version < 1
+  ) {
     throw new Error(
-      `${factory}: invalid "version" field — expected a number (got ${JSON.stringify(data.version)}).`,
+      `${factory}: invalid "version" field — expected an integer >= 1 (got ${JSON.stringify(data.version)}).`,
     );
   }
   if (data.version > GLAZE_EXPORT_VERSION) {

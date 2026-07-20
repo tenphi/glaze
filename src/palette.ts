@@ -216,10 +216,16 @@ function buildPaletteOutput<T, R>(
   return acc;
 }
 
-function themeFromExportData(
+/** Rebuild a theme from a `theme.export()` snapshot. */
+export function createThemeFromExport(
   data: GlazeThemeExport,
   factory = 'glaze.themeFrom',
 ): GlazeTheme {
+  if (data === null || typeof data !== 'object') {
+    throw new Error(
+      `${factory}: expected an object from theme.export(), got ${data === null ? 'null' : typeof data}.`,
+    );
+  }
   assertExportKind(data, 'theme', factory);
   assertExportVersion(data, factory);
   if (typeof data.hue !== 'number' || typeof data.saturation !== 'number') {
@@ -251,12 +257,7 @@ export function createPaletteFromExport(
 
   const rebuilt: PaletteInput = {};
   for (const [name, themeExport] of Object.entries(data.themes)) {
-    if (themeExport === null || typeof themeExport !== 'object') {
-      throw new Error(
-        `glaze.paletteFrom: theme "${name}" is not a valid theme export.`,
-      );
-    }
-    rebuilt[name] = themeFromExportData(
+    rebuilt[name] = createThemeFromExport(
       themeExport,
       `glaze.paletteFrom (theme "${name}")`,
     );
@@ -265,16 +266,6 @@ export function createPaletteFromExport(
   return createPalette(rebuilt, {
     primary: data.primary,
   });
-}
-
-/** Rebuild a theme from a `theme.export()` snapshot. */
-export function createThemeFromExport(data: GlazeThemeExport): GlazeTheme {
-  if (data === null || typeof data !== 'object') {
-    throw new Error(
-      `glaze.themeFrom: expected an object from theme.export(), got ${data === null ? 'null' : typeof data}.`,
-    );
-  }
-  return themeFromExportData(data);
 }
 
 export function createPalette(

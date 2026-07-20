@@ -537,7 +537,7 @@ function createColorTokenFromDefs(
   buildExport: (override?: GlazeConfigOverride) => GlazeColorTokenExport,
 ): GlazeColorToken {
   let cache: {
-    map: Map<string, ResolvedColor>;
+    map: Map<string, ResolvedColor> | null;
     version: number;
     effectiveConfig: GlazeConfigResolved;
   } | null = null;
@@ -545,13 +545,15 @@ function createColorTokenFromDefs(
   function getEffectiveConfig(): GlazeConfigResolved {
     const version = getConfigVersion();
     if (cache && cache.version === version) return cache.effectiveConfig;
-    return mergeConfig(getConfig(), configOverride);
+    const effectiveConfig = mergeConfig(getConfig(), configOverride);
+    cache = { map: null, version, effectiveConfig };
+    return effectiveConfig;
   }
 
   const resolveOnce = (): Map<string, ResolvedColor> => {
     const version = getConfigVersion();
-    if (cache && cache.version === version) return cache.map;
-    const effectiveConfig = mergeConfig(getConfig(), configOverride);
+    if (cache && cache.version === version && cache.map) return cache.map;
+    const effectiveConfig = getEffectiveConfig();
     const externalBases = baseToken
       ? new Map([[STANDALONE_BASE, baseToken.resolve()]])
       : undefined;

@@ -61,7 +61,7 @@ Authoring restore triad (parallel to `.export()` on each instance):
 | `token.export()` | `glaze.colorFrom()` |
 | `palette.export()` | `glaze.paletteFrom()` |
 
-Every snapshot includes `kind` + `version` (`GLAZE_EXPORT_VERSION`, currently `1`). Legacy snapshots without those fields still restore. Wrong `kind` or a future `version` throws.
+Every snapshot includes `kind` + `version` (`GLAZE_EXPORT_VERSION`, currently `1`). Legacy snapshots without those fields still restore. Wrong `kind`, or a `version` outside `1..=GLAZE_EXPORT_VERSION`, throws.
 
 The optional `config` parameter is a `GlazeConfigOverride` — see [Per-instance config override](#per-instance-config-override).
 
