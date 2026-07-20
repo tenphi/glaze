@@ -175,7 +175,8 @@ export interface RegularColorDef {
    * Whether to flip out-of-bounds results to the opposite side instead of
    * clamping to the extreme. Affects both:
    * - relative `tone`: when `base ± delta` exceeds `[0, 100]`, mirror the
-   *   delta to the other side of the base.
+   *   delta to the other side of the base. If the mirrored target is also
+   *   out of range, keep the original delta and clamp on the authored side.
    * - `contrast`: when the requested direction can't meet the floor, try the
    *   opposite side (same as the global `autoFlip`).
    *

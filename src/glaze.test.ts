@@ -510,6 +510,28 @@ describe('glaze', () => {
       expect(chip.light.t).toBeLessThan(surface.light.t);
     });
 
+    it('autoFlip: true clamps to the original side when the mirror also overshoots', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { tone: 20 },
+        chip: { base: 'surface', tone: '+90', autoFlip: true },
+      });
+      const chip = theme.resolve().get('chip')!;
+      // 20+90 and 20-90 both leave [0,100] → keep +90 and clamp to 100
+      expect(chip.light.t).toBeCloseTo(1, 4);
+    });
+
+    it('autoFlip: true clamps negative double-overshoot to the original side', () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        surface: { tone: 80 },
+        chip: { base: 'surface', tone: '-90', autoFlip: true },
+      });
+      const chip = theme.resolve().get('chip')!;
+      // 80-90 and 80+90 both leave [0,100] → keep -90 and clamp to 0
+      expect(chip.light.t).toBeCloseTo(0, 4);
+    });
+
     it('autoFlip does not change an in-range relative tone', () => {
       const autoFlipOff = glaze(0, 0);
       autoFlipOff.colors({
