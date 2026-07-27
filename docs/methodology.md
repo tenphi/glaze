@@ -288,6 +288,11 @@ When a token needs the scheme extreme, use `tone: 'min'` or `tone: 'max'`
 directly. Avoid large magic numbers or fake contrast floors just to push a color
 to the edge.
 
+Pair the extreme with a `base` when the gap between the two has to survive the
+scheme switch. Glaze then replays the light-scheme tone shift against the
+resolved dark base instead of re-mapping the extreme through the dark window,
+so a knockout on a surface keeps the same contrast in both schemes.
+
 ## Fixed surfaces and accent fills
 
 Use `mode: 'fixed'` when the authored color should stay recognizable across
