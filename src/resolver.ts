@@ -230,6 +230,37 @@ function applyToneFlip(delta: number, baseTone: number, flip: boolean): number {
   return delta;
 }
 
+/**
+ * Dark position for an extreme tone (`'max'` / `'min'`) anchored to a base.
+ *
+ * A windowed dark remap compresses the base→extreme span, so the pair loses
+ * contrast in dark. Instead, measure the tone shift the light scheme applied
+ * between the base and the extreme, then replay it against the base's dark
+ * tone: `auto` mirrors the sign (both ends invert), `fixed` keeps it. The
+ * result is clamped to `[0, 100]` only — crossing the dark tone window is
+ * intended, since the author asked for the extreme.
+ */
+function extremeDarkTone(
+  authorTone: number,
+  mode: AdaptationMode,
+  isHighContrast: boolean,
+  baseResolved: ResolvedColor,
+  baseDarkTone: number,
+  config: GlazeConfigResolved,
+): number {
+  const extremeLightTone = mapToneForScheme(
+    authorTone,
+    mode,
+    false,
+    isHighContrast,
+    config,
+  );
+  const baseLightTone =
+    getSchemeVariant(baseResolved, false, isHighContrast).t * 100;
+  const delta = extremeLightTone - baseLightTone;
+  return clamp(baseDarkTone + (mode === 'auto' ? -delta : delta), 0, 100);
+}
+
 function resolveRootColor(
   def: RegularColorDef,
   isHighContrast: boolean,
@@ -271,6 +302,7 @@ function resolveDependentColor(
   const baseTone = baseVariant.t * 100;
 
   let preferredTone: number;
+  let isExtreme = false;
   const rawTone = def.tone;
 
   if (rawTone === undefined) {
@@ -305,8 +337,22 @@ function resolveDependentColor(
         const delta = applyToneFlip(parsed.value, baseTone, flip);
         preferredTone = clamp(baseTone + delta, 0, 100);
       }
+    } else if (parsed.kind === 'extreme' && isDark && mode !== 'static') {
+      // Extreme against a base: replay the light-scheme tone shift so the
+      // pair keeps its contrast instead of being squeezed by the dark window.
+      isExtreme = true;
+      preferredTone = extremeDarkTone(
+        parsed.value,
+        mode,
+        isHighContrast,
+        baseResolved,
+        baseTone,
+        ctx.config,
+      );
     } else {
-      // Absolute or extreme ('max' = 100, 'min' = 0): map through the scheme.
+      // Absolute, or an extreme in light / under `static`: map through the
+      // scheme ('max' = 100, 'min' = 0).
+      isExtreme = parsed.kind === 'extreme';
       preferredTone = mapToneForScheme(
         parsed.value,
         mode,
@@ -346,10 +392,16 @@ function resolveDependentColor(
       initialDirection = 'lighter';
     }
 
+    // An extreme keeps its own position — clamping it back into the scheme
+    // window would undo the shift the extreme asked for.
+    const seedTone = isExtreme
+      ? clamp(preferredTone / 100, 0, 1)
+      : clamp(preferredTone / 100, toneRange[0], toneRange[1]);
+
     const result = findToneForContrast({
       hue: effectiveHue,
       saturation: effectiveSat,
-      preferredTone: clamp(preferredTone / 100, toneRange[0], toneRange[1]),
+      preferredTone: seedTone,
       baseLinearRgb,
       contrast: resolvedContrast,
       toneRange: [0, 1],

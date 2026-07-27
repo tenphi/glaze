@@ -44,7 +44,9 @@ surface: {
 }
 ```
 
-`'max'` and `'min'` select the corresponding end of the active scheme.
+`'max'` and `'min'` select the corresponding end of the active scheme. With a
+`base`, they instead preserve their distance from that base across schemes —
+see [Scheme adaptation](#scheme-adaptation).
 
 ### Tone delta
 
@@ -114,6 +116,14 @@ authored tone
 ```
 
 Dark schemes also apply `darkDesaturation` unless the color is `static`.
+
+**Extremes with a base** take a different dark path. Because the light and dark
+windows are asymmetric, running an extreme through the dark window compresses
+the span between it and its base, which lowers contrast. For a color with both
+`base` and `tone: 'max'` / `'min'`, Glaze measures the tone shift the light
+scheme produced between the two, then replays it against the base's resolved
+dark tone (mirrored under `auto`, same-signed under `fixed`). Only `[0, 100]`
+clamping applies, so such a color may render past the `darkTone` boundary.
 
 ## Reference and render epsilon
 

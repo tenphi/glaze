@@ -437,7 +437,7 @@ can drift in measured luminance. See [OKHST in Glaze](okhst.md). To port old
 | ------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
 | Number (absolute)   | `tone: 45`              | Absolute tone 0–100.                                                                          |
 | String (tone delta) | `tone: '-52'`           | Signed difference from the base color's resolved tone (requires `base`).                      |
-| Extreme             | `tone: 'max'` / `'min'` | Force to the scheme's highest (`'max'` = 100) or lowest (`'min'` = 0) tone. No `base` needed. |
+| Extreme             | `tone: 'max'` / `'min'` | Force to the scheme's highest (`'max'` = 100) or lowest (`'min'` = 0) tone. With a `base`, the light-scheme shift is replayed in dark. No `base` needed. |
 | HC pair             | `tone: ['-7', '-20']`   | `[normal, high-contrast]`. A single value applies to both.                                    |
 
 **Absolute tone** on a dependent color (`base` set) positions the color independently. In dark mode it is tone-mapped (inverted + windowed) on its own. The `contrast` solver acts as a safety net.
@@ -450,7 +450,18 @@ is clamped to the boundary, or — with `autoFlip` (default on) — mirrored to 
 other side of the base. If the mirrored target is also out of range, the original
 delta is kept and clamped on the authored side.
 
-**Extreme tone** (`'max'` / `'min'`) forces the color to the scheme's tone extreme without a contrast hack or a magic number. `'max'` resolves to author tone 100 and `'min'` to 0; both flow through scheme mapping like an absolute tone, so under `mode: 'auto'` they invert in dark (`'max'` is lightest in light, darkest in dark). Use `mode: 'static'` to pin the same extreme across schemes, or `mode: 'fixed'` to keep the same end without inverting. No `base` required.
+**Extreme tone** (`'max'` / `'min'`) forces the color to the scheme's tone extreme without a contrast hack or a magic number. `'max'` resolves to author tone 100 and `'min'` to 0. Without a `base`, both flow through scheme mapping like an absolute tone, so under `mode: 'auto'` they invert in dark (`'max'` is lightest in light, darkest in dark). Use `mode: 'static'` to pin the same extreme across schemes, or `mode: 'fixed'` to keep the same end without inverting. No `base` required.
+
+**Extreme tone with a `base`** keeps the pair's contrast across schemes. The tone windows are asymmetric by default (`lightTone: [10, 100]`, `darkTone: [15, 95]`), so re-mapping the extreme through the dark window would squeeze the base-to-extreme span and cost contrast. Instead Glaze measures the tone shift the light scheme applied between the base and the extreme, then replays it against the base's resolved dark tone — mirrored under `mode: 'auto'` (both ends invert), same-signed under `'fixed'`. The result is clamped to `[0, 100]` only, so it may cross the `darkTone` window edge; that is intentional, since the author asked for the extreme. When the shift does not fit above or below the dark base, the color pins at tone 100 / 0. `mode: 'static'` is unaffected, and high-contrast variants already use the full range.
+
+```ts
+theme.colors({
+  bg: { tone: 60 },
+  fg: { base: 'bg', tone: 'max' },
+});
+// light: bg 62.0, fg 100.0 — shift +38.0, contrast 3.18:1
+// dark:  bg 43.9, fg 5.9   — shift -38.0, contrast 3.18:1
+```
 
 A dependent color with `base` but no `tone` inherits the base's tone (equivalent to a delta of 0).
 

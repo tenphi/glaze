@@ -482,6 +482,116 @@ describe('glaze', () => {
       const knockout = theme.resolve().get('knockout')!;
       expect(knockout.light.t).toBeCloseTo(1, 4);
     });
+
+    it("'max' with a base replays the light tone shift in dark", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 60 },
+        fg: { base: 'bg', tone: 'max' },
+      });
+      const r = theme.resolve();
+      const bg = r.get('bg')!;
+      const fg = r.get('fg')!;
+      const lightShift = (fg.light.t - bg.light.t) * 100;
+      const darkShift = (fg.dark.t - bg.dark.t) * 100;
+      expect(lightShift).toBeGreaterThan(0);
+      // `auto` inverts both ends, so the shift mirrors but keeps its size.
+      expect(darkShift).toBeCloseTo(-lightShift, 4);
+      expect(variantContrast(fg.dark, bg.dark)).toBeCloseTo(
+        variantContrast(fg.light, bg.light),
+        2,
+      );
+    });
+
+    it("'max' with a base may cross the dark tone window edge", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 60 },
+        fg: { base: 'bg', tone: 'max' },
+      });
+      const fg = theme.resolve().get('fg')!;
+      // Preserving the shift takes the extreme past the dark window lo (0.15).
+      expect(llOf(fg.dark)).toBeLessThan(0.15);
+    });
+
+    it("'min' with a base pins at the extreme when the shift overshoots", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 'max' },
+        fg: { base: 'bg', tone: 'min' },
+      });
+      const r = theme.resolve();
+      const bg = r.get('bg')!;
+      const fg = r.get('fg')!;
+      // The dark base sits at the dark window lo, so there is no room for the
+      // full light shift — the replay clamps at tone 100 instead of the
+      // window hi (which is what the plain scheme mapping would give).
+      expect(fg.dark.t).toBeCloseTo(1, 4);
+      expect(variantContrast(fg.dark, bg.dark)).toBeGreaterThan(15);
+    });
+
+    it("'max' with a base keeps the shift on the same side under 'fixed'", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 60 },
+        fg: { base: 'bg', tone: 'max', mode: 'fixed' },
+      });
+      const r = theme.resolve();
+      const bg = r.get('bg')!;
+      const fg = r.get('fg')!;
+      const lightShift = (fg.light.t - bg.light.t) * 100;
+      const darkShift = (fg.dark.t - bg.dark.t) * 100;
+      expect(darkShift).toBeCloseTo(lightShift, 4);
+    });
+
+    it("'max' with a base stays pinned under mode 'static'", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 60 },
+        fg: { base: 'bg', tone: 'max', mode: 'static' },
+      });
+      const fg = theme.resolve().get('fg')!;
+      expect(fg.light.t).toBeCloseTo(1, 4);
+      expect(fg.dark.t).toBeCloseTo(1, 4);
+    });
+
+    it("'max' with a base and a contrast floor is not pulled back into the window", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 60 },
+        fg: { base: 'bg', tone: 'max', contrast: 1.5 },
+      });
+      const fg = theme.resolve().get('fg')!;
+      // The floor is already met at the replayed extreme, so it survives.
+      expect(llOf(fg.dark)).toBeLessThan(0.15);
+    });
+
+    it("'max' with a base measures the shift per high-contrast level", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        bg: { tone: 60 },
+        fg: { base: 'bg', tone: 'max' },
+      });
+      const r = theme.resolve();
+      const bg = r.get('bg')!;
+      const fg = r.get('fg')!;
+      const lightShift = (fg.lightContrast.t - bg.lightContrast.t) * 100;
+      const darkShift = (fg.darkContrast.t - bg.darkContrast.t) * 100;
+      expect(darkShift).toBeCloseTo(-lightShift, 4);
+    });
+
+    it("keeps the plain scheme mapping for a standalone 'max' with contrast", () => {
+      const token = glaze.color({
+        hue: 0,
+        saturation: 0,
+        tone: 'max',
+        contrast: 2,
+      });
+      const resolved = token.resolve();
+      // The hidden seed anchor is not an authored base, so the extreme still
+      // inverts into the dark window instead of replaying a shift against it.
+      expect(llOf(resolved.dark)).toBeCloseTo(0.15, 2);
+    });
   });
 
   describe('autoFlip prop', () => {

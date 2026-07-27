@@ -65,12 +65,14 @@ import type {
   GlazeDtcgResult,
   GlazeJsonOptions,
   GlazeTokenOptions,
+  HCPair,
   OkhslColor,
   OkhstColor,
   OklchColor,
   RgbColor,
   RegularColorDef,
   ResolvedColor,
+  ToneValue,
 } from './types';
 
 // ============================================================================
@@ -452,6 +454,20 @@ interface ValueDefsResult {
 }
 
 /**
+ * Resolve `'max'` / `'min'` to their literal author tones (100 / 0).
+ *
+ * The hidden `STANDALONE_SEED` anchor exists only so `contrast` has something
+ * to measure against — it is not an authored base. Pinning the extreme keeps
+ * the token on the plain scheme mapping instead of the base-anchored dark
+ * replay the resolver applies to real `base` references.
+ */
+function pinExtremeTone(tone: HCPair<ToneValue>): HCPair<ToneValue> {
+  const pin = (value: ToneValue): ToneValue =>
+    value === 'max' ? 100 : value === 'min' ? 0 : value;
+  return Array.isArray(tone) ? [pin(tone[0]), pin(tone[1])] : pin(tone);
+}
+
+/**
  * Build the `ColorMap` for a value-shorthand `glaze.color()` call.
  *
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
@@ -491,10 +507,12 @@ function buildStandaloneValueDefs(
   // The seed color is given in OKHSL lightness; express it as canonical tone.
   const seedTone = toTone(main.l);
 
+  const primaryTone = toneOption ?? seedTone;
+
   const valueDef: RegularColorDef = {
     hue: relativeHue,
     saturation: options?.saturationFactor,
-    tone: toneOption ?? seedTone,
+    tone: needsSeedAnchor ? pinExtremeTone(primaryTone) : primaryTone,
     contrast: options?.contrast,
     mode: options?.mode ?? 'auto',
     autoFlip: options?.autoFlip,
@@ -775,7 +793,7 @@ export function createColorToken(
 
   const defs: ColorMap = {
     [primary]: {
-      tone: input.tone,
+      tone: needsSeedAnchor ? pinExtremeTone(input.tone) : input.tone,
       saturation: input.saturationFactor,
       mode: input.mode ?? 'auto',
       autoFlip: input.autoFlip,
@@ -792,11 +810,10 @@ export function createColorToken(
   };
 
   if (needsSeedAnchor) {
-    const seedTone = pairNormal(input.tone);
     defs[STANDALONE_SEED] = {
       // The seed anchor must be a concrete tone; resolve 'max'/'min' to its
       // extreme so the static anchor is well-defined.
-      tone: seedTone === 'max' ? 100 : seedTone === 'min' ? 0 : seedTone,
+      tone: pinExtremeTone(pairNormal(input.tone)),
       saturation: 1,
       mode: 'static',
     };
