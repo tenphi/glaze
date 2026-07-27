@@ -64,6 +64,7 @@ import type {
   GlazeDtcgResolverDocument,
   GlazeDtcgResult,
   GlazeJsonOptions,
+  GlazeThemeSeed,
   GlazeTokenOptions,
   HCPair,
   OkhslColor,
@@ -384,6 +385,33 @@ function validateStructuredInput(input: GlazeColorInput): void {
       );
     }
   }
+  if (typeof input.darkHue === 'number' && !Number.isFinite(input.darkHue)) {
+    throw new Error(
+      `glaze.color: structured darkHue must be a finite number (got ${input.darkHue}).`,
+    );
+  }
+  if (input.darkSaturation !== undefined) {
+    if (
+      !Number.isFinite(input.darkSaturation) ||
+      input.darkSaturation < 0 ||
+      input.darkSaturation > 100
+    ) {
+      throw new Error(
+        `glaze.color: structured darkSaturation must be a finite number in 0–100 (got ${input.darkSaturation}).`,
+      );
+    }
+  }
+  if (input.darkSaturationFactor !== undefined) {
+    if (
+      !Number.isFinite(input.darkSaturationFactor) ||
+      input.darkSaturationFactor < 0 ||
+      input.darkSaturationFactor > 1
+    ) {
+      throw new Error(
+        `glaze.color: structured darkSaturationFactor must be a finite number in 0–1 (got ${input.darkSaturationFactor}).`,
+      );
+    }
+  }
   if (input.opacity !== undefined) validateStandaloneOpacity(input.opacity);
 }
 
@@ -447,8 +475,7 @@ export function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
 // ============================================================================
 
 interface ValueDefsResult {
-  seedHue: number;
-  seedSaturation: number;
+  seed: GlazeThemeSeed;
   defs: ColorMap;
   primary: string;
 }
@@ -472,6 +499,10 @@ function pinExtremeTone(tone: HCPair<ToneValue>): HCPair<ToneValue> {
  *
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
  * across every value-shorthand form.
+ *
+ * An absolute `hue` override becomes the seed while a relative one becomes a
+ * def field; `darkHue` always lands on the def in either form, so an absolute
+ * `darkHue` wins outright instead of being re-offset by a relative `hue`.
  *
  * When the user requests `contrast` or relative `tone`, a hidden
  * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
@@ -512,6 +543,8 @@ function buildStandaloneValueDefs(
   const valueDef: RegularColorDef = {
     hue: relativeHue,
     saturation: options?.saturationFactor,
+    darkHue: options?.darkHue,
+    darkSaturation: options?.darkSaturationFactor,
     tone: needsSeedAnchor ? pinExtremeTone(primaryTone) : primaryTone,
     contrast: options?.contrast,
     mode: options?.mode ?? 'auto',
@@ -538,16 +571,18 @@ function buildStandaloneValueDefs(
   }
 
   return {
-    seedHue,
-    seedSaturation,
+    seed: {
+      hue: seedHue,
+      saturation: seedSaturation,
+      darkSaturation: options?.darkSaturation,
+    },
     defs,
     primary,
   };
 }
 
 function createColorTokenFromDefs(
-  seedHue: number,
-  seedSaturation: number,
+  seed: GlazeThemeSeed,
   defs: ColorMap,
   primary: string,
   configOverride: GlazeConfigOverride | undefined,
@@ -575,13 +610,7 @@ function createColorTokenFromDefs(
     const externalBases = baseToken
       ? new Map([[STANDALONE_BASE, baseToken.resolve()]])
       : undefined;
-    const map = resolveAllColors(
-      seedHue,
-      seedSaturation,
-      defs,
-      effectiveConfig,
-      externalBases,
-    );
+    const map = resolveAllColors(seed, defs, effectiveConfig, externalBases);
     cache = { map, version, effectiveConfig };
     return map;
   };
@@ -639,7 +668,7 @@ function createColorTokenFromDefs(
         const modes = resolveModes();
         assertAllPastel(renamed, modes);
         channelCtx = {
-          seedHue,
+          seedHue: seed.hue,
           baseName: options.name,
           prefix: '',
           defs: { [options.name]: defs[primary] },
@@ -795,6 +824,8 @@ export function createColorToken(
     [primary]: {
       tone: needsSeedAnchor ? pinExtremeTone(input.tone) : input.tone,
       saturation: input.saturationFactor,
+      darkHue: input.darkHue,
+      darkSaturation: input.darkSaturationFactor,
       mode: input.mode ?? 'auto',
       autoFlip: input.autoFlip,
       contrast: input.contrast,
@@ -822,8 +853,11 @@ export function createColorToken(
   const localOverride = configOverride;
 
   return createColorTokenFromDefs(
-    input.hue,
-    input.saturation,
+    {
+      hue: input.hue,
+      saturation: input.saturation,
+      darkSaturation: input.darkSaturation,
+    },
     defs,
     primary,
     localOverride,
@@ -853,16 +887,12 @@ export function createColorTokenFromValue(
   // (lightTone: false) so contrast/tone anchors use the
   // input tone, not the windowed output.
   const linkingBase = toLinkingBase(rawBaseToken);
-  const { seedHue, seedSaturation, defs, primary } = buildStandaloneValueDefs(
-    main,
-    options,
-  );
+  const { seed, defs, primary } = buildStandaloneValueDefs(main, options);
 
   const localOverride = sparseValueFormLocal(configOverride);
 
   return createColorTokenFromDefs(
-    seedHue,
-    seedSaturation,
+    seed,
     defs,
     primary,
     localOverride,
@@ -900,6 +930,13 @@ function buildOverridesExport(
   if (options.saturationFactor !== undefined) {
     out.saturationFactor = options.saturationFactor;
   }
+  if (options.darkHue !== undefined) out.darkHue = options.darkHue;
+  if (options.darkSaturation !== undefined) {
+    out.darkSaturation = options.darkSaturation;
+  }
+  if (options.darkSaturationFactor !== undefined) {
+    out.darkSaturationFactor = options.darkSaturationFactor;
+  }
   if (options.mode !== undefined) out.mode = options.mode;
   if (options.autoFlip !== undefined) out.autoFlip = options.autoFlip;
   if (options.contrast !== undefined) out.contrast = options.contrast;
@@ -926,6 +963,13 @@ function buildStructuredInputExport(
   };
   if (input.saturationFactor !== undefined) {
     out.saturationFactor = input.saturationFactor;
+  }
+  if (input.darkHue !== undefined) out.darkHue = input.darkHue;
+  if (input.darkSaturation !== undefined) {
+    out.darkSaturation = input.darkSaturation;
+  }
+  if (input.darkSaturationFactor !== undefined) {
+    out.darkSaturationFactor = input.darkSaturationFactor;
   }
   if (input.mode !== undefined) out.mode = input.mode;
   if (input.autoFlip !== undefined) out.autoFlip = input.autoFlip;
@@ -961,6 +1005,13 @@ function rehydrateOverrides(
   if (data.saturationFactor !== undefined) {
     out.saturationFactor = data.saturationFactor;
   }
+  if (data.darkHue !== undefined) out.darkHue = data.darkHue;
+  if (data.darkSaturation !== undefined) {
+    out.darkSaturation = data.darkSaturation;
+  }
+  if (data.darkSaturationFactor !== undefined) {
+    out.darkSaturationFactor = data.darkSaturationFactor;
+  }
   if (data.mode !== undefined) out.mode = data.mode;
   if (data.autoFlip !== undefined) out.autoFlip = data.autoFlip;
   if (data.contrast !== undefined) out.contrast = data.contrast;
@@ -986,6 +1037,13 @@ function rehydrateStructuredInput(
   };
   if (data.saturationFactor !== undefined) {
     out.saturationFactor = data.saturationFactor;
+  }
+  if (data.darkHue !== undefined) out.darkHue = data.darkHue;
+  if (data.darkSaturation !== undefined) {
+    out.darkSaturation = data.darkSaturation;
+  }
+  if (data.darkSaturationFactor !== undefined) {
+    out.darkSaturationFactor = data.darkSaturationFactor;
   }
   if (data.mode !== undefined) out.mode = data.mode;
   if (data.autoFlip !== undefined) out.autoFlip = data.autoFlip;

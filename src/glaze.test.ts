@@ -847,6 +847,224 @@ describe('glaze', () => {
     });
   });
 
+  describe('dark hue / saturation', () => {
+    it('theme dark seeds drive the dark and dark-HC variants', () => {
+      const theme = glaze({
+        hue: 280,
+        saturation: 80,
+        darkHue: 250,
+        darkSaturation: 60,
+      });
+      theme.colors({ surface: { tone: 60 } });
+      const surface = theme.resolve().get('surface')!;
+
+      expect(surface.light.h).toBe(280);
+      expect(surface.light.s).toBeCloseTo(0.8, 4);
+      expect(surface.dark.h).toBe(250);
+      expect(surface.dark.s).toBeCloseTo(0.6, 4);
+      expect(surface.lightContrast.h).toBe(280);
+      expect(surface.darkContrast.h).toBe(250);
+      expect(surface.darkContrast.s).toBeCloseTo(0.6, 4);
+    });
+
+    it('per-color darkHue / darkSaturation override the def', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { tone: 60, saturation: 0.5, darkHue: 40, darkSaturation: 1 },
+      });
+      const surface = theme.resolve().get('surface')!;
+
+      expect(surface.light.h).toBe(280);
+      expect(surface.light.s).toBeCloseTo(0.4, 4);
+      expect(surface.dark.h).toBe(40);
+      expect(surface.dark.s).toBeCloseTo(0.8, 4);
+    });
+
+    it('per-color darkHue falls back to hue when omitted', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ surface: { tone: 60, hue: 120 } });
+      const surface = theme.resolve().get('surface')!;
+      expect(surface.dark.h).toBe(120);
+    });
+
+    it('relative darkHue anchors to the theme dark seed hue', () => {
+      const theme = glaze({ hue: 280, saturation: 80, darkHue: 100 });
+      theme.colors({ surface: { tone: 60, hue: '+20', darkHue: '+30' } });
+      const surface = theme.resolve().get('surface')!;
+      expect(surface.light.h).toBeCloseTo(300, 2);
+      expect(surface.dark.h).toBeCloseTo(130, 2);
+    });
+
+    it('a relative hue with no darkHue re-anchors to the dark seed', () => {
+      const theme = glaze({ hue: 280, saturation: 80, darkHue: 100 });
+      theme.colors({ surface: { tone: 60, hue: '+20' } });
+      expect(theme.resolve().get('surface')!.dark.h).toBeCloseTo(120, 2);
+    });
+
+    it('an absolute per-color hue ignores the theme dark seed', () => {
+      const theme = glaze({ hue: 280, saturation: 80, darkHue: 100 });
+      theme.colors({ surface: { tone: 60, hue: 33 } });
+      expect(theme.resolve().get('surface')!.dark.h).toBe(33);
+    });
+
+    it('dark hue wraps around 360', () => {
+      const theme = glaze({ hue: 280, saturation: 80, darkHue: 350 });
+      theme.colors({ surface: { tone: 60, darkHue: '+30' } });
+      expect(theme.resolve().get('surface')!.dark.h).toBeCloseTo(20, 2);
+    });
+
+    it('an explicit theme darkSaturation bypasses darkDesaturation', () => {
+      const plain = glaze(280, 80);
+      plain.colors({ surface: { tone: 60 } });
+      expect(plain.resolve().get('surface')!.dark.s).toBeCloseTo(0.8 * 0.9, 4);
+
+      const seeded = glaze({ hue: 280, saturation: 80, darkSaturation: 80 });
+      seeded.colors({ surface: { tone: 60 } });
+      expect(seeded.resolve().get('surface')!.dark.s).toBeCloseTo(0.8, 4);
+    });
+
+    it('an explicit per-color darkSaturation bypasses darkDesaturation', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        plain: { tone: 60, saturation: 0.5 },
+        pinned: { tone: 60, saturation: 0.5, darkSaturation: 0.5 },
+      });
+      const resolved = theme.resolve();
+      expect(resolved.get('plain')!.dark.s).toBeCloseTo(0.4 * 0.9, 4);
+      expect(resolved.get('pinned')!.dark.s).toBeCloseTo(0.4, 4);
+    });
+
+    it('darkDesaturation still applies to the dark seed when unset', () => {
+      const theme = glaze({ hue: 280, saturation: 80, darkHue: 250 });
+      theme.colors({ surface: { tone: 60 } });
+      expect(theme.resolve().get('surface')!.dark.s).toBeCloseTo(0.8 * 0.9, 4);
+    });
+
+    it('clamps a per-color darkSaturation factor to 0–1', () => {
+      const theme = glaze(280, 100);
+      theme.colors({ surface: { tone: 60, darkSaturation: 5 } });
+      expect(theme.resolve().get('surface')!.dark.s).toBeCloseTo(1, 4);
+    });
+
+    it("mode: 'static' ignores both dark overrides", () => {
+      const theme = glaze({
+        hue: 280,
+        saturation: 80,
+        darkHue: 100,
+        darkSaturation: 20,
+      });
+      theme.colors({
+        brand: {
+          tone: 60,
+          mode: 'static',
+          darkHue: 40,
+          darkSaturation: 0.2,
+        },
+      });
+      const brand = theme.resolve().get('brand')!;
+      expect(brand.dark.h).toBe(brand.light.h);
+      expect(brand.dark.s).toBeCloseTo(brand.light.s, 4);
+    });
+
+    it("mode: 'fixed' still honors the dark overrides", () => {
+      const theme = glaze(280, 80);
+      theme.colors({ fill: { tone: 52, mode: 'fixed', darkHue: 40 } });
+      expect(theme.resolve().get('fill')!.dark.h).toBe(40);
+    });
+
+    it('the contrast solver measures the dark channels', () => {
+      const theme = glaze({ hue: 280, saturation: 100, darkHue: 130 });
+      theme.colors({
+        surface: { tone: 97 },
+        text: { base: 'surface', tone: '-40', contrast: 4.5 },
+      });
+      const resolved = theme.resolve();
+      const text = resolved.get('text')!;
+      const surface = resolved.get('surface')!;
+
+      expect(text.dark.h).toBe(130);
+      expect(variantContrast(text.dark, surface.dark)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    });
+
+    it('shadow and mix colors inherit dark channels from their references', () => {
+      const theme = glaze({ hue: 280, saturation: 100, darkHue: 130 });
+      theme.colors({
+        surface: { tone: 97 },
+        accent: { tone: 50 },
+        blend: { type: 'mix', base: 'surface', target: 'accent', value: 50 },
+        shade: { type: 'shadow', bg: 'surface', fg: 'accent', intensity: 60 },
+      });
+      const resolved = theme.resolve();
+
+      // Both are built from surface/accent, which are hue 130 in dark.
+      expect(resolved.get('blend')!.dark.h).toBeCloseTo(130, 2);
+      expect(resolved.get('shade')!.dark.h).toBeCloseTo(130, 2);
+      expect(resolved.get('blend')!.light.h).toBeCloseTo(280, 2);
+    });
+
+    it('extend inherits dark seeds and can replace them', () => {
+      const parent = glaze({
+        hue: 280,
+        saturation: 80,
+        darkHue: 250,
+        darkSaturation: 60,
+      });
+      parent.colors({ surface: { tone: 60 } });
+
+      const inherited = parent.extend({ hue: 23 });
+      expect(inherited.darkHue).toBe(250);
+      expect(inherited.darkSaturation).toBe(60);
+      expect(inherited.resolve().get('surface')!.dark.h).toBe(250);
+
+      const replaced = parent.extend({ darkHue: 10, darkSaturation: 30 });
+      expect(replaced.resolve().get('surface')!.dark.h).toBe(10);
+      expect(replaced.resolve().get('surface')!.dark.s).toBeCloseTo(0.3, 4);
+    });
+
+    it('exposes the dark seeds as undefined when unset', () => {
+      const theme = glaze(280, 80);
+      expect(theme.darkHue).toBeUndefined();
+      expect(theme.darkSaturation).toBeUndefined();
+    });
+
+    it('round-trips dark seeds through export / themeFrom', () => {
+      const theme = glaze({
+        hue: 280,
+        saturation: 80,
+        darkHue: 250,
+        darkSaturation: 60,
+      });
+      theme.colors({
+        surface: { tone: 60, darkHue: '+15', darkSaturation: 0.4 },
+      });
+
+      const data = JSON.parse(JSON.stringify(theme.export()));
+      expect(data.darkHue).toBe(250);
+      expect(data.darkSaturation).toBe(60);
+
+      const restored = glaze.themeFrom(data);
+      expect(restored.darkHue).toBe(250);
+      expect(restored.resolve().get('surface')!.dark).toEqual(
+        theme.resolve().get('surface')!.dark,
+      );
+    });
+
+    it('omits dark seeds from export when unset', () => {
+      const data = glaze(280, 80).export();
+      expect('darkHue' in data).toBe(false);
+      expect('darkSaturation' in data).toBe(false);
+    });
+
+    it('rejects a non-numeric darkHue on restore', () => {
+      const data = glaze(280, 80).export();
+      expect(() =>
+        glaze.themeFrom({ ...data, darkHue: '250' as unknown as number }),
+      ).toThrow(/"darkHue" to be a number/);
+    });
+  });
+
   describe('high-contrast mode', () => {
     it('uses HC pair value for tone', () => {
       const theme = glaze(0, 0);
@@ -1677,6 +1895,115 @@ describe('glaze', () => {
       expect(withFlag.light).toBe(inline.light);
     });
 
+    it('emits no dark hue declarations without a dark hue', () => {
+      const css = pastelTheme().css({
+        format: 'oklch',
+        splitHue: true,
+        name: 'brand',
+      });
+      expect(css.dark).not.toContain('-hue:');
+      expect(css.darkContrast).not.toContain('-hue:');
+    });
+
+    it('re-declares the whole hue set in dark when the seed differs', () => {
+      const theme = glaze(
+        { hue: 240, saturation: 18, darkHue: 200 },
+        undefined,
+        { pastel: true },
+      );
+      theme.colors({
+        surface: { tone: 35 },
+        accent: { hue: '+20', tone: 52 },
+        warning: { hue: 40, darkHue: 50, tone: 52 },
+      });
+      const css = theme.css({ format: 'oklch', splitHue: true, name: 'brand' });
+
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.light).toContain('--warning-hue: 40;');
+      expect(css.dark).toContain('--brand-hue: 200;');
+      expect(css.dark).toContain('--warning-hue: 50;');
+      // `accent` keeps identical text but must still be re-declared, so it
+      // re-resolves against the dark `--brand-hue`.
+      expect(css.light).toContain('--accent-hue: calc(var(--brand-hue) + 20);');
+      expect(css.dark).toContain('--accent-hue: calc(var(--brand-hue) + 20);');
+      // Dark high-contrast shares the dark hue.
+      expect(css.darkContrast).toContain('--brand-hue: 200;');
+    });
+
+    it('emits dark hue declarations for a per-color darkHue alone', () => {
+      const theme = glaze(240, 18, { pastel: true });
+      theme.colors({ surface: { tone: 35, darkHue: 90 } });
+      const css = theme.css({ format: 'oklch', splitHue: true, name: 'brand' });
+      expect(css.dark).toContain('--surface-hue: 90;');
+      // The theme var is part of the set even though its value is unchanged.
+      expect(css.dark).toContain('--brand-hue: 240;');
+    });
+
+    it('pins a static color so it does not drift with the dark seed', () => {
+      const theme = glaze(
+        { hue: 240, saturation: 18, darkHue: 200 },
+        undefined,
+        { pastel: true },
+      );
+      theme.colors({ pinned: { tone: 52, mode: 'static' } });
+      const css = theme.css({ format: 'oklch', splitHue: true, name: 'brand' });
+
+      expect(css.light).toContain('--pinned-hue: 240;');
+      expect(css.dark).toContain('--pinned-hue: 240;');
+      expect(theme.resolve().get('pinned')!.dark.h).toBe(240);
+    });
+
+    it('tasty emits the dark hue under the dark state', () => {
+      const theme = glaze(
+        { hue: 240, saturation: 18, darkHue: 200 },
+        undefined,
+        { pastel: true },
+      );
+      theme.colors({ surface: { tone: 35 } });
+      const tokens = theme.tasty({
+        format: 'oklch',
+        splitHue: true,
+        name: 'brand',
+      });
+      expect(tokens['$brand-hue']['']).toBe('240');
+      expect(tokens['$brand-hue']['@media(prefers-color-scheme: dark)']).toBe(
+        '200',
+      );
+    });
+
+    it('tasty omits the dark hue when dark mode is off', () => {
+      const theme = glaze(
+        { hue: 240, saturation: 18, darkHue: 200 },
+        undefined,
+        { pastel: true },
+      );
+      theme.colors({ surface: { tone: 35 } });
+      const tokens = theme.tasty({
+        format: 'oklch',
+        splitHue: true,
+        name: 'brand',
+        modes: { dark: false },
+      });
+      expect(tokens['$brand-hue']).toEqual({ '': '240' });
+    });
+
+    it('standalone css emits the dark hue for a token darkHue', () => {
+      const color = glaze.color({
+        hue: 240,
+        saturation: 18,
+        tone: 52,
+        darkHue: 200,
+        pastel: true,
+      });
+      const css = color.css({
+        name: 'brand',
+        format: 'oklch',
+        splitHue: true,
+      });
+      expect(css.light).toContain('--brand-hue: 240;');
+      expect(css.dark).toContain('--brand-hue: 200;');
+    });
+
     it('palette scopes hue vars per theme', () => {
       const brand = glaze(240, 18, { pastel: true });
       brand.colors({ surface: { tone: 35 } });
@@ -2228,6 +2555,108 @@ describe('glaze', () => {
         } finally {
           glaze.resetConfig();
         }
+      });
+    });
+
+    describe('dark hue / saturation', () => {
+      it('darkSaturation seeds the dark scheme, darkSaturationFactor scales it', () => {
+        const seeded = glaze.color({
+          hue: 240,
+          saturation: 80,
+          tone: 52,
+          darkSaturation: 40,
+        });
+        expect(seeded.resolve().dark.s).toBeCloseTo(0.4, 4);
+
+        const scaled = glaze.color({
+          hue: 240,
+          saturation: 80,
+          tone: 52,
+          darkSaturationFactor: 0.5,
+        });
+        expect(scaled.resolve().dark.s).toBeCloseTo(0.4, 4);
+
+        const both = glaze.color({
+          hue: 240,
+          saturation: 80,
+          tone: 52,
+          darkSaturation: 40,
+          darkSaturationFactor: 0.5,
+        });
+        expect(both.resolve().dark.s).toBeCloseTo(0.2, 4);
+      });
+
+      it('an absolute darkHue wins over a relative hue override', () => {
+        const color = glaze.color({ from: '#3355cc', hue: '+20', darkHue: 90 });
+        const resolved = color.resolve();
+        expect(resolved.dark.h).toBe(90);
+        expect(resolved.light.h).not.toBeCloseTo(90, 2);
+      });
+
+      it('a relative darkHue anchors to the token seed hue', () => {
+        const color = glaze.color({ hue: 240, saturation: 80, tone: 52 });
+        const rotated = glaze.color({
+          hue: 240,
+          saturation: 80,
+          tone: 52,
+          darkHue: '+30',
+        });
+        expect(color.resolve().dark.h).toBe(240);
+        expect(rotated.resolve().dark.h).toBeCloseTo(270, 2);
+      });
+
+      it('applies to value-shorthand overrides too', () => {
+        const color = glaze.color({
+          from: '#3355cc',
+          darkHue: 120,
+          darkSaturationFactor: 0.25,
+        });
+        const resolved = color.resolve();
+        expect(resolved.dark.h).toBe(120);
+        expect(resolved.dark.s).toBeCloseTo(resolved.light.s * 0.25, 4);
+      });
+
+      it('rejects an out-of-range structured darkSaturation', () => {
+        expect(() =>
+          glaze.color({
+            hue: 240,
+            saturation: 80,
+            tone: 52,
+            darkSaturation: 150,
+          }),
+        ).toThrow(/darkSaturation must be a finite number in 0–100/);
+        expect(() =>
+          glaze.color({
+            hue: 240,
+            saturation: 80,
+            tone: 52,
+            darkSaturationFactor: 2,
+          }),
+        ).toThrow(/darkSaturationFactor must be a finite number in 0–1/);
+      });
+
+      it('round-trips through export / colorFrom in both forms', () => {
+        const structured = glaze.color({
+          hue: 240,
+          saturation: 80,
+          tone: 52,
+          darkHue: 90,
+          darkSaturation: 40,
+          darkSaturationFactor: 0.5,
+        });
+        const structuredData = JSON.parse(JSON.stringify(structured.export()));
+        expect(glaze.colorFrom(structuredData).resolve()).toEqual(
+          structured.resolve(),
+        );
+
+        const value = glaze.color({
+          from: '#3355cc',
+          darkHue: '+30',
+          darkSaturation: 40,
+        });
+        const valueData = JSON.parse(JSON.stringify(value.export()));
+        expect(valueData.overrides.darkHue).toBe('+30');
+        expect(glaze.colorFrom(valueData).resolve()).toEqual(value.resolve());
       });
     });
 

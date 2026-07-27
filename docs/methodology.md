@@ -123,6 +123,29 @@ Per-color `saturation` is a factor of the theme seed, not an absolute
 saturation. With `SEED_SATURATION = 80`, `saturation: 0.25` means one quarter of
 that seed.
 
+### When dark needs its own chroma
+
+Dark schemes get a flat `darkDesaturation` haircut (10% by default), which is
+enough for most palettes. Reach for a second seed only when dark is wrong in a
+way a uniform reduction cannot fix — a hue that reads muddy against dark
+surfaces, or an accent that stays gaudy no matter how much you dial the global
+knob:
+
+```ts
+const primary = glaze({
+  hue: PURPLE_HUE,
+  saturation: SEED_SATURATION,
+  darkHue: PURPLE_HUE - 12, // cooler purple on dark surfaces
+  darkSaturation: 62, // calmer than a 10% haircut would give
+});
+```
+
+An explicit `darkSaturation` replaces `darkDesaturation` rather than stacking
+with it, so the number you write is the number you get. Prefer tuning the seed
+over per-color `darkHue` / `darkSaturation`: one seed keeps the palette
+coherent, while scattered per-color dark overrides drift apart as the palette
+grows. Save the per-color form for the one or two tokens that genuinely need it.
+
 ## Naming
 
 Prefer purpose first and variant last:

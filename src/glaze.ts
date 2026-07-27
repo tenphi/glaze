@@ -55,6 +55,7 @@ import type {
   GlazeShadowInput,
   GlazeTheme,
   GlazeThemeExport,
+  GlazeThemeSeed,
   ResolvedColorVariant,
 } from './types';
 
@@ -69,29 +70,35 @@ type PaletteInput = Record<string, GlazeTheme>;
  * the theme still reacts to later `configure()` calls for fields it
  * didn't override.
  *
+ * The object form also accepts `darkHue` / `darkSaturation` — a separate
+ * seed pair for the dark and dark-high-contrast schemes. Both default to
+ * their light counterparts, and an explicit `darkSaturation` opts the theme
+ * out of the global `darkDesaturation` reduction.
+ *
  * @example
  * ```ts
  * const primary = glaze(280, 80);
  * // or shorthand:
  * const primary = glaze({ hue: 280, saturation: 80 });
+ * // with a retuned dark seed:
+ * const primary = glaze({ hue: 280, saturation: 80, darkHue: 268, darkSaturation: 65 });
  * // with config override:
  * const raw = glaze(280, 80, { lightTone: false });
  * ```
  */
 export function glaze(
-  hueOrOptions: number | { hue: number; saturation: number },
+  hueOrOptions: number | GlazeThemeSeed,
   saturation?: number,
   config?: GlazeConfigOverride,
 ): GlazeTheme {
   if (typeof hueOrOptions === 'number') {
-    return createTheme(hueOrOptions, saturation ?? 100, undefined, config);
+    return createTheme(
+      { hue: hueOrOptions, saturation: saturation ?? 100 },
+      undefined,
+      config,
+    );
   }
-  return createTheme(
-    hueOrOptions.hue,
-    hueOrOptions.saturation,
-    undefined,
-    config,
-  );
+  return createTheme(hueOrOptions, undefined, config);
 }
 
 /** Configure global glaze settings. */
@@ -231,7 +238,7 @@ glaze.fromHex = function fromHex(hex: string): GlazeTheme {
     throw new Error(`glaze: invalid hex color "${hex}".`);
   }
   const [h, s] = srgbToOkhsl(rgb);
-  return createTheme(h, s * 100);
+  return createTheme({ hue: h, saturation: s * 100 });
 };
 
 /**
@@ -240,7 +247,7 @@ glaze.fromHex = function fromHex(hex: string): GlazeTheme {
  */
 glaze.fromRgb = function fromRgb(r: number, g: number, b: number): GlazeTheme {
   const [h, s] = srgbToOkhsl([r / 255, g / 255, b / 255]);
-  return createTheme(h, s * 100);
+  return createTheme({ hue: h, saturation: s * 100 });
 };
 
 /**
