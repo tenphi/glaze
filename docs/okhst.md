@@ -117,6 +117,16 @@ authored tone
 
 Dark schemes also apply `darkDesaturation` unless the color is `static`.
 
+**Hue and saturation are authoring inputs, not part of the tone transfer.** The
+tone axis is the only channel OKHST adapts across schemes; `h` and `s` pass
+through verbatim, with `darkDesaturation` as the one automatic adjustment.
+A theme (or a single color) can seed a different hue and saturation for the
+dark schemes via `darkHue` / `darkSaturation` — see
+[api.md](api.md#dark-seed-darkhue--darksaturation). Those pick the `h` and `s`
+that enter the pipeline above; they never change how tone is transferred.
+Authoring a dark saturation replaces the `darkDesaturation` step rather than
+stacking with it, and `static` colors ignore both.
+
 **Extremes with a base** take a different dark path. Because the light and dark
 windows are asymmetric, running an extreme through the dark window compresses
 the span between it and its base, which lowers contrast. For a color with both

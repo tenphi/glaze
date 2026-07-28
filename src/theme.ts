@@ -48,16 +48,17 @@ import type {
   GlazeTailwindOptions,
   GlazeTheme,
   GlazeThemeExport,
+  GlazeThemeSeed,
   GlazeTokenOptions,
   ResolvedColor,
 } from './types';
 
 export function createTheme(
-  hue: number,
-  saturation: number,
+  seed: GlazeThemeSeed,
   initialColors?: ColorMap,
   configOverride?: GlazeConfigOverride,
 ): GlazeTheme {
+  const { hue, saturation, darkHue, darkSaturation } = seed;
   let colorDefs: ColorMap = initialColors ? { ...initialColors } : {};
 
   let cache: {
@@ -78,7 +79,7 @@ export function createTheme(
     const version = getConfigVersion();
     if (cache && cache.version === version && cache.map) return cache.map;
     const effectiveConfig = getEffectiveConfig();
-    const map = resolveAllColors(hue, saturation, colorDefs, effectiveConfig);
+    const map = resolveAllColors(seed, colorDefs, effectiveConfig);
     cache = { map, version, effectiveConfig };
     return map;
   }
@@ -106,6 +107,7 @@ export function createTheme(
     assertAllPastel(resolved, modes);
     return {
       seedHue: hue,
+      darkSeedHue: darkHue,
       baseName: options.name ?? 'theme',
       prefix,
       defs: colorDefs,
@@ -119,6 +121,12 @@ export function createTheme(
     },
     get saturation() {
       return saturation;
+    },
+    get darkHue() {
+      return darkHue;
+    },
+    get darkSaturation() {
+      return darkSaturation;
     },
     getConfig(): GlazeConfigResolved {
       return getEffectiveConfig();
@@ -164,14 +172,20 @@ export function createTheme(
         version: GLAZE_EXPORT_VERSION,
         hue,
         saturation,
+        ...(darkHue !== undefined ? { darkHue } : {}),
+        ...(darkSaturation !== undefined ? { darkSaturation } : {}),
         colors: structuredClone(colorDefs),
         config: freezeConfigForExport(configOverride, override),
       };
     },
 
     extend(options: GlazeExtendOptions): GlazeTheme {
-      const newHue = options.hue ?? hue;
-      const newSat = options.saturation ?? saturation;
+      const childSeed: GlazeThemeSeed = {
+        hue: options.hue ?? hue,
+        saturation: options.saturation ?? saturation,
+        darkHue: options.darkHue ?? darkHue,
+        darkSaturation: options.darkSaturation ?? darkSaturation,
+      };
 
       const inheritedColors: ColorMap = {};
       for (const [name, def] of Object.entries(colorDefs)) {
@@ -190,7 +204,7 @@ export function createTheme(
           ? { ...(configOverride ?? {}), ...(options.config ?? {}) }
           : undefined;
 
-      return createTheme(newHue, newSat, mergedColors, mergedConfigOverride);
+      return createTheme(childSeed, mergedColors, mergedConfigOverride);
     },
 
     resolve(): Map<string, ResolvedColor> {

@@ -45,6 +45,7 @@ export type {
   GlazeConfigResolved,
   GlazeTheme,
   GlazeThemeExport,
+  GlazeThemeSeed,
   GlazeExtendOptions,
   GlazeTokenOptions,
   GlazeJsonOptions,

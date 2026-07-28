@@ -159,6 +159,26 @@ export interface RegularColorDef {
    * - String ('+N' / '-N'): relative to the theme seed hue.
    */
   hue?: number | RelativeValue;
+  /**
+   * Dark-scheme hue override. Applies to the `dark` and `darkContrast`
+   * variants; falls back to `hue` when omitted.
+   * - Number: absolute hue (0–360).
+   * - String ('+N' / '-N'): relative to the theme's **dark** seed hue
+   *   (`GlazeTheme.darkHue`, itself defaulting to the light seed hue).
+   *
+   * Ignored under `mode: 'static'`, which pins one value across all schemes.
+   */
+  darkHue?: number | RelativeValue;
+  /**
+   * Dark-scheme saturation factor (0–1) applied to the dark seed
+   * saturation. Applies to the `dark` and `darkContrast` variants; falls
+   * back to `saturation` when omitted.
+   *
+   * When set, the global `darkDesaturation` reduction is **not** applied on
+   * top — the resulting saturation is taken literally. Ignored under
+   * `mode: 'static'`.
+   */
+  darkSaturation?: number;
 
   /** Name of another color in the same theme (dependent color). */
   base?: string;
@@ -521,6 +541,10 @@ export interface GlazeThemeExport {
   version?: number;
   hue: number;
   saturation: number;
+  /** Dark-scheme seed hue (0–360). Omitted when the theme reuses `hue`. */
+  darkHue?: number;
+  /** Dark-scheme seed saturation (0–100). Omitted when the theme reuses `saturation`. */
+  darkSaturation?: number;
   colors: ColorMap;
   /**
    * Effective config freeze from `.export()` —
@@ -563,6 +587,15 @@ export interface GlazeColorInput {
   saturation: number;
   tone: HCPair<number | ExtremeValue>;
   saturationFactor?: number;
+  /**
+   * Dark-scheme hue. Number is absolute (0–360); `'+N'`/`'-N'` is relative
+   * to the dark seed hue, which defaults to `hue`. Falls back to `hue`.
+   */
+  darkHue?: number | RelativeValue;
+  /** Dark-scheme seed saturation (0–100). Defaults to `saturation`. */
+  darkSaturation?: number;
+  /** Dark-scheme multiplier on the dark seed (0–1). Defaults to `saturationFactor`. */
+  darkSaturationFactor?: number;
   mode?: AdaptationMode;
   /** Flip out-of-bounds results instead of clamping. Default: global `autoFlip`. */
   autoFlip?: boolean;
@@ -641,6 +674,23 @@ export interface GlazeColorOverrides {
   hue?: number | RelativeValue;
   /** Override seed saturation (0–100). Default: extracted from value. */
   saturation?: number;
+  /**
+   * Dark-scheme hue. Number is absolute (0–360); `'+N'`/`'-N'` is relative
+   * to the dark seed hue, which defaults to the (possibly overridden) seed
+   * hue. Falls back to `hue` when omitted.
+   */
+  darkHue?: number | RelativeValue;
+  /**
+   * Dark-scheme seed saturation (0–100). Defaults to `saturation`. When set,
+   * the global `darkDesaturation` reduction is not applied on top.
+   */
+  darkSaturation?: number;
+  /**
+   * Dark-scheme multiplier on the dark seed (0–1). Defaults to
+   * `saturationFactor`. When set, the global `darkDesaturation` reduction is
+   * not applied on top.
+   */
+  darkSaturationFactor?: number;
   /**
    * Override tone. Number is absolute (0–100, contrast-uniform); `'+N'`/`'-N'`
    * is relative to the literal seed (the value passed to `glaze.color()`);
@@ -872,6 +922,9 @@ export interface GlazeColorInputExport {
   saturation: number;
   tone: HCPair<number | ExtremeValue>;
   saturationFactor?: number;
+  darkHue?: number | RelativeValue;
+  darkSaturation?: number;
+  darkSaturationFactor?: number;
   mode?: AdaptationMode;
   autoFlip?: boolean;
   opacity?: number;
@@ -889,6 +942,9 @@ export interface GlazeColorInputExport {
 export interface GlazeColorOverridesExport {
   hue?: number | RelativeValue;
   saturation?: number;
+  darkHue?: number | RelativeValue;
+  darkSaturation?: number;
+  darkSaturationFactor?: number;
   tone?: HCPair<ToneValue>;
   saturationFactor?: number;
   mode?: AdaptationMode;
@@ -905,11 +961,34 @@ export interface GlazeColorOverridesExport {
 // Theme API
 // ============================================================================
 
+/**
+ * The hue/saturation seed pair a theme resolves against.
+ *
+ * `darkHue` / `darkSaturation` are a separate seed for the `dark` and
+ * `darkContrast` variants; each falls back to its light counterpart. Setting
+ * `darkSaturation` opts the theme out of the global `darkDesaturation`
+ * reduction — the authored value is used literally.
+ */
+export interface GlazeThemeSeed {
+  /** Light-scheme hue seed (0–360). */
+  hue: number;
+  /** Light-scheme saturation seed (0–100). */
+  saturation: number;
+  /** Dark-scheme hue seed (0–360). Defaults to `hue`. */
+  darkHue?: number;
+  /** Dark-scheme saturation seed (0–100). Defaults to `saturation`. */
+  darkSaturation?: number;
+}
+
 export interface GlazeTheme {
   /** The hue seed (0–360). */
   readonly hue: number;
   /** The saturation seed (0–100). */
   readonly saturation: number;
+  /** The dark-scheme hue seed (0–360), or `undefined` when `hue` is reused. */
+  readonly darkHue: number | undefined;
+  /** The dark-scheme saturation seed (0–100), or `undefined` when `saturation` is reused. */
+  readonly darkSaturation: number | undefined;
   /** The effective config for this theme. */
   getConfig(): GlazeConfigResolved;
 
@@ -994,6 +1073,10 @@ export interface GlazeTheme {
 export interface GlazeExtendOptions {
   hue?: number;
   saturation?: number;
+  /** Replace the dark-scheme hue seed (0–360). Defaults to the parent's. */
+  darkHue?: number;
+  /** Replace the dark-scheme saturation seed (0–100). Defaults to the parent's. */
+  darkSaturation?: number;
   colors?: ColorMap;
   /** Config override for the child theme. Merged with the parent's override. */
   config?: GlazeConfigOverride;

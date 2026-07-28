@@ -147,6 +147,7 @@ function channelCtxForTheme(
   assertAllPastel(filtered, modes);
   return {
     seedHue: theme.hue,
+    darkSeedHue: theme.darkHue,
     baseName: themeName,
     // Hue var names always follow the themed prefix so the primary's
     // unprefixed alias references `--{themeName}-*-hue` rather than colliding
@@ -233,7 +234,23 @@ export function createThemeFromExport(
       `${factory}: expected numeric "hue" and "saturation" fields.`,
     );
   }
-  return createTheme(data.hue, data.saturation, data.colors, data.config);
+  for (const field of ['darkHue', 'darkSaturation'] as const) {
+    if (data[field] !== undefined && typeof data[field] !== 'number') {
+      throw new Error(
+        `${factory}: expected "${field}" to be a number when present (got ${JSON.stringify(data[field])}).`,
+      );
+    }
+  }
+  return createTheme(
+    {
+      hue: data.hue,
+      saturation: data.saturation,
+      darkHue: data.darkHue,
+      darkSaturation: data.darkSaturation,
+    },
+    data.colors,
+    data.config,
+  );
 }
 
 /**

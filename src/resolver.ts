@@ -66,6 +66,7 @@ import type {
   ColorMap,
   ContrastSpec,
   GlazeConfigResolved,
+  GlazeThemeSeed,
   HCPair,
   MixColorDef,
   RegularColorDef,
@@ -75,9 +76,7 @@ import type {
   ShadowColorDef,
 } from './types';
 
-export interface ResolveContext {
-  hue: number;
-  saturation: number;
+export interface ResolveContext extends GlazeThemeSeed {
   defs: ColorMap;
   resolved: Map<string, ResolvedColor>;
   /** Fully-merged effective config for this resolve pass. */
@@ -264,15 +263,57 @@ function extremeDarkTone(
 function resolveRootColor(
   def: RegularColorDef,
   isHighContrast: boolean,
-): { authorTone: number; satFactor: number } {
+): number {
   const rawT = def.tone!;
   const rawValue = isHighContrast ? pairHC(rawT) : pairNormal(rawT);
   // Root tone is absolute or extreme ('max' = 100, 'min' = 0); both flow
   // through mapToneForScheme (and invert in dark under mode 'auto').
   const parsed = parseToneValue(rawValue);
-  const authorTone = clamp(parsed.value, 0, 100);
+  return clamp(parsed.value, 0, 100);
+}
+
+/**
+ * Effective hue and saturation for one color in one scheme.
+ *
+ * Dark schemes read the dark seed pair and the color's `darkHue` /
+ * `darkSaturation`, each falling back to its light counterpart. An explicit
+ * dark saturation — on the seed or the def — is taken literally; the global
+ * `darkDesaturation` reduction applies only when neither is authored.
+ * `mode: 'static'` pins one value across every scheme, so it skips all of it.
+ *
+ * Shared by `resolveColorForScheme` (the emitted variant) and
+ * `resolveDependentColor` (the contrast solver's inputs) so the solver always
+ * measures the color it is actually going to produce.
+ */
+function resolveChannels(
+  def: RegularColorDef,
+  ctx: ResolveContext,
+  isDark: boolean,
+): { hue: number; saturation: number } {
+  const mode = def.mode ?? 'auto';
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
-  return { authorTone, satFactor };
+
+  if (!isDark || mode === 'static') {
+    return {
+      hue: resolveEffectiveHue(ctx.hue, def.hue),
+      saturation: clamp((satFactor * ctx.saturation) / 100, 0, 1),
+    };
+  }
+
+  const darkSeedSaturation = ctx.darkSaturation ?? ctx.saturation;
+  const darkFactor = clamp(def.darkSaturation ?? satFactor, 0, 1);
+  const explicitDark =
+    def.darkSaturation !== undefined || ctx.darkSaturation !== undefined;
+  const raw = (darkFactor * darkSeedSaturation) / 100;
+
+  return {
+    hue: resolveEffectiveHue(ctx.darkHue ?? ctx.hue, def.darkHue ?? def.hue),
+    saturation: clamp(
+      explicitDark ? raw : mapSaturationDark(raw, mode, ctx.config),
+      0,
+      1,
+    ),
+  };
 }
 
 function resolveDependentColor(
@@ -281,10 +322,10 @@ function resolveDependentColor(
   ctx: ResolveContext,
   isHighContrast: boolean,
   isDark: boolean,
-  effectiveHue: number,
+  channels: { hue: number; saturation: number },
   polarity: 'fg' | 'bg',
   effectivePastel: boolean,
-): { tone: number; satFactor: number } {
+): number {
   const baseName = def.base!;
   const baseResolved = ctx.resolved.get(baseName);
   if (!baseResolved) {
@@ -294,7 +335,6 @@ function resolveDependentColor(
   }
 
   const mode = def.mode ?? 'auto';
-  const satFactor = clamp(def.saturation ?? 1, 0, 1);
   const flip = def.autoFlip ?? ctx.config.autoFlip;
   const pastel = effectivePastel;
 
@@ -371,10 +411,6 @@ function resolveDependentColor(
       polarity,
     );
 
-    const effectiveSat = isDark
-      ? mapSaturationDark((satFactor * ctx.saturation) / 100, mode, ctx.config)
-      : (satFactor * ctx.saturation) / 100;
-
     const baseOkhsl = toOkhslVariant(baseVariant);
     const baseLinearRgb = okhslToLinearSrgb(
       baseOkhsl.h,
@@ -399,8 +435,8 @@ function resolveDependentColor(
       : clamp(preferredTone / 100, toneRange[0], toneRange[1]);
 
     const result = findToneForContrast({
-      hue: effectiveHue,
-      saturation: effectiveSat,
+      hue: channels.hue,
+      saturation: channels.saturation,
       preferredTone: seedTone,
       baseLinearRgb,
       contrast: resolvedContrast,
@@ -420,10 +456,10 @@ function resolveDependentColor(
       );
     }
 
-    return { tone: result.tone * 100, satFactor };
+    return result.tone * 100;
   }
 
-  return { tone: clamp(preferredTone, 0, 100), satFactor };
+  return clamp(preferredTone, 0, 100);
 }
 
 function resolveColorForScheme(
@@ -444,50 +480,34 @@ function resolveColorForScheme(
   const regDef = def as RegularColorDef;
   const mode = regDef.mode ?? 'auto';
   const isRoot = isAbsoluteTone(regDef.tone) && !regDef.base;
-  const effectiveHue = resolveEffectiveHue(ctx.hue, regDef.hue);
+  const channels = resolveChannels(regDef, ctx, isDark);
   const role = resolveRole(name, def, ctx);
   const polarity = roleToPolarity(role);
   const pastel = regDef.pastel ?? ctx.config.pastel;
 
-  let finalTone: number;
-  let satFactor: number;
-
-  if (isRoot) {
-    const root = resolveRootColor(regDef, isHighContrast);
-    finalTone = mapToneForScheme(
-      root.authorTone,
-      mode,
-      isDark,
-      isHighContrast,
-      ctx.config,
-    );
-    satFactor = root.satFactor;
-  } else {
-    const dep = resolveDependentColor(
-      name,
-      regDef,
-      ctx,
-      isHighContrast,
-      isDark,
-      effectiveHue,
-      polarity,
-      pastel,
-    );
-    finalTone = dep.tone;
-    satFactor = dep.satFactor;
-  }
-
-  const baseSat = (satFactor * ctx.saturation) / 100;
-  const finalSat = isDark
-    ? mapSaturationDark(baseSat, mode, ctx.config)
-    : baseSat;
-
-  const toneFraction = clamp(finalTone / 100, 0, 1);
+  const finalTone = isRoot
+    ? mapToneForScheme(
+        resolveRootColor(regDef, isHighContrast),
+        mode,
+        isDark,
+        isHighContrast,
+        ctx.config,
+      )
+    : resolveDependentColor(
+        name,
+        regDef,
+        ctx,
+        isHighContrast,
+        isDark,
+        channels,
+        polarity,
+        pastel,
+      );
 
   return {
-    h: effectiveHue,
-    s: clamp(finalSat, 0, 1),
-    t: toneFraction,
+    h: channels.hue,
+    s: channels.saturation,
+    t: clamp(finalTone / 100, 0, 1),
     alpha: regDef.opacity ?? 1,
     pastel,
   };
@@ -789,8 +809,7 @@ function verifyContrastDrift(
 }
 
 export function resolveAllColors(
-  hue: number,
-  saturation: number,
+  seed: GlazeThemeSeed,
   defs: ColorMap,
   config: GlazeConfigResolved,
   externalBases?: Map<string, ResolvedColor>,
@@ -799,8 +818,7 @@ export function resolveAllColors(
   const order = topoSort(defs);
 
   const ctx: ResolveContext = {
-    hue,
-    saturation,
+    ...seed,
     defs,
     resolved: new Map(),
     config,

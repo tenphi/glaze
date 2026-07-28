@@ -11,6 +11,7 @@ Full reference for every public method, option, and type exported by `@tenphi/gl
   - [Tailwind CSS](#themetailwindoptions)
 - [High-contrast pairs](#high-contrast-pairs)
 - [Color definitions](#color-definitions)
+  - [Dark seed](#dark-seed-darkhue--darksaturation)
 - [Standalone color tokens](#standalone-color-tokens)
 - [Shadows](#shadows)
 - [Mix colors](#mix-colors)
@@ -31,7 +32,7 @@ Full reference for every public method, option, and type exported by `@tenphi/gl
 | Method                                | Description                                                                                                           |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `glaze(hue, saturation?, config?)`    | Create a theme from hue (0–360) and saturation (0–100). Optional `config` overrides the global config for this theme. |
-| `glaze({ hue, saturation }, config?)` | Create a theme from an options object, with optional per-theme config override.                                       |
+| `glaze({ hue, saturation, darkHue?, darkSaturation? }, config?)` | Create a theme from an options object, with optional per-theme config override. `darkHue` / `darkSaturation` seed the dark schemes — see [Dark seed](#dark-seed-darkhue--darksaturation). |
 | `glaze.themeFrom(data)`               | Create a theme from a `theme.export()` snapshot (`kind: 'theme'`).                                                    |
 | `glaze.from(data)`                    | Compat alias for `glaze.themeFrom`.                                                                                   |
 | `glaze.fromHex(hex)`                  | Create a theme from a hex color (`#rgb` or `#rrggbb`). Extracts hue and saturation.                                   |
@@ -45,6 +46,7 @@ Full reference for every public method, option, and type exported by `@tenphi/gl
 ```ts
 const a = glaze(280, 80);
 const b = glaze({ hue: 280, saturation: 80 });
+const bDark = glaze({ hue: 280, saturation: 80, darkHue: 268, darkSaturation: 65 });
 const c = glaze.fromHex('#7a4dbf');
 const d = glaze.fromRgb(122, 77, 191);
 const e = glaze.themeFrom(a.export());
@@ -75,6 +77,8 @@ A `GlazeTheme` exposes:
 | ------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `theme.hue` (readonly)          | The hue seed (0–360).                                                                               |
 | `theme.saturation` (readonly)   | The saturation seed (0–100).                                                                        |
+| `theme.darkHue` (readonly)      | The dark-scheme hue seed (0–360), or `undefined` when `hue` is reused.                              |
+| `theme.darkSaturation` (readonly) | The dark-scheme saturation seed (0–100), or `undefined` when `saturation` is reused.              |
 | `theme.colors(defs)`            | Add/replace colors (additive merge — adds new, overwrites existing by name, doesn't remove others). |
 | `theme.color(name)`             | Get a color definition by name.                                                                     |
 | `theme.color(name, def)`        | Set a single color definition.                                                                      |
@@ -128,6 +132,8 @@ const highSat = base.extend({ config: { darkTone: [10, 100] } });
 | ------------ | --------------------- | -------------------------------------------------------------------------------------------- |
 | `hue`        | `number`              | Replace the hue seed. Defaults to the parent's hue.                                          |
 | `saturation` | `number`              | Replace the saturation seed. Defaults to the parent's saturation.                            |
+| `darkHue`    | `number`              | Replace the dark hue seed. Defaults to the parent's `darkHue`.                               |
+| `darkSaturation` | `number`          | Replace the dark saturation seed. Defaults to the parent's `darkSaturation`.                 |
 | `colors`     | `ColorMap`            | Per-theme overrides (additive merge over the inherited map).                                 |
 | `config`     | `GlazeConfigOverride` | Config override for the child. Shallow-merged with the parent's override — child fields win. |
 
@@ -417,6 +423,8 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 | `tone`       | `HCPair<ToneValue>`             | Number = absolute (0–100). `'+N'`/`'-N'` = a signed **tone delta** from the base (requires `base`). `'max'`/`'min'` = forced to the scheme's tone extreme (no `base`). Optional HC pair `[normal, hc]`.                                                                            |
 | `saturation` | `number`                        | Saturation factor applied to the seed saturation (0–1). Default: `1`.                                                                                                                                                                                                              |
 | `hue`        | `number \| RelativeValue`       | Number = absolute (0–360). String (`'+N'`/`'-N'`) = relative to the **theme seed hue** (never to a base color).                                                                                                                                                                    |
+| `darkHue`    | `number \| RelativeValue`       | Dark-scheme hue. Number = absolute (0–360). String = relative to the **theme dark seed hue**. Falls back to `hue`. See [Dark seed](#dark-seed-darkhue--darksaturation).                                                                                                            |
+| `darkSaturation` | `number`                    | Dark-scheme saturation factor (0–1) over the dark seed saturation. Falls back to `saturation`. When set, the global `darkDesaturation` reduction is **not** applied on top.                                                                                                        |
 | `base`       | `string`                        | Name of another color in the same theme — makes this a _dependent_ color.                                                                                                                                                                                                          |
 | `contrast`   | `HCPair<ContrastSpec>`          | Contrast floor against `base`. Requires `base`. See [`contrast`](#contrast-floor).                                                                                                                                                                                                 |
 | `mode`       | `'auto' \| 'fixed' \| 'static'` | Adaptation mode. Default: `'auto'`. See [Adaptation modes](#adaptation-modes).                                                                                                                                                                                                     |
@@ -560,6 +568,48 @@ theme.colors({
 
 Relative hue is always relative to the **theme seed hue**, not to a base color.
 
+#### Dark seed (`darkHue` / `darkSaturation`)
+
+Tone inverts automatically between light and dark, but hue and saturation do
+not — by default every scheme reuses the one seed, with dark getting a flat
+`darkDesaturation` haircut. When a palette needs a genuinely different chroma in
+dark (a cooler accent, a calmer surface tint), author a second seed:
+
+```ts
+const theme = glaze({
+  hue: 280,
+  saturation: 80,
+  darkHue: 268, // dark schemes seed from 268 instead of 280
+  darkSaturation: 65, // and from 65 instead of 80
+});
+```
+
+Individual colors can override either channel for dark on their own:
+
+```ts
+theme.colors({
+  surface: { tone: 97 },
+  accent: { tone: 55, hue: '+20', darkHue: '+35' },
+  warning: { tone: 60, saturation: 0.9, darkSaturation: 0.6 },
+});
+```
+
+Both apply to the `dark` **and** `darkContrast` variants. The rules:
+
+| Rule | Behavior |
+| ---- | -------- |
+| Units | Seed-level `darkSaturation` is `0–100` (like `saturation` on the theme). Def-level `darkSaturation` is a `0–1` factor (like `saturation` on a color def). |
+| Fallback | `darkHue` falls back to `hue`, `darkSaturation` to `saturation`, and the def falls back to the seed. Omitting everything reproduces the previous behavior exactly. |
+| Relative hue | `darkHue: '+N'` anchors to the theme's **dark** seed hue. A plain `hue: '+N'` with no `darkHue` also re-anchors to the dark seed, so a whole palette rotates together. |
+| Absolute hue | An absolute `hue` (no `darkHue`) is used verbatim in dark — absolute means absolute in every scheme. |
+| `darkDesaturation` | Bypassed as soon as any explicit dark saturation is authored, at either level. The value you write is the value you get. |
+| `mode: 'static'` | Ignores both. A static color is pinned to one hue and saturation across every scheme. |
+| Shadows and mixes | Have no channels of their own — they derive hue and saturation from their `bg` / `fg` / `target`, so they inherit dark overrides automatically. |
+
+With [`splitHue`](#hue-channel-splitting-splithue), a dark seed makes the hue
+custom properties scheme-dependent; Glaze re-declares them in the dark block
+automatically.
+
 #### Per-color `pastel`
 
 `pastel: true` on a single color def overrides the per-theme / per-token `pastel` override for that color only. It toggles the hue-independent "safe" chroma limit used in every OKHSL↔sRGB conversion that touches this color: luminance calculations during contrast solving, gamut clamping during sRGB blend / mix edges, and output formatting. The effective flag is carried on the resolved variant (`ResolvedColorVariant.pastel`) so formatting matches the gamut mapping applied during resolution.
@@ -699,6 +749,9 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `saturation`       | `number`                             | 0–100.                                                                                                                                          |
 | `tone`             | `HCPair<number \| ExtremeValue>`     | 0–100 (contrast-shaped) or `'max'`/`'min'`, optional HC pair.                                                                                   |
 | `saturationFactor` | `number`                             | Multiplier on the seed (0–1). Default: `1`.                                                                                                     |
+| `darkHue`          | `number \| RelativeValue`            | Dark-scheme hue. Absolute (0–360) or `'+N'`/`'-N'` relative to the dark seed hue (which defaults to `hue`). Falls back to `hue`.                 |
+| `darkSaturation`   | `number`                             | Dark-scheme seed saturation (0–100). Falls back to `saturation`.                                                                                |
+| `darkSaturationFactor` | `number`                         | Dark-scheme multiplier on the dark seed (0–1). Falls back to `saturationFactor`.                                                                |
 | `mode`             | `AdaptationMode`                     | Default: `'auto'`.                                                                                                                              |
 | `autoFlip`         | `boolean`                            | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`.                                                                     |
 | `opacity`          | `number`                             | Fixed alpha 0–1.                                                                                                                                |
@@ -717,6 +770,9 @@ glaze.color(color: GlazeFromInput | GlazeColorInput | GlazeColorValue, config?: 
 | `saturation`       | Override seed saturation (0–100).                                                                                                                           |
 | `tone`             | Number (absolute 0–100), `'+N'`/`'-N'`, or `'max'`/`'min'`. Without `base`, relative anchors to the seed; with `base`, anchors to `base`'s tone per scheme. |
 | `saturationFactor` | Multiplier on the seed (0–1).                                                                                                                               |
+| `darkHue`          | Dark-scheme hue: absolute (0–360) or `'+N'`/`'-N'` relative to the dark seed hue. Falls back to `hue`.                                                      |
+| `darkSaturation`   | Dark-scheme seed saturation (0–100). Falls back to `saturation`.                                                                                            |
+| `darkSaturationFactor` | Dark-scheme multiplier on the dark seed (0–1). Falls back to `saturationFactor`.                                                                        |
 | `mode`             | `'auto'` (default) / `'fixed'` / `'static'`.                                                                                                                |
 | `autoFlip`         | Flip out-of-bounds results instead of clamping. Default: global `autoFlip`.                                                                                 |
 | `contrast`         | Contrast floor (WCAG or APCA). Without `base`, anchored to the literal seed; with `base`, solved per scheme.                                                |
@@ -1368,6 +1424,21 @@ On `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and stand
 ```
 
 **Requirements:** every exported color must be pastel (`pastel: true` on the theme/token override or per-color). Pastel mode bounds chroma by the hue-independent safe chroma at each lightness, so emitted `C` stays in sRGB for any rotated hue. Non-pastel palettes throw rather than emit values that would clip under rotation.
+
+**Dark hues:** hue vars are scheme-independent unless the theme or a color authors a [dark hue](#dark-seed-darkhue--darksaturation). When one does, the whole hue set is re-declared in the dark block (and in the Tasty dark state, gated by `modes.dark`):
+
+```css
+/* glaze({ hue: 240, saturation: 18, darkHue: 200 }) */
+:root {
+  --brand-hue: 240;
+  --accent-hue: calc(var(--brand-hue) + 20);
+}
+/* dark */
+--brand-hue: 200;
+--accent-hue: calc(var(--brand-hue) + 20);
+```
+
+`--accent-hue` repeats verbatim on purpose: a custom property substitutes `var()` at computed-value time on the element that declares it, so it has to be re-declared to pick up the new `--brand-hue`. Colors with `mode: 'static'` are pinned to an absolute hue instead, so they don't drift with the dark seed.
 
 **Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow and mix colors stay inline (blended hue). Standalone `.token()` / `.tasty()` do not support `splitHue` (return shape cannot carry the `$name-hue` declaration).
 

@@ -15,6 +15,7 @@
 import {
   buildHuePlans,
   collectHueDeclarations,
+  darkHueDeclarations,
   type ChannelCtx,
   type HuePlan,
 } from './channels';
@@ -152,31 +153,24 @@ export function buildTokenMap(
       : undefined;
 
   if (huePlans !== undefined && channelCtx !== undefined) {
-    const emitDecls = channelCtx.emitDeclarations !== false;
-    if (emitDecls && channelCtx.mode === 'theme') {
-      tokens[`$${channelCtx.baseName}-hue`] = {
-        '': String(channelCtx.seedHue),
-      };
+    for (const decl of collectHueDeclarations(resolved, channelCtx)) {
+      tokens[`$${decl.prop.slice(2)}`] = { '': decl.value };
+    }
+    // Hue vars must not outlive the modes gate the color values respect.
+    if (modes.dark) {
+      for (const decl of darkHueDeclarations(resolved, channelCtx)) {
+        const key = `$${decl.prop.slice(2)}`;
+        tokens[key] = { ...tokens[key], [states.dark]: decl.value };
+      }
     }
     for (const [name, color] of resolved) {
-      const plan = huePlans.get(name)!;
-      if (emitDecls) {
-        for (const decl of plan.declarations) {
-          const key = `$${decl.prop.slice(2)}`;
-          if (!(key in tokens)) {
-            tokens[key] = { '': decl.value };
-          }
-        }
-      }
-      const colorKey = `#${prefix}${name}`;
-      const planForColor = huePlans.get(name);
-      tokens[colorKey] = buildTokenEntry(
+      tokens[`#${prefix}${name}`] = buildTokenEntry(
         color,
         states,
         modes,
         format,
         pastel,
-        planForColor,
+        huePlans.get(name),
       );
     }
     return tokens;
@@ -325,6 +319,10 @@ export function buildCssMap(
   if (huePlans !== undefined && channelCtx !== undefined) {
     for (const decl of collectHueDeclarations(resolved, channelCtx)) {
       lines.light.push(`${decl.prop}: ${decl.value};`);
+    }
+    for (const decl of darkHueDeclarations(resolved, channelCtx)) {
+      lines.dark.push(`${decl.prop}: ${decl.value};`);
+      lines.darkContrast.push(`${decl.prop}: ${decl.value};`);
     }
   }
 
