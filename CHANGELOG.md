@@ -1,5 +1,56 @@
 # @tenphi/glaze
 
+## 1.2.0
+
+### Minor Changes
+
+- [#82](https://github.com/tenphi/glaze/pull/82) [`7002c2d`](https://github.com/tenphi/glaze/commit/7002c2d178b77080c0fc1a9c3aa334acca58b077) Thanks [@tenphi](https://github.com/tenphi)! - Preserve contrast for `tone: 'max'` / `'min'` on colors with a `base`. The
+  extreme is no longer re-mapped through the dark tone window (which compressed
+  the base-to-extreme span and lowered contrast in dark). Glaze now measures the
+  tone shift the light scheme applied between the base and the extreme and
+  replays it against the base's resolved dark tone — mirrored under
+  `mode: 'auto'`, same-signed under `'fixed'`. The result is clamped to
+  `[0, 100]` only, so it may cross the `darkTone` boundary, and pins at the
+  extreme when the shift does not fit. Root extremes (no `base`), `mode: 'static'`,
+  high-contrast variants, and standalone `glaze.color()` tokens are unchanged.
+
+- [#84](https://github.com/tenphi/glaze/pull/84) [`5809f18`](https://github.com/tenphi/glaze/commit/5809f18188b6d54a6d186ed28a9c6e411598b1b9) Thanks [@tenphi](https://github.com/tenphi)! - Add `darkHue` / `darkSaturation` so a palette can seed a different hue and
+  saturation for the dark schemes instead of relying on the flat
+  `darkDesaturation` haircut.
+
+  Set them on the theme seed for a whole-palette shift, or on a single color to
+  retune just that token:
+
+  ```ts
+  const theme = glaze({
+    hue: 280,
+    saturation: 80,
+    darkHue: 268, // dark schemes seed from 268
+    darkSaturation: 65, // and from 65 rather than 80
+  });
+
+  theme.colors({
+    accent: { tone: 55, hue: '+20', darkHue: '+35' },
+    warning: { tone: 60, saturation: 0.9, darkSaturation: 0.6 },
+  });
+  ```
+
+  Both apply to the `dark` and `darkContrast` variants, and both fall back to
+  their light counterparts, so existing themes resolve exactly as before. Seed
+  values use the same units as `hue` / `saturation` (0–360 and 0–100); a color
+  def's `darkSaturation` is a 0–1 factor like its `saturation`. Relative
+  `darkHue: '+N'` anchors to the theme's dark seed hue. Authoring any dark
+  saturation bypasses `darkDesaturation` rather than stacking with it, and
+  `mode: 'static'` ignores both. Shadows and mixes need no new fields — they
+  derive their channels from the colors they reference.
+
+  `glaze.color()` gains the same controls as `darkHue`, `darkSaturation` (0–100
+  seed) and `darkSaturationFactor` (0–1), all round-tripping through
+  `export()` / `glaze.colorFrom()`.
+
+  `splitHue` exports stay correct: when a dark hue is authored, the hue custom
+  properties are re-declared in the dark block and under the Tasty dark state.
+
 ## 1.1.1
 
 ### Patch Changes
