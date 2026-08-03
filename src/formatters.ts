@@ -131,25 +131,28 @@ function formatColorValue(
 /**
  * Resolve the effective output modes for an export.
  *
- * A global manual `contrastLevel` resolves the contrast preference into the
- * normal variants and mirrors them into the high-contrast slots, so a separate
- * high-contrast tier would only repeat them — it defaults off. An explicit
- * `modes.highContrast` still wins (explicit input beats an automatic default
- * everywhere else in Glaze too), and emits values identical to the normal ones.
+ * A global manual `contrastLevel` turns off high-contrast output outright: the
+ * level *is* the contrast preference, so a separate high-contrast tier has no
+ * meaning alongside it. `modes.highContrast` therefore reads as "emit a separate
+ * high-contrast set **when** contrast is automatic" — it goes inert under a
+ * manual level rather than fighting it, and silently, since switching a
+ * preference from auto to manual is normal use and not a mistake to report.
  *
  * A level set on a single theme or token does not change which modes are
  * emitted: sibling themes in a palette may still have a real high-contrast
- * tier, and the manual one correctly reports its own blended values there.
+ * tier, and the manual one correctly reports its own resolved values there —
+ * the alternative would drop its colors from that tier entirely.
  */
 export function resolveModes(
   override?: GlazeOutputModes,
 ): Required<GlazeOutputModes> {
   const cfg = getConfig();
-  const manual = contrastFraction(cfg) !== undefined;
   return {
     dark: override?.dark ?? cfg.modes.dark,
     highContrast:
-      override?.highContrast ?? (manual ? false : cfg.modes.highContrast),
+      contrastFraction(cfg) !== undefined
+        ? false
+        : (override?.highContrast ?? cfg.modes.highContrast),
   };
 }
 

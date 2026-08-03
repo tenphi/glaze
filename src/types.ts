@@ -101,7 +101,14 @@ export type GlazeColorFormat = 'okhsl' | 'okhst' | 'rgb' | 'hsl' | 'oklch';
 export interface GlazeOutputModes {
   /** Include dark scheme variants. Default: true. */
   dark?: boolean;
-  /** Include high-contrast variants (both light-HC and dark-HC). Default: false. */
+  /**
+   * Include high-contrast variants (both light-HC and dark-HC). Default: false.
+   *
+   * Inert while a global `contrastLevel` is set: a manual level has no separate
+   * high-contrast tier, so this reads as "emit high-contrast variants when
+   * contrast is automatic".
+   * @see GlazeConfig.contrastLevel
+   */
   highContrast?: boolean;
 }
 
@@ -457,24 +464,11 @@ export interface GlazeConfig {
    * authored `[normal, highContrast]` pairs, the tone-window widening, and
    * the `AA → AAA` / APCA `+15 Lc` escalation. Contrast floors are re-solved
    * at the interpolated target, so every level is a solution rather than an
-   * approximation.
-   *
-   * ```ts
-   * slider.oninput = () => {
-   *   glaze.configure({ contrastLevel: slider.valueAsNumber });
-   *   apply(theme.css());
-   * };
-   * ```
-   *
-   * Tone pairs whose two ends cannot be interpolated — `[50, 'max']`,
-   * `[50, '+20']`, `['max', 'min']` — switch at level 50, as does a color whose
-   * `autoFlip` side differs between its two ends. (A `contrast` pair that
-   * switches metric is rejected outright: a WCAG ratio and an APCA Lc have no
-   * value in between.) Otherwise a color never changes which side of its base
-   * it sits on as the level moves.
+   * approximation, and a color keeps to one side of its base as the level moves.
    *
    * Pass `'auto'` to leave manual mode; `configure()` never clears a field by
-   * omission.
+   * omission. See `docs/api.md` for the ramp's edge cases (un-interpolable
+   * pairs, side changes) and the export-freeze rule.
    *
    * @default 'auto'
    */

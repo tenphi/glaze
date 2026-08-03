@@ -3546,12 +3546,34 @@ describe('glaze', () => {
         ).toBeUndefined();
       });
 
-      it('honors an explicit modes.highContrast, emitting the mirror', () => {
-        glaze.configure({ contrastLevel: 60 });
-        const theme = fixture();
-        const tokens = theme.tokens({ modes: { highContrast: true } });
-        expect(tokens.lightContrast).toBeDefined();
-        expect(tokens.lightContrast).toEqual(tokens.light);
+      it('ignores modes.highContrast entirely, and says nothing about it', () => {
+        // Flipping a contrast preference from auto to manual is normal use, so a
+        // still-set `highContrast: true` goes quietly inert rather than winning
+        // or warning. It means "emit a separate HC set when contrast is auto".
+        const warn = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          glaze.configure({ contrastLevel: 60 });
+          const theme = fixture();
+          expect(
+            theme.tokens({ modes: { highContrast: true } }).lightContrast,
+          ).toBeUndefined();
+          expect(
+            theme.dtcg({ modes: { highContrast: true } }).lightContrast,
+          ).toBeUndefined();
+          expect(
+            theme.tailwind({ modes: { highContrast: true } }),
+          ).not.toContain('.high-contrast');
+          expect(
+            theme.tasty({ modes: { highContrast: true } })['#surface'][
+              '@media(prefers-contrast: more)'
+            ],
+          ).toBeUndefined();
+          expect(warn).not.toHaveBeenCalled();
+        } finally {
+          warn.mockRestore();
+        }
       });
 
       it('mirrors the high-contrast CSS blocks', () => {

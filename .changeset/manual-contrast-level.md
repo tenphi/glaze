@@ -23,12 +23,15 @@ solved at every level (`contrast: 'AA'` at level 50 solves for 5.75), and the
 floor is met at every level.
 
 While a level is set there is no separate high-contrast tier: `lightContrast` /
-`darkContrast` mirror their normal counterparts, and a global level defaults
-`modes.highContrast` to `false` so no exporter emits the tier. `css()` keeps its
-four-string shape with the high-contrast strings repeating the normal
-declarations, so existing `@media (prefers-contrast: more)` wiring keeps working
-untouched. An explicit `modes: { highContrast: true }` still wins, and a level
-set on one theme of a palette leaves its siblings' high-contrast tier alone.
+`darkContrast` mirror their normal counterparts, and a global level turns
+high-contrast output off outright so no exporter emits the tier.
+`modes.highContrast` goes inert rather than fighting it — it reads as "emit a
+separate high-contrast set *when* contrast is automatic" — so a build config that
+leaves `highContrast: true` set keeps working, silently, when a user switches
+their preference from auto to manual. `css()` keeps its four-string shape with
+the high-contrast strings repeating the normal declarations, so existing
+`@media (prefers-contrast: more)` wiring keeps working untouched. A level set on
+one theme of a palette leaves its siblings' high-contrast tier alone.
 
 **A color never swaps sides of its base mid-slider.** `autoFlip`'s tie-break —
 when both directions meet the floor, take the one nearer the authored tone —
@@ -43,8 +46,7 @@ option on `findToneForContrast`.
 Un-interpolable tone pairs (`[50, 'max']`, `[50, '+20']`, `['max', 'min']`)
 switch at level 50 rather than blending across kinds.
 
-Also exports `resolveContrastForLevel(spec, level, polarity?)` and
-`contrastMetricOf(spec)`.
+Also exports `resolveContrastForLevel(spec, level, polarity?)`.
 
 **A `contrast` pair may no longer switch metric.** `[4.5, { apca: 75 }]` now
 throws a validation error: a WCAG ratio and an APCA Lc are different scales, so

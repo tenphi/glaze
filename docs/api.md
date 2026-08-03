@@ -500,10 +500,12 @@ tier to emit:
 
 - `resolve()` still returns four variants, but `lightContrast` / `darkContrast`
   **mirror** `light` / `dark`.
-- A **global** level defaults `modes.highContrast` to `false`, so
+- A **global** level turns high-contrast output off outright, so
   `tokens()` / `tasty()` / `json()` / `dtcg()` / `dtcgResolver()` / `tailwind()`
-  emit no high-contrast tier. An explicit `modes: { highContrast: true }` still
-  wins and emits values identical to the normal ones.
+  emit no high-contrast tier. `modes.highContrast` goes inert — it reads as
+  "emit a separate high-contrast set *when* contrast is automatic" — so leaving
+  `highContrast: true` set in a build config while a user switches their
+  preference from auto to manual is fine, and silent.
 - `css()` always returns four strings and ignores `modes`, so its
   `lightContrast` / `darkContrast` strings repeat the normal declarations —
   an existing `@media (prefers-contrast: more)` block keeps matching the base
@@ -527,7 +529,7 @@ slider.oninput = () => {
 Because a manual level skips the two high-contrast passes, a manual resolve is
 also half the work of an `'auto'` one.
 
-### Two rules worth knowing
+### Clearing it, exporting it, base links
 
 - **`configure()` never clears a field by omission.** Pass `'auto'` explicitly
   to leave manual mode — globally, or on one theme of a palette.
@@ -536,10 +538,9 @@ also half the work of an `'auto'` one.
   a level merely inherited from the global config is a live user preference and
   is left out, so a restored theme still follows the current slider. This
   matches how `modes` and `states` are treated.
-
-A level set on only one side of a base link (a per-token level on the dependent
-but not on its base) anchors the two sides at different levels — set the level
-globally, or on both. Same caveat as a per-instance `lightTone` override.
+- **Set the level globally, or on both sides of a base link.** A per-token level
+  on a dependent but not on its base anchors the two at different levels — the
+  same caveat as a per-instance `lightTone` override.
 
 `resolveContrastForLevel(spec, level, polarity?)` is exported for advanced use;
 see [Contrast solver](#contrast-solver).
@@ -1710,7 +1711,7 @@ boundaries, not the tone transfer.
 | `states.dark`         | `'@media(prefers-color-scheme: dark)'` | State alias for dark mode tokens ([Tasty](https://tasty.style) export). Defaults to a media query so tokens react to the OS preference without registering custom states.                                                                                                                                                                                                                                                                        |
 | `states.highContrast` | `'@media(prefers-contrast: more)'`     | State alias for HC tokens ([Tasty](https://tasty.style) export).                                                                                                                                                                                                                                                                                                                                                                                 |
 | `modes.dark`          | `true`                                 | Include dark variants in exports.                                                                                                                                                                                                                                                                                                                                                                                         |
-| `modes.highContrast`  | `false`                                | Include HC variants. Forced to `false` by a global [`contrastLevel`](#manual-contrast-level) unless a per-export `modes` says otherwise.                                                                                                                                                                                                                                                                                   |
+| `modes.highContrast`  | `false`                                | Include HC variants. Inert while a global [`contrastLevel`](#manual-contrast-level) is set — a manual level has no separate HC tier, so this reads as "emit HC variants when contrast is automatic".                                                                                                                                                                                                                                                                                   |
 | `shadowTuning`        | `undefined`                            | Default tuning for all shadow colors. Per-color tuning merges field-by-field.                                                                                                                                                                                                                                                                                                                                             |
 | `autoFlip`            | `true`                                 | Default for each color's `autoFlip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`autoFlip`](#autoflip). |
 | `inferRole`           | `true`                                 | Infer each color's [`role`](#roles) from its name when no explicit `role` is set. Set to `false` to opt out of name-based inference (the base-opposite and foreground-default fallbacks still apply).                                                                                                                                                                                                                     |
@@ -1744,9 +1745,10 @@ palette.tokens({ modes: { dark: true, highContrast: true } });
 
 Resolution priority (highest first):
 
-1. Per-call `modes` option on `tokens` / `tasty` / `json`.
-2. A global [`contrastLevel`](#manual-contrast-level) — forces `highContrast: false`,
-   since a manual level leaves no separate high-contrast tier to emit.
+1. A global [`contrastLevel`](#manual-contrast-level) — pins
+   `highContrast: false`, since a manual level leaves no separate high-contrast
+   tier to emit. `highContrast` is inert while it is set.
+2. Per-call `modes` option on `tokens` / `tasty` / `json`.
 3. `glaze.configure({ modes })` — global config.
 4. Built-in default: `{ dark: true, highContrast: false }`.
 
