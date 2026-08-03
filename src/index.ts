@@ -99,6 +99,7 @@ export {
   findValueForMixContrast,
   resolveMinContrast,
   resolveContrastForMode,
+  resolveContrastForLevel,
   resolveApcaTarget,
   apcaContrast,
   APCA_PRESETS,

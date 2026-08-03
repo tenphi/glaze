@@ -11,13 +11,15 @@
  * - the resolved-variant edge adapter (`variantToOkhsl`),
  * - the per-scheme tone mapping that replaced the Möbius dark curve
  *   (`mapToneForScheme`), the dark desaturation reducer, and the solver's scheme
- *   tone range.
+ *   tone range,
+ * - the scheme tone window, including the high-contrast bypass and its
+ *   continuous generalization under a manual contrast level.
  *
  * See `docs/okhst.md` for the full specification and the calibrated
  * default constants.
  */
 
-import { clamp } from './hc-pair';
+import { clamp, contrastFraction, lerp } from './hc-pair';
 import { toe, toeInv } from './okhsl-color-math';
 import type { AdaptationMode, GlazeConfigResolved, ToneWindow } from './types';
 
@@ -140,7 +142,12 @@ export function normalizeToneWindow(win: ToneWindow): {
 /**
  * Resolve the active tone window for a scheme as OKHSL-lightness endpoints.
  * - HC variants always return the full range `[0, 100]` with the mode eps.
- * - `false` (= "no clamping") is treated as `[0, 100]` with the reference eps.
+ * - Under a manual `contrastLevel`, each endpoint is interpolated toward that
+ *   full range: light `10 → 0` / `100 → 100`, dark `15 → 0` / `95 → 100`. The
+ *   endpoints are exact — level 0 returns the configured window and level 100
+ *   the same literal the HC branch returns.
+ * - `false` (= "no clamping") is treated as `[0, 100]` with the reference eps,
+ *   and is therefore level-invariant.
  */
 function activeWindow(
   isHighContrast: boolean,
@@ -151,7 +158,12 @@ function activeWindow(
     kind === 'dark' ? config.darkTone : config.lightTone,
   );
   if (isHighContrast) return { lo: 0, hi: 100, eps: win.eps };
-  return win;
+  const f = contrastFraction(config);
+  if (f === undefined || f <= 0) return win;
+  if (f >= 1) return { lo: 0, hi: 100, eps: win.eps };
+  // The render eps is not interpolated — HC keeps the configured eps today, so
+  // the ramp does too.
+  return { lo: lerp(win.lo, 0, f), hi: lerp(win.hi, 100, f), eps: win.eps };
 }
 
 /**
@@ -181,6 +193,9 @@ function remapToneToLightness(
  * The window remap uses the mode's render eps to land a final OKHSL
  * lightness; that lightness is then re-expressed as canonical tone so
  * relative offsets and contrast stay comparable across schemes.
+ *
+ * A manual `contrastLevel` widens the window continuously (see
+ * `activeWindow`); inversion is unaffected.
  */
 export function mapToneForScheme(
   authorTone: number,
@@ -220,7 +235,8 @@ export function mapSaturationDark(
 /**
  * Tone search range (0–1) for the contrast solver in a given scheme.
  * `static` searches the full range; otherwise the scheme window's tone
- * endpoints (HC bypasses to full range).
+ * endpoints (HC bypasses to full range, a manual `contrastLevel` widens
+ * toward it — see `activeWindow`).
  */
 export function schemeToneRange(
   isDark: boolean,

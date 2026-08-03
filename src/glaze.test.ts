@@ -3079,4 +3079,639 @@ describe('glaze', () => {
       }
     });
   });
+
+  describe('manual contrast level', () => {
+    /**
+     * A theme exercising all three mechanisms the level interpolates —
+     * authored HC pairs, the tone window, and the contrast escalation —
+     * across every def kind.
+     */
+    function fixture(config?: Parameters<typeof glaze>[2]) {
+      const theme = glaze(
+        { hue: 280, saturation: 80, darkHue: 265, darkSaturation: 60 },
+        undefined,
+        config,
+      );
+      theme.colors({
+        surface: { tone: 97 },
+        surfaceAlt: { base: 'surface', tone: '-6' },
+        deltaPair: { base: 'surface', tone: ['-6', '-12'] },
+        tonePair: { base: 'surface', tone: [30, 20] },
+        text: { base: 'surface', tone: 25, contrast: 'AA', role: 'text' },
+        apcaText: {
+          base: 'surface',
+          tone: 25,
+          contrast: { apca: 60 },
+          role: 'text',
+        },
+        innerPair: { base: 'surface', tone: 30, contrast: { wcag: [4.5, 7] } },
+        outerPair: {
+          base: 'surface',
+          tone: 30,
+          contrast: [{ apca: 60 }, { apca: 90 }],
+        },
+        knockout: { base: 'surface', tone: 'max' },
+        pinned: { tone: 50, mode: 'static' },
+        fixedTone: { tone: 40, mode: 'fixed' },
+        faded: { base: 'surface', tone: 60, opacity: 0.5 },
+        ghost: {
+          type: 'mix',
+          base: 'surface',
+          target: 'text',
+          value: [20, 40],
+        },
+        shade: {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'text',
+          intensity: [30, 60],
+        },
+      });
+      return theme;
+    }
+
+    describe('bit-exact endpoints', () => {
+      it('level 0 reproduces the normal variants exactly', () => {
+        const anchors = structuredClone([...fixture().resolve()]);
+        glaze.configure({ contrastLevel: 0 });
+        const manual = fixture().resolve();
+        for (const [name, anchor] of anchors) {
+          expect(manual.get(name)!.light).toEqual(anchor.light);
+          expect(manual.get(name)!.dark).toEqual(anchor.dark);
+        }
+      });
+
+      it('level 100 reproduces the high-contrast variants exactly', () => {
+        const anchors = structuredClone([...fixture().resolve()]);
+        glaze.configure({ contrastLevel: 100 });
+        const manual = fixture().resolve();
+        for (const [name, anchor] of anchors) {
+          expect(manual.get(name)!.light).toEqual(anchor.lightContrast);
+          expect(manual.get(name)!.dark).toEqual(anchor.darkContrast);
+        }
+      });
+
+      it('is exact through a per-theme override too', () => {
+        const anchors = structuredClone([...fixture().resolve()]);
+        const lo = fixture({ contrastLevel: 0 }).resolve();
+        const hi = fixture({ contrastLevel: 100 }).resolve();
+        for (const [name, anchor] of anchors) {
+          expect(lo.get(name)!.light).toEqual(anchor.light);
+          expect(hi.get(name)!.light).toEqual(anchor.lightContrast);
+          expect(hi.get(name)!.dark).toEqual(anchor.darkContrast);
+        }
+      });
+
+      it('emits byte-identical CSS at the endpoints', () => {
+        const theme = fixture();
+        const auto = theme.css();
+
+        glaze.configure({ contrastLevel: 0 });
+        expect(theme.css().light).toBe(auto.light);
+        expect(theme.css().dark).toBe(auto.dark);
+
+        glaze.configure({ contrastLevel: 100 });
+        expect(theme.css().light).toBe(auto.lightContrast);
+        expect(theme.css().dark).toBe(auto.darkContrast);
+      });
+    });
+
+    describe('the ramp', () => {
+      const levels = [0, 20, 40, 60, 80, 100];
+
+      /**
+       * Monotonicity holds for interpolable fields — the fixture below avoids
+       * mixed-kind pairs, which switch at level 50 by design.
+       */
+      it('never lowers measured WCAG contrast as the level rises', () => {
+        let previousLight = 0;
+        let previousDark = 0;
+        for (const level of levels) {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const r = fixture().resolve();
+          const light = variantContrast(
+            r.get('text')!.light,
+            r.get('surface')!.light,
+          );
+          const dark = variantContrast(
+            r.get('text')!.dark,
+            r.get('surface')!.dark,
+          );
+          expect(light).toBeGreaterThanOrEqual(previousLight - 1e-9);
+          expect(dark).toBeGreaterThanOrEqual(previousDark - 1e-9);
+          previousLight = light;
+          previousDark = dark;
+        }
+      });
+
+      it('never lowers measured APCA contrast as the level rises', () => {
+        let previous = 0;
+        for (const level of levels) {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const r = fixture().resolve();
+          const lc = variantApca(
+            r.get('apcaText')!.light,
+            r.get('surface')!.light,
+            'fg',
+          );
+          expect(lc).toBeGreaterThanOrEqual(previous - 1e-9);
+          previous = lc;
+        }
+      });
+
+      it('lands each intermediate tone between its neighbours', () => {
+        const tones = levels.map((level) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          return fixture().resolve().get('tonePair')!.light.t;
+        });
+        for (let i = 1; i < tones.length - 1; i++) {
+          const [lo, hi] = [tones[i - 1], tones[i + 1]].sort((a, b) => a - b);
+          expect(tones[i]).toBeGreaterThanOrEqual(lo);
+          expect(tones[i]).toBeLessThanOrEqual(hi);
+        }
+      });
+    });
+
+    describe('mechanism: tone window widening', () => {
+      // Asserted on colors with no contrast floor: for solved colors the
+      // window only clamps the solver's seed, so it is a weak probe there.
+      it('walks the light window floor toward 0', () => {
+        const at = (level: number | 'auto') => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0);
+          theme.colors({ floor: { tone: 0 } });
+          return llOf(theme.resolve().get('floor')!.light);
+        };
+        expect(at(0)).toBeCloseTo(0.1, 4);
+        expect(at(50)).toBeCloseTo(0.05, 4);
+        expect(at(100)).toBeCloseTo(0, 4);
+      });
+
+      it('walks the dark window floor toward 0', () => {
+        const at = (level: number) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0);
+          theme.colors({ ceil: { tone: 100 } });
+          // `tone: 100` inverts to 0 in dark under mode 'auto', landing on the
+          // dark window's `lo` (15 → 7.5 at level 50 → 0 at 100).
+          return llOf(theme.resolve().get('ceil')!.dark);
+        };
+        expect(at(0)).toBeCloseTo(0.15, 4);
+        expect(at(50)).toBeCloseTo(0.075, 4);
+        expect(at(100)).toBeCloseTo(0, 4);
+      });
+
+      it('leaves a disabled window level-invariant', () => {
+        const at = (level: number) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0, { lightTone: false });
+          theme.colors({ floor: { tone: 20 } });
+          return theme.resolve().get('floor')!.light.t;
+        };
+        expect(at(0)).toBeCloseTo(at(100), 10);
+      });
+    });
+
+    describe('mechanism: authored pairs', () => {
+      it('resolves an absolute tone pair as its midpoint at level 50', () => {
+        glaze.configure({ contrastLevel: 50 });
+        const theme = glaze(0, 0, { lightTone: false });
+        theme.colors({
+          surface: { tone: 97 },
+          text: { base: 'surface', tone: [30, 10] },
+          authored: { base: 'surface', tone: 20 },
+        });
+        const r = theme.resolve();
+        expect(r.get('text')!.light.t).toBeCloseTo(
+          r.get('authored')!.light.t,
+          6,
+        );
+      });
+
+      it('interpolates shadow intensity and mix value', () => {
+        const alphaAt = (level: number) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const r = fixture().resolve();
+          return {
+            shadow: r.get('shade')!.light.alpha,
+            mix: r.get('ghost')!.light.t,
+          };
+        };
+        const lo = alphaAt(0);
+        const mid = alphaAt(50);
+        const hi = alphaAt(100);
+        expect(mid.shadow).toBeGreaterThan(lo.shadow);
+        expect(mid.shadow).toBeLessThan(hi.shadow);
+        expect(mid.mix).toBeGreaterThan(hi.mix);
+        expect(mid.mix).toBeLessThan(lo.mix);
+      });
+
+      it('rejects a contrast pair that switches metric', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          bg: { tone: 97 },
+          fg: { base: 'bg', tone: 40, contrast: [4.5, { apca: 75 }] },
+        });
+        expect(() => theme.resolve()).toThrow(/switches metric/);
+      });
+
+      it('switches a mixed-kind tone pair at level 50', () => {
+        // `lightTone: false` pins the window so this isolates the pair switch
+        // from the window widening, which keeps ramping either side of 50.
+        const toneAt = (level: number) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0, { lightTone: false });
+          theme.colors({
+            surface: { tone: 60 },
+            chip: { base: 'surface', tone: [50, 'max'] },
+          });
+          return theme.resolve().get('chip')!.light.t;
+        };
+        expect(toneAt(49)).toBeCloseTo(toneAt(0), 10);
+        expect(toneAt(49)).toBeCloseTo(0.5, 6);
+        expect(toneAt(50)).toBeCloseTo(toneAt(100), 10);
+        expect(toneAt(50)).toBeCloseTo(1, 6);
+      });
+    });
+
+    describe('mechanism: contrast escalation', () => {
+      it('meets an interpolated WCAG floor at mid-level', () => {
+        glaze.configure({ contrastLevel: 50 });
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { tone: 97 },
+          text: { base: 'surface', tone: 60, contrast: 'AA', role: 'text' },
+        });
+        const r = theme.resolve();
+        // AA (4.5) → AAA (7) interpolates to 5.75 at level 50.
+        expectMeetsWcag(
+          variantContrast(r.get('text')!.light, r.get('surface')!.light),
+          5.75,
+        );
+      });
+
+      it('keeps an explicit HC pair from escalating across the ramp', () => {
+        const at = (level: number) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0);
+          theme.colors({
+            surface: { tone: 97 },
+            text: {
+              base: 'surface',
+              tone: 60,
+              contrast: { wcag: ['AA', 'AA'] },
+              role: 'text',
+            },
+          });
+          const r = theme.resolve();
+          return variantContrast(r.get('text')!.light, r.get('surface')!.light);
+        };
+        // The target stays 4.5 at every level (an explicit HC entry cancels the
+        // AA→AAA promotion), so the measured contrast never climbs toward 7.
+        // It is not bit-flat: the solver's overshoot allowance and the widening
+        // seed clamp both move the solved tone by a hair.
+        for (const level of [0, 50, 100]) {
+          expectMeetsWcag(at(level), 4.5);
+          expect(at(level)).toBeLessThan(4.6);
+        }
+      });
+    });
+
+    describe('direction stability', () => {
+      const LEVELS = [0, 10, 20, 30, 40, 49, 50, 51, 60, 80, 90, 100];
+
+      /** Signed tone delta of a solved color against its base, per level. */
+      function deltasAcrossRamp(baseTone: number, tone: string): number[] {
+        return LEVELS.map((level) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0);
+          theme.colors({
+            bg: { tone: baseTone },
+            chip: { base: 'bg', tone, contrast: 'AA', role: 'text' },
+          });
+          const r = theme.resolve();
+          return r.get('chip')!.light.t - r.get('bg')!.light.t;
+        });
+      }
+
+      /** Levels at which the solved side differs from the previous level's. */
+      function switchLevels(deltas: number[]): number[] {
+        const out: number[] = [];
+        for (let i = 1; i < deltas.length; i++) {
+          if (Math.sign(deltas[i]) !== Math.sign(deltas[i - 1])) {
+            out.push(LEVELS[i]);
+          }
+        }
+        return out;
+      }
+
+      // Both fixtures wobble when the solver re-decides per level: `autoFlip`
+      // takes whichever side lands nearer the anchor when both meet the floor,
+      // and that shifts with the target. Their two endpoints genuinely disagree
+      // (no side satisfies both a 4.5 and a 7 floor here), so a single switch is
+      // unavoidable — but it now lands at 50 instead of wherever reachability
+      // happened to tip.
+      it('switches side at most once, at level 50', () => {
+        expect(switchLevels(deltasAcrossRamp(42, '-20'))).toEqual([50]);
+        expect(switchLevels(deltasAcrossRamp(50, '+10'))).toEqual([50]);
+      });
+
+      it('never switches side when the two endpoints agree', () => {
+        for (const [baseTone, tone] of [
+          [97, '-20'],
+          [30, '-10'],
+          [88, '+8'],
+          [55, '-25'],
+        ] as const) {
+          const deltas = deltasAcrossRamp(baseTone, tone);
+          expect(switchLevels(deltas)).toEqual([]);
+        }
+      });
+
+      it('meets the interpolated floor at every level', () => {
+        // A reachable fixture: the pin only reorders the tie-break, so `flip`
+        // still falls back when a side cannot physically reach the target.
+        for (const level of LEVELS) {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0);
+          theme.colors({
+            bg: { tone: 97 },
+            chip: { base: 'bg', tone: '-20', contrast: 'AA', role: 'text' },
+          });
+          const r = theme.resolve();
+          // AA (4.5) ramps to AAA (7).
+          expectMeetsWcag(
+            variantContrast(r.get('chip')!.light, r.get('bg')!.light),
+            4.5 + (7 - 4.5) * (level / 100),
+          );
+        }
+      });
+
+      it('never emits less contrast than the weaker endpoint', () => {
+        // For a color whose floor is physically unreachable, both endpoints
+        // clamp to an extreme. Pinning must not make any level worse than the
+        // weaker of the two anchors it ramps between.
+        const anchors = (() => {
+          const theme = glaze(0, 0);
+          theme.colors({
+            bg: { tone: 42 },
+            chip: { base: 'bg', tone: '-20', contrast: 'AA', role: 'text' },
+          });
+          const r = theme.resolve();
+          return [
+            variantContrast(r.get('chip')!.light, r.get('bg')!.light),
+            variantContrast(
+              r.get('chip')!.lightContrast,
+              r.get('bg')!.lightContrast,
+            ),
+          ];
+        })();
+        const weakest = Math.min(...anchors);
+        for (const level of LEVELS) {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0);
+          theme.colors({
+            bg: { tone: 42 },
+            chip: { base: 'bg', tone: '-20', contrast: 'AA', role: 'text' },
+          });
+          const r = theme.resolve();
+          expect(
+            variantContrast(r.get('chip')!.light, r.get('bg')!.light),
+          ).toBeGreaterThanOrEqual(weakest * WCAG_MEASURE_SLACK);
+        }
+      });
+    });
+
+    describe('invariants', () => {
+      it("leaves mode: 'static' colors untouched at every level", () => {
+        const at = (level: number) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          return fixture().resolve().get('pinned')!;
+        };
+        expect(at(100).light.t).toBeCloseTo(at(0).light.t, 10);
+        expect(at(100).dark.t).toBeCloseTo(at(0).dark.t, 10);
+      });
+
+      it('keeps root/dependent classification level-independent', () => {
+        // `isAbsoluteTone` inspects only the normal entry, so a pair whose HC
+        // entry is relative still resolves as a root at every level.
+        const at = (level: number) => {
+          glaze.resetConfig();
+          glaze.configure({ contrastLevel: level });
+          const theme = glaze(0, 0);
+          theme.colors({ odd: { tone: [50, '+20'] } });
+          return theme.resolve().get('odd')!.light.t;
+        };
+        expect(at(0)).toBeGreaterThan(0);
+        expect(at(100)).toBeGreaterThan(0);
+      });
+    });
+
+    describe('output', () => {
+      it('mirrors the high-contrast slots onto the normal ones', () => {
+        glaze.configure({ contrastLevel: 60 });
+        const r = fixture().resolve();
+        for (const color of r.values()) {
+          expect(color.lightContrast).toBe(color.light);
+          expect(color.darkContrast).toBe(color.dark);
+        }
+      });
+
+      it('drops the high-contrast tier from every exporter', () => {
+        glaze.configure({ modes: { highContrast: true }, contrastLevel: 60 });
+        const theme = fixture();
+        expect(theme.tokens().lightContrast).toBeUndefined();
+        expect(theme.tokens().darkContrast).toBeUndefined();
+        expect(theme.json().surface.lightContrast).toBeUndefined();
+        expect(theme.dtcg().lightContrast).toBeUndefined();
+        expect(
+          theme.dtcgResolver().modifiers.scheme.contexts.lightContrast,
+        ).toBeUndefined();
+        expect(theme.tailwind()).not.toContain('.high-contrast');
+        expect(
+          theme.tasty()['#surface']['@media(prefers-contrast: more)'],
+        ).toBeUndefined();
+      });
+
+      it('honors an explicit modes.highContrast, emitting the mirror', () => {
+        glaze.configure({ contrastLevel: 60 });
+        const theme = fixture();
+        const tokens = theme.tokens({ modes: { highContrast: true } });
+        expect(tokens.lightContrast).toBeDefined();
+        expect(tokens.lightContrast).toEqual(tokens.light);
+      });
+
+      it('mirrors the high-contrast CSS blocks', () => {
+        glaze.configure({ contrastLevel: 60 });
+        const css = fixture().css();
+        expect(css.lightContrast).toBe(css.light);
+        expect(css.darkContrast).toBe(css.dark);
+      });
+
+      it('leaves default output untouched at level 0', () => {
+        const theme = fixture();
+        const auto = theme.tokens();
+        glaze.configure({ contrastLevel: 0 });
+        expect(theme.tokens()).toEqual(auto);
+      });
+
+      it('keeps a sibling theme’s high-contrast tier in a palette', () => {
+        glaze.configure({ modes: { highContrast: true } });
+        const manual = glaze(280, 80, { contrastLevel: 100 });
+        manual.colors({ surface: { tone: 97 } });
+        const auto = glaze(120, 80);
+        auto.colors({ surface: { tone: 97 } });
+        const tokens = glaze
+          .palette({ manual, auto })
+          .tokens({ modes: { highContrast: true } });
+        // The auto theme still escalates...
+        expect(tokens.lightContrast['auto-surface']).not.toBe(
+          tokens.light['auto-surface'],
+        );
+        // ...while the manual theme reports its own resolved value.
+        expect(tokens.lightContrast['manual-surface']).toBe(
+          tokens.light['manual-surface'],
+        );
+      });
+    });
+
+    describe('config plumbing', () => {
+      it("defaults to 'auto'", () => {
+        expect(glaze.getConfig().contrastLevel).toBe('auto');
+      });
+
+      it('round-trips through configure and back to auto', () => {
+        glaze.configure({ contrastLevel: 60 });
+        expect(glaze.getConfig().contrastLevel).toBe(60);
+        glaze.configure({ contrastLevel: 'auto' });
+        expect(glaze.getConfig().contrastLevel).toBe('auto');
+      });
+
+      it('clamps out-of-range levels and rejects non-finite ones', () => {
+        glaze.configure({ contrastLevel: 150 });
+        expect(glaze.getConfig().contrastLevel).toBe(100);
+        glaze.configure({ contrastLevel: -20 });
+        expect(glaze.getConfig().contrastLevel).toBe(0);
+        expect(() => glaze.configure({ contrastLevel: NaN })).toThrow(
+          /contrastLevel/,
+        );
+      });
+
+      it('lets an instance override or opt out of the global level', () => {
+        glaze.configure({ contrastLevel: 100 });
+        expect(
+          glaze(0, 0, { contrastLevel: 40 }).getConfig().contrastLevel,
+        ).toBe(40);
+        expect(
+          glaze(0, 0, { contrastLevel: 'auto' }).getConfig().contrastLevel,
+        ).toBe('auto');
+      });
+
+      it('inherits and overrides through extend()', () => {
+        const parent = glaze(0, 0, { contrastLevel: 60 });
+        expect(parent.extend({}).getConfig().contrastLevel).toBe(60);
+        expect(
+          parent.extend({ config: { contrastLevel: 20 } }).getConfig()
+            .contrastLevel,
+        ).toBe(20);
+      });
+
+      it('invalidates the resolve cache when the level changes', () => {
+        const theme = fixture();
+        const before = theme.resolve().get('text')!.light.t;
+        glaze.configure({ contrastLevel: 100 });
+        expect(theme.resolve().get('text')!.light.t).not.toBe(before);
+      });
+
+      it('applies an opted-out instance under a global level', () => {
+        const anchors = structuredClone([...fixture().resolve()]);
+        glaze.configure({ contrastLevel: 100 });
+        const optedOut = fixture({ contrastLevel: 'auto' }).resolve();
+        for (const [name, anchor] of anchors) {
+          expect(optedOut.get(name)!.light).toEqual(anchor.light);
+          expect(optedOut.get(name)!.lightContrast).toEqual(
+            anchor.lightContrast,
+          );
+        }
+      });
+    });
+
+    describe('authoring export', () => {
+      it('freezes an instance-authored level', () => {
+        const data = glaze(280, 80, { contrastLevel: 60 }).export();
+        expect(data.config!.contrastLevel).toBe(60);
+      });
+
+      it('does not freeze a level inherited from the global config', () => {
+        glaze.configure({ contrastLevel: 60 });
+        // A global level is a live preference, not authored theme data.
+        expect(glaze(280, 80).export().config!.contrastLevel).toBeUndefined();
+      });
+
+      it('freezes a level passed to export()', () => {
+        const data = glaze(280, 80).export({ contrastLevel: 30 });
+        expect(data.config!.contrastLevel).toBe(30);
+      });
+
+      it('restores a frozen level after the global resets', () => {
+        const source = fixture({ contrastLevel: 100 });
+        const expected = source.resolve().get('text')!.light.t;
+        const data = source.export();
+        glaze.resetConfig();
+        const restored = glaze.themeFrom(data);
+        expect(restored.getConfig().contrastLevel).toBe(100);
+        expect(restored.resolve().get('text')!.light.t).toBeCloseTo(
+          expected,
+          10,
+        );
+      });
+    });
+
+    describe('standalone tokens', () => {
+      it('resolves a token at the level', () => {
+        const auto = glaze.color({ hue: 280, saturation: 80, tone: [30, 10] });
+        const anchor = structuredClone(auto.resolve());
+        glaze.configure({ contrastLevel: 100 });
+        const manual = glaze.color({
+          hue: 280,
+          saturation: 80,
+          tone: [30, 10],
+        });
+        expect(manual.resolve().light).toEqual(anchor.lightContrast);
+      });
+
+      it('is exact for a base-linked token under a global level', () => {
+        const build = () => {
+          const bg = glaze.color('#ffffff');
+          return glaze.color({
+            from: '#8080ff',
+            base: bg,
+            contrast: 'AA',
+            role: 'text',
+          });
+        };
+        const anchor = structuredClone(build().resolve());
+        glaze.configure({ contrastLevel: 100 });
+        expect(build().resolve().light).toEqual(anchor.lightContrast);
+      });
+
+      it('accepts a per-token level', () => {
+        const token = glaze.color('#8080ff', { contrastLevel: 100 });
+        expect(token.resolve().lightContrast).toBe(token.resolve().light);
+      });
+    });
+  });
 });

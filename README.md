@@ -32,6 +32,7 @@ contrast floor.
 - **Mix colors** — blend two colors with OKHSL or sRGB interpolation, opaque or transparent, with optional contrast solving
 - **Shadow colors** — OKHSL-native shadow computation with automatic alpha, fg/bg tinting, and per-scheme adaptation
 - **Light + Dark + High-Contrast** — all schemes from one definition
+- **Manual contrast level** — swap the high-contrast tier for a `0–100` slider; `0` is your normal palette, `100` the high-contrast one, and every level in between is solved, not approximated
 - **Per-color hue override** — absolute or relative hue shifts within a theme
 - **Multi-format output** — native `rgb`, `hsl`, and `oklch`, plus
   [Tasty](https://tasty.style)-compatible `okhsl` and `okhst`

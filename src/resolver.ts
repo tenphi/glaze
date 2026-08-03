@@ -2,7 +2,10 @@
  * Color resolution engine.
  *
  * Runs the four-pass solver (light → light-HC → dark → dark-HC) that
- * turns a `ColorMap` into a fully resolved `ResolvedColor` per name.
+ * turns a `ColorMap` into a fully resolved `ResolvedColor` per name — or,
+ * under a manual `contrastLevel`, a two-pass solver (light → dark) whose
+ * authored HC pairs, tone window, and contrast targets are interpolated at
+ * that level and whose high-contrast slots mirror the normal ones.
  * Owns the per-scheme resolve helpers for regular, shadow, and mix
  * color defs.
  *
@@ -25,15 +28,20 @@ import {
   findToneForContrast,
   findValueForMixContrast,
   metricLuminance,
+  resolveContrastForLevel,
   resolveContrastForMode,
 } from './contrast-solver';
 import type { LinearRgb, ResolvedContrast } from './contrast-solver';
 import {
+  PAIR_SWITCH,
   clamp,
+  contrastFraction,
   isAbsoluteTone,
+  numberAt,
   pairHC,
   pairNormal,
   parseToneValue,
+  parseToneValueAt,
   resolveEffectiveHue,
 } from './hc-pair';
 import {
@@ -74,6 +82,7 @@ import type {
   ResolvedColorVariant,
   Role,
   ShadowColorDef,
+  ToneValue,
 } from './types';
 
 export interface ResolveContext extends GlazeThemeSeed {
@@ -200,8 +209,19 @@ function resolveRole(name: string, def: ColorDef, ctx: ResolveContext): Role {
 function resolveContrastSpec(
   spec: HCPair<ContrastSpec>,
   isHighContrast: boolean,
+  config: GlazeConfigResolved,
   polarity?: 'fg' | 'bg',
 ): ResolvedContrast {
+  if (!isHighContrast && contrastFraction(config) !== undefined) {
+    // `contrastFraction` returning a value already proves the level is a finite
+    // number rather than `'auto'`. Pass the authored 0–100 level, not the
+    // fraction, so it round-trips exactly at the endpoints.
+    return resolveContrastForLevel(
+      spec,
+      config.contrastLevel as number,
+      polarity,
+    );
+  }
   const outerExplicitHC = Array.isArray(spec);
   const outer = isHighContrast ? pairHC(spec) : pairNormal(spec);
   return resolveContrastForMode(
@@ -210,6 +230,36 @@ function resolveContrastSpec(
     polarity,
     outerExplicitHC,
   );
+}
+
+/**
+ * The authored tone for this pass: the pair's own entry in `'auto'` mode, or
+ * the manual-level interpolation. Returns the parsed struct so the `kind` —
+ * which selects the branch in `resolveDependentColor` — is fixed here once.
+ */
+function passTone(
+  tone: HCPair<ToneValue>,
+  isHighContrast: boolean,
+  config: GlazeConfigResolved,
+): { kind: 'absolute' | 'relative' | 'extreme'; value: number } {
+  const f = contrastFraction(config);
+  if (f === undefined || isHighContrast) {
+    return parseToneValue(isHighContrast ? pairHC(tone) : pairNormal(tone));
+  }
+  return parseToneValueAt(tone, f);
+}
+
+/** The authored numeric pair for this pass (shadow `intensity`, mix `value`). */
+function passNumber(
+  p: HCPair<number>,
+  isHighContrast: boolean,
+  config: GlazeConfigResolved,
+): number {
+  const f = contrastFraction(config);
+  if (f === undefined || isHighContrast) {
+    return isHighContrast ? pairHC(p) : pairNormal(p);
+  }
+  return numberAt(p, f);
 }
 
 /**
@@ -263,12 +313,11 @@ function extremeDarkTone(
 function resolveRootColor(
   def: RegularColorDef,
   isHighContrast: boolean,
+  config: GlazeConfigResolved,
 ): number {
-  const rawT = def.tone!;
-  const rawValue = isHighContrast ? pairHC(rawT) : pairNormal(rawT);
   // Root tone is absolute or extreme ('max' = 100, 'min' = 0); both flow
   // through mapToneForScheme (and invert in dark under mode 'auto').
-  const parsed = parseToneValue(rawValue);
+  const parsed = passTone(def.tone!, isHighContrast, config);
   return clamp(parsed.value, 0, 100);
 }
 
@@ -348,8 +397,7 @@ function resolveDependentColor(
   if (rawTone === undefined) {
     preferredTone = baseTone;
   } else {
-    const rawValue = isHighContrast ? pairHC(rawTone) : pairNormal(rawTone);
-    const parsed = parseToneValue(rawValue);
+    const parsed = passTone(rawTone, isHighContrast, ctx.config);
 
     if (parsed.kind === 'relative') {
       if (isDark && mode === 'auto') {
@@ -408,6 +456,7 @@ function resolveDependentColor(
     const resolvedContrast = resolveContrastSpec(
       rawContrast,
       isHighContrast,
+      ctx.config,
       polarity,
     );
 
@@ -434,6 +483,45 @@ function resolveDependentColor(
       ? clamp(preferredTone / 100, 0, 1)
       : clamp(preferredTone / 100, toneRange[0], toneRange[1]);
 
+    // Under a manual contrast level, pin which side of the base the color sits
+    // on so a slider can't send it leaping across its own base.
+    //
+    // `autoFlip`'s tie-break is unstable along a ramp: when both sides meet the
+    // floor it takes whichever lands nearer the anchor, and which side that is
+    // shifts as the target grows. So the side is decided once — by a probe solve
+    // at the *nearer endpoint's* target — and then preferred at every level in
+    // that half of the ramp via `preferInitial`.
+    //
+    // Anchoring to the nearer endpoint is what keeps levels 0 and 100
+    // bit-identical to the classic normal / high-contrast output: at an endpoint
+    // the probe solves the very problem that pass would solve, so it reproduces
+    // that side. `flip` stays on, so a pinned side that physically cannot reach
+    // the target still falls back to the opposite one and the floor is met.
+    // A color whose two endpoints genuinely disagree therefore changes side at
+    // most once, at level 50 — the same place every other un-interpolable
+    // decision switches.
+    const level = contrastFraction(ctx.config);
+    let preferInitial = false;
+    if (level !== undefined && level > 0 && level < 1) {
+      const probe = findToneForContrast({
+        hue: channels.hue,
+        saturation: channels.saturation,
+        preferredTone: seedTone,
+        baseLinearRgb,
+        contrast: resolveContrastForLevel(
+          rawContrast,
+          level < PAIR_SWITCH ? 0 : 100,
+          polarity,
+        ),
+        toneRange: [0, 1],
+        initialDirection,
+        flip,
+        pastel,
+      });
+      initialDirection = probe.tone * 100 < baseTone ? 'darker' : 'lighter';
+      preferInitial = true;
+    }
+
     const result = findToneForContrast({
       hue: channels.hue,
       saturation: channels.saturation,
@@ -443,6 +531,7 @@ function resolveDependentColor(
       toneRange: [0, 1],
       initialDirection,
       flip,
+      preferInitial,
       pastel,
     });
 
@@ -487,7 +576,7 @@ function resolveColorForScheme(
 
   const finalTone = isRoot
     ? mapToneForScheme(
-        resolveRootColor(regDef, isHighContrast),
+        resolveRootColor(regDef, isHighContrast, ctx.config),
         mode,
         isDark,
         isHighContrast,
@@ -532,9 +621,7 @@ function resolveShadowForScheme(
     );
   }
 
-  const intensity = isHighContrast
-    ? pairHC(def.intensity)
-    : pairNormal(def.intensity);
+  const intensity = passNumber(def.intensity, isHighContrast, ctx.config);
 
   const tuning = resolveShadowTuning(def.tuning, ctx.config.shadowTuning);
   return {
@@ -604,7 +691,7 @@ function resolveMixForScheme(
     getSchemeVariant(targetResolved, isDark, isHighContrast),
   );
 
-  const rawValue = isHighContrast ? pairHC(def.value) : pairNormal(def.value);
+  const rawValue = passNumber(def.value, isHighContrast, ctx.config);
   let t = clamp(rawValue, 0, 100) / 100;
 
   const blend = def.blend ?? 'opaque';
@@ -625,6 +712,7 @@ function resolveMixForScheme(
     const resolvedContrast = resolveContrastSpec(
       def.contrast,
       isHighContrast,
+      ctx.config,
       polarity,
     );
     const metric = resolvedContrast.metric;
@@ -745,9 +833,14 @@ function seedField(
 }
 
 /**
- * After the four passes, surface chromatic contrast drift (§10): a color
+ * After the passes, surface chromatic contrast drift (§10): a color
  * resolved with a `base` + `contrast` may land slightly under the contrast
  * its tone implies because chromatic luminance drifts from the gray tone.
+ *
+ * Under a manual `contrastLevel` only the two emitted variants are checked
+ * (the high-contrast slots are mirrors), and the spec is resolved at the level
+ * so the check measures the output against the target it was actually solved
+ * for.
  */
 function verifyContrastDrift(
   order: string[],
@@ -768,7 +861,7 @@ function verifyContrastDrift(
     const role = resolveRoleInMap(name, def, defs, config.inferRole, roles);
     const polarity = roleToPolarity(role);
 
-    const schemes: {
+    const allSchemes: {
       isDark: boolean;
       isHighContrast: boolean;
       field: ResolvedField;
@@ -778,11 +871,16 @@ function verifyContrastDrift(
       { isDark: true, isHighContrast: false, field: 'dark' },
       { isDark: true, isHighContrast: true, field: 'darkContrast' },
     ];
+    const manual = contrastFraction(config) !== undefined;
+    const schemes = manual
+      ? allSchemes.filter((s) => !s.isHighContrast)
+      : allSchemes;
 
     for (const s of schemes) {
       const spec = resolveContrastSpec(
         regDef.contrast,
         s.isHighContrast,
+        config,
         polarity,
       );
       const cVariant = color[s.field];
@@ -834,21 +932,35 @@ export function resolveAllColors(
     }
   }
 
-  // Pass 1: Light normal.
+  // Under a manual contrast level the normal passes already resolve *at* that
+  // level, so the two high-contrast passes are skipped and their slots mirror
+  // the normal ones. Level 100 stays bit-identical to the high-contrast passes:
+  // within a pass a dependent reads its base's same slot (topo order), and the
+  // only cross-scheme reads — the relative-tone dark branch and
+  // `extremeDarkTone` — read `light`, which equals `lightContrast` at 100.
+  const manual = contrastFraction(config) !== undefined;
+
+  // Pass 1: Light (normal, or at the level).
   const lightMap = runPass(order, defs, ctx, false, false, 'light');
 
   // Pass 2: Light high-contrast.
-  seedField(order, ctx, 'lightContrast', lightMap);
-  const lightHCMap = runPass(order, defs, ctx, false, true, 'lightContrast');
+  let lightHCMap = lightMap;
+  if (!manual) {
+    seedField(order, ctx, 'lightContrast', lightMap);
+    lightHCMap = runPass(order, defs, ctx, false, true, 'lightContrast');
+  }
 
-  // Pass 3: Dark normal.
+  // Pass 3: Dark (normal, or at the level).
   seedField(order, ctx, 'dark', lightMap);
   seedField(order, ctx, 'darkContrast', lightHCMap);
   const darkMap = runPass(order, defs, ctx, true, false, 'dark');
 
   // Pass 4: Dark high-contrast.
-  seedField(order, ctx, 'darkContrast', darkMap);
-  const darkHCMap = runPass(order, defs, ctx, true, true, 'darkContrast');
+  let darkHCMap = darkMap;
+  if (!manual) {
+    seedField(order, ctx, 'darkContrast', darkMap);
+    darkHCMap = runPass(order, defs, ctx, true, true, 'darkContrast');
+  }
 
   const result = new Map<string, ResolvedColor>();
   for (const name of order) {

@@ -39,7 +39,26 @@ export function defaultConfig(): GlazeConfigResolved {
     autoFlip: true,
     pastel: false,
     inferRole: true,
+    contrastLevel: 'auto',
   };
+}
+
+/**
+ * Validate an authored `contrastLevel`. Numbers clamp to 0–100 so a slider
+ * can't produce an out-of-range level; a non-finite number throws rather than
+ * silently reading as `'auto'`, which would turn a `NaN` slider value into an
+ * invisible no-op.
+ */
+export function normalizeContrastLevel(
+  value: number | 'auto' | undefined,
+): number | 'auto' {
+  if (value === undefined || value === 'auto') return 'auto';
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(
+      `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got ${String(value)}).`,
+    );
+  }
+  return Math.max(0, Math.min(100, value));
 }
 
 let globalConfig: GlazeConfigResolved = defaultConfig();
@@ -89,6 +108,9 @@ export function configure(config: GlazeConfig): void {
     // Instance-only; never configurable globally.
     pastel: false,
     inferRole: config.inferRole ?? globalConfig.inferRole,
+    contrastLevel: normalizeContrastLevel(
+      config.contrastLevel ?? globalConfig.contrastLevel,
+    ),
   };
 }
 
@@ -125,6 +147,9 @@ export function mergeConfig(
     autoFlip: override.autoFlip ?? base.autoFlip,
     pastel: override.pastel ?? false,
     inferRole: override.inferRole ?? base.inferRole,
+    contrastLevel: normalizeContrastLevel(
+      override.contrastLevel ?? base.contrastLevel,
+    ),
   };
 }
 
@@ -153,6 +178,17 @@ export function freezeConfigForExport(
   };
   if (effective.shadowTuning !== undefined) {
     out.shadowTuning = effective.shadowTuning;
+  }
+  // `contrastLevel` is deliberately NOT taken from the effective merge. A
+  // global level is a live user preference (an accessibility slider), not
+  // authored theme data — freezing it would pin a transient slider position
+  // into the snapshot and make restored themes ignore the slider forever.
+  // Only an instance-local or explicitly-passed level is authored intent.
+  // Same reasoning excludes `modes` and `states` from the freeze.
+  const authoredLevel =
+    exportArg?.contrastLevel ?? instanceLocal?.contrastLevel;
+  if (authoredLevel !== undefined) {
+    out.contrastLevel = normalizeContrastLevel(authoredLevel);
   }
   return structuredClone(out);
 }

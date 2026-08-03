@@ -31,6 +31,7 @@ import {
 } from './okhsl-color-math';
 import { variantToOkhsl } from './okhst';
 import { getConfig } from './config';
+import { contrastFraction } from './hc-pair';
 import type {
   DtcgColorSpace,
   DtcgColorToken,
@@ -127,13 +128,28 @@ function formatColorValue(
   return formatVariant(v, format, pastel);
 }
 
+/**
+ * Resolve the effective output modes for an export.
+ *
+ * A global manual `contrastLevel` resolves the contrast preference into the
+ * normal variants and mirrors them into the high-contrast slots, so a separate
+ * high-contrast tier would only repeat them — it defaults off. An explicit
+ * `modes.highContrast` still wins (explicit input beats an automatic default
+ * everywhere else in Glaze too), and emits values identical to the normal ones.
+ *
+ * A level set on a single theme or token does not change which modes are
+ * emitted: sibling themes in a palette may still have a real high-contrast
+ * tier, and the manual one correctly reports its own blended values there.
+ */
 export function resolveModes(
   override?: GlazeOutputModes,
 ): Required<GlazeOutputModes> {
   const cfg = getConfig();
+  const manual = contrastFraction(cfg) !== undefined;
   return {
     dark: override?.dark ?? cfg.modes.dark,
-    highContrast: override?.highContrast ?? cfg.modes.highContrast,
+    highContrast:
+      override?.highContrast ?? (manual ? false : cfg.modes.highContrast),
   };
 }
 

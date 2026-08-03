@@ -10,6 +10,7 @@ Full reference for every public method, option, and type exported by `@tenphi/gl
   - [DTCG Resolver-Module](#themedtcgresolveroptions)
   - [Tailwind CSS](#themetailwindoptions)
 - [High-contrast pairs](#high-contrast-pairs)
+- [Manual contrast level](#manual-contrast-level)
 - [Color definitions](#color-definitions)
   - [Dark seed](#dark-seed-darkhue--darksaturation)
 - [Standalone color tokens](#standalone-color-tokens)
@@ -408,6 +409,143 @@ promotion for that color.
 
 ---
 
+## Manual contrast level
+
+`contrastLevel` turns contrast from a two-tier switch into a `0–100` slider.
+It is a config field, so it works globally, per theme, per token, and through
+`extend()`:
+
+```ts
+glaze.configure({ contrastLevel: 60 });
+const theme = glaze(280, 80, { contrastLevel: 60 });
+glaze.color('#26fcb2', { contrastLevel: 60 });
+```
+
+| Value            | Meaning                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| `'auto'`         | Default. The two-tier model: normal variants plus a high-contrast tier. |
+| `0`              | Normal contrast, with **no** high-contrast tier.                      |
+| `100`            | The high-contrast scheme as the only scheme.                          |
+| anything between | Resolved *at* that level.                                            |
+
+Levels `0` and `100` reproduce the classic `light` / `dark` and
+`lightContrast` / `darkContrast` output **bit for bit**.
+
+### What the level interpolates
+
+Exactly the three things that make a high-contrast variant differ from its
+normal counterpart:
+
+| Mechanism                                                                    | At level `L`                                                             |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Authored `HCPair`s — `tone`, `contrast`, shadow `intensity`, mix `value`      | the two ends are interpolated                                            |
+| The tone-window bypass                                                       | each endpoint moves toward the full range: light `10→0`, dark `15→0 / 95→100` |
+| Contrast escalation — `AA → AAA`, APCA `+15 Lc`                              | the two numeric targets are interpolated (`AA` at level 50 solves for 5.75) |
+
+The interpolated values are then fed through the ordinary resolve, so a
+contrast floor at any level is **solved**, not approximated, and `autoFlip`
+decides once per level.
+
+Everything that does not vary by high contrast today — hue, saturation,
+`darkDesaturation`, `opacity`, `pastel` — is unaffected by the level.
+
+### Un-interpolable tone pairs switch at 50
+
+Two ends of different kinds have no midpoint, because blending them would
+change *which* resolution rule applies partway up the ramp. These switch from
+the normal entry to the high-contrast one at level 50:
+
+```ts
+tone: [50, 'max']; // absolute vs. extreme
+tone: [50, '+20']; // absolute vs. relative
+tone: ['max', 'min']; // opposite extremes
+```
+
+Same-kind pairs (`[30, 20]`, `['-6', '-12']`, `{ wcag: [4.5, 7] }`,
+`[{ apca: 60 }, { apca: 90 }]`) interpolate smoothly.
+
+A `contrast` pair may **not** switch metric — `[4.5, { apca: 75 }]` throws. A
+WCAG ratio and an APCA Lc are different scales, so no target exists between
+them, and even in `'auto'` mode the two variants would be incomparable. Pair
+values inside one metric instead: `{ wcag: [4.5, 7] }` or `{ apca: [60, 90] }`.
+
+### A color never swaps sides mid-slider
+
+[`autoFlip`](#autoflip) decides per solve, and its tie-break — when both
+directions meet the floor, take the one nearer the authored tone — depends on
+the target. Along a ramp of targets that criterion shifts, so a naive
+implementation lets a color leap across its own base as the slider moves.
+
+Under a manual level the side is instead decided once, from the nearer
+endpoint's target, and preferred at every level in that half of the ramp.
+Consequences:
+
+- A color whose two ends land on the same side of its base **never** changes
+  side, at any level.
+- A color whose ends genuinely disagree — no single side can satisfy both its
+  normal and its high-contrast floor — changes side exactly once, at level 50,
+  the same place un-interpolable tone pairs switch.
+- Flipping is not disabled, only re-ordered, so a side that physically cannot
+  reach the requested contrast still falls back to the opposite one. The floor
+  is met at every level.
+
+The underlying solver option is `preferInitial` on
+[`findToneForContrast`](#contrast-solver), should you need the same behavior
+directly.
+
+### High-contrast output
+
+A manual level already carries the contrast preference, so there is no second
+tier to emit:
+
+- `resolve()` still returns four variants, but `lightContrast` / `darkContrast`
+  **mirror** `light` / `dark`.
+- A **global** level defaults `modes.highContrast` to `false`, so
+  `tokens()` / `tasty()` / `json()` / `dtcg()` / `dtcgResolver()` / `tailwind()`
+  emit no high-contrast tier. An explicit `modes: { highContrast: true }` still
+  wins and emits values identical to the normal ones.
+- `css()` always returns four strings and ignores `modes`, so its
+  `lightContrast` / `darkContrast` strings repeat the normal declarations —
+  an existing `@media (prefers-contrast: more)` block keeps matching the base
+  block as the level changes, with nothing to rewire.
+- A level on a **single theme or token** does not change which modes are
+  emitted. Sibling themes in a palette keep their real high-contrast tier, and
+  the manual one reports its own resolved values there.
+
+### Driving it at runtime
+
+`configure()` bumps the config version, which invalidates every theme and token
+cache, so a slider only needs to re-export:
+
+```ts
+slider.oninput = () => {
+  glaze.configure({ contrastLevel: slider.valueAsNumber });
+  apply(theme.css());
+};
+```
+
+Because a manual level skips the two high-contrast passes, a manual resolve is
+also half the work of an `'auto'` one.
+
+### Two rules worth knowing
+
+- **`configure()` never clears a field by omission.** Pass `'auto'` explicitly
+  to leave manual mode — globally, or on one theme of a palette.
+- **`.export()` freezes only an *authored* level.** A level set on the instance
+  (or passed to `.export()`) is authored intent and is written to the snapshot;
+  a level merely inherited from the global config is a live user preference and
+  is left out, so a restored theme still follows the current slider. This
+  matches how `modes` and `states` are treated.
+
+A level set on only one side of a base link (a per-token level on the dependent
+but not on its base) anchors the two sides at different levels — set the level
+globally, or on both. Same caveat as a per-instance `lightTone` override.
+
+`resolveContrastForLevel(spec, level, polarity?)` is exported for advanced use;
+see [Contrast solver](#contrast-solver).
+
+---
+
 ## Color definitions
 
 `ColorDef` is a discriminated union:
@@ -490,7 +628,7 @@ type ContrastSpec =
   | number // bare WCAG ratio
   | ContrastPreset // named WCAG preset
   | { wcag: HCPair<number | ContrastPreset> }
-  | { apca: HCPair<number> }; // APCA Lc target
+  | { apca: HCPair<number | ApcaPreset> }; // APCA Lc target
 ```
 
 | Preset        | WCAG ratio |
@@ -1553,6 +1691,7 @@ glaze.configure({
     alphaMax: 0.6,
     bgHueBlend: 0.2,
   },
+  contrastLevel: 'auto', // or 0–100 for a manual contrast slider
 });
 ```
 
@@ -1565,16 +1704,17 @@ boundaries, not the tone transfer.
 
 | Field                 | Default                                | Description                                                                                                                                                                                                                                                                                                                                                                                                               |
 | --------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lightTone`           | `[10, 100]`                            | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC.                                                                                                                                                                                                                                                                                                                  |
-| `darkTone`            | `[15, 95]`                             | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC.                                                                                                                                                                                                                                                                                                                   |
+| `lightTone`           | `[10, 100]`                            | Light scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC; widened continuously by [`contrastLevel`](#manual-contrast-level).                                                                                                                                                                                                                                                |
+| `darkTone`            | `[15, 95]`                             | Dark scheme tone window: `[lo, hi]`, `{ lo, hi, eps }`, or `false` to disable clamping. Bypassed in HC; widened continuously by [`contrastLevel`](#manual-contrast-level).                                                                                                                                                                                                                                                 |
 | `darkDesaturation`    | `0.1`                                  | Saturation reduction in dark scheme (0–1).                                                                                                                                                                                                                                                                                                                                                                                |
 | `states.dark`         | `'@media(prefers-color-scheme: dark)'` | State alias for dark mode tokens ([Tasty](https://tasty.style) export). Defaults to a media query so tokens react to the OS preference without registering custom states.                                                                                                                                                                                                                                                                        |
 | `states.highContrast` | `'@media(prefers-contrast: more)'`     | State alias for HC tokens ([Tasty](https://tasty.style) export).                                                                                                                                                                                                                                                                                                                                                                                 |
 | `modes.dark`          | `true`                                 | Include dark variants in exports.                                                                                                                                                                                                                                                                                                                                                                                         |
-| `modes.highContrast`  | `false`                                | Include HC variants.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `modes.highContrast`  | `false`                                | Include HC variants. Forced to `false` by a global [`contrastLevel`](#manual-contrast-level) unless a per-export `modes` says otherwise.                                                                                                                                                                                                                                                                                   |
 | `shadowTuning`        | `undefined`                            | Default tuning for all shadow colors. Per-color tuning merges field-by-field.                                                                                                                                                                                                                                                                                                                                             |
 | `autoFlip`            | `true`                                 | Default for each color's `autoFlip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`autoFlip`](#autoflip). |
 | `inferRole`           | `true`                                 | Infer each color's [`role`](#roles) from its name when no explicit `role` is set. Set to `false` to opt out of name-based inference (the base-opposite and foreground-default fallbacks still apply).                                                                                                                                                                                                                     |
+| `contrastLevel`       | `'auto'`                               | Manual contrast level, `0`–`100`, replacing the two-tier high-contrast model with a slider. `0` reproduces the normal output and `100` the high-contrast output, bit for bit. See [Manual contrast level](#manual-contrast-level).                                                                                                                                                                                          |
 
 | Method                    | Description                                                                         |
 | ------------------------- | ----------------------------------------------------------------------------------- |
@@ -1582,7 +1722,7 @@ boundaries, not the tone transfer.
 | `glaze.getConfig()`       | Snapshot the current resolved config (shallow copy).                                |
 | `glaze.resetConfig()`     | Reset to defaults (also bumps the version counter).                                 |
 
-Themes and standalone color tokens keep a sparse local `GlazeConfigOverride` and merge the live global at resolve time for omitted fields. Authoring `.export(override?)` freezes the effective merge at call time; restored instances pin that freeze. `pastel` is instance-only (theme/token override or per-color) — not set via `configure()`.
+Themes and standalone color tokens keep a sparse local `GlazeConfigOverride` and merge the live global at resolve time for omitted fields. Authoring `.export(override?)` freezes the effective merge at call time; restored instances pin that freeze. `pastel` is instance-only (theme/token override or per-color) — not set via `configure()`. `contrastLevel` is the one field the freeze treats as a live preference: only an instance-authored level is written to the snapshot ([why](#two-rules-worth-knowing)).
 
 ---
 
@@ -1605,8 +1745,10 @@ palette.tokens({ modes: { dark: true, highContrast: true } });
 Resolution priority (highest first):
 
 1. Per-call `modes` option on `tokens` / `tasty` / `json`.
-2. `glaze.configure({ modes })` — global config.
-3. Built-in default: `{ dark: true, highContrast: false }`.
+2. A global [`contrastLevel`](#manual-contrast-level) — forces `highContrast: false`,
+   since a manual level leaves no separate high-contrast tier to emit.
+3. `glaze.configure({ modes })` — global config.
+4. Built-in default: `{ dark: true, highContrast: false }`.
 
 ---
 
@@ -1621,6 +1763,7 @@ available result.
 | Condition                                           | Behavior                                                                                                 |
 | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `contrast` without `base` in a **theme** color      | Validation error                                                                                         |
+| `contrast` pair switching metric (`[4.5, { apca: 75 }]`) | Validation error — a WCAG ratio and an APCA Lc are different scales                                  |
 | Relative `tone` without `base` in a **theme** color | Validation error                                                                                         |
 | `contrast` without `base` in `glaze.color()`        | Anchors against the literal seed (no error)                                                              |
 | Relative `tone` without `base` in `glaze.color()`   | Anchors against the literal seed (no error)                                                              |
@@ -1732,6 +1875,7 @@ import {
   findToneForContrast,
   findValueForMixContrast,
   resolveContrastForMode,
+  resolveContrastForLevel,
   resolveMinContrast,
   apcaContrast,
 } from '@tenphi/glaze';
@@ -1742,6 +1886,7 @@ import {
 | `findToneForContrast(opts)`                                       | Binary-search for the tone (0–1) that meets a contrast floor (WCAG or APCA) against a base color. Returns `{ tone, contrast, met, branch, flipped? }`.                                                                                                                                                                                                                                 |
 | `findValueForMixContrast(opts)`                                   | Same, but searches for a mix `value` (0–1) that meets a contrast floor between a base and a target.                                                                                                                                                                                                                                                                                    |
 | `resolveContrastForMode(spec, isHC, polarity?, outerExplicitHC?)` | Resolves a `ContrastSpec` to `{ metric: 'wcag' \| 'apca', target }` for the requested mode (picks the normal or HC entry of any pair). In HC, applies the metric's auto-enhancement unless `outerExplicitHC` is set or the inner metric pair carries an explicit HC value: APCA +15 Lc (clamped to 106); WCAG AA → AAA / AA-large → AAA-large (AAA-family and bare numbers unchanged). |
+| `resolveContrastForLevel(spec, level, polarity?)`                  | Resolves a `ContrastSpec` — including its outer `[normal, highContrast]` pair — at a [manual contrast level](#manual-contrast-level) (0–100), interpolating the two numeric targets. Levels 0 / 100 delegate verbatim to `resolveContrastForMode`; a WCAG-vs-APCA metric switch across the pair has no midpoint and switches at 50.                                                        |
 | `resolveMinContrast(value)`                                       | Resolves a `MinContrast` (WCAG preset or number) to a numeric ratio.                                                                                                                                                                                                                                                                                                                   |
 | `apcaContrast(yText, yBg)`                                        | APCA Lc magnitude (0–106) for two relative luminances.                                                                                                                                                                                                                                                                                                                                 |
 
@@ -1761,5 +1906,6 @@ Exported constants: `APCA_PRESETS`, `APCA_HC_ENHANCEMENT` (`15`, the Enhanced Le
 | `maxIterations`    | `18`                 | Max binary-search iterations per branch.                                                                                                                                                               |
 | `initialDirection` | higher-contrast side | Direction to search first (`'lighter'` or `'darker'`).                                                                                                                                                 |
 | `flip`             | `false`              | When `true`, try the opposite direction if the initial one doesn't meet the target. When `false`, only the initial direction is searched — unmet contrasts pin the result to that direction's extreme. |
+| `preferInitial`    | `false`              | With `flip` on and **both** directions meeting the target, keep `initialDirection` instead of taking whichever result lands nearer `preferredTone`. Makes the chosen side independent of the target — what [`contrastLevel`](#manual-contrast-level) uses to keep a color on one side of its base across the ramp. The flip fallback is unaffected. |
 
 Result: `{ tone, contrast, met, branch: 'lighter' | 'darker' | 'preferred', flipped? }`. `flipped: true` indicates the initial direction failed and the opposite direction satisfied the target.
