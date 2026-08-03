@@ -101,7 +101,14 @@ export type GlazeColorFormat = 'okhsl' | 'okhst' | 'rgb' | 'hsl' | 'oklch';
 export interface GlazeOutputModes {
   /** Include dark scheme variants. Default: true. */
   dark?: boolean;
-  /** Include high-contrast variants (both light-HC and dark-HC). Default: false. */
+  /**
+   * Include high-contrast variants (both light-HC and dark-HC). Default: false.
+   *
+   * Inert while a global `contrastLevel` is set: a manual level has no separate
+   * high-contrast tier, so this reads as "emit high-contrast variants when
+   * contrast is automatic".
+   * @see GlazeConfig.contrastLevel
+   */
   highContrast?: boolean;
 }
 
@@ -434,10 +441,38 @@ export interface GlazeConfig {
     dark?: string;
     highContrast?: string;
   };
-  /** Which scheme variants to include in exports. Default: both true. */
+  /**
+   * Which scheme variants to include in exports. Defaults: `dark: true`,
+   * `highContrast: false`.
+   */
   modes?: GlazeOutputModes;
   /** Default tuning for all shadow colors. Per-color tuning merges field-by-field. */
   shadowTuning?: ShadowTuning;
+  /**
+   * Manual contrast level — a 0–100 slider from normal contrast (`0`) to high
+   * contrast (`100`), or `'auto'` (the default) to keep the two-tier
+   * normal + high-contrast model.
+   *
+   * With a number, Glaze resolves the `light` / `dark` variants *at* that
+   * level and stops emitting a separate high-contrast tier:
+   * `lightContrast` / `darkContrast` mirror their normal counterparts and
+   * `modes.highContrast` defaults to `false`. Level `0` is therefore "normal
+   * contrast, no high-contrast tier"; `100` is "the high-contrast scheme as
+   * the only scheme".
+   *
+   * The level interpolates all three things that make high contrast differ:
+   * authored `[normal, highContrast]` pairs, the tone-window widening, and
+   * the `AA → AAA` / APCA `+15 Lc` escalation. Contrast floors are re-solved
+   * at the interpolated target, so every level is a solution rather than an
+   * approximation, and a color keeps to one side of its base as the level moves.
+   *
+   * Pass `'auto'` to leave manual mode; `configure()` never clears a field by
+   * omission. See `docs/api.md` for the ramp's edge cases (un-interpolable
+   * pairs, side changes) and the export-freeze rule.
+   *
+   * @default 'auto'
+   */
+  contrastLevel?: number | 'auto';
   /**
    * Automatically flip tone direction when contrast can't be met.
    *
@@ -474,6 +509,12 @@ export interface GlazeConfigResolved {
   shadowTuning?: ShadowTuning;
   autoFlip: boolean;
   /**
+   * Manual contrast level (0–100), or `'auto'` for the two-tier
+   * normal + high-contrast model.
+   * @see GlazeConfig.contrastLevel
+   */
+  contrastLevel: number | 'auto';
+  /**
    * Instance-level pastel default (`def.pastel ?? config.pastel`).
    * Not set via `glaze.configure()` — only via per-theme / per-token
    * `GlazeConfigOverride` (default `false`).
@@ -499,6 +540,17 @@ export interface GlazeConfigOverride {
   darkDesaturation?: number;
   /** Whether to auto-flip tone when contrast can't be met. */
   autoFlip?: boolean;
+  /**
+   * Manual contrast level (0–100) for this instance, or `'auto'` to opt out
+   * of a global level and keep the two-tier normal + high-contrast model.
+   *
+   * Only an instance-authored level is frozen into `.export()` snapshots — a
+   * level inherited from the global config is treated as a live preference and
+   * re-read at restore time.
+   *
+   * @see GlazeConfig.contrastLevel
+   */
+  contrastLevel?: number | 'auto';
   /**
    * Instance-level pastel default for colors that omit per-color `pastel`.
    * Not available on `glaze.configure()` — set here or per-color.

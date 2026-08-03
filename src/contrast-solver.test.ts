@@ -1,10 +1,12 @@
 import {
   resolveMinContrast,
+  resolveContrastForLevel,
   resolveContrastForMode,
   findToneForContrast,
   apcaContrast,
 } from './contrast-solver';
 import type { ResolvedContrast } from './contrast-solver';
+import type { ContrastSpec, HCPair } from './types';
 import {
   okhslToLinearSrgb,
   okhslToSrgb,
@@ -176,6 +178,145 @@ describe('contrast-solver', () => {
       expect(
         resolveContrastForMode({ apca: 60 }, true, 'fg', true).target,
       ).toBe(60);
+    });
+  });
+
+  describe('resolveContrastForLevel', () => {
+    it('delegates verbatim at the endpoints', () => {
+      expect(resolveContrastForLevel('AA', 0)).toEqual(
+        resolveContrastForMode('AA', false),
+      );
+      expect(resolveContrastForLevel('AA', 100)).toEqual(
+        resolveContrastForMode('AA', true),
+      );
+    });
+
+    it('interpolates the WCAG auto-promotion', () => {
+      expect(resolveContrastForLevel('AA', 0).target).toBe(4.5);
+      expect(resolveContrastForLevel('AA', 50).target).toBe(5.75);
+      expect(resolveContrastForLevel('AA', 100).target).toBe(7);
+    });
+
+    it('interpolates the APCA Enhanced Level boost', () => {
+      expect(resolveContrastForLevel({ apca: 60 }, 0).target).toBe(60);
+      expect(resolveContrastForLevel({ apca: 60 }, 50).target).toBe(67.5);
+      expect(resolveContrastForLevel({ apca: 60 }, 100).target).toBe(75);
+    });
+
+    it('interpolates an inner explicit pair without promoting either end', () => {
+      expect(resolveContrastForLevel({ wcag: [4.5, 7] }, 0).target).toBe(4.5);
+      expect(resolveContrastForLevel({ wcag: [4.5, 7] }, 50).target).toBe(5.75);
+      expect(resolveContrastForLevel({ wcag: [4.5, 7] }, 100).target).toBe(7);
+      // 'AA' on both ends stays 4.5 — explicit HC cancels the promotion.
+      expect(resolveContrastForLevel({ wcag: ['AA', 'AA'] }, 50).target).toBe(
+        4.5,
+      );
+    });
+
+    it('interpolates an outer explicit pair without enhancing either end', () => {
+      const spec: HCPair<ContrastSpec> = [{ apca: 60 }, { apca: 90 }];
+      expect(resolveContrastForLevel(spec, 0).target).toBe(60);
+      expect(resolveContrastForLevel(spec, 50).target).toBe(75);
+      expect(resolveContrastForLevel(spec, 100).target).toBe(90);
+    });
+
+    it('respects the APCA_MAX_LC clamp at the high-contrast end', () => {
+      expect(resolveContrastForLevel({ apca: 100 }, 0).target).toBe(100);
+      expect(resolveContrastForLevel({ apca: 100 }, 50).target).toBe(103);
+      expect(resolveContrastForLevel({ apca: 100 }, 100).target).toBe(106);
+    });
+
+    it('leaves a target with no escalation flat across the ramp', () => {
+      for (const level of [0, 25, 50, 75, 100]) {
+        expect(resolveContrastForLevel('AAA', level).target).toBe(7);
+        expect(resolveContrastForLevel(5.5, level).target).toBe(5.5);
+      }
+    });
+
+    it('rejects a WCAG-vs-APCA metric pair mid-ramp', () => {
+      const spec: HCPair<ContrastSpec> = [4.5, { apca: 75 }];
+      // No target exists between a WCAG ratio and an APCA Lc.
+      expect(() => resolveContrastForLevel(spec, 50)).toThrow(
+        /cannot switch metric/,
+      );
+      // The endpoints still resolve — each end is a single, coherent metric.
+      expect(resolveContrastForLevel(spec, 0)).toEqual({
+        metric: 'wcag',
+        target: 4.5,
+      });
+      expect(resolveContrastForLevel(spec, 100)).toEqual({
+        metric: 'apca',
+        target: 75,
+        polarity: 'fg',
+      });
+    });
+
+    it('preserves polarity presence per metric mid-ramp', () => {
+      // WCAG is symmetric, so it never carries polarity...
+      expect(resolveContrastForLevel('AA', 50, 'bg')).toEqual({
+        metric: 'wcag',
+        target: 5.75,
+      });
+      // ...while APCA does.
+      expect(resolveContrastForLevel({ apca: 60 }, 50, 'bg')).toEqual({
+        metric: 'apca',
+        target: 67.5,
+        polarity: 'bg',
+      });
+    });
+
+    it('clamps out-of-range levels', () => {
+      expect(resolveContrastForLevel('AA', 150).target).toBe(7);
+      expect(resolveContrastForLevel('AA', -50).target).toBe(4.5);
+    });
+  });
+
+  describe('preferInitial', () => {
+    // Both directions can reach a ratio of 3 from a mid-tone base, and the
+    // darker result lands nearer the preferred tone — so the default tie-break
+    // flips away from an explicit 'lighter'. That tie-break is what makes the
+    // side unstable along a ramp of targets.
+    const shared = {
+      hue: 0,
+      saturation: 0,
+      preferredTone: 0.45,
+      baseLinearRgb: okhslToLinearSrgb(0, 0, fromTone(50, REF_EPS)),
+      contrast: wcag(3),
+      initialDirection: 'lighter' as const,
+      flip: true,
+    };
+
+    it('takes the nearest side by default', () => {
+      const result = findToneForContrast(shared);
+      expect(result.met).toBe(true);
+      expect(result.flipped).toBe(true);
+      expect(result.tone).toBeLessThan(0.45);
+    });
+
+    it('keeps the initial side when both meet', () => {
+      const result = findToneForContrast({ ...shared, preferInitial: true });
+      expect(result.met).toBe(true);
+      expect(result.flipped).toBeUndefined();
+      expect(result.tone).toBeGreaterThan(0.45);
+    });
+
+    it('still falls back when the initial side cannot reach the target', () => {
+      // Against a tone-70 base, a ratio of 4.6 needs ~0.50 tone of separation:
+      // reachable going darker (0.20), impossible going lighter (1.20). The
+      // fallback must still fire even though 'lighter' is preferred.
+      const result = findToneForContrast({
+        hue: 0,
+        saturation: 0,
+        preferredTone: 0.75,
+        baseLinearRgb: okhslToLinearSrgb(0, 0, fromTone(70, REF_EPS)),
+        contrast: wcag(4.6),
+        initialDirection: 'lighter',
+        flip: true,
+        preferInitial: true,
+      });
+      expect(result.met).toBe(true);
+      expect(result.flipped).toBe(true);
+      expect(result.tone).toBeLessThan(0.7);
     });
   });
 

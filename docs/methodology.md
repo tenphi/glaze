@@ -642,6 +642,25 @@ In HC variants, Glaze bypasses the normal tone window and uses the full
 `[0, 100]` range. Edge tones can reach the edge; contrast floors have more room
 to solve.
 
+### A slider instead of a tier
+
+The two-tier model assumes contrast is a binary OS preference. When contrast is
+instead a setting *your users* control, set
+[`contrastLevel`](api.md#manual-contrast-level) to a number and the HC tier
+becomes a `0–100` ramp: level `0` is your normal palette, `100` is the HC
+palette you already authored, and everything between is resolved at that level.
+
+The authoring work is the same — the HC pairs above are what the slider ramps
+toward, so a palette tuned for high contrast needs no new fields. Two
+consequences worth planning for:
+
+- The separate HC tier stops being emitted, so wire the level itself into your
+  build or runtime rather than a `prefers-contrast: more` block. Existing
+  media-query wiring keeps working; it just receives the same values as the base
+  block.
+- `contrastLevel: 0` is a useful state in its own right: normal contrast with no
+  HC tier at all, for products that ship the slider but default it off.
+
 ## Checklist
 
 Before shipping a palette, verify:
@@ -654,7 +673,8 @@ Before shipping a palette, verify:
 - Low-stakes visual relationships use tone deltas instead of fake contrast
   floors.
 - `inherit: false` is set on default-only tokens so status themes stay focused.
-- HC pairs exist where high contrast should visibly tighten.
+- HC pairs exist where high contrast should visibly tighten (they double as the
+  ramp for a manual `contrastLevel`).
 - `glaze.configure({ states, modes })` matches the states registered in the app.
 - Every emitted scheme (`light`, `dark`, `lightContrast`, `darkContrast`) has
   been reviewed on complete screens, not only in a token grid.

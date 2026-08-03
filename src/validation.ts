@@ -7,9 +7,40 @@
  * its base / bg / fg / target dependencies.
  */
 
-import { isAbsoluteTone } from './hc-pair';
+import { contrastMetricOf } from './contrast-solver';
+import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
 import { isMixDef, isShadowDef } from './shadow';
-import type { ColorMap, RegularColorDef, ResolvedColor } from './types';
+import type {
+  ColorMap,
+  ContrastSpec,
+  HCPair,
+  RegularColorDef,
+  ResolvedColor,
+} from './types';
+
+/**
+ * Reject a `contrast` pair whose two entries measure in different metrics.
+ *
+ * A WCAG ratio and an APCA Lc are different scales, so `[4.5, { apca: 75 }]`
+ * asks one color to be judged two incompatible ways. There is no target between
+ * them for a manual `contrastLevel` to resolve, and even in `'auto'` mode the
+ * two variants become incomparable. Pick one metric and pair its values
+ * instead: `{ wcag: [4.5, 7] }` or `{ apca: [60, 90] }`.
+ */
+function assertConsistentContrastMetric(
+  name: string,
+  contrast: HCPair<ContrastSpec> | undefined,
+): void {
+  if (contrast === undefined || !Array.isArray(contrast)) return;
+  const normal = contrastMetricOf(pairNormal(contrast));
+  const hc = contrastMetricOf(pairHC(contrast));
+  if (normal === hc) return;
+  throw new Error(
+    `glaze: color "${name}" has a "contrast" pair that switches metric ` +
+      `(${normal} → ${hc}). A WCAG ratio and an APCA Lc are different scales; ` +
+      `use one metric for both entries, e.g. { ${normal}: [normal, highContrast] }.`,
+  );
+}
 
 export function validateColorDefs(
   defs: ColorMap,
@@ -69,10 +100,13 @@ export function validateColorDefs(
           `glaze: mix "${name}" target "${def.target}" references a shadow color.`,
         );
       }
+      assertConsistentContrastMetric(name, def.contrast);
       continue;
     }
 
     const regDef = def as RegularColorDef;
+
+    assertConsistentContrastMetric(name, regDef.contrast);
 
     if (regDef.contrast !== undefined && !regDef.base) {
       throw new Error(`glaze: color "${name}" has "contrast" without "base".`);

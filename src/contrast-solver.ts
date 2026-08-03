@@ -7,7 +7,8 @@
  * converges quickly.
  *
  * Public API: `findToneForContrast`, `findValueForMixContrast`,
- * `resolveMinContrast`, `resolveContrastForMode`, `apcaContrast`.
+ * `resolveMinContrast`, `resolveContrastForMode`, `resolveContrastForLevel`,
+ * `apcaContrast`.
  */
 
 import {
@@ -17,7 +18,7 @@ import {
   apcaLuminanceFromLinearRgb,
 } from './okhsl-color-math';
 import { REF_EPS, fromTone, toneFromY } from './okhst';
-import { clamp } from './hc-pair';
+import { clamp, lerp, levelFraction, pairHC, pairNormal } from './hc-pair';
 import type { ContrastSpec, HCPair } from './types';
 
 export type LinearRgb = [number, number, number];
@@ -164,6 +165,14 @@ function pickPair<T>(p: HCPair<T>, isHighContrast: boolean): T {
 }
 
 /**
+ * The metric a single `ContrastSpec` measures in. Bare numbers and WCAG
+ * presets are `'wcag'`; only an `{ apca }` object is `'apca'`.
+ */
+export function contrastMetricOf(spec: ContrastSpec): ContrastMetric {
+  return typeof spec === 'object' && 'apca' in spec ? 'apca' : 'wcag';
+}
+
+/**
  * Resolve a `ContrastSpec` (already selected from any outer HC pair) for a
  * given mode into `{ metric, target }`. Handles the inner metric HC pair and
  * preset resolution. `polarity` is passed through to the result for the APCA
@@ -215,6 +224,56 @@ export function resolveContrastForMode(
       !!outerExplicitHC || innerExplicitHC,
     ),
   };
+}
+
+/**
+ * Resolve a `contrast` spec — including its outer `[normal, highContrast]`
+ * pair — at a manual contrast `level` (0–100), by resolving both ends and
+ * interpolating the numeric target.
+ *
+ * Level 0 / 100 delegate verbatim to {@link resolveContrastForMode}, so the
+ * endpoints are bit-identical to classic normal / high-contrast resolution.
+ * Resolving each end fully first also means every rule that governs the
+ * escalation still applies at both ends for free: preset mapping, the
+ * `APCA_MAX_LC` clamp, and the explicit-HC suppression that cancels the
+ * `AA → AAA` promotion and the `+15 Lc` enhancement.
+ *
+ * Throws when the two ends measure in different metrics — a WCAG ratio and an
+ * APCA Lc live on different scales, so there is no target between them. Such a
+ * pair is rejected at authoring time by `validateColorDefs`; this is the guard
+ * for direct callers.
+ */
+export function resolveContrastForLevel(
+  spec: HCPair<ContrastSpec>,
+  level: number,
+  polarity?: 'fg' | 'bg',
+): ResolvedContrast {
+  const outerExplicitHC = Array.isArray(spec);
+  const f = levelFraction(level);
+  const normal = resolveContrastForMode(
+    pairNormal(spec),
+    false,
+    polarity,
+    outerExplicitHC,
+  );
+  if (f <= 0) return normal;
+  const hc = resolveContrastForMode(
+    pairHC(spec),
+    true,
+    polarity,
+    outerExplicitHC,
+  );
+  if (f >= 1) return hc;
+  if (normal.metric !== hc.metric) {
+    throw new Error(
+      `glaze: a "contrast" pair cannot switch metric between its normal ` +
+        `(${normal.metric}) and high-contrast (${hc.metric}) entry — the two ` +
+        `targets are on different scales. Use one metric for both entries.`,
+    );
+  }
+  // Spread `normal` so the WCAG branch keeps its absent `polarity` and the
+  // APCA branch its resolved one.
+  return { ...normal, target: lerp(normal.target, hc.target, f) };
 }
 
 // ============================================================================
@@ -362,6 +421,19 @@ export interface FindToneForContrastOptions {
   initialDirection?: 'lighter' | 'darker';
   /** Auto-flip tone direction when contrast can't be met. Default: false. */
   flip?: boolean;
+  /**
+   * When `flip` is on and *both* directions meet the target, keep
+   * `initialDirection` instead of taking whichever result lands nearer the
+   * preferred tone. Default: false (nearest wins).
+   *
+   * The nearest-wins tie-break is unstable along a ramp of targets: which side
+   * is nearer shifts as the target grows, so a color can swap sides between two
+   * adjacent targets. Set this when a caller needs the side to be a property of
+   * the color rather than of the target — the manual contrast level does. The
+   * flip itself is unaffected: an initial direction that cannot reach the
+   * target still falls back to the opposite side.
+   */
+  preferInitial?: boolean;
   /** Use the hue-independent "safe" chroma boundary. Default: false. */
   pastel?: boolean;
 }
@@ -490,6 +562,8 @@ interface SolveCoreOptions {
   epsilon: number;
   maxIterations: number;
   flip: boolean;
+  /** Keep the initial branch when both meet, instead of taking the nearest. */
+  preferInitial: boolean;
   /** Force the first branch ('lower' searches `[lo, anchor]`). */
   initialIsLower: boolean;
   /** APCA argument order; ignored for WCAG. Default `'fg'`. */
@@ -519,6 +593,7 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
     epsilon,
     maxIterations,
     flip,
+    preferInitial,
     initialIsLower,
     polarity,
   } = opts;
@@ -567,6 +642,7 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
     if (oppositeResult) oppositeResult.met = oppositeResult.contrast >= target;
 
     if (initialResult.met && oppositeResult?.met) {
+      if (preferInitial) return { ...initialResult, lower: initialIsLower };
       const initialDist = Math.abs(initialResult.pos - distanceAnchor);
       const oppositeDist = Math.abs(oppositeResult.pos - distanceAnchor);
       return initialDist <= oppositeDist
@@ -680,6 +756,7 @@ export function findToneForContrast(
     epsilon,
     maxIterations,
     flip: options.flip ?? false,
+    preferInitial: options.preferInitial ?? false,
     initialIsLower: initialIsDarker,
     polarity,
   });
@@ -791,6 +868,9 @@ export function findValueForMixContrast(
     epsilon,
     maxIterations,
     flip: options.flip ?? false,
+    // A mix searches along the base→target segment rather than across a base,
+    // so the nearest-wins tie-break has no side to swap; left as-is.
+    preferInitial: false,
     initialIsLower,
     polarity,
   });

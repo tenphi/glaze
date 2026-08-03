@@ -85,6 +85,19 @@ lightTone: { lo: 10, hi: 100, eps: 0.05 }
 Pass `false` to use the full range. High-contrast variants always bypass the
 ordinary boundaries and use the full range.
 
+A [manual contrast level](api.md#manual-contrast-level) generalizes that bypass
+continuously: with `contrastLevel: L` (`f = L / 100`), each boundary moves toward
+the full range instead of jumping to it —
+
+```text
+lo(f) = lo + (0   - lo) * f
+hi(f) = hi + (100 - hi) * f
+```
+
+— so the light default walks `[10, 100] → [0, 100]` and the dark default
+`[15, 95] → [0, 100]`. The render `eps` is not interpolated, and a `false` window
+is already the full range and therefore level-invariant.
+
 ## Scheme adaptation
 
 Each regular color has an adaptation `mode`:
