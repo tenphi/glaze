@@ -85,26 +85,18 @@ lightTone: { lo: 10, hi: 100, eps: 0.05 }
 Pass `false` to use the full range. High-contrast variants always bypass the
 ordinary boundaries and use the full range.
 
-**A manual contrast level generalizes that bypass continuously.** With
-`contrastLevel: L` (0–100, `f = L / 100`), each boundary moves toward the full
-range instead of jumping to it:
+A [manual contrast level](api.md#manual-contrast-level) generalizes that bypass
+continuously: with `contrastLevel: L` (`f = L / 100`), each boundary moves toward
+the full range instead of jumping to it —
 
 ```text
 lo(f) = lo + (0   - lo) * f
 hi(f) = hi + (100 - hi) * f
 ```
 
-so the light default walks `[10, 100] → [0, 100]` and the dark default
-`[15, 95] → [0, 100]`. The render `eps` is not interpolated — high contrast
-keeps the configured curvature, so the ramp does too. A `false` window is
-already the full range and is therefore level-invariant.
-
-The window is one of three mechanisms the level interpolates; the other two are
-authored `[normal, highContrast]` pairs and the contrast-target escalation
-(`AA → AAA`, APCA `+15 Lc`). Because all three are interpolated on the *input*
-side and then resolved normally, a contrast floor is solved at every level
-rather than approximated. See
-[api.md](api.md#manual-contrast-level) for the authoring surface.
+— so the light default walks `[10, 100] → [0, 100]` and the dark default
+`[15, 95] → [0, 100]`. The render `eps` is not interpolated, and a `false` window
+is already the full range and therefore level-invariant.
 
 ## Scheme adaptation
 

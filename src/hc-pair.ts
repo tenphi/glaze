@@ -129,7 +129,6 @@ export function parseToneValueAt(
   if (!Array.isArray(p)) return parseToneValue(p);
   if (f <= 0) return parseToneValue(p[0]);
   if (f >= 1) return parseToneValue(p[1]);
-  if (p[0] === p[1]) return parseToneValue(p[0]);
   const normal = parseToneValue(p[0]);
   const hc = parseToneValue(p[1]);
   if (normal.kind === hc.kind && normal.kind !== 'extreme') {

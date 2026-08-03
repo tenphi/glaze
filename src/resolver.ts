@@ -213,9 +213,7 @@ function resolveContrastSpec(
   polarity?: 'fg' | 'bg',
 ): ResolvedContrast {
   if (!isHighContrast && contrastFraction(config) !== undefined) {
-    // `contrastFraction` returning a value already proves the level is a finite
-    // number rather than `'auto'`. Pass the authored 0–100 level, not the
-    // fraction, so it round-trips exactly at the endpoints.
+    // A defined fraction proves the level is a finite number, not `'auto'`.
     return resolveContrastForLevel(
       spec,
       config.contrastLevel as number,
@@ -243,10 +241,9 @@ function passTone(
   config: GlazeConfigResolved,
 ): { kind: 'absolute' | 'relative' | 'extreme'; value: number } {
   const f = contrastFraction(config);
-  if (f === undefined || isHighContrast) {
-    return parseToneValue(isHighContrast ? pairHC(tone) : pairNormal(tone));
-  }
-  return parseToneValueAt(tone, f);
+  return f === undefined || isHighContrast
+    ? parseToneValue(isHighContrast ? pairHC(tone) : pairNormal(tone))
+    : parseToneValueAt(tone, f);
 }
 
 /** The authored numeric pair for this pass (shadow `intensity`, mix `value`). */
@@ -483,6 +480,16 @@ function resolveDependentColor(
       ? clamp(preferredTone / 100, 0, 1)
       : clamp(preferredTone / 100, toneRange[0], toneRange[1]);
 
+    const solve = {
+      hue: channels.hue,
+      saturation: channels.saturation,
+      preferredTone: seedTone,
+      baseLinearRgb,
+      toneRange: [0, 1] as [number, number],
+      flip,
+      pastel,
+    };
+
     // Under a manual contrast level, pin which side of the base the color sits
     // on so a slider can't send it leaping across its own base.
     //
@@ -504,35 +511,23 @@ function resolveDependentColor(
     let preferInitial = false;
     if (level !== undefined && level > 0 && level < 1) {
       const probe = findToneForContrast({
-        hue: channels.hue,
-        saturation: channels.saturation,
-        preferredTone: seedTone,
-        baseLinearRgb,
+        ...solve,
         contrast: resolveContrastForLevel(
           rawContrast,
           level < PAIR_SWITCH ? 0 : 100,
           polarity,
         ),
-        toneRange: [0, 1],
         initialDirection,
-        flip,
-        pastel,
       });
       initialDirection = probe.tone * 100 < baseTone ? 'darker' : 'lighter';
       preferInitial = true;
     }
 
     const result = findToneForContrast({
-      hue: channels.hue,
-      saturation: channels.saturation,
-      preferredTone: seedTone,
-      baseLinearRgb,
+      ...solve,
       contrast: resolvedContrast,
-      toneRange: [0, 1],
       initialDirection,
-      flip,
       preferInitial,
-      pastel,
     });
 
     if (!result.met) {
@@ -861,7 +856,7 @@ function verifyContrastDrift(
     const role = resolveRoleInMap(name, def, defs, config.inferRole, roles);
     const polarity = roleToPolarity(role);
 
-    const allSchemes: {
+    const schemes: {
       isDark: boolean;
       isHighContrast: boolean;
       field: ResolvedField;
@@ -872,11 +867,10 @@ function verifyContrastDrift(
       { isDark: true, isHighContrast: true, field: 'darkContrast' },
     ];
     const manual = contrastFraction(config) !== undefined;
-    const schemes = manual
-      ? allSchemes.filter((s) => !s.isHighContrast)
-      : allSchemes;
 
     for (const s of schemes) {
+      // Manual mode mirrors the high-contrast slots and never emits them.
+      if (manual && s.isHighContrast) continue;
       const spec = resolveContrastSpec(
         regDef.contrast,
         s.isHighContrast,
