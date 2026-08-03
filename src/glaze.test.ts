@@ -50,6 +50,36 @@ function variantApca(
   );
 }
 
+/**
+ * Slack allowed when re-measuring a solved contrast floor.
+ *
+ * The solver measures candidates at a tone rounded to 4 decimals
+ * (`cachedLuminance` in `contrast-solver.ts`), but the resolver stores and emits
+ * the unrounded tone. Re-measuring the emitted color therefore lands slightly
+ * off the value the solver judged `met` against — up to a factor of `21^1e-4`
+ * (~0.021%) for a WCAG ratio, and up to ~0.023 Lc for APCA. An exact
+ * `>= target` assertion fails whenever a solve happens to converge near that
+ * rounding boundary.
+ *
+ * These tolerances are ~5x the measured worst case and still far tighter than
+ * the library's own "effectively a pass" thresholds
+ * (`CONTRAST_WARN_SLACK_WCAG` = 0.98, `CONTRAST_WARN_SLACK_APCA` = 1.5 Lc), so
+ * a genuinely wrong target — an unpromoted 4.5 where 7 was expected — still
+ * fails loudly.
+ */
+const WCAG_MEASURE_SLACK = 0.999;
+const APCA_MEASURE_SLACK = 0.1;
+
+/** Assert a re-measured WCAG ratio meets `target`. @see WCAG_MEASURE_SLACK */
+function expectMeetsWcag(actual: number, target: number): void {
+  expect(actual).toBeGreaterThanOrEqual(target * WCAG_MEASURE_SLACK);
+}
+
+/** Assert a re-measured APCA Lc meets `target`. @see WCAG_MEASURE_SLACK */
+function expectMeetsApca(actual: number, target: number): void {
+  expect(actual).toBeGreaterThanOrEqual(target - APCA_MEASURE_SLACK);
+}
+
 describe('glaze', () => {
   beforeEach(() => {
     glaze.resetConfig();
@@ -983,9 +1013,7 @@ describe('glaze', () => {
       const surface = resolved.get('surface')!;
 
       expect(text.dark.h).toBe(130);
-      expect(variantContrast(text.dark, surface.dark)).toBeGreaterThanOrEqual(
-        4.5,
-      );
+      expectMeetsWcag(variantContrast(text.dark, surface.dark), 4.5);
     });
 
     it('shadow and mix colors inherit dark channels from their references', () => {
@@ -1089,9 +1117,10 @@ describe('glaze', () => {
       const r = theme.resolve();
       const text = r.get('text')!;
       const surface = r.get('surface')!;
-      expect(
+      expectMeetsWcag(
         variantContrast(text.lightContrast, surface.lightContrast),
-      ).toBeGreaterThanOrEqual(7);
+        7,
+      );
     });
   });
 
@@ -1103,9 +1132,10 @@ describe('glaze', () => {
         fg: { base: 'bg', tone: 40, contrast: 4.5 },
       });
       const r = theme.resolve();
-      expect(
+      expectMeetsWcag(
         variantContrast(r.get('fg')!.light, r.get('bg')!.light),
-      ).toBeGreaterThanOrEqual(4.5);
+        4.5,
+      );
     });
 
     it('{ wcag } object selects WCAG', () => {
@@ -1115,9 +1145,10 @@ describe('glaze', () => {
         fg: { base: 'bg', tone: 40, contrast: { wcag: 7 } },
       });
       const r = theme.resolve();
-      expect(
+      expectMeetsWcag(
         variantContrast(r.get('fg')!.light, r.get('bg')!.light),
-      ).toBeGreaterThanOrEqual(7);
+        7,
+      );
     });
 
     it('{ apca } object pins an APCA Lc floor', () => {
@@ -1142,9 +1173,10 @@ describe('glaze', () => {
         },
       });
       const r = theme.resolve();
-      expect(
+      expectMeetsWcag(
         variantContrast(r.get('fg')!.lightContrast, r.get('bg')!.lightContrast),
-      ).toBeGreaterThanOrEqual(7);
+        7,
+      );
     });
 
     it('auto-enhances a bare APCA floor by +15 Lc in high-contrast', () => {
@@ -1160,7 +1192,7 @@ describe('glaze', () => {
       const hcLc = variantApca(fg.lightContrast, base.lightContrast, 'fg');
       // HC targets Lc 75 (60 + 15) and so produces strictly more contrast.
       expect(hcLc).toBeGreaterThan(normalLc);
-      expect(hcLc).toBeGreaterThanOrEqual(75);
+      expectMeetsApca(hcLc, 75);
     });
 
     it('does not auto-enhance when the inner apca pair gives an explicit HC value', () => {
@@ -1200,10 +1232,8 @@ describe('glaze', () => {
       const base = r.get('bg')!;
       const fg = r.get('fg')!;
       // Normal targets AA (4.5); HC auto-promotes to AAA (7).
-      expect(variantContrast(fg.light, base.light)).toBeGreaterThanOrEqual(4.5);
-      expect(
-        variantContrast(fg.lightContrast, base.lightContrast),
-      ).toBeGreaterThanOrEqual(7);
+      expectMeetsWcag(variantContrast(fg.light, base.light), 4.5);
+      expectMeetsWcag(variantContrast(fg.lightContrast, base.lightContrast), 7);
     });
 
     it('does not auto-promote when the inner wcag pair gives an explicit HC value', () => {
@@ -1290,8 +1320,8 @@ describe('glaze', () => {
       const asSurface = r.get('input-bg')!.light;
       const base = r.get('bg')!.light;
       // 'button-text' infers text (fg); 'input-bg' infers surface (bg).
-      expect(variantApca(asText, base, 'fg')).toBeGreaterThanOrEqual(45);
-      expect(variantApca(asSurface, base, 'bg')).toBeGreaterThanOrEqual(45);
+      expectMeetsApca(variantApca(asText, base, 'fg'), 45);
+      expectMeetsApca(variantApca(asSurface, base, 'bg'), 45);
       expect(Math.abs(llOf(asText) - llOf(asSurface))).toBeGreaterThan(0.01);
     });
 
@@ -1310,8 +1340,8 @@ describe('glaze', () => {
       const base = r.get('bg')!.light;
       // Polarity flips the APCA argument order, so the two converge differently.
       expect(Math.abs(llOf(asSurface) - llOf(asText))).toBeGreaterThan(0.01);
-      expect(variantApca(asSurface, base, 'bg')).toBeGreaterThanOrEqual(45);
-      expect(variantApca(asText, base, 'fg')).toBeGreaterThanOrEqual(45);
+      expectMeetsApca(variantApca(asSurface, base, 'bg'), 45);
+      expectMeetsApca(variantApca(asText, base, 'fg'), 45);
     });
 
     it("uses the opposite of the base's role when the name does not infer", () => {
@@ -1324,7 +1354,7 @@ describe('glaze', () => {
       // base 'bg' is a surface -> 'accent' defaults to text (fg polarity).
       const base = r.get('bg')!.light;
       const accent = r.get('accent')!.light;
-      expect(variantApca(accent, base, 'fg')).toBeGreaterThanOrEqual(45);
+      expectMeetsApca(variantApca(accent, base, 'fg'), 45);
     });
 
     it('inferRole: false skips name inference and falls back to the base opposite', () => {
@@ -1350,13 +1380,9 @@ describe('glaze', () => {
       const r = theme.resolve();
       const base = r.get('bg')!.light;
       // 'content' -> Lc 60
-      expect(
-        variantApca(r.get('body')!.light, base, 'fg'),
-      ).toBeGreaterThanOrEqual(60);
+      expectMeetsApca(variantApca(r.get('body')!.light, base, 'fg'), 60);
       // 'min' -> Lc 15 (border role -> bg-ordered? border is fg polarity)
-      expect(
-        variantApca(r.get('divider')!.light, base, 'fg'),
-      ).toBeGreaterThanOrEqual(15);
+      expectMeetsApca(variantApca(r.get('divider')!.light, base, 'fg'), 15);
     });
 
     it('back-compat: a dependent with no role defaults to foreground (fg)', () => {
@@ -1368,9 +1394,7 @@ describe('glaze', () => {
       const r = theme.resolve();
       // 'accent' name does not infer; base 'bg' infers surface -> accent is fg.
       const base = r.get('bg')!.light;
-      expect(
-        variantApca(r.get('accent')!.light, base, 'fg'),
-      ).toBeGreaterThanOrEqual(60);
+      expectMeetsApca(variantApca(r.get('accent')!.light, base, 'fg'), 60);
     });
   });
 
@@ -2714,7 +2738,7 @@ describe('glaze', () => {
           'lightContrast',
           'darkContrast',
         ] as const) {
-          expect(variantContrast(textR[s], bgR[s])).toBeGreaterThanOrEqual(4.5);
+          expectMeetsWcag(variantContrast(textR[s], bgR[s]), 4.5);
         }
       });
 
@@ -3009,9 +3033,10 @@ describe('glaze', () => {
         },
       });
       const r = theme.resolve();
-      expect(
+      expectMeetsWcag(
         variantContrast(r.get('m')!.light, r.get('bg')!.light),
-      ).toBeGreaterThanOrEqual(4.5);
+        4.5,
+      );
     });
 
     it('srgb blend space stays in gamut', () => {
