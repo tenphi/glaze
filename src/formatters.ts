@@ -13,9 +13,8 @@
  */
 
 import {
+  buildHueDeclarations,
   buildHuePlans,
-  collectHueDeclarations,
-  darkHueDeclarations,
   type ChannelCtx,
   type HuePlan,
 } from './channels';
@@ -172,12 +171,13 @@ export function buildTokenMap(
       : undefined;
 
   if (huePlans !== undefined && channelCtx !== undefined) {
-    for (const decl of collectHueDeclarations(resolved, channelCtx)) {
+    const hueDecls = buildHueDeclarations(resolved, channelCtx);
+    for (const decl of hueDecls.light) {
       tokens[`$${decl.prop.slice(2)}`] = { '': decl.value };
     }
     // Hue vars must not outlive the modes gate the color values respect.
     if (modes.dark) {
-      for (const decl of darkHueDeclarations(resolved, channelCtx)) {
+      for (const decl of hueDecls.dark) {
         const key = `$${decl.prop.slice(2)}`;
         tokens[key] = { ...tokens[key], [states.dark]: decl.value };
       }
@@ -336,10 +336,11 @@ export function buildCssMap(
       : undefined;
 
   if (huePlans !== undefined && channelCtx !== undefined) {
-    for (const decl of collectHueDeclarations(resolved, channelCtx)) {
+    const hueDecls = buildHueDeclarations(resolved, channelCtx);
+    for (const decl of hueDecls.light) {
       lines.light.push(`${decl.prop}: ${decl.value};`);
     }
-    for (const decl of darkHueDeclarations(resolved, channelCtx)) {
+    for (const decl of hueDecls.dark) {
       lines.dark.push(`${decl.prop}: ${decl.value};`);
       lines.darkContrast.push(`${decl.prop}: ${decl.value};`);
     }
