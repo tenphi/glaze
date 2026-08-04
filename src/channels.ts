@@ -6,10 +6,12 @@
  *
  * Hue is scheme-independent unless the theme or a color authors a dark hue,
  * so declarations are collected per scheme (`'light'` / `'dark'`) and the dark
- * set is emitted only when it actually differs — see `darkHueDeclarations`.
+ * set is emitted only when it actually differs — see `buildHueDeclarations`.
+ * A color that authors a hue in *either* scheme gets its own var in both, so
+ * the shared `var()` reference stays valid.
  */
 
-import { parseRelativeOrAbsolute, resolveEffectiveHue } from './hc-pair';
+import { parseRelativeOrAbsolute } from './hc-pair';
 import { isMixDef, isShadowDef } from './shadow';
 import type {
   ColorDef,
@@ -97,25 +99,37 @@ function themeHuePlan(
   const prop = cssProp(ctx.prefix, name, '-hue');
 
   // `mode: 'static'` pins one hue across every scheme, but `--{baseName}-hue`
-  // is re-declared in dark whenever the theme seeds one. Pin an absolute value
+  // is re-declared in dark whenever the theme seeds one. Pin the resolved hue
   // so a static color doesn't drift with it — matching what the resolver does.
+  // Both variants carry the same hue under `static`, so either one works.
   if (
     (regDef.mode ?? 'auto') === 'static' &&
     schemeSeedHue(ctx, 'dark') !== ctx.seedHue
   ) {
-    const pinned = resolveEffectiveHue(ctx.seedHue, regDef.hue);
     return {
       hueVar: `var(${prop})`,
       inline: false,
-      declarations: [{ prop, value: String(pinned) }],
+      declarations: [{ prop, value: String(variant.h) }],
     };
+  }
+
+  // A color needs its own var as soon as *either* scheme authors a hue: the
+  // `var()` reference is shared across schemes, so it can't be the theme var
+  // in one and a per-color var in the other.
+  if (regDef.hue === undefined && regDef.darkHue === undefined) {
+    return { hueVar: baseHueVar, inline: false, declarations: [] };
   }
 
   const authored =
     scheme === 'dark' ? (regDef.darkHue ?? regDef.hue) : regDef.hue;
 
+  // Only the other scheme authored a hue; track the theme var in this one.
   if (authored === undefined) {
-    return { hueVar: baseHueVar, inline: false, declarations: [] };
+    return {
+      hueVar: `var(${prop})`,
+      inline: false,
+      declarations: [{ prop, value: baseHueVar }],
+    };
   }
 
   const parsed = parseRelativeOrAbsolute(authored);
@@ -174,10 +188,10 @@ export function buildHuePlan(
 }
 
 /** Collect unique hue declarations across all colors (theme + per-color). */
-export function collectHueDeclarations(
+function collectHueDeclarations(
   resolved: Map<string, ResolvedColor>,
   ctx: ChannelCtx,
-  scheme: HueScheme = 'light',
+  scheme: HueScheme,
 ): HueDeclaration[] {
   if (ctx.emitDeclarations === false) return [];
 
@@ -210,23 +224,23 @@ export function collectHueDeclarations(
 }
 
 /**
- * Dark-scheme hue declarations, or `[]` when dark resolves to the same hues as
- * light (the common case — no `darkHue` anywhere).
+ * Hue declarations for both schemes. `dark` is empty when it resolves to the
+ * same hues as light — the common case, with no `darkHue` anywhere.
  *
- * When they differ, the **whole** set is returned rather than only the entries
- * whose text changed. A relative declaration reads
+ * When they differ, the **whole** dark set is returned rather than only the
+ * entries whose text changed. A relative declaration reads
  * `calc(var(--theme-hue) + N)` in both schemes even though its resolved value
  * moves with the seed, and custom properties substitute `var()` at
  * computed-value time on the declaring element — so re-declaring
  * `--{baseName}-hue` alone would leave inherited per-color vars still holding
  * the light-substituted value.
  */
-export function darkHueDeclarations(
+export function buildHueDeclarations(
   resolved: Map<string, ResolvedColor>,
   ctx: ChannelCtx,
-): HueDeclaration[] {
-  const dark = collectHueDeclarations(resolved, ctx, 'dark');
+): { light: HueDeclaration[]; dark: HueDeclaration[] } {
   const light = collectHueDeclarations(resolved, ctx, 'light');
+  const dark = collectHueDeclarations(resolved, ctx, 'dark');
 
   const same =
     dark.length === light.length &&
@@ -234,7 +248,7 @@ export function darkHueDeclarations(
       (decl, i) => decl.prop === light[i].prop && decl.value === light[i].value,
     );
 
-  return same ? [] : dark;
+  return { light, dark: same ? [] : dark };
 }
 
 export function buildHuePlans(

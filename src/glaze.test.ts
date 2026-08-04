@@ -524,7 +524,11 @@ describe('glaze', () => {
       const fg = r.get('fg')!;
       const lightShift = (fg.light.t - bg.light.t) * 100;
       const darkShift = (fg.dark.t - bg.dark.t) * 100;
-      expect(lightShift).toBeGreaterThan(0);
+      // Documented in docs/api.md — keep the two in sync.
+      expect(bg.light.t * 100).toBeCloseTo(62.0, 1);
+      expect(fg.light.t * 100).toBeCloseTo(100.0, 1);
+      expect(bg.dark.t * 100).toBeCloseTo(43.9, 1);
+      expect(fg.dark.t * 100).toBeCloseTo(5.9, 1);
       // `auto` inverts both ends, so the shift mirrors but keeps its size.
       expect(darkShift).toBeCloseTo(-lightShift, 4);
       expect(variantContrast(fg.dark, bg.dark)).toBeCloseTo(
@@ -608,6 +612,23 @@ describe('glaze', () => {
       const lightShift = (fg.lightContrast.t - bg.lightContrast.t) * 100;
       const darkShift = (fg.darkContrast.t - bg.darkContrast.t) * 100;
       expect(darkShift).toBeCloseTo(-lightShift, 4);
+    });
+
+    it("'min' with an asymmetric base diverges from the plain high-contrast mapping", () => {
+      const theme = glaze(0, 0);
+      theme.colors({
+        // `fixed` keeps the base at the same tone in both schemes, so the
+        // high-contrast pair is no longer a 100 − t mirror of itself.
+        bg: { tone: 40, mode: 'fixed' },
+        fg: { base: 'bg', tone: 'min' },
+      });
+      const r = theme.resolve();
+      const bg = r.get('bg')!;
+      const fg = r.get('fg')!;
+      expect(bg.darkContrast.t * 100).toBeCloseTo(40, 4);
+      // Replay: dark base 40 minus the light shift (0 − 40) = 80, not the
+      // plain mapping's 100.
+      expect(fg.darkContrast.t * 100).toBeCloseTo(80, 4);
     });
 
     it("keeps the plain scheme mapping for a standalone 'max' with contrast", () => {
@@ -1954,10 +1975,21 @@ describe('glaze', () => {
       expect(css.darkContrast).toContain('--brand-hue: 200;');
     });
 
-    it('emits dark hue declarations for a per-color darkHue alone', () => {
+    it('gives a darkHue-only color its own var in both schemes', () => {
       const theme = glaze(240, 18, { pastel: true });
       theme.colors({ surface: { tone: 35, darkHue: 90 } });
       const css = theme.css({ format: 'oklch', splitHue: true, name: 'brand' });
+
+      // The color must reference its own var, not the theme var — otherwise
+      // the dark declaration below would be emitted but never read.
+      expect(css.light).toMatch(
+        /--surface-color: oklch\([^)]*var\(--surface-hue\)/,
+      );
+      expect(css.dark).toMatch(
+        /--surface-color: oklch\([^)]*var\(--surface-hue\)/,
+      );
+      // Light tracks the theme var so runtime re-skinning still works.
+      expect(css.light).toContain('--surface-hue: var(--brand-hue);');
       expect(css.dark).toContain('--surface-hue: 90;');
       // The theme var is part of the set even though its value is unchanged.
       expect(css.dark).toContain('--brand-hue: 240;');
