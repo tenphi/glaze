@@ -10,6 +10,17 @@
 import { contrastMetricOf } from './contrast-solver';
 import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
 import { isMixDef, isShadowDef } from './shadow';
+
+/**
+ * Does this color sit at an absolute tone — either authored, or carried by a
+ * `from` value? That is the test for "root" (placed on its own) as opposed to
+ * "dependent" (placed relative to a base), and it is what lets a bare
+ * `{ from: '#2F5BFF' }` stand as a complete color definition.
+ */
+export function hasAbsoluteTone(def: RegularColorDef): boolean {
+  if (def.tone === undefined) return def.from !== undefined;
+  return isAbsoluteTone(def.tone);
+}
 import type {
   ColorMap,
   ContrastSpec,
@@ -138,9 +149,9 @@ export function validateColorDefs(
       );
     }
 
-    if (!isAbsoluteTone(regDef.tone) && regDef.base === undefined) {
+    if (!hasAbsoluteTone(regDef) && regDef.base === undefined) {
       throw new Error(
-        `glaze: color "${name}" must have either absolute "tone" (root) or "base" (dependent).`,
+        `glaze: color "${name}" must have either absolute "tone" (root), "from" (a literal color), or "base" (dependent).`,
       );
     }
 

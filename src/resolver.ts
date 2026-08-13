@@ -36,7 +36,6 @@ import {
   PAIR_SWITCH,
   clamp,
   contrastFraction,
-  isAbsoluteTone,
   numberAt,
   pairHC,
   pairNormal,
@@ -66,7 +65,8 @@ import {
   toTone,
   variantToOkhsl,
 } from './okhst';
-import { topoSort, validateColorDefs } from './validation';
+import { extractOkhslFromValue } from './color-value';
+import { hasAbsoluteTone, topoSort, validateColorDefs } from './validation';
 import { warnContrastUnmet, warnContrastDrift } from './warnings';
 import type {
   AdaptationMode,
@@ -306,6 +306,54 @@ function extremeDarkTone(
   return clamp(darkBase.t * 100 + (mode === 'auto' ? -shift : shift), 0, 100);
 }
 
+/**
+ * Hue, absolute saturation (0–1) and tone (0–100) read off a color def's `from`.
+ *
+ * Memoized on the def object: a single resolve pass reads it once per scheme per
+ * color, and the parse is pure, so the cache is a `WeakMap` keyed by the def
+ * itself rather than a per-pass structure that would have to be threaded around.
+ */
+const fromSeeds = new WeakMap<
+  RegularColorDef,
+  { hue: number; saturation: number; tone: number }
+>();
+
+function fromSeed(
+  def: RegularColorDef,
+): { hue: number; saturation: number; tone: number } | undefined {
+  if (def.from === undefined) return undefined;
+
+  const cached = fromSeeds.get(def);
+  if (cached) return cached;
+
+  // `toTone` already returns the 0–100 tone; `s` stays the OKHSL 0–1 saturation
+  // the resolver emits.
+  const { h, s, l } = extractOkhslFromValue(def.from);
+  const seed = { hue: h, saturation: s, tone: toTone(l) };
+
+  fromSeeds.set(def, seed);
+
+  return seed;
+}
+
+/**
+ * The config this color resolves against.
+ *
+ * A `from` color carries a literal value, so its light variant has to survive
+ * the light tone window intact — hence a local `lightTone: false`, the same
+ * default the value-shorthand form of `glaze.color()` applies. Only the light
+ * window is dropped: dark and high contrast keep theirs, because that is where
+ * the color is expected to adapt.
+ */
+function configForColor(
+  def: RegularColorDef,
+  config: GlazeConfigResolved,
+): GlazeConfigResolved {
+  if (def.from === undefined) return config;
+
+  return { ...config, lightTone: false };
+}
+
 function resolveRootColor(
   def: RegularColorDef,
   isHighContrast: boolean,
@@ -313,7 +361,9 @@ function resolveRootColor(
 ): number {
   // Root tone is absolute or extreme ('max' = 100, 'min' = 0); both flow
   // through mapToneForScheme (and invert in dark under mode 'auto').
-  const parsed = passTone(def.tone!, isHighContrast, config);
+  if (def.tone === undefined) return clamp(fromSeed(def)!.tone, 0, 100);
+
+  const parsed = passTone(def.tone, isHighContrast, config);
   return clamp(parsed.value, 0, 100);
 }
 
@@ -338,10 +388,25 @@ function resolveChannels(
   const mode = def.mode ?? 'auto';
   const satFactor = clamp(def.saturation ?? 1, 0, 1);
 
+  // A `from` color carries its own hue and an ABSOLUTE saturation, so it stands
+  // outside the seed entirely: the theme seed is a ceiling for every other color
+  // (`saturation` is a 0–1 factor of it), and a literal color has to be able to
+  // exceed it or the caller would have to re-seed the theme to be honored.
+  // An explicit `hue` / `saturation` on the same def still wins — those are the
+  // more specific instruction, and `saturation` keeps its factor-of-seed meaning.
+  const seed = fromSeed(def);
+  const fromHue =
+    seed !== undefined && def.hue === undefined ? seed.hue : undefined;
+  const fromSaturation =
+    seed !== undefined && def.saturation === undefined
+      ? seed.saturation
+      : undefined;
+
   if (!isDark || mode === 'static') {
     return {
-      hue: resolveEffectiveHue(ctx.hue, def.hue),
-      saturation: clamp((satFactor * ctx.saturation) / 100, 0, 1),
+      hue: fromHue ?? resolveEffectiveHue(ctx.hue, def.hue),
+      saturation:
+        fromSaturation ?? clamp((satFactor * ctx.saturation) / 100, 0, 1),
     };
   }
 
@@ -349,10 +414,19 @@ function resolveChannels(
   const darkFactor = clamp(def.darkSaturation ?? satFactor, 0, 1);
   const explicitDark =
     def.darkSaturation !== undefined || ctx.darkSaturation !== undefined;
-  const raw = (darkFactor * darkSeedSaturation) / 100;
+  // Dark keeps the color's own saturation as its starting point too, but unlike
+  // light it is still subject to `darkDesaturation` — dark is where the color is
+  // allowed to move, so the global haircut applies as it does to any other color.
+  const raw =
+    fromSaturation !== undefined && def.darkSaturation === undefined
+      ? fromSaturation
+      : (darkFactor * darkSeedSaturation) / 100;
 
   return {
-    hue: resolveEffectiveHue(ctx.darkHue ?? ctx.hue, def.darkHue ?? def.hue),
+    hue:
+      fromHue !== undefined && def.darkHue === undefined
+        ? fromHue
+        : resolveEffectiveHue(ctx.darkHue ?? ctx.hue, def.darkHue ?? def.hue),
     saturation: clamp(
       explicitDark ? raw : mapSaturationDark(raw, mode, ctx.config),
       0,
@@ -382,18 +456,23 @@ function resolveDependentColor(
   const mode = def.mode ?? 'auto';
   const flip = def.autoFlip ?? ctx.config.autoFlip;
   const pastel = effectivePastel;
+  const config = configForColor(def, ctx.config);
 
   const baseVariant = getSchemeVariant(baseResolved, isDark, isHighContrast);
   const baseTone = baseVariant.t * 100;
 
   let preferredTone: number;
   let isExtreme = false;
-  const rawTone = def.tone;
+  // A `from` color with no authored `tone` is placed at the tone it carries —
+  // not at its base's, which is what an ordinary dependent color would inherit.
+  const seed = fromSeed(def);
+  const rawTone: HCPair<ToneValue> | undefined =
+    def.tone ?? (seed !== undefined ? seed.tone : undefined);
 
   if (rawTone === undefined) {
     preferredTone = baseTone;
   } else {
-    const parsed = passTone(rawTone, isHighContrast, ctx.config);
+    const parsed = passTone(rawTone, isHighContrast, config);
 
     if (parsed.kind === 'relative') {
       if (isDark && mode === 'auto') {
@@ -415,7 +494,7 @@ function resolveDependentColor(
           'auto',
           true,
           isHighContrast,
-          ctx.config,
+          config,
         );
       } else {
         const delta = applyToneFlip(parsed.value, baseTone, flip);
@@ -432,7 +511,7 @@ function resolveDependentColor(
           mode,
           isHighContrast,
           baseResolved,
-          ctx.config,
+          config,
         );
       } else {
         preferredTone = mapToneForScheme(
@@ -440,7 +519,7 @@ function resolveDependentColor(
           mode,
           isDark,
           isHighContrast,
-          ctx.config,
+          config,
         );
       }
     }
@@ -451,7 +530,7 @@ function resolveDependentColor(
     const resolvedContrast = resolveContrastSpec(
       rawContrast,
       isHighContrast,
-      ctx.config,
+      config,
       polarity,
     );
 
@@ -467,7 +546,7 @@ function resolveDependentColor(
     // window would undo the shift the extreme asked for.
     const preferredRange = isExtreme
       ? ([0, 1] as const)
-      : schemeToneRange(isDark, mode, isHighContrast, ctx.config);
+      : schemeToneRange(isDark, mode, isHighContrast, config);
 
     let initialDirection: 'lighter' | 'darker' | undefined;
     if (preferredTone < baseTone) {
@@ -563,19 +642,22 @@ function resolveColorForScheme(
 
   const regDef = def as RegularColorDef;
   const mode = regDef.mode ?? 'auto';
-  const isRoot = isAbsoluteTone(regDef.tone) && !regDef.base;
+  // `from` supplies an absolute tone, so a color that carries one is a root even
+  // with no authored `tone` — same as any other absolutely-placed color.
+  const isRoot = hasAbsoluteTone(regDef) && !regDef.base;
   const channels = resolveChannels(regDef, ctx, isDark);
   const role = resolveRole(name, def, ctx);
   const polarity = roleToPolarity(role);
   const pastel = regDef.pastel ?? ctx.config.pastel;
+  const config = configForColor(regDef, ctx.config);
 
   const finalTone = isRoot
     ? mapToneForScheme(
-        resolveRootColor(regDef, isHighContrast, ctx.config),
+        resolveRootColor(regDef, isHighContrast, config),
         mode,
         isDark,
         isHighContrast,
-        ctx.config,
+        config,
       )
     : resolveDependentColor(
         name,
