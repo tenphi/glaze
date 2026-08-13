@@ -152,13 +152,43 @@ export interface OklchColor {
 
 export interface RegularColorDef {
   /**
+   * Seed this color from a literal color instead of from the theme.
+   *
+   * Accepts the same values as `glaze.color()` — hex, `rgb()`, `hsl()`,
+   * `okhsl()`, `okhst()`, `oklch()`, or a value object. It supplies three
+   * things at once: `hue`, `tone`, and — unlike every other color in a theme —
+   * an **absolute saturation** rather than a factor of the seed. That last
+   * part is the point: a color can now be more saturated than its theme, so
+   * honoring a brand color no longer means re-seeding the whole theme to reach
+   * it.
+   *
+   * The **light, normal-contrast** variant reproduces the value exactly
+   * (a local `lightTone: false`, matching the value-shorthand form of
+   * `glaze.color()`). Dark and high-contrast variants adapt as usual — they
+   * are where readability outranks fidelity, and a color pinned across every
+   * scheme would defeat both. A `contrast` floor still applies everywhere and
+   * still only moves the color when the authored value misses it.
+   *
+   * Sibling fields override what the value supplied, so
+   * `{ from: '#2F5BFF', hue: 300 }` keeps its saturation and tone but rotates
+   * the hue.
+   */
+  from?: GlazeColorValue;
+  /**
    * Tone value (0–100, contrast-uniform — see `docs/okhst.md`).
    * - Number: absolute tone.
    * - String ('+N' / '-N'): relative to base color's tone (requires `base`).
    * - `'max'` / `'min'`: force to the scheme's tone extreme (no base needed).
+   *
+   * Defaults to the tone of `from` when that is set.
    */
   tone?: HCPair<ToneValue>;
-  /** Saturation factor applied to the seed saturation (0–1, default: 1). */
+  /**
+   * Saturation factor applied to the seed saturation (0–1, default: 1).
+   *
+   * With `from`, an explicit value here is still a factor of the seed and
+   * overrides the absolute saturation the color carried.
+   */
   saturation?: number;
   /**
    * Hue override for this color.

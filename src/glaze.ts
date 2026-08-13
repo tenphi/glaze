@@ -23,8 +23,8 @@ import {
   colorFromExport,
   createColorToken,
   createColorTokenFromValue,
-  extractOkhslFromValue,
 } from './color-token';
+import { extractOkhslFromValue } from './color-value';
 import { formatVariant } from './formatters';
 import { computeShadow, resolveShadowTuning } from './shadow';
 import { okhslToOkhst } from './okhst';

@@ -559,8 +559,9 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 
 | Field        | Type                            | Description                                                                                                                                                                                                                                                                        |
 | ------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tone`       | `HCPair<ToneValue>`             | Number = absolute (0–100). `'+N'`/`'-N'` = a signed **tone delta** from the base (requires `base`). `'max'`/`'min'` = forced to the scheme's tone extreme (no `base`). Optional HC pair `[normal, hc]`.                                                                            |
-| `saturation` | `number`                        | Saturation factor applied to the seed saturation (0–1). Default: `1`.                                                                                                                                                                                                              |
+| `from`       | `GlazeColorValue`               | Seed this color from a literal value (hex, `rgb()`, `hsl()`, `okhsl()`, `okhst()`, `oklch()`, or a value object). Supplies `hue`, `tone`, and an **absolute** saturation — the one way a theme color escapes the seed ceiling. Light/normal-contrast reproduces it exactly. See [`from`](#from-a-literal-color).             |
+| `tone`       | `HCPair<ToneValue>`             | Number = absolute (0–100). `'+N'`/`'-N'` = a signed **tone delta** from the base (requires `base`). `'max'`/`'min'` = forced to the scheme's tone extreme (no `base`). Optional HC pair `[normal, hc]`. Defaults to the tone of `from`.                                             |
+| `saturation` | `number`                        | Saturation factor applied to the seed saturation (0–1). Default: `1`. With `from`, setting it overrides the color's absolute saturation and reverts to a factor of the seed.                                                                                                       |
 | `hue`        | `number \| RelativeValue`       | Number = absolute (0–360). String (`'+N'`/`'-N'`) = relative to the **theme seed hue** (never to a base color).                                                                                                                                                                    |
 | `darkHue`    | `number \| RelativeValue`       | Dark-scheme hue. Number = absolute (0–360). String = relative to the **theme dark seed hue**. Falls back to `hue`. See [Dark seed](#dark-seed-darkhue--darksaturation).                                                                                                            |
 | `darkSaturation` | `number`                    | Dark-scheme saturation factor (0–1) over the dark seed saturation. Falls back to `saturation`. When set, the global `darkDesaturation` reduction is **not** applied on top.                                                                                                        |
@@ -572,6 +573,61 @@ type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
 | `pastel`     | `boolean`                       | Per-color override for the hue-independent "safe" chroma limit used in OKHSL↔sRGB conversions (luminance, contrast solving, output formatting). Falls through to the per-theme / per-token `pastel` override when omitted. Default: unset. See [Per-color `pastel`](#per-color-pastel). |
 | `role`       | `RoleInput`                     | Semantic role against `base` (`'text'` / `'surface'` / `'border'` or an alias). Fixes APCA contrast polarity. Resolved via: explicit `role` → name inference → opposite of the base's role → `'text'`. See [Roles](#roles).                                                        |
 | `inherit`    | `boolean`                       | Whether this color is inherited by child themes via `extend()`. Default: `true`. Set to `false` to make the color local to the current theme.                                                                                                                                      |
+
+#### `from` (a literal color)
+
+Most of Glaze answers the question "design me a palette". `from` answers the
+other one: **"honor this color."** White-label products, multi-tenant branding
+and imported design tokens all arrive with a value already chosen, and it is a
+contract rather than a starting point.
+
+```ts
+const theme = glaze(280, 80);
+
+theme.colors({
+  surface: { tone: 100, saturation: 0.12 },
+  brand: { from: '#2f5bff', base: 'surface', contrast: 3 },
+});
+```
+
+It accepts the same values as [`glaze.color()`](#input-forms) and supplies three
+things at once: `hue`, `tone`, and — uniquely among theme colors — an
+**absolute saturation**.
+
+That last one is the point. Every other color's `saturation` is a 0–1 factor of
+the theme seed, so the seed is a ceiling: without `from`, the only way to place
+a color more saturated than its theme is to re-seed the whole theme, dragging
+every sibling along. A `from` color carries its own chroma and is unaffected by
+the seed:
+
+```ts
+// Identical output at every seed saturation — the color is the color.
+for (const seed of [5, 50, 100]) {
+  glaze(280, seed).colors({ brand: { from: '#2f5bff' } }); // → #2f5bff
+}
+```
+
+**What "exactly" covers.** The **light, normal-contrast** variant reproduces the
+value (a local `lightTone: false`, the same default the value-shorthand form of
+`glaze.color()` applies). Dark and high contrast adapt as usual. That asymmetry
+is deliberate: those are the variants a reader reaches for when the normal one
+does not work for them, so readability outranks fidelity there — and a color
+pinned across all four would just be a worse `mode: 'static'`.
+
+A `contrast` floor still applies in every scheme and is still a floor, not a
+target: a value that already clears it is emitted untouched, and one that misses
+moves only as far as the floor. Because the floor is solved per scheme, which
+scheme comes out exact depends on the color — a light brand cannot clear 3:1 on
+a white page but clears it easily on a dark one.
+
+Sibling fields win over what the value supplied, so `{ from: '#2f5bff', hue: 300 }`
+keeps the saturation and tone and rotates the hue. Note that a `saturation`
+written alongside `from` reverts to its usual meaning — a factor of the seed,
+not of the color.
+
+A `from` color needs no `base` and no `tone`: it is placed absolutely, so it
+stands as a root on its own. Add `base` + `contrast` when it has to stay legible
+against something.
 
 #### Tone values
 

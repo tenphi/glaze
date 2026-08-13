@@ -2,9 +2,11 @@ import { glaze } from './glaze';
 import {
   contrastRatioFromLuminance,
   okhslToLinearSrgb,
+  okhslToSrgb,
   gamutClampedLuminance,
   apcaLuminanceFromLinearRgb,
   parseHex,
+  srgbToHex,
 } from './okhsl-color-math';
 import { apcaContrast } from './contrast-solver';
 import { variantToOkhsl } from './okhst';
@@ -895,6 +897,196 @@ describe('glaze', () => {
       theme.colors({ surface: { tone: 60, saturation: 0.75 } });
       const surface = theme.resolve().get('surface')!;
       expect(surface.dark.s).toBeCloseTo(surface.light.s * 0.9, 2);
+    });
+  });
+
+  /**
+   * `from` — a theme color seeded by a literal value.
+   *
+   * The contract is narrow on purpose: the **light, normal-contrast** variant is
+   * the value, and everything else is free to adapt. Dark and high contrast are
+   * where readability outranks fidelity, so pinning a color across all four
+   * would be the wrong trade — and would make `from` a worse `mode: 'static'`
+   * rather than its own thing.
+   */
+  describe('from (literal color)', () => {
+    /** Hex of a resolved variant, for exact-reproduction assertions. */
+    const hexOf = (v: ResolvedColorVariant): string => {
+      const c = variantToOkhsl(v);
+      return srgbToHex(okhslToSrgb(c.h, c.s, c.l, v.pastel));
+    };
+
+    it('reproduces the value exactly in light, whatever the theme seed', () => {
+      // The seed is a ceiling for every other color, since `saturation` is a
+      // 0–1 factor of it. A `from` color escapes that — which is the whole
+      // reason it exists, and why a caller no longer has to re-seed a theme to
+      // be given the color they asked for.
+      for (const seedSaturation of [5, 50, 100]) {
+        const theme = glaze(280, seedSaturation);
+        theme.colors({
+          surface: { tone: 100, saturation: 0.12 },
+          brand: { from: '#2f5bff', base: 'surface', contrast: 3 },
+        });
+
+        const brand = theme.resolve().get('brand')!;
+        expect(hexOf(brand.light), `seed ${seedSaturation}`).toBe('#2f5bff');
+      }
+    });
+
+    it('stands alone as a root, with no base and no tone', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ brand: { from: '#ffd400' } });
+
+      expect(hexOf(theme.resolve().get('brand')!.light)).toBe('#ffd400');
+    });
+
+    it('accepts every value form `glaze.color()` does', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        a: { from: '#0ea5e9' },
+        b: { from: 'rgb(14 165 233)' },
+        c: { from: { r: 14, g: 165, b: 233 } },
+        d: { from: 'oklch(0.6847 0.1479 237.32)' },
+      });
+
+      const resolved = theme.resolve();
+      for (const name of ['a', 'b', 'c', 'd']) {
+        expect(hexOf(resolved.get(name)!.light), name).toBe('#0ea5e9');
+      }
+    });
+
+    it('lets dark and high contrast adapt', () => {
+      const theme = glaze(280, 80);
+      theme.colors({ brand: { from: '#2f5bff' } });
+      const brand = theme.resolve().get('brand')!;
+
+      // `mode: 'auto'` still inverts into the dark window — a link or a fill
+      // pinned to one lightness would be unreadable on the opposite scheme.
+      expect(hexOf(brand.dark)).not.toBe('#2f5bff');
+      expect(brand.dark.t).toBeGreaterThan(brand.light.t);
+    });
+
+    it('treats a contrast floor as a floor, not a target', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { tone: 100, saturation: 0.12 },
+        // #2f5bff measures ~5.2:1 on white, so a floor of 3 has nothing to do.
+        clears: { from: '#2f5bff', base: 'surface', contrast: 3 },
+        // #ffd400 measures ~1.4:1 and has to move.
+        floored: { from: '#ffd400', base: 'surface', contrast: 3 },
+      });
+
+      const resolved = theme.resolve();
+      const surface = resolved.get('surface')!;
+
+      expect(hexOf(resolved.get('clears')!.light)).toBe('#2f5bff');
+
+      const moved = resolved.get('floored')!;
+      expect(hexOf(moved.light)).not.toBe('#ffd400');
+      expect(
+        variantContrast(moved.light, surface.light),
+      ).toBeGreaterThanOrEqual(3);
+      // …and no further than the floor asked for.
+      expect(variantContrast(moved.light, surface.light)).toBeLessThan(3.2);
+    });
+
+    it('yields to an explicit hue or saturation on the same def', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        rotated: { from: '#2f5bff', hue: 30 },
+        muted: { from: '#2f5bff', saturation: 0.25 },
+      });
+
+      const resolved = theme.resolve();
+      const plain = glaze(280, 80);
+      plain.colors({ brand: { from: '#2f5bff' } });
+      const reference = plain.resolve().get('brand')!;
+
+      expect(resolved.get('rotated')!.light.h).toBe(30);
+      // The saturation factor is still a factor OF THE SEED, so it reads 0.25 of
+      // 80 rather than 0.25 of the color's own chroma.
+      expect(resolved.get('muted')!.light.s).toBeCloseTo(0.2, 4);
+      expect(reference.light.s).toBeGreaterThan(0.9);
+    });
+
+    it('gives the color its own hue var under splitHue', () => {
+      // A `from` color authors a hue that is not the theme's. Pointing it at the
+      // theme's `--*-hue` var would re-skin it on the next re-seed — the same
+      // failure a `darkHue`-only color used to have. (`splitHue` requires
+      // pastel, hence the theme-level override.)
+      const theme = glaze(280, 80, { pastel: true });
+      theme.colors({ brand: { from: '#2f5bff' } });
+
+      const { light } = theme.css({ splitHue: true });
+
+      expect(light).toMatch(/--brand-hue:\s*266\./);
+      expect(light).not.toMatch(/--brand-hue:\s*var\(/);
+    });
+
+    it('names the color when the value cannot be parsed', () => {
+      // The parser's own error names the string but not the color it came from,
+      // which in a palette of fifty tokens is the half you actually need.
+      const theme = glaze(280, 80);
+      theme.colors({ brand: { from: 'rebeccapurple' } });
+
+      expect(() => theme.resolve()).toThrow(
+        /color "brand" has an invalid "from"/,
+      );
+    });
+
+    it('re-reads a def whose value was mutated in place', () => {
+      // Defs are stored by reference, so mutate-and-reset is a legitimate way to
+      // change one. A cache keyed on the def object would survive the theme's own
+      // invalidation and keep serving the previous color.
+      const def: { from: string } = { from: '#2f5bff' };
+      const theme = glaze(280, 80);
+
+      theme.colors({ brand: def });
+      expect(theme.resolve().get('brand')!.light.h).toBeCloseTo(266.16, 1);
+
+      def.from = '#ffd400';
+      theme.colors({ brand: def });
+
+      expect(theme.resolve().get('brand')!.light.h).toBeCloseTo(94.02, 1);
+    });
+
+    it('applies the dark haircut whether or not the theme seeds a dark saturation', () => {
+      // A theme-level `darkSaturation` is only "authored" for a color that reads
+      // the seed. A `from` color does not, so letting the theme's value suppress
+      // the `darkDesaturation` haircut would leave the same color MORE saturated
+      // in dark than it is in a theme that never set one.
+      const plain = glaze(280, 80);
+      const seeded = glaze({ hue: 280, saturation: 80, darkSaturation: 30 });
+
+      plain.colors({ brand: { from: '#2f5bff' } });
+      seeded.colors({ brand: { from: '#2f5bff' } });
+
+      expect(seeded.resolve().get('brand')!.dark.s).toBeCloseTo(
+        plain.resolve().get('brand')!.dark.s,
+        6,
+      );
+    });
+
+    it('round-trips through export / themeFrom', () => {
+      const theme = glaze(280, 80);
+      theme.colors({
+        surface: { tone: 100, saturation: 0.12 },
+        brand: { from: '#2f5bff', base: 'surface', contrast: 3 },
+      });
+
+      const restored = glaze.themeFrom(theme.export());
+
+      expect(hexOf(restored.resolve().get('brand')!.light)).toBe('#2f5bff');
+    });
+
+    it('carries into a child theme through extend', () => {
+      const parent = glaze(280, 80);
+      parent.colors({ brand: { from: '#2f5bff' } });
+      const child = parent.extend({ hue: 30 });
+
+      // The literal wins over the child's own seed — that is what makes it a
+      // literal. A child that wants the seed's hue drops the `from`.
+      expect(hexOf(child.resolve().get('brand')!.light)).toBe('#2f5bff');
     });
   });
 

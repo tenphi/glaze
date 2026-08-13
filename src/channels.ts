@@ -116,15 +116,34 @@ function themeHuePlan(
   // A color needs its own var as soon as *either* scheme authors a hue: the
   // `var()` reference is shared across schemes, so it can't be the theme var
   // in one and a per-color var in the other.
-  if (regDef.hue === undefined && regDef.darkHue === undefined) {
+  //
+  // `from` counts as authoring one. It carries a hue that is not the theme's,
+  // so pointing the color at the theme hue var would re-skin it to whatever the
+  // theme is seeded with — the same failure a `darkHue`-only color used to have.
+  if (
+    regDef.hue === undefined &&
+    regDef.darkHue === undefined &&
+    regDef.from === undefined
+  ) {
     return { hueVar: baseHueVar, inline: false, declarations: [] };
   }
 
   const authored =
     scheme === 'dark' ? (regDef.darkHue ?? regDef.hue) : regDef.hue;
 
-  // Only the other scheme authored a hue; track the theme var in this one.
   if (authored === undefined) {
+    // `from` supplied the hue for this scheme, so pin the resolved literal —
+    // tracking the theme var would re-skin the color to the theme's hue, which
+    // is the one thing a literal color must not do.
+    if (regDef.from !== undefined) {
+      return {
+        hueVar: `var(${prop})`,
+        inline: false,
+        declarations: [{ prop, value: String(variant.h) }],
+      };
+    }
+
+    // Only the other scheme authored a hue; track the theme var in this one.
     return {
       hueVar: `var(${prop})`,
       inline: false,
