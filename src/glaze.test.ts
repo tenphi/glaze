@@ -1023,6 +1023,50 @@ describe('glaze', () => {
       expect(light).not.toMatch(/--brand-hue:\s*var\(/);
     });
 
+    it('names the color when the value cannot be parsed', () => {
+      // The parser's own error names the string but not the color it came from,
+      // which in a palette of fifty tokens is the half you actually need.
+      const theme = glaze(280, 80);
+      theme.colors({ brand: { from: 'rebeccapurple' } });
+
+      expect(() => theme.resolve()).toThrow(
+        /color "brand" has an invalid "from"/,
+      );
+    });
+
+    it('re-reads a def whose value was mutated in place', () => {
+      // Defs are stored by reference, so mutate-and-reset is a legitimate way to
+      // change one. A cache keyed on the def object would survive the theme's own
+      // invalidation and keep serving the previous color.
+      const def: { from: string } = { from: '#2f5bff' };
+      const theme = glaze(280, 80);
+
+      theme.colors({ brand: def });
+      expect(theme.resolve().get('brand')!.light.h).toBeCloseTo(266.16, 1);
+
+      def.from = '#ffd400';
+      theme.colors({ brand: def });
+
+      expect(theme.resolve().get('brand')!.light.h).toBeCloseTo(94.02, 1);
+    });
+
+    it('applies the dark haircut whether or not the theme seeds a dark saturation', () => {
+      // A theme-level `darkSaturation` is only "authored" for a color that reads
+      // the seed. A `from` color does not, so letting the theme's value suppress
+      // the `darkDesaturation` haircut would leave the same color MORE saturated
+      // in dark than it is in a theme that never set one.
+      const plain = glaze(280, 80);
+      const seeded = glaze({ hue: 280, saturation: 80, darkSaturation: 30 });
+
+      plain.colors({ brand: { from: '#2f5bff' } });
+      seeded.colors({ brand: { from: '#2f5bff' } });
+
+      expect(seeded.resolve().get('brand')!.dark.s).toBeCloseTo(
+        plain.resolve().get('brand')!.dark.s,
+        6,
+      );
+    });
+
     it('round-trips through export / themeFrom', () => {
       const theme = glaze(280, 80);
       theme.colors({

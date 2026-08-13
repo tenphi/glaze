@@ -7,9 +7,17 @@
  * its base / bg / fg / target dependencies.
  */
 
+import { extractOkhslFromValue } from './color-value';
 import { contrastMetricOf } from './contrast-solver';
 import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
 import { isMixDef, isShadowDef } from './shadow';
+import type {
+  ColorMap,
+  ContrastSpec,
+  HCPair,
+  RegularColorDef,
+  ResolvedColor,
+} from './types';
 
 /**
  * Does this color sit at an absolute tone — either authored, or carried by a
@@ -21,13 +29,6 @@ export function hasAbsoluteTone(def: RegularColorDef): boolean {
   if (def.tone === undefined) return def.from !== undefined;
   return isAbsoluteTone(def.tone);
 }
-import type {
-  ColorMap,
-  ContrastSpec,
-  HCPair,
-  RegularColorDef,
-  ResolvedColor,
-} from './types';
 
 /**
  * Reject a `contrast` pair whose two entries measure in different metrics.
@@ -118,6 +119,22 @@ export function validateColorDefs(
     const regDef = def as RegularColorDef;
 
     assertConsistentContrastMetric(name, regDef.contrast);
+
+    // Parse `from` here rather than letting the resolver hit it. The parser's own
+    // error names the offending string but not the color it came from, which in a
+    // palette of fifty tokens is the half you actually need.
+    if (regDef.from !== undefined) {
+      try {
+        extractOkhslFromValue(regDef.from);
+      } catch (error) {
+        throw new Error(
+          `glaze: color "${name}" has an invalid "from" value. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+          { cause: error },
+        );
+      }
+    }
 
     if (regDef.contrast !== undefined && !regDef.base) {
       throw new Error(`glaze: color "${name}" has "contrast" without "base".`);

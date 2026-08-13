@@ -39,6 +39,10 @@ Sibling fields override what the value supplied, so
 hue. A `from` color needs neither `base` nor `tone` — it is placed absolutely,
 so it stands as a root on its own.
 
+An unparseable `from` is rejected by `validateColorDefs` with the color's name in
+the message, rather than surfacing the parser's own error from inside the
+resolver — the string alone does not tell you which of fifty tokens carries it.
+
 Two smaller consequences. Under `splitHue`, a `from` color now gets its own
 `--{name}-hue` custom property in both schemes rather than referencing the
 theme's: it authors a hue that is not the theme's, so tracking the theme var

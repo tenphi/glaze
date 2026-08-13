@@ -309,31 +309,23 @@ function extremeDarkTone(
 /**
  * Hue, absolute saturation (0–1) and tone (0–100) read off a color def's `from`.
  *
- * Memoized on the def object: a single resolve pass reads it once per scheme per
- * color, and the parse is pure, so the cache is a `WeakMap` keyed by the def
- * itself rather than a per-pass structure that would have to be threaded around.
+ * Deliberately not memoized. Keying a cache on the def object looks free — a
+ * resolve reads this a handful of times per color — but defs are stored by
+ * reference, so mutating one in place and re-setting it would invalidate the
+ * theme's own cache while a def-keyed cache quietly served the old color. The
+ * parse is a few microseconds against a resolve that is already cached; that is
+ * not a trade worth a staleness bug.
  */
-const fromSeeds = new WeakMap<
-  RegularColorDef,
-  { hue: number; saturation: number; tone: number }
->();
-
 function fromSeed(
   def: RegularColorDef,
 ): { hue: number; saturation: number; tone: number } | undefined {
   if (def.from === undefined) return undefined;
 
-  const cached = fromSeeds.get(def);
-  if (cached) return cached;
-
   // `toTone` already returns the 0–100 tone; `s` stays the OKHSL 0–1 saturation
   // the resolver emits.
   const { h, s, l } = extractOkhslFromValue(def.from);
-  const seed = { hue: h, saturation: s, tone: toTone(l) };
 
-  fromSeeds.set(def, seed);
-
-  return seed;
+  return { hue: h, saturation: s, tone: toTone(l) };
 }
 
 /**
@@ -412,15 +404,21 @@ function resolveChannels(
 
   const darkSeedSaturation = ctx.darkSaturation ?? ctx.saturation;
   const darkFactor = clamp(def.darkSaturation ?? satFactor, 0, 1);
-  const explicitDark =
-    def.darkSaturation !== undefined || ctx.darkSaturation !== undefined;
   // Dark keeps the color's own saturation as its starting point too, but unlike
   // light it is still subject to `darkDesaturation` — dark is where the color is
   // allowed to move, so the global haircut applies as it does to any other color.
-  const raw =
-    fromSaturation !== undefined && def.darkSaturation === undefined
-      ? fromSaturation
-      : (darkFactor * darkSeedSaturation) / 100;
+  const fromDark =
+    fromSaturation !== undefined && def.darkSaturation === undefined;
+  const raw = fromDark
+    ? fromSaturation
+    : (darkFactor * darkSeedSaturation) / 100;
+  // A theme-level `darkSaturation` only counts as "authored" for a color that
+  // actually reads the seed. A `from` color does not, so letting the theme's
+  // value suppress the haircut here would leave the same color MORE saturated in
+  // dark than it is in a theme that never set one.
+  const explicitDark = fromDark
+    ? false
+    : def.darkSaturation !== undefined || ctx.darkSaturation !== undefined;
 
   return {
     hue:
