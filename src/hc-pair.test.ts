@@ -1,5 +1,6 @@
 import {
   contrastFraction,
+  hcMirrorsNormal,
   levelFraction,
   numberAt,
   pairHC,
@@ -33,9 +34,11 @@ describe('hc-pair', () => {
       expect(contrastFraction({ contrastLevel: 100 })).toBe(1);
     });
 
-    it("distinguishes level 0 from 'auto'", () => {
-      // Level 0 pins the output to normal contrast AND drops the HC tier;
-      // 'auto' keeps the tier. They must not collapse into each other.
+    it("keeps level 0 distinct from 'auto' in the config", () => {
+      // The two take different branches, and an authored 0 is a slider position
+      // that `.export()` freezes where an absent level is not. They are not an
+      // output distinction: at fraction 0 every interpolation returns its normal
+      // entry verbatim, so level 0 reproduces 'auto' bit for bit.
       expect(contrastFraction({ contrastLevel: 0 })).not.toBeUndefined();
     });
 
@@ -44,6 +47,22 @@ describe('hc-pair', () => {
       expect(contrastFraction({ contrastLevel: -20 })).toBe(0);
       expect(levelFraction(150)).toBe(1);
       expect(levelFraction(-20)).toBe(0);
+    });
+  });
+
+  describe('hcMirrorsNormal', () => {
+    it('is true only at the top of the slider', () => {
+      expect(hcMirrorsNormal({ contrastLevel: 100 })).toBe(true);
+      // Clamped, so anything above 100 counts too.
+      expect(hcMirrorsNormal({ contrastLevel: 150 })).toBe(true);
+    });
+
+    it('is false at every other level, and in auto mode', () => {
+      expect(hcMirrorsNormal({ contrastLevel: 99.9 })).toBe(false);
+      expect(hcMirrorsNormal({ contrastLevel: 50 })).toBe(false);
+      expect(hcMirrorsNormal({ contrastLevel: 0 })).toBe(false);
+      expect(hcMirrorsNormal({ contrastLevel: 'auto' })).toBe(false);
+      expect(hcMirrorsNormal({})).toBe(false);
     });
   });
 

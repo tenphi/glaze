@@ -2,12 +2,14 @@
  * Color resolution engine.
  *
  * Runs the four-pass solver (light → light-HC → dark → dark-HC) that
- * turns a `ColorMap` into a fully resolved `ResolvedColor` per name — or,
- * under a manual `contrastLevel`, a two-pass solver (light → dark) whose
- * authored HC pairs, tone window, and contrast targets are interpolated at
- * that level and whose high-contrast slots mirror the normal ones.
- * Owns the per-scheme resolve helpers for regular, shadow, and mix
- * color defs.
+ * turns a `ColorMap` into a fully resolved `ResolvedColor` per name. A manual
+ * `contrastLevel` interpolates the authored HC pairs, tone window, and contrast
+ * targets at that level for the two *normal* passes only; the high-contrast
+ * passes bypass the level entirely, so the high-contrast slots are the same
+ * values `'auto'` resolves. At level 100 the normal passes already are the
+ * high-contrast ones, so the solver drops to two passes (light → dark) and
+ * mirrors the slots. Owns the per-scheme resolve helpers for regular, shadow,
+ * and mix color defs.
  *
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
  * `t` is the canonical contrast-uniform tone (0–1, reference eps). The
@@ -36,6 +38,7 @@ import {
   PAIR_SWITCH,
   clamp,
   contrastFraction,
+  hcMirrorsNormal,
   numberAt,
   pairHC,
   pairNormal,
@@ -568,7 +571,9 @@ function resolveDependentColor(
     };
 
     // Under a manual contrast level, pin which side of the base the color sits
-    // on so a slider can't send it leaping across its own base.
+    // on so a slider can't send it leaping across its own base. The normal
+    // passes only: a high-contrast pass has no ramp to be stable along, and it
+    // must reproduce what `'auto'` resolves, which never probes.
     //
     // `autoFlip`'s tie-break is unstable along a ramp: when both sides meet the
     // floor it takes whichever lands nearer the anchor, and which side that is
@@ -584,7 +589,7 @@ function resolveDependentColor(
     // A color whose two endpoints genuinely disagree therefore changes side at
     // most once, at level 50 — the same place every other un-interpolable
     // decision switches.
-    const level = contrastFraction(ctx.config);
+    const level = isHighContrast ? undefined : contrastFraction(config);
     let preferInitial = false;
     if (level !== undefined && level > 0 && level < 1) {
       const probe = findToneForContrast({
@@ -912,10 +917,11 @@ function seedField(
  * resolved with a `base` + `contrast` may land slightly under the contrast
  * its tone implies because chromatic luminance drifts from the gray tone.
  *
- * Under a manual `contrastLevel` only the two emitted variants are checked
- * (the high-contrast slots are mirrors), and the spec is resolved at the level
- * so the check measures the output against the target it was actually solved
- * for.
+ * Under a manual `contrastLevel` the spec is resolved at the level, so the check
+ * measures each normal variant against the target it was actually solved for. At
+ * level 100 the high-contrast slots are mirrors and are skipped: the normal
+ * schemes already carry that check, and repeating it would emit a byte-identical
+ * advisory under a different scheme label, which dedupes as a separate key.
  */
 function verifyContrastDrift(
   order: string[],
@@ -946,11 +952,11 @@ function verifyContrastDrift(
       { isDark: true, isHighContrast: false, field: 'dark' },
       { isDark: true, isHighContrast: true, field: 'darkContrast' },
     ];
-    const manual = contrastFraction(config) !== undefined;
+    const mirrored = hcMirrorsNormal(config);
 
     for (const s of schemes) {
-      // Manual mode mirrors the high-contrast slots and never emits them.
-      if (manual && s.isHighContrast) continue;
+      // At level 100 the high-contrast slots are mirrors of the normal ones.
+      if (mirrored && s.isHighContrast) continue;
       const spec = resolveContrastSpec(
         regDef.contrast,
         s.isHighContrast,
@@ -1006,20 +1012,22 @@ export function resolveAllColors(
     }
   }
 
-  // Under a manual contrast level the normal passes already resolve *at* that
-  // level, so the two high-contrast passes are skipped and their slots mirror
-  // the normal ones. Level 100 stays bit-identical to the high-contrast passes:
-  // within a pass a dependent reads its base's same slot (topo order), and the
-  // only cross-scheme reads — the relative-tone dark branch and
-  // `extremeDarkTone` — read `light`, which equals `lightContrast` at 100.
-  const manual = contrastFraction(config) !== undefined;
+  // A manual contrast level positions the *normal* passes; the high-contrast
+  // passes bypass it, so they run as usual and produce the same values `'auto'`
+  // does. Level 100 is the one exception: there the normal passes already *are*
+  // the high-contrast passes bit for bit, so the two are skipped and their slots
+  // mirror the normal ones. That holds because within a pass a dependent reads
+  // its base's same slot (topo order), and the only cross-scheme reads — the
+  // relative-tone dark branch and `extremeDarkTone` — read `light`, which equals
+  // `lightContrast` at 100.
+  const mirrored = hcMirrorsNormal(config);
 
   // Pass 1: Light (normal, or at the level).
   const lightMap = runPass(order, defs, ctx, false, false, 'light');
 
   // Pass 2: Light high-contrast.
   let lightHCMap = lightMap;
-  if (!manual) {
+  if (!mirrored) {
     seedField(order, ctx, 'lightContrast', lightMap);
     lightHCMap = runPass(order, defs, ctx, false, true, 'lightContrast');
   }
@@ -1031,7 +1039,7 @@ export function resolveAllColors(
 
   // Pass 4: Dark high-contrast.
   let darkHCMap = darkMap;
-  if (!manual) {
+  if (!mirrored) {
     seedField(order, ctx, 'darkContrast', darkMap);
     darkHCMap = runPass(order, defs, ctx, true, true, 'darkContrast');
   }

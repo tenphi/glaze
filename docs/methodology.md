@@ -642,24 +642,26 @@ In HC variants, Glaze bypasses the normal tone window and uses the full
 `[0, 100]` range. Edge tones can reach the edge; contrast floors have more room
 to solve.
 
-### A slider instead of a tier
+### A slider through the tier
 
 The two-tier model assumes contrast is a binary OS preference. When contrast is
 instead a setting *your users* control, set
-[`contrastLevel`](api.md#manual-contrast-level) to a number and the HC tier
-becomes a `0–100` ramp: level `0` is your normal palette, `100` is the HC
-palette you already authored, and everything between is resolved at that level.
+[`contrastLevel`](api.md#manual-contrast-level) to a number and your **normal**
+palette slides along a `0–100` ramp: level `0` is the palette you authored, `100`
+is the HC palette you authored, and everything between is resolved at that level.
 
 The authoring work is the same — the HC pairs above are what the slider ramps
-toward, so a palette tuned for high contrast needs no new fields. Two
-consequences worth planning for:
+toward, so a palette tuned for high contrast needs no new fields. Two things
+worth planning for:
 
-- The separate HC tier stops being emitted, so wire the level itself into your
-  build or runtime rather than a `prefers-contrast: more` block. Existing
-  media-query wiring keeps working; it just receives the same values as the base
-  block.
-- `contrastLevel: 0` is a useful state in its own right: normal contrast with no
-  HC tier at all, for products that ship the slider but default it off.
+- The slider and the tier compose. The HC tier keeps resolving at full contrast
+  regardless of the level, so wire the level into your build or runtime *and*
+  keep your `prefers-contrast: more` block: a user who has raised the slider and
+  asked their OS for more contrast still gets the escalation on top. The one
+  exception is level `100`, where the two coincide and the tier is dropped as a
+  duplicate.
+- `contrastLevel: 0` is the natural rest position for a slider you ship but
+  default off — it reproduces the `'auto'` output bit for bit.
 
 ## Checklist
 
