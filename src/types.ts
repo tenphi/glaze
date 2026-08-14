@@ -104,9 +104,10 @@ export interface GlazeOutputModes {
   /**
    * Include high-contrast variants (both light-HC and dark-HC). Default: false.
    *
-   * Inert while a global `contrastLevel` is set: a manual level has no separate
-   * high-contrast tier, so this reads as "emit high-contrast variants when
-   * contrast is automatic".
+   * Independent of `contrastLevel` — the level positions the normal variants
+   * while these stay the true high-contrast resolution, so the two compose. The
+   * exception is a global level of 100, where the normal variants already *are*
+   * the high-contrast ones: the tier would duplicate them and is dropped.
    * @see GlazeConfig.contrastLevel
    */
   highContrast?: boolean;
@@ -480,15 +481,15 @@ export interface GlazeConfig {
   shadowTuning?: ShadowTuning;
   /**
    * Manual contrast level — a 0–100 slider from normal contrast (`0`) to high
-   * contrast (`100`), or `'auto'` (the default) to keep the two-tier
-   * normal + high-contrast model.
+   * contrast (`100`), or `'auto'` (the default) to take the authored normal
+   * entries as-is.
    *
-   * With a number, Glaze resolves the `light` / `dark` variants *at* that
-   * level and stops emitting a separate high-contrast tier:
-   * `lightContrast` / `darkContrast` mirror their normal counterparts and
-   * `modes.highContrast` defaults to `false`. Level `0` is therefore "normal
-   * contrast, no high-contrast tier"; `100` is "the high-contrast scheme as
-   * the only scheme".
+   * With a number, Glaze resolves the `light` / `dark` variants *at* that level.
+   * That is all it does: `lightContrast` / `darkContrast` stay the true
+   * high-contrast resolution at every level, and `modes.highContrast` alone
+   * decides whether they are emitted. Level `0` therefore reproduces `'auto'`
+   * bit for bit. At `100` the normal variants *are* the high-contrast ones, so a
+   * separate tier would duplicate them and a global level of 100 drops it.
    *
    * The level interpolates all three things that make high contrast differ:
    * authored `[normal, highContrast]` pairs, the tone-window widening, and
@@ -539,8 +540,8 @@ export interface GlazeConfigResolved {
   shadowTuning?: ShadowTuning;
   autoFlip: boolean;
   /**
-   * Manual contrast level (0–100), or `'auto'` for the two-tier
-   * normal + high-contrast model.
+   * Manual contrast level (0–100) for the normal variants, or `'auto'` to take
+   * the authored normal entries as-is.
    * @see GlazeConfig.contrastLevel
    */
   contrastLevel: number | 'auto';
@@ -571,8 +572,10 @@ export interface GlazeConfigOverride {
   /** Whether to auto-flip tone when contrast can't be met. */
   autoFlip?: boolean;
   /**
-   * Manual contrast level (0–100) for this instance, or `'auto'` to opt out
-   * of a global level and keep the two-tier normal + high-contrast model.
+   * Manual contrast level (0–100) for this instance, or `'auto'` to opt out of a
+   * global level and take the authored normal entries as-is. Either way the
+   * instance keeps its high-contrast tier; a per-instance level never changes
+   * which modes are emitted.
    *
    * Only an instance-authored level is frozen into `.export()` snapshots — a
    * level inherited from the global config is treated as a live preference and

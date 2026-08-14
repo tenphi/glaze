@@ -98,6 +98,10 @@ hi(f) = hi + (100 - hi) * f
 `[15, 95] → [0, 100]`. The render `eps` is not interpolated, and a `false` window
 is already the full range and therefore level-invariant.
 
+This continuous form applies to the normal variants only. High-contrast variants
+are already at the full range, so the level does not widen them further — the
+bypass above is what makes the high-contrast tier level-independent.
+
 ## Scheme adaptation
 
 Each regular color has an adaptation `mode`:

@@ -14,7 +14,9 @@ import type {
   ContrastSpec,
   DtcgColorToken,
   GlazeColorTokenExport,
+  HCPair,
   ResolvedColorVariant,
+  ToneValue,
 } from './types';
 
 /** OKHSL lightness (0–1) of a resolved variant (stored as tone). */
@@ -3745,66 +3747,163 @@ describe('glaze', () => {
     });
 
     describe('output', () => {
-      it('mirrors the high-contrast slots onto the normal ones', () => {
-        glaze.configure({ contrastLevel: 60 });
-        const r = fixture().resolve();
-        for (const color of r.values()) {
-          expect(color.lightContrast).toBe(color.light);
-          expect(color.darkContrast).toBe(color.dark);
+      it('resolves a level-independent high-contrast tier at every level', () => {
+        // The headline invariant: the level positions the normal variants only.
+        // `css()` ignores `modes` and always emits all four blocks, so it reads
+        // the tier directly. Levels 1 / 99 are the only witnesses for the probe
+        // gate (it fires on 0 < f < 1); 49 / 50 straddle PAIR_SWITCH; 100 passes
+        // through the mirror, whose normal values are the 'auto' HC ones.
+        const theme = fixture();
+        const auto = theme.css();
+        for (const level of [0, 1, 20, 49, 50, 60, 99, 100]) {
+          glaze.configure({ contrastLevel: level });
+          const css = theme.css();
+          expect(css.lightContrast).toBe(auto.lightContrast);
+          expect(css.darkContrast).toBe(auto.darkContrast);
         }
       });
 
-      it('drops the high-contrast tier from every exporter', () => {
+      it('keeps the high-contrast tier off the side-stability probe', () => {
+        // Guards the `isHighContrast` gate on the probe solve. Below level 50 the
+        // probe resolves the *normal* target, so an ungated probe pins a side
+        // from it and then solves the HC target with `preferInitial` — a
+        // different search from the plain nearest-wins one `'auto'` runs, and it
+        // converges elsewhere. (At or above 50 the probe resolves the HC target
+        // itself, so it is a no-op there.)
+        //
+        // Every case below was verified to diverge without the gate — the whole
+        // `fixture()` theme does not, so a broad export-level comparison is not
+        // enough to hold this line. The divergence needs a base near the tone
+        // window's edge, which is what pins these to low base tones.
+        const cases: {
+          saturation: number;
+          base: number;
+          tone: ToneValue;
+          contrast: HCPair<ContrastSpec>;
+        }[] = [
+          { saturation: 0, base: 15, tone: '+5', contrast: 'AA' },
+          { saturation: 90, base: 15, tone: '-5', contrast: 'AA' },
+          {
+            saturation: 90,
+            base: 15,
+            tone: '-5',
+            contrast: { wcag: [4.5, 7] },
+          },
+          { saturation: 90, base: 30, tone: '+10', contrast: { apca: 30 } },
+          { saturation: 90, base: 15, tone: '-5', contrast: { apca: 75 } },
+          {
+            saturation: 90,
+            base: 15,
+            tone: '-5',
+            contrast: { apca: [45, 90] },
+          },
+          // Decreasing pairs: the HC end asks for *less* than the normal one.
+          {
+            saturation: 90,
+            base: 30,
+            tone: '+5',
+            contrast: { apca: [90, 45] },
+          },
+          {
+            saturation: 90,
+            base: 15,
+            tone: '-5',
+            contrast: [{ apca: 60 }, { apca: 30 }],
+          },
+        ];
+
+        function build(c: (typeof cases)[number]) {
+          const theme = glaze(0, c.saturation);
+          theme.colors({
+            bg: { tone: c.base },
+            chip: {
+              base: 'bg',
+              tone: c.tone,
+              contrast: c.contrast,
+              role: 'text',
+            },
+          });
+          return theme.resolve().get('chip')!;
+        }
+
+        for (const c of cases) {
+          glaze.resetConfig();
+          const anchor = structuredClone(build(c));
+          for (const level of [1, 15, 25, 40, 49, 60, 99]) {
+            glaze.configure({ contrastLevel: level });
+            const chip = build(c);
+            expect(chip.lightContrast).toEqual(anchor.lightContrast);
+            expect(chip.darkContrast).toEqual(anchor.darkContrast);
+          }
+        }
+      });
+
+      it('emits the high-contrast tier from every exporter at a mid level', () => {
         glaze.configure({ modes: { highContrast: true }, contrastLevel: 60 });
         const theme = fixture();
-        expect(theme.tokens().lightContrast).toBeUndefined();
-        expect(theme.tokens().darkContrast).toBeUndefined();
-        expect(theme.json().surface.lightContrast).toBeUndefined();
-        expect(theme.dtcg().lightContrast).toBeUndefined();
+        expect(theme.tokens().lightContrast).toBeDefined();
+        expect(theme.tokens().darkContrast).toBeDefined();
+        expect(theme.json().surface.lightContrast).toBeDefined();
+        expect(theme.dtcg().lightContrast).toBeDefined();
         expect(
           theme.dtcgResolver().modifiers.scheme.contexts.lightContrast,
-        ).toBeUndefined();
-        expect(theme.tailwind()).not.toContain('.high-contrast');
+        ).toBeDefined();
+        expect(theme.tailwind()).toContain('.high-contrast');
         expect(
           theme.tasty()['#surface']['@media(prefers-contrast: more)'],
-        ).toBeUndefined();
+        ).toBeDefined();
+        // And it carries the escalated values, not copies of the normal ones.
+        expect(theme.tokens().lightContrast.text).not.toBe(
+          theme.tokens().light.text,
+        );
       });
 
-      it('ignores modes.highContrast entirely, and says nothing about it', () => {
-        // Flipping a contrast preference from auto to manual is normal use, so a
-        // still-set `highContrast: true` goes quietly inert rather than winning
-        // or warning. It means "emit a separate HC set when contrast is auto".
-        const warn = vi
-          .spyOn(console, 'warn')
-          .mockImplementation(() => undefined);
-        try {
-          glaze.configure({ contrastLevel: 60 });
+      it('honors a per-call modes.highContrast under a manual level', () => {
+        glaze.configure({ contrastLevel: 60 });
+        const theme = fixture();
+        expect(
+          theme.tokens({ modes: { highContrast: true } }).lightContrast,
+        ).toBeDefined();
+        expect(
+          theme.dtcg({ modes: { highContrast: true } }).lightContrast,
+        ).toBeDefined();
+        expect(theme.tailwind({ modes: { highContrast: true } })).toContain(
+          '.high-contrast',
+        );
+        expect(
+          theme.tasty({ modes: { highContrast: true } })['#surface'][
+            '@media(prefers-contrast: more)'
+          ],
+        ).toBeDefined();
+      });
+
+      it('emits nothing extra while modes.highContrast is off', () => {
+        for (const contrastLevel of ['auto', 0, 60, 100] as const) {
+          glaze.configure({ contrastLevel });
           const theme = fixture();
-          expect(
-            theme.tokens({ modes: { highContrast: true } }).lightContrast,
-          ).toBeUndefined();
-          expect(
-            theme.dtcg({ modes: { highContrast: true } }).lightContrast,
-          ).toBeUndefined();
-          expect(
-            theme.tailwind({ modes: { highContrast: true } }),
-          ).not.toContain('.high-contrast');
-          expect(
-            theme.tasty({ modes: { highContrast: true } })['#surface'][
-              '@media(prefers-contrast: more)'
-            ],
-          ).toBeUndefined();
-          expect(warn).not.toHaveBeenCalled();
-        } finally {
-          warn.mockRestore();
+          expect(theme.tokens().lightContrast).toBeUndefined();
+          expect(theme.tokens().darkContrast).toBeUndefined();
+          expect(theme.tailwind()).not.toContain('.high-contrast');
         }
       });
 
-      it('mirrors the high-contrast CSS blocks', () => {
-        glaze.configure({ contrastLevel: 60 });
-        const css = fixture().css();
-        expect(css.lightContrast).toBe(css.light);
-        expect(css.darkContrast).toBe(css.dark);
+      it('reproduces auto output at level 0, tier included', () => {
+        glaze.configure({ modes: { highContrast: true } });
+        const theme = fixture();
+        const auto = {
+          tokens: theme.tokens(),
+          json: theme.json(),
+          tasty: theme.tasty(),
+          dtcg: theme.dtcg(),
+          tailwind: theme.tailwind(),
+        };
+        // `configure` merges, so `modes` survives this call.
+        glaze.configure({ contrastLevel: 0 });
+        expect(theme.tokens()).toEqual(auto.tokens);
+        expect(theme.json()).toEqual(auto.json);
+        expect(theme.tasty()).toEqual(auto.tasty);
+        expect(theme.dtcg()).toEqual(auto.dtcg);
+        expect(theme.tailwind()).toBe(auto.tailwind);
       });
 
       it('leaves default output untouched at level 0', () => {
@@ -3814,7 +3913,66 @@ describe('glaze', () => {
         expect(theme.tokens()).toEqual(auto);
       });
 
-      it('keeps a sibling theme’s high-contrast tier in a palette', () => {
+      it('mirrors the high-contrast slots onto the normal ones at level 100', () => {
+        glaze.configure({ contrastLevel: 100 });
+        const r = fixture().resolve();
+        for (const color of r.values()) {
+          expect(color.lightContrast).toBe(color.light);
+          expect(color.darkContrast).toBe(color.dark);
+        }
+      });
+
+      it('mirrors the high-contrast CSS blocks at level 100', () => {
+        glaze.configure({ contrastLevel: 100 });
+        const css = fixture().css();
+        expect(css.lightContrast).toBe(css.light);
+        expect(css.darkContrast).toBe(css.dark);
+      });
+
+      it('collapses the redundant tier at level 100', () => {
+        glaze.configure({ modes: { highContrast: true }, contrastLevel: 100 });
+        const theme = fixture();
+        // Key sets, so an empty-but-present tier is caught too.
+        expect(Object.keys(theme.tokens())).toEqual(['light', 'dark']);
+        expect(Object.keys(theme.tasty()['#surface'])).toEqual([
+          '',
+          '@media(prefers-color-scheme: dark)',
+        ]);
+        expect(
+          Object.keys(theme.dtcgResolver().modifiers.scheme.contexts),
+        ).toEqual(['light', 'dark']);
+        expect(Object.keys(theme.json().surface)).toEqual(['light', 'dark']);
+        expect(theme.dtcg().lightContrast).toBeUndefined();
+        expect(theme.dtcg().darkContrast).toBeUndefined();
+        expect(theme.tailwind()).not.toContain('.high-contrast');
+        // An explicit per-call request has nothing different left to emit.
+        expect(
+          theme.tokens({ modes: { highContrast: true } }).lightContrast,
+        ).toBeUndefined();
+      });
+
+      it('gives a mid-level theme a real tier beside an auto sibling', () => {
+        glaze.configure({ modes: { highContrast: true } });
+        const manual = glaze(280, 80, { contrastLevel: 60 });
+        const auto = glaze(280, 80);
+        for (const theme of [manual, auto]) {
+          theme.colors({
+            surface: { tone: 97 },
+            text: { base: 'surface', tone: 25, contrast: 'AA', role: 'text' },
+          });
+        }
+        const tokens = glaze
+          .palette({ manual, auto })
+          .tokens({ modes: { highContrast: true } });
+        // Same seed and defs, so the tier — level-independent — matches...
+        expect(tokens.lightContrast['manual-text']).toBe(
+          tokens.lightContrast['auto-text'],
+        );
+        // ...while the normal variants sit at level 60 rather than 0.
+        expect(tokens.light['manual-text']).not.toBe(tokens.light['auto-text']);
+      });
+
+      it('keeps a level-100 theme’s mirrored tier beside a sibling’s real one', () => {
         glaze.configure({ modes: { highContrast: true } });
         const manual = glaze(280, 80, { contrastLevel: 100 });
         manual.colors({ surface: { tone: 97 } });
@@ -3827,10 +3985,28 @@ describe('glaze', () => {
         expect(tokens.lightContrast['auto-surface']).not.toBe(
           tokens.light['auto-surface'],
         );
-        // ...while the manual theme reports its own resolved value.
+        // ...while the manual theme reports its own resolved value. A
+        // per-instance level never collapses the shared token structure.
         expect(tokens.lightContrast['manual-surface']).toBe(
           tokens.light['manual-surface'],
         );
+      });
+
+      it('keeps the tier at least as contrasty as the normal variants', () => {
+        for (const contrastLevel of [0, 25, 50, 75, 100] as const) {
+          glaze.configure({ contrastLevel });
+          const r = fixture().resolve();
+          const surface = r.get('surface')!;
+          const text = r.get('text')!;
+          expectMeetsWcag(
+            variantContrast(text.lightContrast, surface.lightContrast),
+            variantContrast(text.light, surface.light),
+          );
+          expectMeetsWcag(
+            variantContrast(text.darkContrast, surface.darkContrast),
+            variantContrast(text.dark, surface.dark),
+          );
+        }
       });
     });
 

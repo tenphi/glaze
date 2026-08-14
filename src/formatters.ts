@@ -30,7 +30,7 @@ import {
 } from './okhsl-color-math';
 import { variantToOkhsl } from './okhst';
 import { getConfig } from './config';
-import { contrastFraction } from './hc-pair';
+import { hcMirrorsNormal } from './hc-pair';
 import type {
   DtcgColorSpace,
   DtcgColorToken,
@@ -130,28 +130,30 @@ function formatColorValue(
 /**
  * Resolve the effective output modes for an export.
  *
- * A global manual `contrastLevel` turns off high-contrast output outright: the
- * level *is* the contrast preference, so a separate high-contrast tier has no
- * meaning alongside it. `modes.highContrast` therefore reads as "emit a separate
- * high-contrast set **when** contrast is automatic" — it goes inert under a
- * manual level rather than fighting it, and silently, since switching a
- * preference from auto to manual is normal use and not a mistake to report.
+ * `modes.highContrast` and `contrastLevel` are independent: the level positions
+ * the normal variants, the high-contrast tier stays the true high-contrast
+ * resolution, and the two compose — a slider raises the baseline while a
+ * `prefers-contrast: more` block still escalates on top of it.
+ *
+ * The one exception is a **global** level of 100, where the normal variants
+ * already *are* the high-contrast ones. The tier would be an exact duplicate, so
+ * it is dropped and a single light/dark set is emitted — including against an
+ * explicit `highContrast: true` override, which has nothing different left to
+ * ask for.
  *
  * A level set on a single theme or token does not change which modes are
- * emitted: sibling themes in a palette may still have a real high-contrast
- * tier, and the manual one correctly reports its own resolved values there —
- * the alternative would drop its colors from that tier entirely.
+ * emitted: `modes` is global-only, and a palette must not have one sibling
+ * collapse the shared token structure. A per-instance level of 100 therefore
+ * still reports into the tier, with values equal to its own normal ones.
  */
 export function resolveModes(
   override?: GlazeOutputModes,
 ): Required<GlazeOutputModes> {
   const cfg = getConfig();
+  const highContrast = override?.highContrast ?? cfg.modes.highContrast;
   return {
     dark: override?.dark ?? cfg.modes.dark,
-    highContrast:
-      contrastFraction(cfg) !== undefined
-        ? false
-        : (override?.highContrast ?? cfg.modes.highContrast),
+    highContrast: highContrast && !hcMirrorsNormal(cfg),
   };
 }
 

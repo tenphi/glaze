@@ -2,7 +2,7 @@
  * Small shared helpers used across the resolver pipeline:
  * - HC-pair selection (`pairNormal` / `pairHC`)
  * - HC-pair interpolation for the manual contrast level (`contrastFraction`,
- *   `numberAt`, `parseToneValueAt`)
+ *   `hcMirrorsNormal`, `numberAt`, `parseToneValueAt`)
  * - Absolute / relative / extreme tone discrimination
  * - Generic numeric helpers (`clamp`, `lerp`, hue resolution, relative-value
  *   parsing)
@@ -43,10 +43,14 @@ export function levelFraction(level: number): number {
 
 /**
  * Manual-contrast blend fraction (0–1) for a resolved config, or `undefined`
- * in `'auto'` mode (the two-tier normal + high-contrast model).
+ * in `'auto'` mode, where the normal variants take the authored normal entries
+ * as-is.
  *
- * Note `contrastLevel: 0` yields `0`, not `undefined`: "pinned to normal
- * contrast with no high-contrast tier" is a distinct state from `'auto'`.
+ * Note `contrastLevel: 0` yields `0`, not `undefined`. The two select different
+ * branches, and an authored `0` is a slider position that `.export()` freezes
+ * where an absent level is not — but they are not an *output* distinction: at
+ * fraction 0 every interpolation returns its normal entry verbatim, so level 0
+ * reproduces `'auto'` bit for bit.
  */
 export function contrastFraction(config: {
   contrastLevel?: number | 'auto';
@@ -54,6 +58,23 @@ export function contrastFraction(config: {
   const level = config.contrastLevel;
   if (typeof level !== 'number' || !Number.isFinite(level)) return undefined;
   return levelFraction(level);
+}
+
+/**
+ * Whether the high-contrast variants are exact duplicates of the normal ones —
+ * true only at `contrastLevel: 100`, where the normal passes already resolve at
+ * full contrast.
+ *
+ * The level otherwise says nothing about high contrast: it positions the normal
+ * variants, while `lightContrast` / `darkContrast` stay the true high-contrast
+ * resolution at every level. This predicate marks the one level where that tier
+ * carries no new information, so callers can skip the two high-contrast passes,
+ * their drift checks, and the redundant output tier.
+ */
+export function hcMirrorsNormal(config: {
+  contrastLevel?: number | 'auto';
+}): boolean {
+  return contrastFraction(config) === 1;
 }
 
 /**
