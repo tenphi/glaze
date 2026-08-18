@@ -460,6 +460,7 @@ export const sRGBGammaToLinear = (val: number): number => {
 
 /**
  * Convert OKHSL to gamma-encoded sRGB (clamped to 0–1).
+ * h: 0–360, s: 0–1, l: 0–1. Returns [r, g, b] with each channel 0–1.
  */
 export function okhslToSrgb(
   h: number,
@@ -731,8 +732,40 @@ function fmt(value: number, decimals: number): string {
 }
 
 /**
+ * Every `format*` writer takes `s` / `l` / `t` on the **0–1 factor scale** —
+ * the same scale every producer in the library hands back (`resolve()`,
+ * `variantToOkhsl`, `srgbToOkhsl`, `oklabToOkhsl`, `okhslToOklab`,
+ * `okhslToSrgb`). The percentages are an output detail: the writers multiply
+ * by 100 themselves when the CSS syntax asks for a percentage.
+ *
+ * Before 2.0 the writers took 0–100 while everything producing those values
+ * returned 0–1, so the obvious composition was off by 100x and failed
+ * silently — `0.7` is a legal percentage, so the result was a valid CSS string
+ * naming a near-black color. A value above 1 can only be that old
+ * percentage-scale input, so warn about it loudly rather than emit a wrong
+ * color quietly.
+ */
+// Keyed by writer name, so the cache is bounded by the five writers below and
+// needs no cap of its own (unlike the per-color contrast warnings).
+const scaleWarnCache = new Set<string>();
+
+function warnPercentScale(fn: string, ...values: number[]): void {
+  if (!values.some((v) => v > 1 + 1e-6)) return;
+
+  if (!scaleWarnCache.has(fn)) {
+    scaleWarnCache.add(fn);
+    console.warn(
+      `glaze: ${fn}() got a value above 1 — it takes the 0-1 factors every ` +
+        `Glaze producer returns (resolve(), variantToOkhsl, srgbToOkhsl), not ` +
+        `0-100 percentages. Divide by 100, or drop the "* 100" left over from ` +
+        `the pre-2.0 signature.`,
+    );
+  }
+}
+
+/**
  * Format OKHSL values as a CSS `okhsl(H S% L%)` string.
- * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
+ * h: 0–360, s: 0–1, l: 0–1 (factor scale, as returned by every converter).
  */
 export function formatOkhsl(
   h: number,
@@ -740,20 +773,22 @@ export function formatOkhsl(
   l: number,
   pastel = false,
 ): string {
+  warnPercentScale('formatOkhsl', s, l);
+
   let outS = s;
   if (pastel) {
     // If it's a pastel color, we need to find the equivalent normal OKHSL `s`
     // so it renders identically in external parsers that don't know about `pastel`.
-    const oklab = okhslToOklab(h, s / 100, l / 100, true);
+    const oklab = okhslToOklab(h, s, l, true);
     const normalOkhsl = oklabToOkhsl(oklab, false);
-    outS = normalOkhsl[1] * 100;
+    outS = normalOkhsl[1];
   }
-  return `okhsl(${fmt(h, 2)} ${fmt(outS, 2)}% ${fmt(l, 2)}%)`;
+  return `okhsl(${fmt(h, 2)} ${fmt(outS * 100, 2)}% ${fmt(l * 100, 2)}%)`;
 }
 
 /**
  * Format OKHST values as a CSS `okhst(H S% T%)` string.
- * h: 0–360, s: 0–100, t: 0–100 (percentage scale for s and t).
+ * h: 0–360, s: 0–1, t: 0–1 (factor scale, matching `ResolvedColorVariant`).
  *
  * Pastel recompute matches `formatOkhsl`: convert via OKLab so external
  * parsers that only understand non-pastel OKHST render identically.
@@ -764,23 +799,25 @@ export function formatOkhst(
   t: number,
   pastel = false,
 ): string {
+  warnPercentScale('formatOkhst', s, t);
+
   let outS = s;
   if (pastel) {
     const REF_EPS = 0.05;
     const den = Math.log(1 + REF_EPS) - Math.log(REF_EPS);
-    const y = Math.exp((t / 100) * den + Math.log(REF_EPS)) - REF_EPS;
+    const y = Math.exp(t * den + Math.log(REF_EPS)) - REF_EPS;
     const l = toe(Math.cbrt(Math.max(0, y)));
-    const oklab = okhslToOklab(h, s / 100, l, true);
+    const oklab = okhslToOklab(h, s, l, true);
     const normalOkhsl = oklabToOkhsl(oklab, false);
-    outS = normalOkhsl[1] * 100;
+    outS = normalOkhsl[1];
   }
-  return `okhst(${fmt(h, 2)} ${fmt(outS, 2)}% ${fmt(t, 2)}%)`;
+  return `okhst(${fmt(h, 2)} ${fmt(outS * 100, 2)}% ${fmt(t * 100, 2)}%)`;
 }
 
 /**
  * Format OKHSL values as a CSS `rgb(R G B)` string.
  * Uses 2 decimal places to avoid 8-bit quantization contrast loss.
- * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
+ * h: 0–360, s: 0–1, l: 0–1 (factor scale, as returned by every converter).
  */
 export function formatRgb(
   h: number,
@@ -788,13 +825,15 @@ export function formatRgb(
   l: number,
   pastel = false,
 ): string {
-  const [r, g, b] = okhslToSrgb(h, s / 100, l / 100, pastel);
+  warnPercentScale('formatRgb', s, l);
+
+  const [r, g, b] = okhslToSrgb(h, s, l, pastel);
   return `rgb(${parseFloat((r * 255).toFixed(2))} ${parseFloat((g * 255).toFixed(2))} ${parseFloat((b * 255).toFixed(2))})`;
 }
 
 /**
  * Format OKHSL values as a CSS `hsl(H S% L%)` string.
- * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
+ * h: 0–360, s: 0–1, l: 0–1 (factor scale, as returned by every converter).
  */
 export function formatHsl(
   h: number,
@@ -802,7 +841,9 @@ export function formatHsl(
   l: number,
   pastel = false,
 ): string {
-  const [r, g, b] = okhslToSrgb(h, s / 100, l / 100, pastel);
+  warnPercentScale('formatHsl', s, l);
+
+  const [r, g, b] = okhslToSrgb(h, s, l, pastel);
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -829,7 +870,7 @@ export function formatHsl(
 
 /**
  * Format OKHSL values as a CSS `oklch(L C H)` string.
- * h: 0–360, s: 0–100, l: 0–100 (percentage scale for s and l).
+ * h: 0–360, s: 0–1, l: 0–1 (factor scale, as returned by every converter).
  */
 export function formatOklch(
   h: number,
@@ -837,8 +878,19 @@ export function formatOklch(
   l: number,
   pastel = false,
 ): string {
-  const [L, C, hh] = okhslToOklch(h, s / 100, l / 100, pastel);
+  warnPercentScale('formatOklch', s, l);
+
+  const [L, C, hh] = okhslToOklch(h, s, l, pastel);
   return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 2)})`;
+}
+
+/**
+ * Reset the `format*` percentage-scale warning cache. Test-only seam — the
+ * warning is deduped per function for the life of the process, which a test
+ * asserting on it has to be able to clear.
+ */
+export function resetScaleWarnings(): void {
+  scaleWarnCache.clear();
 }
 
 // ============================================================================

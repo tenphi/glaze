@@ -1896,7 +1896,7 @@ import {
 | Function                              | Description                                                              |
 | ------------------------------------- | ------------------------------------------------------------------------ |
 | `okhslToLinearSrgb(h, s, l)`          | OKHSL (h: 0–360, s/l: 0–1) → linear sRGB tuple.                          |
-| `okhslToSrgb(h, s, l)`                | OKHSL → gamma-encoded sRGB tuple (0–1 per channel).                      |
+| `okhslToSrgb(h, s, l)`                | OKHSL (h: 0–360, s/l: 0–1) → gamma-encoded sRGB tuple (0–1 per channel). |
 | `okhslToOklab([h, s, l])`             | OKHSL → OKLab `[L, a, b]`.                                               |
 | `oklabToOkhsl([L, a, b])`             | OKLab → OKHSL.                                                           |
 | `srgbToOkhsl([r, g, b])`              | Gamma sRGB (0–1) → OKHSL.                                                |
@@ -1909,14 +1909,43 @@ import {
 
 ### Format writers
 
-```ts
-import { formatOkhsl, formatRgb, formatHsl, formatOklch } from '@tenphi/glaze';
+Every writer takes `h` on 0–360 and `s` / `l` / `t` on **0–1** — the scale every
+conversion above *returns*, and the scale `resolve()` stores in a
+`ResolvedColorVariant`. The percentages are an output detail: the writers scale
+by 100 themselves where the CSS syntax asks for one. (The one thing on a
+different scale is the pair of tone transfers below, `toTone` / `fromTone`,
+which speak the 0–100 tone axis the authoring API takes.)
 
-formatOkhsl(280, 60, 95); // 'okhsl(280 60% 95%)'
-formatRgb(280, 60, 95); // 'rgb(244 240 250)'
-formatHsl(280, 60, 95); // 'hsl(280 60% 95%)'
-formatOklch(280, 60, 95); // 'oklch(0.95 ... 280)'
+```ts
+import {
+  formatOkhsl,
+  formatOkhst,
+  formatRgb,
+  formatHsl,
+  formatOklch,
+} from '@tenphi/glaze';
+
+formatOkhsl(280, 0.6, 0.95); // 'okhsl(280 60% 95%)'
+formatOkhst(280, 0.6, 0.95); // 'okhst(280 60% 95%)'
+formatRgb(280, 0.6, 0.95); // 'rgb(238.45 239.95 251.1)'
+formatHsl(280, 0.6, 0.95); // 'hsl(232.92 61.87% 95.99%)'
+formatOklch(280, 0.6, 0.95); // 'oklch(0.9571 0.015 280)'
 ```
+
+So a producer composes with a writer directly, with nothing to rescale in
+between:
+
+```ts
+const v = glaze.color('#7A4DBF').resolve().light;
+const { h, s, l } = variantToOkhsl(v);
+
+formatOkhst(v.h, v.s, v.t); // 'okhst(298.52 70.41% 45.02%)'
+formatOkhsl(h, s, l); // 'okhsl(298.52 70.41% 45.27%)'
+formatRgb(h, s, l); // 'rgb(122 77 191)'
+```
+
+A value above 1 can only be pre-2.0 percentage-scale input, so the writers
+`console.warn` about it once per writer rather than emit a wrong color quietly.
 
 To attach an alpha component, use `glaze.format(variant, format)` on a `ResolvedColorVariant` (which carries the `alpha` channel) instead of these raw writers.
 
@@ -1937,12 +1966,12 @@ import {
 
 | Function                                    | Description                                                               |
 | ------------------------------------------- | ------------------------------------------------------------------------- |
-| `toTone(l, eps?)`                           | OKHSL lightness (0–1) → tone (0–100). Defaults to `REF_EPS`.              |
-| `fromTone(t, eps?)`                         | Tone (0–100) → OKHSL lightness (0–1). Inverse of `toTone`.                |
+| `toTone(l, eps?)`                           | OKHSL lightness (0–1) → tone (**0–100**, the authoring scale — divide by 100 for `formatOkhst`). Defaults to `REF_EPS`. |
+| `fromTone(t, eps?)`                         | Tone (**0–100**) → OKHSL lightness (0–1). Inverse of `toTone`.            |
 | `toneFromY(y, eps?)` / `yFromTone(t, eps?)` | Same transfer in luminance space (0–1).                                   |
 | `okhstToOkhsl({ h, s, t })`                 | OKHST → OKHSL (`{ h, s, l }`).                                            |
 | `okhslToOkhst({ h, s, l })`                 | OKHSL → OKHST (`{ h, s, t }`).                                            |
-| `variantToOkhsl(variant)`                   | `ResolvedColorVariant` (stores `t`) → `{ h, s, l, alpha }` for rendering. |
+| `variantToOkhsl(variant)`                   | `ResolvedColorVariant` (stores `t`) → `{ h, s, l }` for rendering (`alpha` stays on the variant). |
 | `REF_EPS`                                   | Reference epsilon (`0.05`) for the canonical tone axis.                   |
 
 `ResolvedColorVariant` stores `{ h, s, t, alpha }` (tone, not lightness). Use
