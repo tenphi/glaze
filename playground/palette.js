@@ -65,9 +65,9 @@ export function buildStep(hue, saturation, tone, pastel = false, lo = 0, hi = 10
   const okhsl = variantToOkhsl(variant);
   const rgb = okhslToSrgb(okhsl.h, okhsl.s, okhsl.l, pastel);
 
-  const fmtOkhsl = formatOkhsl(okhsl.h, okhsl.s * 100, okhsl.l * 100, pastel);
-  const fmtOklch = formatOklch(okhsl.h, okhsl.s * 100, okhsl.l * 100, pastel);
-  const fmtRgb = formatRgb(okhsl.h, okhsl.s * 100, okhsl.l * 100, pastel);
+  const fmtOkhsl = formatOkhsl(okhsl.h, okhsl.s, okhsl.l, pastel);
+  const fmtOklch = formatOklch(okhsl.h, okhsl.s, okhsl.l, pastel);
+  const fmtRgb = formatRgb(okhsl.h, okhsl.s, okhsl.l, pastel);
   const fmtOkhst = `okhst(${parseFloat(hue.toFixed(2))} ${parseFloat(saturation.toFixed(2))}% ${parseFloat(tone.toFixed(2))})`;
 
   return {

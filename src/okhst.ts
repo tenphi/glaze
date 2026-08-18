@@ -108,7 +108,9 @@ export function okhslToOkhst(c: { h: number; s: number; l: number }): {
 
 /**
  * Edge adapter: a resolved variant stores canonical tone `t` (0–1). Convert
- * it to the OKHSL `{ h, s, l }` the formatters and luminance pipeline expect.
+ * it to the OKHSL `{ h, s, l }` the formatters and luminance pipeline expect —
+ * `s` and `l` on the same 0–1 factor scale, so the result spreads straight
+ * into `formatOkhsl` / `formatRgb` / `okhslToLinearSrgb` with no rescaling.
  */
 export function variantToOkhsl(v: { h: number; s: number; t: number }): {
   h: number;

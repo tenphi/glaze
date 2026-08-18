@@ -75,10 +75,10 @@ export function formatVariant(
 
   let base: string;
   if (format === 'okhst') {
-    base = formatOkhst(v.h, v.s * 100, v.t * 100, effectivePastel);
+    base = formatOkhst(v.h, v.s, v.t, effectivePastel);
   } else {
     const { l } = variantToOkhsl(v);
-    base = formatters[format](v.h, v.s * 100, l * 100, effectivePastel);
+    base = formatters[format](v.h, v.s, l, effectivePastel);
   }
 
   if (v.alpha >= 1) return base;
@@ -104,7 +104,7 @@ export function formatVariantHue(
     if (v.s <= 1e-6) {
       base = `oklch(${fmt(L, 4)} 0 0)`;
     } else {
-      base = formatOklch(v.h, v.s * 100, l * 100, effectivePastel);
+      base = formatOklch(v.h, v.s, l, effectivePastel);
     }
   } else {
     base = `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${plan.hueVar})`;

@@ -12,6 +12,7 @@ If you're starting from scratch, see [methodology.md](methodology.md) first — 
 - [Wiring exports into the app](#wiring-exports-into-the-app)
 - [Prefix map strategies](#prefix-map-strategies)
 - [Migrating an existing color system](#migrating-from-an-existing-color-system)
+- [Upgrading Glaze](#upgrading-glaze)
 - [Common pitfalls](#common-pitfalls)
 
 ## Choosing an export
@@ -296,6 +297,40 @@ Glaze gives you light/dark/HC for free, but only the light mode is matched again
 
 After migration, mark every default-only token (borders, shadows, disabled chip, code highlighting, etc.) `inherit: false`. Colored sibling themes only need the accent + tinted-surface chain — flagging the rest cuts the emitted token set per theme dramatically.
 
+## Upgrading Glaze
+
+### 2.0 — `format*` takes 0–1
+
+The `format*` writers (`formatOkhsl`, `formatOkhst`, `formatRgb`, `formatHsl`,
+`formatOklch`) used to take `s` / `l` / `t` on a 0–100 percentage scale while
+everything that *produces* those values — `resolve()`, `variantToOkhsl`,
+`srgbToOkhsl`, `oklabToOkhsl`, `okhslToSrgb` — returns them on 0–1. Composing
+the two, which is the obvious thing to do, was off by 100x and failed silently:
+`0.7` is a legal percentage, so you got a valid CSS string naming the wrong
+(near-black) color.
+
+The writers now take the 0–1 factors, so the whole library speaks one scale.
+Drop the `* 100`:
+
+```diff
+- formatOkhsl(v.h, v.s * 100, l * 100);
++ formatOkhsl(v.h, v.s, l);
+
+- formatOkhst(v.h, v.s * 100, v.t * 100);
++ formatOkhst(v.h, v.s, v.t);
+```
+
+Nothing else moves: `h` was always 0–360, `alpha` was always 0–1, and every
+export method (`css()` / `tokens()` / `json()` / `tasty()` / `dtcg()` /
+`tailwind()` / `glaze.format()`) emits the same colors — they were compensating
+internally. Dropping the redundant `×100 ÷100` round-trip shifts float noise by
+an ULP, which shows up nowhere except the (meaningless) hue term of a
+fully-desaturated `hsl()` string.
+
+A leftover `* 100` is not silent any more: a value above 1 cannot be a factor,
+so the writers `console.warn` once per writer and you get an obviously-broken
+`7040.68%` instead of a plausible wrong color.
+
 ## Common pitfalls
 
 | Symptom                                                                        | Cause                                                                                                                                   | Fix                                                                                                                                                                                                        |
@@ -307,6 +342,7 @@ After migration, mark every default-only token (borders, shadows, disabled chip,
 | A relative `tone` like `'+48'` lands on the _wrong_ (darker) side of its base. | Overshooting offsets now mirror to the other side of the base by default (`autoFlip` inherits `autoFlip`).                              | Set `autoFlip: false` on the color to clamp to the boundary instead, or use `tone: 'max'`/`'min'` to force the extreme.                                                                                    |
 | `palette.tokens()` emits unexpected unprefixed names.                          | A `primary` was set on the palette (or per-call) and is duplicating the theme's tokens without prefix.                                  | Pass `primary: false` to disable for that export, or rename `glaze.palette(themes, { primary })`.                                                                                                          |
 | `console.warn: token "foo" collides with theme "bar"`.                         | Two themes resolved to the same output key under your prefix config.                                                                    | Adjust the prefix map so each token is unique, or accept the first-write-wins behavior.                                                                                                                    |
+| `console.warn: formatOkhsl() got a value above 1`.                             | Pre-2.0 percentage-scale input to a `format*` writer (a leftover `* 100`).                                                              | Pass the 0–1 factors the converters return — see [2.0 — `format*` takes 0–1](#20--format-takes-01).                                                                                                        |
 | `console.warn: color "X" cannot meet contrast`.                                | The requested contrast target is physically unreachable for the color's hue/saturation against its base.                                | Lower the floor, change the base, or accept the closest passing variant. Use the `name` override on standalone colors to make the warning identifiable.                                                    |
 
 ## See also
