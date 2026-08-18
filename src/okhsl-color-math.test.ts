@@ -159,16 +159,13 @@ describe('format* scale', () => {
       expect(okhslToOkhst(variantToOkhsl(rtl)).t).toBeCloseTo(v.t, 3);
     });
 
-    it('keeps the color when spread straight out of variantToOkhsl', () => {
+    it('keeps the color when destructured out of variantToOkhsl', () => {
       // `variantToOkhsl`'s doc points at exactly this composition.
       const v = glaze.color(HEX).resolve().light;
       const { h, s, l } = variantToOkhsl(v);
-      expect(formatRgb(h, s, l)).toBe(
-        formatRgb(
-          ...(Object.values(variantToOkhsl(v)) as [number, number, number]),
-        ),
-      );
       expect(srgbToHex(okhslToSrgb(h, s, l))).toBe(HEX.toLowerCase());
+      // The writer sees the same color the converter does.
+      expect(formatRgb(h, s, l)).toBe('rgb(122 77 191)');
     });
   });
 });

@@ -745,14 +745,14 @@ function fmt(value: number, decimals: number): string {
  * percentage-scale input, so warn about it loudly rather than emit a wrong
  * color quietly.
  */
-const SCALE_WARN_CACHE_LIMIT = 32;
+// Keyed by writer name, so the cache is bounded by the five writers below and
+// needs no cap of its own (unlike the per-color contrast warnings).
 const scaleWarnCache = new Set<string>();
 
 function warnPercentScale(fn: string, ...values: number[]): void {
   if (!values.some((v) => v > 1 + 1e-6)) return;
 
   if (!scaleWarnCache.has(fn)) {
-    if (scaleWarnCache.size >= SCALE_WARN_CACHE_LIMIT) scaleWarnCache.clear();
     scaleWarnCache.add(fn);
     console.warn(
       `glaze: ${fn}() got a value above 1 — it takes the 0-1 factors every ` +
