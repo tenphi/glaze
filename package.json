@@ -20,7 +20,8 @@
   },
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "AGENTS.md"
   ],
   "sideEffects": false,
   "engines": {
