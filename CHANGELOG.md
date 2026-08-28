@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 2.0.1
+
+### Patch Changes
+
+- [#97](https://github.com/tenphi/glaze/pull/97) [`3366b6b`](https://github.com/tenphi/glaze/commit/3366b6b6b8646fa5bb469e10a5d5830dc8273d5a) Thanks [@tenphi](https://github.com/tenphi)! - Include `AGENTS.md` in the npm package so documentation links remain valid.
+
 ## 2.0.0
 
 ### Major Changes
