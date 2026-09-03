@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build output
 dist/
@@ -32,6 +33,9 @@ Thumbs.db
 
 # Vite
 vite.config.ts.timestamp-*
+
+# Astro
+.astro/
 
 # Package tarballs
 *.tgz
