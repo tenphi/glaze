@@ -32,6 +32,10 @@ export default defineDocsConfig({
             items: ['/methodology', '/migration', '/okhst'],
           },
           { label: 'Reference', items: ['/api'] },
+          {
+            label: 'Playground',
+            link: 'https://glaze.tenphi.me/playground/',
+          },
         ],
       },
       {
