@@ -143,14 +143,15 @@ In Glaze, a **scheme variant** is one of `light`, `dark`, `lightContrast`, or
 
 ## Documentation
 
+- Explore the tone axis in the [interactive playground](https://glaze.tenphi.me/playground/).
 - Start with [the methodology](docs/methodology.md) to design a palette.
 - Use [migration and integration](docs/migration.md) to wire it into an
   application or replace an existing color system.
 - Keep the [API reference](docs/api.md) nearby for every method and option.
 - Read [OKHST in Glaze](docs/okhst.md) for the product-level color model, or
   the [full OKHST specification](https://github.com/tenphi/okhst) for its math.
-- [`AGENTS.md`](AGENTS.md) — source-tree orientation for contributors.
+- [`AGENTS.md`](https://github.com/tenphi/glaze/blob/main/AGENTS.md) — source-tree orientation for contributors.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/tenphi/glaze/blob/main/LICENSE)
