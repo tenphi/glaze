@@ -18,8 +18,8 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.0.0(jiti@2.7.0))
       '@tenphi/cookbook':
-        specifier: ^0.8.0
-        version: 0.8.0(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(lightningcss@1.32.0)(typescript@5.9.3)
+        specifier: ^0.9.3
+        version: 0.9.3(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(lightningcss@1.32.0)(typescript@5.9.3)
       astro:
         specifier: ^7.2.10
         version: 7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13)
@@ -1574,23 +1574,23 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@tenphi/cookbook@0.8.0':
-    resolution: {integrity: sha512-OT0A8vhtHwQSV2o2DfdfOf/yHo3yRtbjp7H+3BskFVL776KEMi24IjYChaJXeOWasiq2D6C3SyAuz/q1jfgD2A==}
+  '@tenphi/cookbook@0.9.3':
+    resolution: {integrity: sha512-gX0G0Vj66FawjOu5fXpudiWyYL+g/i+0FkrGPIGw5M7NNduT6TNsJlYRLnF9+KyxGPQq4ZCdkJW15SmENprchw==}
     engines: {node: '>=22.14'}
     hasBin: true
     peerDependencies:
       astro: ^7.2.9
 
-  '@tenphi/docs@0.8.0':
-    resolution: {integrity: sha512-vcYRkYD4bz3TUcDtFQ3BbG3swiPXeeKkVwfDyTwhktI/zP9sPsVjIQLKhCX0xDymc+7PfZnSoum4DesLnGFWtg==}
+  '@tenphi/docs@0.9.3':
+    resolution: {integrity: sha512-zEL2eVlj/olGDi6lGc0dauR5xrta0HKhytPHzm2xSXn3k6XqGPz6Yw3EkXZbgEVYYe5j8L0H+5MrLW+bWOC9zg==}
     engines: {node: '>=22.14'}
 
   '@tenphi/glaze@2.0.0':
     resolution: {integrity: sha512-entP+7nsScY87maev/rA6HS/qQy3YwHeywAsWTT9LGhovMp3/cj/Zb1jctlc37FWLim+mkYMwTGOk7ZfJBLLWg==}
     engines: {node: '>=20'}
 
-  '@tenphi/starlight@0.8.0':
-    resolution: {integrity: sha512-KARCf3Mb+xwtDaAJ93ZC2X8Fi4jdt6cZjYv8wvbiMjw7VUCHUOgEtR95Eqo7xi8oAnfAWupRGa/hs6hp2sRAhw==}
+  '@tenphi/starlight@0.9.3':
+    resolution: {integrity: sha512-QEbKrTMxcLGWYbDwhCJdywV/ajw2Dg4QkB3MIbXq1Y96kOauT4tPM7Vw9kTuZoEuLkebDy84ovm47jhRLKnqkw==}
     engines: {node: '>=22.14'}
     peerDependencies:
       astro: ^7.2.9
@@ -4209,7 +4209,7 @@ snapshots:
     dependencies:
       '@types/hast': 3.0.5
       '@types/mdast': 4.0.4
-      js-yaml: 4.1.1
+      js-yaml: 4.3.2
       picomatch: 4.0.4
       retext-smartypants: 6.2.0
       shiki: 4.4.3
@@ -4374,7 +4374,7 @@ snapshots:
       hast-util-to-string: 3.0.1
       hastscript: 9.0.1
       i18next: 26.4.1(typescript@5.9.3)
-      js-yaml: 4.1.1
+      js-yaml: 4.3.2
       klona: 2.0.6
       magic-string: 0.30.21
       mdast-util-directive: 3.1.0
@@ -5223,7 +5223,7 @@ snapshots:
       '@types/estree-jsx': 1.0.5
       '@types/hast': 3.0.5
       '@types/mdx': 2.0.14
-      acorn: 8.15.0
+      acorn: 8.18.0
       collapse-white-space: 2.1.0
       devlop: 1.1.0
       estree-util-is-identifier-name: 3.0.0
@@ -5232,7 +5232,7 @@ snapshots:
       hast-util-to-jsx-runtime: 2.3.6
       markdown-extensions: 2.0.0
       recma-build-jsx: 1.0.0
-      recma-jsx: 1.0.1(acorn@8.15.0)
+      recma-jsx: 1.0.1(acorn@8.18.0)
       recma-stringify: 1.0.0
       rehype-recma: 1.0.0
       remark-mdx: 3.1.1
@@ -5299,7 +5299,7 @@ snapshots:
 
   '@npmcli/fs@5.0.0':
     dependencies:
-      semver: 7.7.4
+      semver: 7.8.5
 
   '@npmcli/git@7.0.2':
     dependencies:
@@ -5309,7 +5309,7 @@ snapshots:
       lru-cache: 11.5.2
       npm-pick-manifest: 11.0.3
       proc-log: 6.1.0
-      semver: 7.7.4
+      semver: 7.8.5
       which: 6.0.1
 
   '@npmcli/installed-package-contents@4.0.0':
@@ -5326,7 +5326,7 @@ snapshots:
       hosted-git-info: 9.0.3
       json-parse-even-better-errors: 5.0.0
       proc-log: 6.1.0
-      semver: 7.7.4
+      semver: 7.8.5
       spdx-expression-parse: 4.0.0
 
   '@npmcli/promise-spawn@9.0.1':
@@ -5619,10 +5619,10 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tenphi/cookbook@0.8.0(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(lightningcss@1.32.0)(typescript@5.9.3)':
+  '@tenphi/cookbook@0.9.3(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(lightningcss@1.32.0)(typescript@5.9.3)':
     dependencies:
-      '@tenphi/docs': 0.8.0
-      '@tenphi/starlight': 0.8.0(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(jiti@2.7.0)(lightningcss@1.32.0)(typescript@5.9.3)
+      '@tenphi/docs': 0.9.3
+      '@tenphi/starlight': 0.9.3(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(jiti@2.7.0)(lightningcss@1.32.0)(typescript@5.9.3)
       astro: 7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13)
       jiti: 2.7.0
     transitivePeerDependencies:
@@ -5644,7 +5644,7 @@ snapshots:
       - typescript
       - yaml
 
-  '@tenphi/docs@0.8.0':
+  '@tenphi/docs@0.9.3':
     dependencies:
       '@tenphi/glaze': 2.0.0
       github-slugger: 2.0.0
@@ -5662,14 +5662,14 @@ snapshots:
 
   '@tenphi/glaze@2.0.0': {}
 
-  '@tenphi/starlight@0.8.0(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(jiti@2.7.0)(lightningcss@1.32.0)(typescript@5.9.3)':
+  '@tenphi/starlight@0.9.3(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(jiti@2.7.0)(lightningcss@1.32.0)(typescript@5.9.3)':
     dependencies:
       '@astrojs/markdown-remark': 7.3.0
       '@astrojs/react': 5.0.7(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(jiti@2.7.0)(lightningcss@1.32.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tsx@4.23.13)
       '@astrojs/starlight': 0.41.11(@astrojs/markdown-remark@7.3.0)(astro@7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13))(typescript@5.9.3)
       '@fontsource-variable/jetbrains-mono': 5.3.0
       '@fontsource-variable/onest': 5.3.1
-      '@tenphi/docs': 0.8.0
+      '@tenphi/docs': 0.9.3
       '@tenphi/glaze': 2.0.0
       '@tenphi/tasty': 3.6.0(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(jiti@2.7.0)(react@19.2.8)
       astro: 7.2.10(@astrojs/markdown-remark@7.3.0)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.13)
@@ -5712,7 +5712,7 @@ snapshots:
   '@tufjs/models@4.1.0':
     dependencies:
       '@tufjs/canonical-json': 2.0.0
-      minimatch: 10.2.1
+      minimatch: 10.2.6
 
   '@tybys/wasm-util@0.10.1':
     dependencies:
@@ -5807,7 +5807,7 @@ snapshots:
 
   '@types/sax@1.2.7':
     dependencies:
-      '@types/node': 12.20.55
+      '@types/node': 24.13.3
 
   '@types/unist@2.0.11': {}
 
@@ -5962,6 +5962,10 @@ snapshots:
   acorn-jsx@5.3.2(acorn@8.15.0):
     dependencies:
       acorn: 8.15.0
+
+  acorn-jsx@5.3.2(acorn@8.18.0):
+    dependencies:
+      acorn: 8.18.0
 
   acorn@8.15.0: {}
 
@@ -6364,7 +6368,7 @@ snapshots:
   esast-util-from-js@2.0.1:
     dependencies:
       '@types/estree-jsx': 1.0.5
-      acorn: 8.15.0
+      acorn: 8.18.0
       esast-util-from-estree: 2.0.0
       vfile-message: 4.0.3
 
@@ -6935,7 +6939,7 @@ snapshots:
 
   ignore-walk@8.0.0:
     dependencies:
-      minimatch: 10.2.1
+      minimatch: 10.2.6
 
   ignore@5.3.2: {}
 
@@ -7462,8 +7466,8 @@ snapshots:
 
   micromark-extension-mdxjs@3.0.0:
     dependencies:
-      acorn: 8.15.0
-      acorn-jsx: 5.3.2(acorn@8.15.0)
+      acorn: 8.18.0
+      acorn-jsx: 5.3.2(acorn@8.18.0)
       micromark-extension-mdx-expression: 3.0.1
       micromark-extension-mdx-jsx: 3.0.2
       micromark-extension-mdx-md: 2.0.0
@@ -7693,7 +7697,7 @@ snapshots:
       graceful-fs: 4.2.11
       nopt: 9.0.0
       proc-log: 6.1.0
-      semver: 7.7.4
+      semver: 7.8.5
       tar: 7.5.22
       tinyglobby: 0.2.17
       undici: 6.28.0
@@ -7715,7 +7719,7 @@ snapshots:
 
   npm-install-checks@8.0.0:
     dependencies:
-      semver: 7.7.4
+      semver: 7.8.5
 
   npm-normalize-package-bin@5.0.0: {}
 
@@ -7723,7 +7727,7 @@ snapshots:
     dependencies:
       hosted-git-info: 9.0.3
       proc-log: 6.1.0
-      semver: 7.7.4
+      semver: 7.8.5
       validate-npm-package-name: 7.0.2
 
   npm-packlist@10.0.4:
@@ -7736,7 +7740,7 @@ snapshots:
       npm-install-checks: 8.0.0
       npm-normalize-package-bin: 5.0.0
       npm-package-arg: 13.0.2
-      semver: 7.7.4
+      semver: 7.8.5
 
   npm-registry-fetch@19.1.1:
     dependencies:
@@ -7977,10 +7981,10 @@ snapshots:
       estree-util-build-jsx: 3.0.1
       vfile: 6.0.3
 
-  recma-jsx@1.0.1(acorn@8.15.0):
+  recma-jsx@1.0.1(acorn@8.18.0):
     dependencies:
-      acorn: 8.15.0
-      acorn-jsx: 5.3.2(acorn@8.15.0)
+      acorn: 8.18.0
+      acorn-jsx: 5.3.2(acorn@8.18.0)
       estree-util-to-js: 2.0.0
       recma-parse: 1.0.0
       recma-stringify: 1.0.0
@@ -8281,8 +8285,7 @@ snapshots:
 
   semver@7.7.4: {}
 
-  semver@7.8.5:
-    optional: true
+  semver@7.8.5: {}
 
   sharp@0.35.4(@types/node@24.13.3):
     dependencies:
@@ -8692,7 +8695,7 @@ snapshots:
 
   vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.13):
     dependencies:
-      esbuild: 0.27.3
+      esbuild: 0.28.2
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
       postcss: 8.5.15
