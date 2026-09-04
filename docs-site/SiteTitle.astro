@@ -28,6 +28,16 @@ import logo from '../assets/glaze.svg?url';
 
 <style is:global>
   /*
+    Cookbook resets every image to `inline-size: auto`. Presentational
+    width/height attributes lose to author CSS, so the README hero would
+    render at its intrinsic 300px. Pin it back to the size the markup asks for.
+  */
+  .sl-markdown-content img[src='assets/glaze.svg'] {
+    width: 128px;
+    height: 128px;
+  }
+
+  /*
     The logo is drawn with a black outer ring, which disappears against the
     dark surface. Trace the circle in white so the silhouette survives.
 
