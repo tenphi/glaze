@@ -1,5 +1,28 @@
 # @tenphi/glaze
 
+## 2.0.2
+
+### Patch Changes
+
+- [#99](https://github.com/tenphi/glaze/pull/99) [`b054f56`](https://github.com/tenphi/glaze/commit/b054f568a9b518195843a5d28b291f104d64df8a) Thanks [@tenphi](https://github.com/tenphi)! - Publish Cookbook documentation at glaze.tenphi.me with the playground available at /playground.
+
+- [`f3a0942`](https://github.com/tenphi/glaze/commit/f3a09421b09cf46c38d60327855b2e2da8ad9739) Thanks [@tenphi](https://github.com/tenphi)! - Add Umami analytics to the documentation site.
+
+- [`1b0cdf5`](https://github.com/tenphi/glaze/commit/1b0cdf5bd03dc7b43228a533ab11fd627c63a540) Thanks [@tenphi](https://github.com/tenphi)! - Update the documentation site to Cookbook 0.9.3.
+
+- [`76a1d2a`](https://github.com/tenphi/glaze/commit/76a1d2aabc5c04546fda536a093f15860b70f850) Thanks [@tenphi](https://github.com/tenphi)! - Outline the logo in white in the dark scheme so its silhouette stays visible.
+
+- [`2d86ceb`](https://github.com/tenphi/glaze/commit/2d86ceb7f87377c80128ffa4d740a17ef2678eca) Thanks [@tenphi](https://github.com/tenphi)! - Fix the docs dev server failing to start. `@astrojs/react` sets
+  `resolve.dedupe: ["react", "react-dom"]`, which makes Vite resolve those
+  packages from the project root, where pnpm had not linked them. Declaring
+  them as devDependencies restores `pnpm docs`.
+
+- [`ab33a34`](https://github.com/tenphi/glaze/commit/ab33a345ef10bfd5bf606e55212b69d2361891f7) Thanks [@tenphi](https://github.com/tenphi)! - Update the documentation site to Cookbook 0.9.5.
+
+- [`091f226`](https://github.com/tenphi/glaze/commit/091f226529e9e7219cfaec854de65a23633b9563) Thanks [@tenphi](https://github.com/tenphi)! - Add Umami analytics to the playground.
+
+- [#101](https://github.com/tenphi/glaze/pull/101) [`9dfa910`](https://github.com/tenphi/glaze/commit/9dfa910244da2466267c64a3478ddf5acb92d75e) Thanks [@tenphi](https://github.com/tenphi)! - Add the playground to the documentation sidebar navigation.
+
 ## 2.0.1
 
 ### Patch Changes
