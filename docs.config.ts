@@ -9,6 +9,16 @@ export default defineDocsConfig({
     url: 'https://glaze.tenphi.me',
     repository: 'https://github.com/tenphi/glaze',
   },
+  head: [
+    {
+      tag: 'script',
+      attrs: {
+        defer: true,
+        src: 'https://umami.tenphi.me/script.js',
+        'data-website-id': '98bc5e59-3b06-4570-8eb7-2ee87d6e3bf6',
+      },
+    },
+  ],
   content: {
     sources: [
       {
