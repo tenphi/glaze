@@ -73,7 +73,7 @@
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
-    "@tenphi/cookbook": "^0.9.3",
+    "@tenphi/cookbook": "^0.9.5",
     "@eslint/js": "^10.0.1",
     "astro": "^7.2.10",
     "eslint": "^10.0.0",
