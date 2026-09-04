@@ -30,14 +30,20 @@ import logo from '../assets/glaze.svg?url';
   /*
     The logo is drawn with a black outer ring, which disappears against the
     dark surface. Trace the circle in white so the silhouette survives.
+
+    The ring is a border rather than a box-shadow so it stays inside the
+    element's own box: the header title track clips its overflow, and an
+    outer ring loses its left, top and bottom edges there.
   */
   [data-theme='dark'] .glaze-site-title img {
+    box-sizing: border-box;
+    border: 1px solid #fff;
     border-radius: 50%;
-    box-shadow: 0 0 0 1px #fff;
   }
 
   [data-theme='dark'] .sl-markdown-content img[src='assets/glaze.svg'] {
+    box-sizing: border-box;
+    border: 2px solid #fff;
     border-radius: 50%;
-    box-shadow: 0 0 0 2px #fff;
   }
 </style>
