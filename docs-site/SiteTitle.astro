@@ -25,3 +25,19 @@ import logo from '../assets/glaze.svg?url';
     flex: 0 0 auto;
   }
 </style>
+
+<style is:global>
+  /*
+    The logo is drawn with a black outer ring, which disappears against the
+    dark surface. Trace the circle in white so the silhouette survives.
+  */
+  [data-theme='dark'] .glaze-site-title img {
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #fff;
+  }
+
+  [data-theme='dark'] .sl-markdown-content img[src='assets/glaze.svg'] {
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #fff;
+  }
+</style>
