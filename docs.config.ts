@@ -1,4 +1,4 @@
-import { defineDocsConfig } from '@tenphi/cookbook';
+import { defineDocsConfig } from '@tenphi/cookbook/config';
 import glazePackage from './package.json' with { type: 'json' };
 
 export default defineDocsConfig({
@@ -8,7 +8,22 @@ export default defineDocsConfig({
     description: 'OKHST color themes with WCAG and APCA contrast solving.',
     url: 'https://glaze.tenphi.me',
     repository: 'https://github.com/tenphi/glaze',
+    favicon: {
+      source: './assets/glaze.svg',
+      background: '#765b7e',
+    },
+    headerLinks: [
+      {
+        label: 'Playground',
+        link: 'https://glaze.tenphi.me/playground/',
+        variant: 'primary',
+      },
+    ],
   },
+  editLink: {
+    baseUrl: 'https://github.com/tenphi/glaze/edit/main/',
+  },
+  lastUpdated: true,
   head: [
     {
       tag: 'script',
@@ -22,36 +37,21 @@ export default defineDocsConfig({
   content: {
     sources: [
       {
-        file: 'README.md',
+        id: 'home',
+        file: 'docs-site/index.md',
         route: '/',
-        title: 'Glaze',
-        description: 'OKHST color themes with WCAG and APCA contrast solving.',
       },
-      { glob: 'docs/**/*.{md,mdx}', base: 'docs' },
+      { id: 'docs', glob: 'docs/**/*.{md,mdx}', base: 'docs' },
     ],
   },
   navigation: {
-    tabs: [
+    items: [
+      '/',
       {
-        label: 'Documentation',
-        link: '/',
-        items: [
-          '/',
-          {
-            label: 'Guides',
-            items: ['/methodology', '/migration', '/okhst'],
-          },
-          { label: 'Reference', items: ['/api'] },
-          {
-            label: 'Playground',
-            link: 'https://glaze.tenphi.me/playground/',
-          },
-        ],
+        label: 'Guides',
+        items: ['/methodology', '/migration', '/okhst'],
       },
-      {
-        label: 'Playground',
-        link: 'https://glaze.tenphi.me/playground/',
-      },
+      { label: 'Reference', items: ['/api'] },
     ],
   },
   theme: {
