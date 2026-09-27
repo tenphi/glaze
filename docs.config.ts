@@ -8,6 +8,7 @@ export default defineDocsConfig({
     description: 'OKHST color themes with WCAG and APCA contrast solving.',
     url: 'https://glaze.tenphi.me',
     repository: 'https://github.com/tenphi/glaze',
+    logo: './assets/glaze.svg',
     favicon: {
       source: './assets/glaze.svg',
       background: '#765b7e',
@@ -57,12 +58,19 @@ export default defineDocsConfig({
   theme: {
     brand: { from: '#765b7e' },
     styles: {
-      Logo: { display: 'none' },
-    },
-  },
-  components: {
-    overrides: {
-      SiteTitle: './docs-site/SiteTitle.astro',
+      /*
+        The logo is drawn with a black outer ring, which disappears against the
+        dark surface. Trace the circle in white so the silhouette survives.
+      */
+      SiteLogo: {
+        Image: {
+          radius: 'round',
+          border: {
+            '': false,
+            '@root(theme=dark)': '1bw solid #white',
+          },
+        },
+      },
     },
   },
 });
