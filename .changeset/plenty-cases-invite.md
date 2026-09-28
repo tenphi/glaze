@@ -2,6 +2,6 @@
 '@tenphi/glaze': patch
 ---
 
-Upgrade the documentation site to Cookbook 0.18 with responsive navigation,
-branded app icons, a dedicated splash page, edit links, Git timestamps, and
-per-page copy/download Markdown actions.
+Upgrade the documentation site to Cookbook 0.20.1 with its dedicated renderer,
+automatic branded social previews, improved mobile hero layout, responsive
+navigation, app icons, edit links, Git timestamps, and Markdown actions.
