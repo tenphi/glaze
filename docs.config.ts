@@ -58,6 +58,14 @@ export default defineDocsConfig({
   theme: {
     brand: { from: '#765b7e' },
     styles: {
+      Hero: {
+        Visual: {
+          inlineSize: {
+            '': 'min(100%, 19rem)',
+            '@mobile': 'clamp(10rem, 45vw, 14rem)',
+          },
+        },
+      },
       /*
         The logo is drawn with a black outer ring, which disappears against the
         dark surface. Trace the circle in white so the silhouette survives.

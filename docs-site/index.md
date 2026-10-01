@@ -1,5 +1,5 @@
 ---
-title: Glaze
+title: Overview
 description: Generate accessible light, dark, and high-contrast color themes from one seed.
 template: splash
 hero:
