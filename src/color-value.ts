@@ -228,8 +228,8 @@ export function validateOkhstColor(value: OkhstColor): void {
 
 /**
  * Extract an OKHSL color from any `GlazeColorValue` form. Also used by
- * `glaze.shadow()` so all shadow inputs (hex, color functions, OKHSL,
- * literal objects) go through one parser.
+ * `glaze.shadow()` / `glaze.glow()` so all their inputs (hex, color
+ * functions, OKHSL, literal objects) go through one parser.
  */
 export function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
   if (typeof value === 'string') return parseColorString(value);

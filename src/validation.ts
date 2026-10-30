@@ -1,16 +1,16 @@
 /**
  * Color graph validation and topological sort.
  *
- * `validateColorDefs` rejects bad references (missing / shadow-referencing /
- * base/contrast/tone mismatches) and detects cycles before the
- * resolver runs. `topoSort` orders defs so each color is processed after
+ * `validateColorDefs` rejects bad references (missing / shadow- or
+ * glow-referencing / base/contrast/tone mismatches) and detects cycles before
+ * the resolver runs. `topoSort` orders defs so each color is processed after
  * its base / bg / fg / target dependencies.
  */
 
 import { extractOkhslFromValue } from './color-value';
 import { contrastMetricOf } from './contrast-solver';
 import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
-import { isMixDef, isShadowDef } from './shadow';
+import { isLightingDef, isMixDef } from './lighting';
 import type {
   ColorMap,
   ContrastSpec,
@@ -54,6 +54,18 @@ function assertConsistentContrastMetric(
   );
 }
 
+/**
+ * `'shadow'` / `'glow'` when `ref` names a local translucent overlay — which
+ * nothing may build on — else `undefined`.
+ */
+function overlayKindOf(
+  defs: ColorMap,
+  ref: string,
+): 'shadow' | 'glow' | undefined {
+  const def = Object.hasOwn(defs, ref) ? defs[ref] : undefined;
+  return def !== undefined && isLightingDef(def) ? def.type : undefined;
+}
+
 export function validateColorDefs(
   defs: ColorMap,
   externalBases?: Map<string, ResolvedColor>,
@@ -65,26 +77,22 @@ export function validateColorDefs(
   ]);
 
   for (const [name, def] of Object.entries(defs)) {
-    if (isShadowDef(def)) {
-      if (!allNames.has(def.bg)) {
-        throw new Error(
-          `glaze: shadow "${name}" references non-existent bg "${def.bg}".`,
-        );
-      }
-      if (localNames.has(def.bg) && isShadowDef(defs[def.bg])) {
-        throw new Error(
-          `glaze: shadow "${name}" bg "${def.bg}" references another shadow color.`,
-        );
-      }
-      if (def.fg !== undefined) {
-        if (!allNames.has(def.fg)) {
+    if (isLightingDef(def)) {
+      // Translucent overlays are leaves: they composite over an opaque color,
+      // so neither end may itself be a shadow or glow.
+      const kind = def.type;
+      for (const field of ['bg', 'fg'] as const) {
+        const ref = def[field];
+        if (ref === undefined) continue;
+        if (!allNames.has(ref)) {
           throw new Error(
-            `glaze: shadow "${name}" references non-existent fg "${def.fg}".`,
+            `glaze: ${kind} "${name}" references non-existent ${field} "${ref}".`,
           );
         }
-        if (localNames.has(def.fg) && isShadowDef(defs[def.fg])) {
+        const refKind = overlayKindOf(defs, ref);
+        if (refKind !== undefined) {
           throw new Error(
-            `glaze: shadow "${name}" fg "${def.fg}" references another shadow color.`,
+            `glaze: ${kind} "${name}" ${field} "${ref}" references a ${refKind} color.`,
           );
         }
       }
@@ -102,15 +110,14 @@ export function validateColorDefs(
           `glaze: mix "${name}" references non-existent target "${def.target}".`,
         );
       }
-      if (localNames.has(def.base) && isShadowDef(defs[def.base])) {
-        throw new Error(
-          `glaze: mix "${name}" base "${def.base}" references a shadow color.`,
-        );
-      }
-      if (localNames.has(def.target) && isShadowDef(defs[def.target])) {
-        throw new Error(
-          `glaze: mix "${name}" target "${def.target}" references a shadow color.`,
-        );
+      for (const field of ['base', 'target'] as const) {
+        const ref = def[field];
+        const refKind = overlayKindOf(defs, ref);
+        if (refKind !== undefined) {
+          throw new Error(
+            `glaze: mix "${name}" ${field} "${ref}" references a ${refKind} color.`,
+          );
+        }
       }
       assertConsistentContrastMetric(name, def.contrast);
       continue;
@@ -156,13 +163,10 @@ export function validateColorDefs(
       );
     }
 
-    if (
-      regDef.base &&
-      localNames.has(regDef.base) &&
-      isShadowDef(defs[regDef.base])
-    ) {
+    const baseKind = regDef.base && overlayKindOf(defs, regDef.base);
+    if (baseKind) {
       throw new Error(
-        `glaze: color "${name}" base "${regDef.base}" references a shadow color.`,
+        `glaze: color "${name}" base "${regDef.base}" references a ${baseKind} color.`,
       );
     }
 
@@ -196,7 +200,7 @@ export function validateColorDefs(
 
     inStack.add(name);
     const def = defs[name];
-    if (isShadowDef(def)) {
+    if (isLightingDef(def)) {
       dfs(def.bg);
       if (def.fg) dfs(def.fg);
     } else if (isMixDef(def)) {
@@ -229,7 +233,7 @@ export function topoSort(defs: ColorMap): string[] {
     // External base references (not in `defs`) are leaves — they're already
     // pre-seeded into `ctx.resolved` and don't participate in the local sort.
     if (def === undefined) return;
-    if (isShadowDef(def)) {
+    if (isLightingDef(def)) {
       visit(def.bg);
       if (def.fg) visit(def.fg);
     } else if (isMixDef(def)) {

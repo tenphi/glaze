@@ -8,13 +8,13 @@
  * passes bypass the level entirely, so the high-contrast slots are the same
  * values `'auto'` resolves. At level 100 the normal passes already are the
  * high-contrast ones, so the solver drops to two passes (light → dark) and
- * mirrors the slots. Owns the per-scheme resolve helpers for regular, shadow,
- * and mix color defs.
+ * mirrors the slots. Owns the per-scheme resolve helpers for regular, shadow /
+ * glow, and mix color defs.
  *
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
  * `t` is the canonical contrast-uniform tone (0–1, reference eps). The
  * resolver works in tone for regular colors and converts to/from OKHSL
- * lightness only at the mix/shadow and luminance edges.
+ * lightness only at the mix / shadow / glow and luminance edges.
  *
  * Every function receives a single `GlazeConfigResolved` so the full
  * per-instance config (including overrides) is available without
@@ -22,10 +22,11 @@
  */
 
 import {
+  compositeOverGamma,
   okhslToLinearSrgb,
-  sRGBGammaToLinear,
   sRGBLinearToGamma,
   srgbToOkhsl,
+  toDisplayGamma,
 } from './okhsl-color-math';
 import {
   findToneForContrast,
@@ -54,12 +55,12 @@ import {
   roleToPolarity,
 } from './roles';
 import {
-  computeShadow,
   circularLerp,
+  computeLighting,
+  isLightingDef,
   isMixDef,
-  isShadowDef,
-  resolveShadowTuning,
-} from './shadow';
+  resolveLightingTuning,
+} from './lighting';
 import {
   fromTone,
   mapSaturationDark,
@@ -71,7 +72,11 @@ import {
 } from './okhst';
 import { extractOkhslFromValue } from './color-value';
 import { hasAbsoluteTone, topoSort, validateColorDefs } from './validation';
-import { warnContrastUnmet, warnContrastDrift } from './warnings';
+import {
+  warnContrastUnmet,
+  warnContrastDrift,
+  warnLightingUnreachable,
+} from './warnings';
 import type {
   AdaptationMode,
   ColorDef,
@@ -79,6 +84,7 @@ import type {
   ContrastSpec,
   GlazeConfigResolved,
   GlazeThemeSeed,
+  GlowColorDef,
   HCPair,
   MixColorDef,
   RegularColorDef,
@@ -100,7 +106,7 @@ export interface ResolveContext extends GlazeThemeSeed {
 
 type ResolvedField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
 
-/** An OKHSL-lightness-shaped variant used at the mix/shadow edge. */
+/** An OKHSL-lightness-shaped variant used at the mix / shadow / glow edge. */
 interface OkhslVariant {
   h: number;
   s: number;
@@ -174,7 +180,7 @@ function resolveRoleInMap(
   if (cached) return cached;
 
   let role: Role | undefined;
-  if (isShadowDef(def)) {
+  if (isLightingDef(def)) {
     role = 'surface';
   } else if (isMixDef(def)) {
     role =
@@ -204,7 +210,7 @@ function resolveRoleInMap(
  *   4. `'text'` (foreground) default
  *
  * Memoized on `ctx.roles` so the four scheme passes share one resolution.
- * Shadows have no contrast participation and default to `'surface'`.
+ * Shadows and glows have no contrast participation and default to `'surface'`.
  */
 function resolveRole(name: string, def: ColorDef, ctx: ResolveContext): Role {
   return resolveRoleInMap(name, def, ctx.defs, ctx.config.inferRole, ctx.roles);
@@ -250,7 +256,7 @@ function passTone(
     : parseToneValueAt(tone, f);
 }
 
-/** The authored numeric pair for this pass (shadow `intensity`, mix `value`). */
+/** The authored numeric pair for this pass (shadow / glow `intensity`, mix `value`). */
 function passNumber(
   p: HCPair<number>,
   isHighContrast: boolean,
@@ -636,8 +642,8 @@ function resolveColorForScheme(
   isDark: boolean,
   isHighContrast: boolean,
 ): ResolvedColorVariant {
-  if (isShadowDef(def)) {
-    return resolveShadowForScheme(def, ctx, isDark, isHighContrast);
+  if (isLightingDef(def)) {
+    return resolveLightingForScheme(name, def, ctx, isDark, isHighContrast);
   }
 
   if (isMixDef(def)) {
@@ -683,31 +689,57 @@ function resolveColorForScheme(
   };
 }
 
-function resolveShadowForScheme(
-  def: ShadowColorDef,
+/**
+ * Shadow / glow: solve the pigment opacity that lands this scheme's `bg`
+ * exactly `intensity × k` tones darker / lighter. `bg` and `fg` are read per
+ * scheme, so the object factor `k` adapts on its own in dark and high contrast.
+ */
+function resolveLightingForScheme(
+  name: string,
+  def: ShadowColorDef | GlowColorDef,
   ctx: ResolveContext,
   isDark: boolean,
   isHighContrast: boolean,
 ): ResolvedColorVariant {
-  const bgResolved = ctx.resolved.get(def.bg)!;
   const bgVariant = toOkhslVariant(
-    getSchemeVariant(bgResolved, isDark, isHighContrast),
+    getSchemeVariant(ctx.resolved.get(def.bg)!, isDark, isHighContrast),
   );
-
-  let fgVariant: OkhslVariant | undefined;
-  if (def.fg) {
-    const fgResolved = ctx.resolved.get(def.fg)!;
-    fgVariant = toOkhslVariant(
-      getSchemeVariant(fgResolved, isDark, isHighContrast),
-    );
-  }
+  const fgVariant = def.fg
+    ? toOkhslVariant(
+        getSchemeVariant(ctx.resolved.get(def.fg)!, isDark, isHighContrast),
+      )
+    : undefined;
 
   const intensity = passNumber(def.intensity, isHighContrast, ctx.config);
+  const tuning = resolveLightingTuning(
+    def.tuning,
+    def.type === 'shadow' ? ctx.config.shadowTuning : ctx.config.glowTuning,
+  );
+  const pastel = def.pastel ?? ctx.config.pastel;
+  const result = computeLighting(
+    def.type,
+    { ...bgVariant, pastel: bgVariant.pastel ?? ctx.config.pastel },
+    fgVariant,
+    intensity,
+    tuning,
+    pastel,
+  );
+  warnLightingUnreachable(
+    def.type,
+    name,
+    { isDark, isHighContrast },
+    result.step,
+    result.reached,
+  );
 
-  const tuning = resolveShadowTuning(def.tuning, ctx.config.shadowTuning);
   return {
-    ...toToneVariant(computeShadow(bgVariant, fgVariant, intensity, tuning)),
-    pastel: def.pastel ?? ctx.config.pastel,
+    ...toToneVariant({
+      h: result.h,
+      s: result.s,
+      l: result.l,
+      alpha: result.alpha,
+    }),
+    pastel,
   };
 }
 
@@ -740,33 +772,6 @@ function linearSrgbLerp(
     base[0] + (target[0] - base[0]) * t,
     base[1] + (target[1] - base[1]) * t,
     base[2] + (target[2] - base[2]) * t,
-  ];
-}
-
-/** Gamma-encoded sRGB clamped to the display gamut — what a browser paints. */
-function toDisplayGamma(rgb: LinearRgb): LinearRgb {
-  return [
-    clamp(sRGBLinearToGamma(rgb[0]), 0, 1),
-    clamp(sRGBLinearToGamma(rgb[1]), 0, 1),
-    clamp(sRGBLinearToGamma(rgb[2]), 0, 1),
-  ];
-}
-
-/**
- * Browser alpha compositing: `source-over` interpolates the gamma-encoded
- * channels, not linear light (50% black over white paints `#808080`).
- * Takes display-gamma inputs and returns the composite as linear sRGB for
- * the luminance pipeline.
- */
-function compositeOverGamma(
-  baseGamma: LinearRgb,
-  targetGamma: LinearRgb,
-  alpha: number,
-): LinearRgb {
-  return [
-    sRGBGammaToLinear(baseGamma[0] + (targetGamma[0] - baseGamma[0]) * alpha),
-    sRGBGammaToLinear(baseGamma[1] + (targetGamma[1] - baseGamma[1]) * alpha),
-    sRGBGammaToLinear(baseGamma[2] + (targetGamma[2] - baseGamma[2]) * alpha),
   ];
 }
 
@@ -884,7 +889,7 @@ function resolveMixForScheme(
 }
 
 function defMode(def: ColorDef): AdaptationMode | undefined {
-  if (isShadowDef(def) || isMixDef(def)) return undefined;
+  if (isLightingDef(def) || isMixDef(def)) return undefined;
   return (def as RegularColorDef).mode ?? 'auto';
 }
 
@@ -965,7 +970,7 @@ function verifyContrastDrift(
   const roles = new Map<string, Role>();
   for (const name of order) {
     const def = defs[name];
-    if (isShadowDef(def) || isMixDef(def)) continue;
+    if (isLightingDef(def) || isMixDef(def)) continue;
     const regDef = def as RegularColorDef;
     if (regDef.contrast === undefined || !regDef.base) continue;
     const color = result.get(name);

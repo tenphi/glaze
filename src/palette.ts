@@ -29,6 +29,7 @@ import {
 import {
   assertExportKind,
   assertExportVersion,
+  assertNoLegacyShadows,
   GLAZE_EXPORT_VERSION,
 } from './serialize';
 import { createTheme } from './theme';
@@ -221,6 +222,7 @@ function buildPaletteOutput<T, R>(
 export function createThemeFromExport(
   data: GlazeThemeExport,
   factory = 'glaze.themeFrom',
+  fallbackVersion?: unknown,
 ): GlazeTheme {
   if (data === null || typeof data !== 'object') {
     throw new Error(
@@ -229,6 +231,7 @@ export function createThemeFromExport(
   }
   assertExportKind(data, 'theme', factory);
   assertExportVersion(data, factory);
+  assertNoLegacyShadows(data, factory, fallbackVersion);
   if (typeof data.hue !== 'number' || typeof data.saturation !== 'number') {
     throw new Error(
       `${factory}: expected numeric "hue" and "saturation" fields.`,
@@ -277,6 +280,7 @@ export function createPaletteFromExport(
     rebuilt[name] = createThemeFromExport(
       themeExport,
       `glaze.paletteFrom (theme "${name}")`,
+      data.version,
     );
   }
 

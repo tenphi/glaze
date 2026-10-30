@@ -238,7 +238,7 @@ Walk your current color system and bucket every token into one of these categori
 - **Brand fills** — solid CTA backgrounds, badges, status banners.
 - **Brand foregrounds** — link text, status text, icon colors on neutral backgrounds.
 - **Disabled** — disabled chip + label.
-- **Shadows / overlays** — elevation, scrims.
+- **Shadows / overlays** — elevation, scrims, state layers (`shadow` / `glow`).
 - **One-off colors** — syntax highlighting, charts, illustrations.
 
 Each bucket maps cleanly to one of the patterns in [methodology.md](methodology.md). The bucket determines the _shape_ of the Glaze definition (root vs dependent, `mode: 'auto'` vs `'fixed'`, contrast-floor vs absolute tone), not the value.
@@ -295,7 +295,7 @@ Glaze gives you light/dark/HC for free, but only the light mode is matched again
 
 ### 5. Trim what `extend()` doesn't need
 
-After migration, mark every default-only token (borders, shadows, disabled chip, code highlighting, etc.) `inherit: false`. Colored sibling themes only need the accent + tinted-surface chain — flagging the rest cuts the emitted token set per theme dramatically.
+After migration, mark every default-only token (borders, shadows, glows, disabled chip, code highlighting, etc.) `inherit: false`. Colored sibling themes only need the accent + tinted-surface chain — flagging the rest cuts the emitted token set per theme dramatically.
 
 ## Upgrading Glaze
 
@@ -331,6 +331,71 @@ A leftover `* 100` is not silent any more: a value above 1 cannot be a factor,
 so the writers `console.warn` once per writer and you get an obviously-broken
 `7040.68%` instead of a plausible wrong color.
 
+### 3.0 — shadows and glows
+
+`shadow` was rebuilt so `intensity` produces the same visible change on every
+surface, and `glow` was added as its mirror. Both emit a translucent pigment
+whose opacity is solved, per surface and per scheme, so the composite lands an
+exact **tone step** away from `bg`: darker for `shadow`, lighter for `glow`.
+See [api.md → Shadows and glows](api.md#shadows-and-glows).
+
+What changed:
+
+- **`intensity` is a tone step.** In 2.x it went through a `tanh` curve in
+  OKHSL lightness, so the same number darkened white by 9 tones, a tone-35
+  surface by 13.9 and a tone-6 surface by 4.4. Now `intensity: 10` is 10 tones
+  everywhere.
+- **`fg` is the object, not a contrast reference.** In 2.x strength scaled with
+  `|l_bg − l_fg|` and the docs pointed `fg` at `text`, which ran opposite to
+  the physics: a white card on a light surface got almost no shadow. Now `fg` is
+  the element casting the shadow; a darker object deepens it, a lighter one
+  softens it, and an object at the surface's tone (or no `fg`) gives exactly
+  `intensity`.
+- **The pigment is neutral by default** — pure black for `shadow`, pure white
+  for `glow` — so the surface keeps its hue and the output is clean
+  (`rgb(0 0 0 / 0.0814)`).
+- **`ShadowTuning` was replaced.** `saturationFactor`, `maxSaturation`,
+  `lightnessFactor`, `lightnessBounds`, `minGapTarget`, `alphaMax` and
+  `bgHueBlend` are gone. The new knobs are `objectInfluence`, `tint`, `reach`
+  and `hueBleed`, shared by `shadowTuning` and the new `glowTuning`.
+- **`GLAZE_EXPORT_VERSION` is 2.** A version-1 theme or palette snapshot that
+  contains shadow colors or a `shadowTuning` now throws on restore instead of
+  silently re-rendering every shadow.
+- **`ColorDef` has a fourth member, `GlowColorDef`.** Exhaustive `switch`es
+  over `def.type` need a `'glow'` branch.
+
+How 2.x shadows map onto 3.0 (2.x steps measured with browser compositing):
+
+| 2.x definition                         | 2.x step for `intensity: 10`           | 3.0 equivalent                                                           |
+| -------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------ |
+| no `fg`, light surface (tone 97–100)   | ≈ 9 tones                              | `intensity: 9` — or keep `10`, a tone stronger                           |
+| no `fg`, mid surface (tone 50)         | ≈ 13.6 tones                           | `intensity: 13.6`, or settle on one value for all surfaces               |
+| no `fg`, dark surface (tone 10)        | ≈ 7.6 tones, and saturating            | `intensity: 7.6`; dark shadows were weaker than authored and now aren't  |
+| `fg: 'text'` on a light surface        | ≈ 7 tones                              | drop `fg`, `intensity: 7` — or point `fg` at the element and re-tune     |
+| `fg` = a near-white card on light      | ≈ 0.3 tones (barely visible)           | `fg: 'card'`, pick `intensity` for the look you want                     |
+
+Then:
+
+1. Replace `fg: 'text'` (or any contrast-reference `fg`) with either no `fg`
+   or the element that casts the shadow.
+2. Pick `intensity` as the number of tones you want. For a ladder,
+   `4` / `8` / `12` reads as evenly spaced on every surface.
+3. Delete the old `tuning` / `shadowTuning` keys. TypeScript flags them. A
+   tinted pigment is `tuning: { tint: 0.3, reach: 0.85 }`; there is no opacity
+   cap — lower `intensity` for a lighter overlay.
+4. Replace hand-tuned translucent white mixes (dark-mode elevation, edge
+   highlights, lightening state layers) with `{ type: 'glow', bg, intensity }`.
+   Direction is fixed per type, so a `shadow` darkens and a `glow` lightens in
+   light and dark alike; a glow on a white light-mode surface has nothing to
+   lighten and warns.
+5. Re-export snapshots. A 2.x snapshot with shadows has to be re-authored: fix
+   its shadow defs (and drop `config.shadowTuning`) in the JSON or in code, then
+   export again from 3.0 so it carries `version: 2`. Snapshots without shadows
+   load unchanged.
+
+`glaze.shadow()` keeps its signature with the new semantics; `glaze.glow()`
+takes the same input.
+
 ## Common pitfalls
 
 | Symptom                                                                        | Cause                                                                                                                                   | Fix                                                                                                                                                                                                        |
@@ -344,6 +409,8 @@ so the writers `console.warn` once per writer and you get an obviously-broken
 | `console.warn: token "foo" collides with theme "bar"`.                         | Two themes resolved to the same output key under your prefix config.                                                                    | Adjust the prefix map so each token is unique, or accept the first-write-wins behavior.                                                                                                                    |
 | `console.warn: formatOkhsl() got a value above 1`.                             | Pre-2.0 percentage-scale input to a `format*` writer (a leftover `* 100`).                                                              | Pass the 0–1 factors the converters return — see [2.0 — `format*` takes 0–1](#20--format-takes-01).                                                                                                        |
 | `console.warn: color "X" cannot meet contrast`.                                | The requested contrast target is physically unreachable for the color's hue/saturation against its base.                                | Lower the floor, change the base, or accept the closest passing variant. Use the `name` override on standalone colors to make the warning identifiable.                                                    |
+| `console.warn: glow "X" cannot reach a N-tone step`.                           | The surface has fewer than `N` tones of headroom — a glow on white, a deep shadow on near-black. The overlay is pinned to its strongest. | Lower `intensity`, give the overlay a surface with headroom in that scheme, or don't bind the token there.                                                                                                 |
+| `glaze.themeFrom: this snapshot is export version 1 (Glaze 2) …`               | A 2.x snapshot with shadow colors or `shadowTuning`; shadows changed meaning in 3.0.                                                    | Re-author the shadows and export again — see [3.0 — shadows and glows](#30--shadows-and-glows).                                                                                                            |
 
 ## See also
 

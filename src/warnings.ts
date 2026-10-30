@@ -1,5 +1,6 @@
 /**
- * Contrast-warning dispatcher.
+ * Resolve-time warning dispatcher: unmet contrast floors, chromatic contrast
+ * drift, and out-of-reach shadow / glow steps.
  *
  * Tokens memoize their resolution, but a long-lived process (e.g. a dev
  * server with HMR) can re-resolve the same theme many times. The cache
@@ -112,5 +113,41 @@ export function warnContrastDrift(
     `glaze: color "${name}" drifts below ${metricLabel(contrast)} in ` +
       `${scheme} scheme (measured ${actual.toFixed(2)}). Chromatic luminance ` +
       `differs from the gray tone; nudge the tone or saturation if the floor matters.`,
+  );
+}
+
+/** Tone slack before an out-of-reach shadow / glow step is worth a warning. */
+const LIGHTING_WARN_SLACK = 0.05;
+
+/**
+ * Warn when a `shadow` / `glow` step is out of reach of its pigment — a glow
+ * on white, a deep shadow on near-black — so the composite pins to the
+ * pigment's strongest and lands short. `name` is omitted for the standalone
+ * `glaze.shadow()` / `glaze.glow()` factories, which have no scheme either.
+ */
+export function warnLightingUnreachable(
+  kind: 'shadow' | 'glow',
+  name: string | undefined,
+  scheme: { isDark: boolean; isHighContrast: boolean } | undefined,
+  step: number,
+  reached: number,
+): void {
+  if (reached >= step - LIGHTING_WARN_SLACK) return;
+
+  const label = scheme
+    ? schemeLabel(scheme.isDark, scheme.isHighContrast)
+    : undefined;
+  const key = `lighting|${kind}|${name ?? ''}|${label ?? ''}|${step.toFixed(
+    2,
+  )}|${reached.toFixed(2)}`;
+  if (dedupe(key)) return;
+
+  const subject = name === undefined ? `glaze.${kind}()` : `${kind} "${name}"`;
+  const where = label === undefined ? '' : ` in ${label} scheme`;
+  const extreme = kind === 'shadow' ? 'black' : 'white';
+  console.warn(
+    `glaze: ${subject} cannot reach a ${step.toFixed(1)}-tone step${where} ` +
+      `(reached ${reached.toFixed(1)} at full strength). Lower the intensity, ` +
+      `move the surface away from ${extreme}, or raise a tuned-down \`reach\`.`,
   );
 }

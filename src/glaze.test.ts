@@ -6,16 +6,22 @@ import {
   gamutClampedLuminance,
   apcaLuminanceFromLinearRgb,
   parseHex,
+  relativeLuminanceFromLinearRgb,
   sRGBGammaToLinear,
   srgbToHex,
+  srgbToOkhsl,
 } from './okhsl-color-math';
 import { apcaContrast } from './contrast-solver';
-import { variantToOkhsl } from './okhst';
+import { fromTone, toneFromY, variantToOkhsl } from './okhst';
 import type {
+  ColorMap,
   ContrastSpec,
   DtcgColorToken,
   GlazeColorTokenExport,
   HCPair,
+  LightingTuning,
+  RegularColorDef,
+  ResolvedColor,
   ResolvedColorVariant,
   ToneValue,
 } from './types';
@@ -1832,7 +1838,7 @@ describe('glaze', () => {
       theme.colors({ surface: { tone: 97 } });
       const exported = theme.export();
       expect(exported.kind).toBe('theme');
-      expect(exported.version).toBe(1);
+      expect(exported.version).toBe(2);
       expect(exported.config?.lightTone).toEqual({
         lo: 10,
         hi: 100,
@@ -1929,6 +1935,88 @@ describe('glaze', () => {
         /invalid "version"/,
       );
     });
+
+    describe('version-1 (Glaze 2) snapshots', () => {
+      const v1 = {
+        kind: 'theme' as const,
+        version: 1,
+        hue: 0,
+        saturation: 0,
+        colors: {
+          surface: { tone: 97 },
+        } as ColorMap,
+      };
+
+      it('rejects one with shadow colors', () => {
+        expect(() =>
+          glaze.themeFrom({
+            ...v1,
+            colors: {
+              ...v1.colors,
+              'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+            },
+          }),
+        ).toThrow(
+          /export version 1 \(Glaze 2\).*shadow colors \("shadow-md"\)/,
+        );
+      });
+
+      it('rejects one with a shadowTuning config', () => {
+        expect(() =>
+          glaze.themeFrom({ ...v1, config: { shadowTuning: {} } }),
+        ).toThrow(/a "shadowTuning" config/);
+      });
+
+      it('loads one without shadows, and unversioned hand-written ones', () => {
+        expect(glaze.themeFrom(v1).resolve().get('surface')).toBeDefined();
+        const handWritten = glaze.themeFrom({
+          hue: 0,
+          saturation: 0,
+          colors: {
+            surface: { tone: 97 },
+            shade: { type: 'shadow', bg: 'surface', intensity: 6 },
+          },
+        });
+        expect(handWritten.resolve().get('shade')!.light.alpha).toBeGreaterThan(
+          0,
+        );
+      });
+
+      it('rejects a version-1 palette whose theme has shadows', () => {
+        expect(() =>
+          glaze.paletteFrom({
+            kind: 'palette',
+            version: 1,
+            themes: {
+              brand: {
+                hue: 0,
+                saturation: 0,
+                colors: {
+                  surface: { tone: 97 },
+                  shade: { type: 'shadow', bg: 'surface', intensity: 6 },
+                },
+              },
+            },
+          }),
+        ).toThrow(/theme "brand".*export version 1/);
+      });
+    });
+
+    it('round-trips glow defs and glowTuning', () => {
+      const theme = glaze(260, 40, { glowTuning: { objectInfluence: 0.25 } });
+      theme.colors({
+        surface: { tone: 12 },
+        chip: { tone: 40 },
+        'chip-glow': { type: 'glow', bg: 'surface', fg: 'chip', intensity: 6 },
+      });
+      const snapshot = JSON.parse(JSON.stringify(theme.export()));
+      expect(snapshot.config.glowTuning).toEqual({ objectInfluence: 0.25 });
+      const restored = glaze.themeFrom(snapshot);
+      const a = theme.resolve().get('chip-glow')!;
+      const b = restored.resolve().get('chip-glow')!;
+      expect(b.light.alpha).toBeCloseTo(a.light.alpha, 10);
+      expect(b.dark.alpha).toBeCloseTo(a.dark.alpha, 10);
+    });
   });
 
   describe('palette export / paletteFrom', () => {
@@ -1958,7 +2046,7 @@ describe('glaze', () => {
       const palette = richPalette();
       const snapshot = JSON.parse(JSON.stringify(palette.export()));
       expect(snapshot.kind).toBe('palette');
-      expect(snapshot.version).toBe(1);
+      expect(snapshot.version).toBe(2);
       expect(snapshot.primary).toBe('brand');
       expect(snapshot.themes.brand.kind).toBe('theme');
 
@@ -2322,7 +2410,7 @@ describe('glaze', () => {
       ).toThrow(/requires every color to be pastel/);
     });
 
-    it('inlines achromatic, shadow, and mix colors and preserves alpha', () => {
+    it('inlines achromatic, shadow, glow, and mix colors and preserves alpha', () => {
       const theme = glaze(240, 18, { pastel: true });
       theme.colors({
         surface: { tone: 50 },
@@ -2335,6 +2423,7 @@ describe('glaze', () => {
           fg: 'text',
           intensity: 0.5,
         },
+        lift: { type: 'glow', bg: 'surface', intensity: 2 },
         ghost: {
           type: 'mix',
           base: 'surface',
@@ -2357,6 +2446,11 @@ describe('glaze', () => {
         /--shadow-color: oklch\([\d.]+ [\d.]+ [\d.]+ \/ [\d.]+\)/,
       );
       expect(css.light).not.toMatch(/--shadow-color:[^;]*var\(/);
+      // glow → inline (no var()), with alpha
+      expect(css.light).toMatch(
+        /--lift-color: oklch\([\d.]+ [\d.]+ [\d.]+ \/ [\d.]+\)/,
+      );
+      expect(css.light).not.toMatch(/--lift-color:[^;]*var\(/);
       // mix → inline (no var())
       expect(css.light).toMatch(/--ghost-color: oklch\([\d.]+ [\d.]+ [\d.]+\)/);
       expect(css.light).not.toMatch(/--ghost-color:[^;]*var\(/);
@@ -3060,7 +3154,7 @@ describe('glaze', () => {
       it('value-form snapshots the tone-window config (light=false, dark default)', () => {
         const data: GlazeColorTokenExport = glaze.color('#26fcb2').export();
         expect(data.kind).toBe('color');
-        expect(data.version).toBe(1);
+        expect(data.version).toBe(2);
         expect(data.config?.lightTone).toBe(false);
         expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
         expect(data.config?.pastel).toBe(false);
@@ -3169,70 +3263,503 @@ describe('glaze', () => {
     });
   });
 
-  describe('shadow colors', () => {
-    it('resolves a shadow with 0 < alpha < 1', () => {
+  describe('shadow and glow colors', () => {
+    interface Okhsl {
+      h: number;
+      s: number;
+      l: number;
+    }
+
+    /** Luminance tone (0–100) of a color the browser paints. */
+    function paintedTone(gamma: [number, number, number]): number {
+      const lin = gamma.map(sRGBGammaToLinear) as [number, number, number];
+      return toneFromY(relativeLuminanceFromLinearRgb(lin));
+    }
+
+    /**
+     * Tones the surface moves once `overlay` is composited over it the way
+     * browsers do (`source-over` on gamma-encoded sRGB): positive = darker.
+     */
+    function stepOver(overlay: ResolvedColorVariant, bg: Okhsl): number {
+      const o = variantToOkhsl(overlay);
+      const gO = okhslToSrgb(o.h, o.s, o.l);
+      const gB = okhslToSrgb(bg.h, bg.s, bg.l);
+      const composite = gB.map((c, i) => c + (gO[i] - c) * overlay.alpha) as [
+        number,
+        number,
+        number,
+      ];
+      return paintedTone(gB) - paintedTone(composite);
+    }
+
+    function stepIn(
+      r: Map<string, ResolvedColor>,
+      name: string,
+      bg: string,
+      scheme: 'light' | 'dark' | 'lightContrast' | 'darkContrast',
+    ): number {
+      return stepOver(r.get(name)![scheme], variantToOkhsl(r.get(bg)![scheme]));
+    }
+
+    const gray = (tone: number): Okhsl => ({ h: 0, s: 0, l: fromTone(tone) });
+    const SCHEMES = ['light', 'dark', 'lightContrast', 'darkContrast'] as const;
+
+    describe('intensity is an exact tone step', () => {
+      // Neutral light / mid / dark surfaces plus chromatic ones (a saturated
+      // blue accent, a warm mid-tone, a deep green).
+      const SURFACES: Record<string, RegularColorDef> = {
+        white: { tone: 100, saturation: 0 },
+        light: { tone: 92, saturation: 0 },
+        mid: { tone: 50, saturation: 0 },
+        dim: { tone: 25, saturation: 0 },
+        dark: { tone: 15, saturation: 0 },
+        blue: { hue: 260, tone: 44 },
+        warm: { hue: 40, tone: 70 },
+        green: { hue: 150, tone: 30 },
+      };
+
+      function lightingTheme(type: 'shadow' | 'glow', intensity: number) {
+        const theme = glaze(260, 87, { lightTone: false, darkTone: false });
+        const defs: ColorMap = { ...SURFACES };
+        for (const name of Object.keys(SURFACES)) {
+          defs[`${name}-${type}`] = { type, bg: name, intensity };
+        }
+        theme.colors(defs);
+        return theme.resolve();
+      }
+
+      it('shadow lands exactly `intensity` tones darker on every surface and scheme', () => {
+        const r = lightingTheme('shadow', 6);
+        // White inverts to black in dark; it is the unreachable case there.
+        for (const name of Object.keys(SURFACES)) {
+          for (const scheme of SCHEMES) {
+            if (name === 'white' && scheme.startsWith('dark')) continue;
+            expect(stepIn(r, `${name}-shadow`, name, scheme)).toBeCloseTo(6, 4);
+          }
+        }
+      });
+
+      it('glow lands exactly `intensity` tones lighter on every surface and scheme', () => {
+        const r = lightingTheme('glow', 6);
+        // White has nothing above it in light; it is the unreachable case.
+        for (const name of Object.keys(SURFACES)) {
+          for (const scheme of SCHEMES) {
+            if (name === 'white' && !scheme.startsWith('dark')) continue;
+            expect(stepIn(r, `${name}-glow`, name, scheme)).toBeCloseTo(-6, 4);
+          }
+        }
+      });
+
+      it('solves a different opacity per surface (the issue table)', () => {
+        const alpha = (kind: 'shadow' | 'glow', tone: number) =>
+          glaze[kind]({ bg: { h: 0, s: 0, t: tone / 100 }, intensity: 6 })
+            .alpha;
+        expect(alpha('shadow', 100)).toBeCloseTo(0.081, 3);
+        expect(alpha('shadow', 92)).toBeCloseTo(0.083, 3);
+        expect(alpha('shadow', 50)).toBeCloseTo(0.107, 3);
+        expect(alpha('shadow', 15)).toBeCloseTo(0.29, 3);
+        expect(alpha('shadow', 10)).toBeCloseTo(0.477, 3);
+        expect(alpha('glow', 92)).toBeCloseTo(0.741, 3);
+        expect(alpha('glow', 50)).toBeCloseTo(0.095, 3);
+        expect(alpha('glow', 15)).toBeCloseTo(0.059, 3);
+        expect(alpha('glow', 10)).toBeCloseTo(0.061, 3);
+      });
+
+      it('direction is fixed per type in every scheme', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { tone: 95 },
+          shade: { type: 'shadow', bg: 'surface', intensity: 4 },
+          lift: { type: 'glow', bg: 'surface', intensity: 4 },
+        });
+        const r = theme.resolve();
+        for (const scheme of SCHEMES) {
+          expect(stepIn(r, 'shade', 'surface', scheme)).toBeGreaterThan(3.9);
+          if (scheme.startsWith('dark')) {
+            expect(stepIn(r, 'lift', 'surface', scheme)).toBeLessThan(-3.9);
+          }
+        }
+      });
+
+      it('emits a pure black / white pigment that keeps the surface hue', () => {
+        const shadow = glaze.shadow({ bg: '#ffffff', intensity: 6 });
+        expect(glaze.format(shadow, 'rgb')).toBe('rgb(0 0 0 / 0.0814)');
+        const glow = glaze.glow({ bg: '#000000', intensity: 6 });
+        expect(glaze.format(glow, 'rgb')).toMatch(
+          /^rgb\(255 255 255 \/ 0\.\d+\)$/,
+        );
+
+        // Darkening a chromatic surface with black does not shift its hue.
+        const theme = glaze(260, 87);
+        theme.colors({
+          accent: { tone: 44 },
+          pressed: { type: 'shadow', bg: 'accent', intensity: 10 },
+        });
+        const r = theme.resolve();
+        const accent = variantToOkhsl(r.get('accent')!.light);
+        const pressed = r.get('pressed')!.light;
+        const p = variantToOkhsl(pressed);
+        const gA = okhslToSrgb(accent.h, accent.s, accent.l);
+        const gP = okhslToSrgb(p.h, p.s, p.l);
+        const composite = gA.map((c, i) => c + (gP[i] - c) * pressed.alpha) as [
+          number,
+          number,
+          number,
+        ];
+        expect(srgbToOkhsl(composite)[0]).toBeCloseTo(accent.h, 0);
+      });
+    });
+
+    describe('object influence', () => {
+      // k = max(0, 1 + β·d·(t_bg − t_fg)/100), β = 0.5 by default.
+      const at = (
+        kind: 'shadow' | 'glow',
+        bgTone: number,
+        fgTone: number | undefined,
+        tuning?: LightingTuning,
+      ) =>
+        stepOver(
+          glaze[kind]({
+            bg: { h: 0, s: 0, t: bgTone / 100 },
+            fg:
+              fgTone === undefined
+                ? undefined
+                : { h: 0, s: 0, t: fgTone / 100 },
+            intensity: 8,
+            tuning,
+          }),
+          gray(bgTone),
+        );
+
+      it('scales the shadow step by how dark the object is', () => {
+        expect(at('shadow', 97, 100)).toBeCloseTo(7.88, 2);
+        expect(at('shadow', 97, 45)).toBeCloseTo(10.08, 2);
+        expect(at('shadow', 97, 8)).toBeCloseTo(11.56, 2);
+        expect(at('shadow', 12, 20)).toBeCloseTo(7.68, 2);
+        expect(at('shadow', 12, 55)).toBeCloseTo(6.28, 2);
+        expect(at('shadow', 12, 95)).toBeCloseTo(4.68, 2);
+      });
+
+      it('scales the glow step by how light the object is', () => {
+        expect(at('glow', 12, 20)).toBeCloseTo(-8.32, 2);
+        expect(at('glow', 12, 55)).toBeCloseTo(-9.72, 2);
+      });
+
+      it('an object at the surface tone, or none, gives exactly `intensity`', () => {
+        expect(at('shadow', 60, 60)).toBeCloseTo(8, 4);
+        expect(at('shadow', 60, undefined)).toBeCloseTo(8, 4);
+        expect(at('glow', 30, 30)).toBeCloseTo(-8, 4);
+      });
+
+      it('objectInfluence 0 ignores the object; k never goes negative', () => {
+        expect(at('shadow', 97, 8, { objectInfluence: 0 })).toBeCloseTo(8, 4);
+        const none = glaze.glow({
+          bg: { h: 0, s: 0, t: 0.6 },
+          fg: '#000000',
+          intensity: 8,
+          tuning: { objectInfluence: 2 },
+        });
+        expect(none.alpha).toBe(0);
+      });
+
+      it('reads bg and fg per scheme', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { tone: 97 },
+          card: { tone: 100 },
+          'card-shadow': {
+            type: 'shadow',
+            bg: 'surface',
+            fg: 'card',
+            intensity: 8,
+          },
+        });
+        const r = theme.resolve();
+        const tone = (name: string, scheme: 'light' | 'dark') =>
+          r.get(name)![scheme].t * 100;
+        for (const scheme of ['light', 'dark'] as const) {
+          const k =
+            1 + (0.5 * (tone('surface', scheme) - tone('card', scheme))) / 100;
+          expect(stepIn(r, 'card-shadow', 'surface', scheme)).toBeCloseTo(
+            8 * k,
+            4,
+          );
+        }
+      });
+    });
+
+    describe('unreachable steps', () => {
+      it('pins a glow on white to transparent and warns once', () => {
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          const resolvePaper = () => {
+            const theme = glaze(0, 0, { lightTone: false });
+            theme.colors({
+              paper: { tone: 100 },
+              'paper-glow': { type: 'glow', bg: 'paper', intensity: 5 },
+            });
+            return theme.resolve();
+          };
+          expect(resolvePaper().get('paper-glow')!.light.alpha).toBe(0);
+          resolvePaper();
+          const calls = spy.mock.calls
+            .map((c) => String(c[0]))
+            .filter((m) => m.includes('glow "paper-glow" cannot reach'));
+          // Light and light high contrast, each once despite two resolves.
+          expect(calls).toHaveLength(2);
+          expect(calls[0]).toContain('in light scheme');
+          expect(calls[1]).toContain('in lightContrast scheme');
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      it('pins a deep shadow on near-black to the opaque pigment', () => {
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          const v = glaze.shadow({ bg: { h: 0, s: 0, t: 0.1 }, intensity: 20 });
+          expect(v.alpha).toBe(1);
+          expect(stepOver(v, gray(10))).toBeCloseTo(10, 4);
+          expect(
+            spy.mock.calls.some((c) =>
+              String(c[0]).includes('glaze.shadow() cannot reach a 20.0-tone'),
+            ),
+          ).toBe(true);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
+
+    describe('intensity input', () => {
+      it('intensity 0 produces alpha 0; negative clamps to 0', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { tone: 95 },
+          zero: { type: 'shadow', bg: 'surface', intensity: 0 },
+          neg: { type: 'glow', bg: 'surface', intensity: -5 },
+        });
+        const r = theme.resolve();
+        expect(r.get('zero')!.light.alpha).toBe(0);
+        expect(r.get('neg')!.light.alpha).toBe(0);
+      });
+
+      it('HC intensity pair uses the second value for high contrast', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { tone: 95 },
+          hover: { type: 'shadow', bg: 'surface', intensity: [6, 12] },
+          lift: { type: 'glow', bg: 'surface', intensity: [4, 8] },
+        });
+        const r = theme.resolve();
+        expect(stepIn(r, 'hover', 'surface', 'light')).toBeCloseTo(6, 4);
+        expect(stepIn(r, 'hover', 'surface', 'lightContrast')).toBeCloseTo(
+          12,
+          4,
+        );
+        expect(stepIn(r, 'lift', 'surface', 'dark')).toBeCloseTo(-4, 4);
+        expect(stepIn(r, 'lift', 'surface', 'darkContrast')).toBeCloseTo(-8, 4);
+      });
+    });
+
+    describe('tuning', () => {
+      it('tint + reach give a surface-hue pigment and still land the step', () => {
+        const theme = glaze(260, 87, { lightTone: false });
+        theme.colors({
+          surface: { tone: 90 },
+          shade: {
+            type: 'shadow',
+            bg: 'surface',
+            intensity: 8,
+            tuning: { tint: 0.3, reach: 0.85 },
+          },
+        });
+        const r = theme.resolve();
+        const shade = r.get('shade')!.light;
+        const surface = r.get('surface')!.light;
+        expect(shade.h).toBeCloseTo(surface.h, 6);
+        expect(shade.s).toBeCloseTo(0.3, 6);
+        expect(shade.t * 100).toBeCloseTo(surface.t * 100 * 0.15, 4);
+        expect(stepIn(r, 'shade', 'surface', 'light')).toBeCloseTo(8, 4);
+      });
+
+      it('lower reach costs reach on dark surfaces', () => {
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          const bg = { h: 0, s: 0, t: 0.12 };
+          const pure = glaze.shadow({ bg, intensity: 11 });
+          const tinted = glaze.shadow({
+            bg,
+            intensity: 11,
+            tuning: { tint: 0.3, reach: 0.8 },
+          });
+          expect(stepOver(pure, gray(12))).toBeCloseTo(11, 4);
+          expect(stepOver(tinted, gray(12))).toBeLessThan(10);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      it('hueBleed pulls the pigment hue toward the object', () => {
+        const theme = glaze(40, 60);
+        theme.colors({
+          surface: { tone: 90 },
+          chip: { hue: 260, tone: 50 },
+          bleed: {
+            type: 'shadow',
+            bg: 'surface',
+            fg: 'chip',
+            intensity: 8,
+            tuning: { tint: 0.3, reach: 0.8, hueBleed: 1 },
+          },
+        });
+        expect(theme.resolve().get('bleed')!.light.h).toBeCloseTo(260, 6);
+      });
+
+      it('global shadowTuning / glowTuning apply per type and merge per field', () => {
+        try {
+          glaze.configure({
+            shadowTuning: { objectInfluence: 0 },
+            glowTuning: { tint: 0.5, reach: 0.5 },
+          });
+          const theme = glaze(260, 87);
+          theme.colors({
+            surface: { tone: 40 },
+            ink: { tone: 0 },
+            shade: { type: 'shadow', bg: 'surface', fg: 'ink', intensity: 8 },
+            lift: { type: 'glow', bg: 'surface', intensity: 8 },
+            override: {
+              type: 'glow',
+              bg: 'surface',
+              intensity: 8,
+              tuning: { tint: 0 },
+            },
+          });
+          const r = theme.resolve();
+          // objectInfluence 0 from the global shadow tuning → exactly 8.
+          expect(stepIn(r, 'shade', 'surface', 'light')).toBeCloseTo(8, 4);
+          // The glow tuning does not leak into shadows and vice versa.
+          expect(r.get('shade')!.light.s).toBe(0);
+          expect(r.get('lift')!.light.s).toBeCloseTo(0.5, 6);
+          // Per-color tuning merges over the global one field by field.
+          expect(r.get('override')!.light.s).toBe(0);
+          expect(r.get('override')!.light.t).toBeCloseTo(
+            r.get('lift')!.light.t,
+            6,
+          );
+        } finally {
+          glaze.resetConfig();
+        }
+      });
+    });
+
+    describe('validation', () => {
+      it('rejects missing and overlay references', () => {
+        const cases: [ColorMap, RegExp][] = [
+          [
+            { g: { type: 'glow', bg: 'nope', intensity: 4 } },
+            /glow "g" references non-existent bg "nope"/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', fg: 'nope', intensity: 4 },
+            },
+            /glow "g" references non-existent fg "nope"/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              sh: { type: 'shadow', bg: 's', intensity: 4 },
+              g: { type: 'glow', bg: 'sh', intensity: 4 },
+            },
+            /glow "g" bg "sh" references a shadow color/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', intensity: 4 },
+              sh: { type: 'shadow', bg: 's', fg: 'g', intensity: 4 },
+            },
+            /shadow "sh" fg "g" references a glow color/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', intensity: 4 },
+              c: { base: 'g', tone: '+10' },
+            },
+            /color "c" base "g" references a glow color/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', intensity: 4 },
+              m: { type: 'mix', base: 's', target: 'g', value: 50 },
+            },
+            /mix "m" target "g" references a glow color/,
+          ],
+        ];
+        for (const [defs, message] of cases) {
+          const theme = glaze(0, 0);
+          theme.colors(defs);
+          expect(() => theme.resolve()).toThrow(message);
+        }
+      });
+    });
+
+    it('extend inherits shadow and glow defs and re-solves them', () => {
+      const parent = glaze(260, 60);
+      parent.colors({
+        surface: { tone: 20 },
+        'elevation-1': { type: 'glow', bg: 'surface', intensity: 4 },
+        local: { type: 'shadow', bg: 'surface', intensity: 4, inherit: false },
+      });
+      const child = parent.extend({ hue: 20 });
+      const r = child.resolve();
+      expect(r.has('local')).toBe(false);
+      expect(r.get('elevation-1')!.light.h).toBeCloseTo(20, 6);
+      expect(stepIn(r, 'elevation-1', 'surface', 'light')).toBeCloseTo(-4, 4);
+    });
+
+    it('resolves a shadow with an object and 0 < alpha < 1', () => {
       const theme = glaze(280, 80);
       theme.colors({
         surface: { tone: 95 },
-        text: { tone: 15, base: 'surface', contrast: 'AA' },
+        card: { tone: 100 },
         'shadow-md': {
           type: 'shadow',
           bg: 'surface',
-          fg: 'text',
+          fg: 'card',
           intensity: 10,
         },
       });
       const shadow = theme.resolve().get('shadow-md')!;
+      expect(shadow.light.s).toBe(0);
       expect(shadow.light.alpha).toBeGreaterThan(0);
       expect(shadow.light.alpha).toBeLessThan(1);
       expect(shadow.dark.alpha).toBeGreaterThan(0);
     });
 
-    it('achromatic shadow (no fg) has s=0', () => {
-      const theme = glaze(280, 80);
-      theme.colors({
-        surface: { tone: 95 },
-        'drop-shadow': { type: 'shadow', bg: 'surface', intensity: 12 },
-      });
-      const shadow = theme.resolve().get('drop-shadow')!;
-      expect(shadow.light.s).toBe(0);
-      expect(shadow.light.alpha).toBeGreaterThan(0);
-    });
-
-    it('intensity 0 produces alpha 0; negative clamps to 0', () => {
-      const theme = glaze(280, 80);
-      theme.colors({
-        surface: { tone: 95 },
-        zero: { type: 'shadow', bg: 'surface', intensity: 0 },
-        neg: { type: 'shadow', bg: 'surface', intensity: -5 },
-      });
-      const r = theme.resolve();
-      expect(r.get('zero')!.light.alpha).toBe(0);
-      expect(r.get('neg')!.light.alpha).toBe(0);
-    });
-
-    it('HC intensity pair uses the second value for high-contrast', () => {
-      const theme = glaze(280, 80);
-      theme.colors({
-        surface: { tone: 95 },
-        text: { tone: 15, base: 'surface', contrast: 'AA' },
-        card: {
-          type: 'shadow',
-          bg: 'surface',
-          fg: 'text',
-          intensity: [10, 20],
-        },
-      });
-      const shadow = theme.resolve().get('card')!;
-      expect(shadow.lightContrast.alpha).toBeGreaterThan(shadow.light.alpha);
-    });
-
-    it('glaze.shadow() standalone returns a tone variant', () => {
+    it('glaze.shadow() / glaze.glow() return tone variants', () => {
       const v = glaze.shadow({ bg: '#ffffff', fg: '#000000', intensity: 20 });
-      expect(v.t).toBeGreaterThanOrEqual(0);
-      expect(v.t).toBeLessThanOrEqual(1);
+      expect(v.t).toBe(0);
       expect(v.alpha).toBeGreaterThan(0);
       expect(v.alpha).toBeLessThan(1);
+      // k = 1.5 for a black object on white → a 30-tone step.
+      expect(stepOver(v, gray(100))).toBeCloseTo(30, 4);
+
+      const g = glaze.glow({ bg: '#202020', intensity: 10 });
+      expect(g.t).toBe(1);
+      expect(
+        stepOver(g, variantToOkhsl(glaze.color('#202020').resolve().light)),
+      ).toBeCloseTo(-10, 4);
     });
   });
 

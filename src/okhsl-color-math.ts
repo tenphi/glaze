@@ -458,6 +458,33 @@ export const sRGBGammaToLinear = (val: number): number => {
     : sign * Math.pow((abs + 0.055) / 1.055, 2.4);
 };
 
+/** Gamma-encoded sRGB clamped to the display gamut — what a browser paints. */
+export function toDisplayGamma(linearRgb: Vec3): Vec3 {
+  return [
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))),
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))),
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
+  ];
+}
+
+/**
+ * Browser alpha compositing: `source-over` interpolates the gamma-encoded
+ * channels, not linear light (50% black over white paints `#808080`).
+ * Takes display-gamma inputs and returns the composite as linear sRGB for
+ * the luminance pipeline.
+ */
+export function compositeOverGamma(
+  baseGamma: Vec3,
+  overlayGamma: Vec3,
+  alpha: number,
+): Vec3 {
+  return [
+    sRGBGammaToLinear(baseGamma[0] + (overlayGamma[0] - baseGamma[0]) * alpha),
+    sRGBGammaToLinear(baseGamma[1] + (overlayGamma[1] - baseGamma[1]) * alpha),
+    sRGBGammaToLinear(baseGamma[2] + (overlayGamma[2] - baseGamma[2]) * alpha),
+  ];
+}
+
 /**
  * Convert OKHSL to gamma-encoded sRGB (clamped to 0–1).
  * h: 0–360, s: 0–1, l: 0–1. Returns [r, g, b] with each channel 0–1.

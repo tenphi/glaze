@@ -14,7 +14,7 @@ Full reference for every public method, option, and type exported by `@tenphi/gl
 - [Color definitions](#color-definitions)
   - [Dark seed](#dark-seed-darkhue--darksaturation)
 - [Standalone color tokens](#standalone-color-tokens)
-- [Shadows](#shadows)
+- [Shadows and glows](#shadows-and-glows)
 - [Mix colors](#mix-colors)
 - [Palette](#palette)
 - [Output formats](#output-formats)
@@ -64,7 +64,7 @@ Authoring restore triad (parallel to `.export()` on each instance):
 | `token.export()` | `glaze.colorFrom()` |
 | `palette.export()` | `glaze.paletteFrom()` |
 
-Every snapshot includes `kind` + `version` (`GLAZE_EXPORT_VERSION`, currently `1`). Legacy snapshots without those fields still restore. Wrong `kind`, or a `version` outside `1..=GLAZE_EXPORT_VERSION`, throws.
+Every snapshot includes `kind` + `version` (`GLAZE_EXPORT_VERSION`, currently `2`). Legacy snapshots without those fields still restore. Wrong `kind`, or a `version` outside `1..=GLAZE_EXPORT_VERSION`, throws. A version-`1` (Glaze 2) theme or palette snapshot that contains shadow colors or a `shadowTuning` also throws, because shadows changed meaning in Glaze 3 — see [migration.md](migration.md#30--shadows-and-glows). Version-`1` snapshots without shadows restore as before.
 
 The optional `config` parameter is a `GlazeConfigOverride` — see [Per-instance config override](#per-instance-config-override).
 
@@ -228,7 +228,7 @@ theme.css();
 | ---------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `format`   | `'oklch'`  | Output color format. One of `'rgb' \| 'hsl' \| 'oklch'`. `'okhsl'` and `'okhst'` throw — use `tasty()` for those.                                                                                                                           |
 | `suffix`   | `'-color'` | Suffix appended to each CSS property name. Pass `''` for bare property names.                                                                                                                                                               |
-| `splitHue` | `false`    | Emit hue as a separate `--*-hue` custom property referenced via `var()` in `oklch` color values. Requires `format: 'oklch'` and every color to be pastel. Shadow/mix colors stay inline (blended hue; they do not follow `--hue` rotation). |
+| `splitHue` | `false`    | Emit hue as a separate `--*-hue` custom property referenced via `var()` in `oklch` color values. Requires `format: 'oklch'` and every color to be pastel. Shadow / glow / mix colors stay inline (they do not follow `--hue` rotation). |
 | `name`     | `'theme'`  | Base name for the theme-level hue var (`--theme-hue`). Palette export auto-derives this from the theme name.                                                                                                                                |
 
 `GlazeCssResult` always contains all four keys (`light`, `dark`, `lightContrast`, `darkContrast`); empty if no colors are defined for that variant.
@@ -363,7 +363,7 @@ A Tailwind CSS v4 `@theme` block (light baseline) plus dark / high-contrast over
 const snapshot = theme.export();
 // → {
 //     kind: 'theme',
-//     version: 1,
+//     version: 2,
 //     hue: 280,
 //     saturation: 80,
 //     colors: { surface: { ... }, ... },
@@ -390,7 +390,7 @@ schemes, or an explicit `[normal, highContrast]` pair:
 type HCPair<T> = T | [T, T];
 ```
 
-It is used by `tone`, `contrast`, shadow `intensity`, and mix `value`:
+It is used by `tone`, `contrast`, shadow / glow `intensity`, and mix `value`:
 
 ```ts
 tone: '-8'; // -8 in normal and HC
@@ -443,7 +443,7 @@ normal counterpart:
 
 | Mechanism                                                                    | At level `L`                                                             |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Authored `HCPair`s — `tone`, `contrast`, shadow `intensity`, mix `value`      | the two ends are interpolated                                            |
+| Authored `HCPair`s — `tone`, `contrast`, shadow / glow `intensity`, mix `value` | the two ends are interpolated                                            |
 | The tone-window bypass                                                       | each endpoint moves toward the full range: light `10→0`, dark `15→0 / 95→100` |
 | Contrast escalation — `AA → AAA`, APCA `+15 Lc`                              | the two numeric targets are interpolated (`AA` at level 50 solves for 5.75) |
 
@@ -574,7 +574,7 @@ see [Contrast solver](#contrast-solver).
 `ColorDef` is a discriminated union:
 
 ```ts
-type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
+type ColorDef = RegularColorDef | ShadowColorDef | GlowColorDef | MixColorDef;
 ```
 
 ### `RegularColorDef`
@@ -821,7 +821,7 @@ Both apply to the `dark` **and** `darkContrast` variants. The rules:
 | Absolute hue | An absolute `hue` (no `darkHue`) is used verbatim in dark — absolute means absolute in every scheme. |
 | `darkDesaturation` | Bypassed as soon as any explicit dark saturation is authored, at either level. The value you write is the value you get. |
 | `mode: 'static'` | Ignores both. A static color is pinned to one hue and saturation across every scheme. |
-| Shadows and mixes | Have no channels of their own — they derive hue and saturation from their `bg` / `fg` / `target`, so they inherit dark overrides automatically. |
+| Shadows, glows and mixes | Have no channels of their own — they derive hue and saturation from their `bg` / `fg` / `target`, so they inherit dark overrides automatically. |
 
 With [`splitHue`](#hue-channel-splitting-splithue), a dark seed makes the hue
 custom properties scheme-dependent; Glaze re-declares them in the dark block
@@ -855,7 +855,7 @@ const child = parent.extend({
 // child.resolve().get('soft')!.light.pastel === false
 ```
 
-> **Note:** Per-color `pastel` is also supported on `ShadowColorDef` and `MixColorDef` (see the tables above). For shadows the math itself happens in OKHSL space, so the flag mainly controls the gamut-mapped output formatting and any luminance verification for that variant.
+> **Note:** Per-color `pastel` is also supported on `ShadowColorDef`, `GlowColorDef` and `MixColorDef` (see the tables above). For shadows and glows it sets the gamut used to convert the pigment for the opacity solve and for output formatting; the surface keeps its own flag.
 >
 > Standalone `glaze.color()` tokens accept the same `pastel` field on both the structured (`GlazeColorInput`) and value-shorthand (`GlazeColorOverrides`) forms, and it survives the `export()` / `glaze.colorFrom()` round-trip.
 
@@ -889,19 +889,21 @@ theme.colors({
 
 Disable name inference with `glaze.configure({ inferRole: false })` (the base-opposite and foreground-default fallbacks still apply).
 
-### `ShadowColorDef`
+### `ShadowColorDef` / `GlowColorDef`
 
-| Field       | Type             | Description                                                                                                                                                             |
-| ----------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`      | `'shadow'`       | Discriminator.                                                                                                                                                          |
-| `bg`        | `string`         | Background color name — must reference a non-shadow color in the same theme.                                                                                            |
-| `fg`        | `string`         | Optional foreground color name for tinting and intensity modulation. Must reference a non-shadow color. Omit for an achromatic shadow at full user-specified intensity. |
-| `intensity` | `HCPair<number>` | Shadow intensity, 0–100. Supports HC pairs.                                                                                                                             |
-| `tuning`    | `ShadowTuning`   | Per-color tuning overrides. Merged field-by-field with the global `shadowTuning`.                                                                                       |
-| `pastel`    | `boolean`        | Per-color `pastel` override. See [Per-color `pastel`](#per-color-pastel).                                                                                               |
-| `inherit`   | `boolean`        | Inheritance flag, default `true`.                                                                                                                                       |
+The two types share one shape; `type` picks the direction. A `shadow` always darkens and a `glow` always lightens, in every scheme.
 
-See [Shadows](#shadows) below for the algorithm and tuning details.
+| Field       | Type                          | Description                                                                                                                                                                                                  |
+| ----------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `type`      | `'shadow' \| 'glow'`          | Discriminator.                                                                                                                                                                                               |
+| `bg`        | `string`                      | The surface the overlay falls on. Must reference a color that is not a shadow or glow.                                                                                                                       |
+| `fg`        | `string`                      | Optional object casting the shadow / emitting the glow (e.g. the card). Scales the step — a darker object casts a deeper shadow, a lighter one a stronger glow. Omit for an exact shade / tint. Must not be a shadow or glow. |
+| `intensity` | `HCPair<number>`              | Tone step, 0–100: how many tones darker (shadow) / lighter (glow) than `bg` the composite lands. Supports HC pairs.                                                                                           |
+| `tuning`    | `ShadowTuning` / `GlowTuning` | Per-color tuning overrides. Merged field-by-field with the global `shadowTuning` / `glowTuning`.                                                                                                              |
+| `pastel`    | `boolean`                     | Per-color `pastel` override. See [Per-color `pastel`](#per-color-pastel).                                                                                                                                    |
+| `inherit`   | `boolean`                     | Inheritance flag, default `true`.                                                                                                                                                                            |
+
+See [Shadows and glows](#shadows-and-glows) below for the algorithm and tuning details.
 
 ### `MixColorDef`
 
@@ -1064,6 +1066,7 @@ instance-only `pastel`) fall through to the live global at resolve time.
 | `pastel`           | `false` (instance-only)       | Theme/token-level pastel default for colors that omit per-color `pastel`. Not available on `glaze.configure()`.                                                         |
 | `inferRole`        | `true`                        | Infer color `role` from the name when unset.                                                                                                                           |
 | `shadowTuning`     | `undefined`                   | Default shadow tuning (meaningful for themes; harmless on color tokens).                                                                                               |
+| `glowTuning`       | `undefined`                   | Default glow tuning (meaningful for themes; harmless on color tokens).                                                                                                 |
 
 Config overrides apply to both `glaze.color()` tokens and `glaze()` themes:
 
@@ -1175,105 +1178,158 @@ The `name` override appears in `console.warn` / Error messages but **does not** 
 
 ---
 
-## Shadows
+## Shadows and glows
 
-### Defining shadow colors in a theme
+`shadow` and `glow` are translucent overlays: each emits a pigment (black for a
+shadow, white for a glow) with an opacity solved so that, once the browser
+composites it over `bg`, the surface lands **exactly `intensity` tones**
+darker (`shadow`) or lighter (`glow`). The step is the same on every surface,
+in every scheme — light, mid, dark and chromatic.
+
+### Defining them in a theme
 
 ```ts
 theme.colors({
-  surface: { tone: 95 },
-  text: { base: 'surface', tone: '-52', contrast: 'AAA' },
+  surface: { tone: 97 },
+  card: { tone: 100 },
+  accent: { tone: 45 },
 
-  'shadow-sm': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 5 },
-  'shadow-md': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 10 },
-  'shadow-lg': { type: 'shadow', bg: 'surface', fg: 'text', intensity: 20 },
+  // Object-aware drop shadow: `fg` is the element casting it.
+  'card-shadow': { type: 'shadow', bg: 'surface', fg: 'card', intensity: 8 },
+
+  // No `fg` → an exact shade: state layers, scrims.
+  'surface-hover': { type: 'shadow', bg: 'surface', intensity: 5 },
+  'accent-pressed': { type: 'shadow', bg: 'accent', intensity: [8, 14] },
+
+  // The mirror: dark-mode elevation, edge highlights, lightening states.
+  'elevation-1': { type: 'glow', bg: 'surface', intensity: 4 },
+  'chip-glow': { type: 'glow', bg: 'surface', fg: 'accent', intensity: 10 },
 });
 ```
 
-Shadow colors are included in all output methods (`tokens()`, `tasty()`, `css()`, `json()`) alongside regular colors and emit an alpha component:
+Shadows and glows are included in every output method (`tokens()`, `tasty()`,
+`css()`, `json()`, …) alongside regular colors and emit an alpha component. The
+default pigment is neutral, so the output stays clean:
 
 ```
-'oklch(0.15 0.009 282 / 0.1)'
-'rgb(34 28 42 / 0.1)'
+'rgb(0 0 0 / 0.0814)'        // shadow, 6 tones on white
+'oklch(1 0 0 / 0.0953)'      // glow, 6 tones on a tone-50 surface
 ```
 
-### How shadows work
+Direction is fixed per type: a `shadow` darkens in light **and** dark, a
+`glow` lightens in both. Pick the type for the effect you want in each scheme
+(for example `shadow` for light-mode cards and `glow` for dark-mode elevation),
+or emit both and wire them per scheme.
 
-1. **Contrast weight** — when `fg` is provided, shadow strength scales with `|l_bg − l_fg|`. Dark text on a light background produces a strong shadow; near-background-lightness elements produce barely visible shadows.
-2. **Pigment color** — hue blended between fg and bg, low saturation, dark lightness.
-3. **Alpha** — computed via a `tanh` curve that saturates smoothly toward `alphaMax` (default `1.0`), ensuring well-separated shadow levels even on dark backgrounds.
+### How they work
 
-Omit `fg` for an achromatic shadow at full user-specified intensity:
+1. **`intensity` is a tone step.** Tone is the WCAG-shaped axis Glaze uses
+   everywhere (6 tones ≈ 1.20:1 for neutrals), so the same number reads the same
+   on any surface. APCA cannot express steps this small.
+2. **Exact opacity solve.** Browsers composite `source-over` on gamma-encoded
+   sRGB (50% black over white paints `#808080`). The composite's luminance is
+   monotone in opacity, so a bisection lands the step exactly — on chromatic
+   surfaces too. Fixed opacity cannot do this: a 6-tone shadow needs α 0.081 on
+   white, 0.107 at tone 50 and 0.477 at tone 10.
+3. **Object influence.** With `fg`, the step is `intensity × k`, where
+
+   `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`, `d = +1` for `shadow`,
+   `−1` for `glow`, `β = tuning.objectInfluence` (default `0.5`).
+
+   An object at the surface's own tone — the usual card — gives exactly
+   `intensity`, and so does omitting `fg`. A darker object deepens its shadow, a
+   lighter one softens it (more bounce light); for a glow it is the other way
+   round. With the default β and `intensity: 8`:
+
+   | Surface  | Object        | `shadow` step | `glow` step |
+   | -------- | ------------- | ------------- | ----------- |
+   | light 97 | white card 100 | 7.9          | —           |
+   | light 97 | accent 45     | 10.1          | —           |
+   | light 97 | near-black 8  | 11.6          | —           |
+   | dark 12  | raised card 20 | 7.7          | 8.3         |
+   | dark 12  | accent 55     | 6.3           | 9.7         |
+
+   `bg` and `fg` are read per scheme, so `k` adapts in dark and high contrast on
+   its own.
+4. **Unreachable steps** — a glow on white, a deep shadow on near-black — pin
+   to the pigment's strongest composite (full opacity, or transparent when the
+   pigment cannot move the surface at all) and emit a deduped `console.warn`.
+
+`intensity` supports `[normal, highContrast]` pairs and follows a manual
+[`contrastLevel`](#manual-contrast-level):
+
+```ts
+'card-shadow': { type: 'shadow', bg: 'surface', fg: 'card', intensity: [8, 14] },
+```
+
+### `ShadowTuning` / `GlowTuning`
+
+Both are the same `LightingTuning` shape. Set them globally with
+`glaze.configure({ shadowTuning, glowTuning })` (or per theme / token through
+the config override) and per color with `tuning`; a per-color `tuning` merges
+over the global one field by field.
+
+| Parameter         | Default | Description                                                                                                                                                                  |
+| ----------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `objectInfluence` | `0.5`   | β in the object factor above. `0` ignores `fg`. `k` tops out at `1 + β` (a black object on a white surface).                                                                 |
+| `tint`            | `0`     | Pigment saturation (0–1) in the surface's hue. `0` is neutral black / white. Shows only with `reach` below `1` — pure black and white have no hue.                           |
+| `reach`           | `1`     | Where the pigment sits: the fraction (0–1) of the way from the surface's tone to black (shadow) / white (glow). `1` is pure black / white, the most reach. Lower costs reach. |
+| `hueBleed`        | `0`     | Pull (0–1) of the pigment hue from the surface's hue toward the object's (`fg`) hue. Needs `fg`, a `tint`, and `reach` below `1` to show.                                    |
+
+A surface-hue pigment ([Josh Comeau's shadow advice](https://www.joshwcomeau.com/css/designing-shadows))
+is opt-in:
 
 ```ts
 theme.colors({
-  'drop-shadow': { type: 'shadow', bg: 'surface', intensity: 12 },
-});
-```
-
-`intensity` supports `[normal, highContrast]` pairs:
-
-```ts
-'shadow-card': { type: 'shadow', bg: 'surface', fg: 'text', intensity: [10, 20] },
-```
-
-### `ShadowTuning`
-
-Fine-tune behavior per-color or globally via `glaze.configure({ shadowTuning })`. Per-color `tuning` is merged field-by-field with the global one.
-
-| Parameter          | Default        | Description                                                                           |
-| ------------------ | -------------- | ------------------------------------------------------------------------------------- |
-| `saturationFactor` | `0.18`         | Fraction of fg saturation kept in pigment.                                            |
-| `maxSaturation`    | `0.25`         | Upper clamp on pigment saturation.                                                    |
-| `lightnessFactor`  | `0.25`         | Multiplier for bg lightness → pigment lightness.                                      |
-| `lightnessBounds`  | `[0.05, 0.20]` | Clamp range for pigment lightness.                                                    |
-| `minGapTarget`     | `0.05`         | Target minimum gap between pigment and bg lightness.                                  |
-| `alphaMax`         | `1.0`          | Asymptotic maximum alpha.                                                             |
-| `bgHueBlend`       | `0.2`          | Blend weight pulling pigment hue toward bg hue. `0` = pure fg hue, `1` = pure bg hue. |
-
-```ts
-theme.colors({
-  'shadow-soft': {
+  'shadow-tinted': {
     type: 'shadow',
     bg: 'surface',
-    intensity: 10,
-    tuning: { alphaMax: 0.3, saturationFactor: 0.1 },
+    intensity: 8,
+    tuning: { tint: 0.3, reach: 0.85 },
   },
 });
 
 glaze.configure({
-  shadowTuning: { alphaMax: 0.5, bgHueBlend: 0.3 },
+  shadowTuning: { objectInfluence: 0.4 },
+  glowTuning: { objectInfluence: 0.6 },
 });
 ```
 
-### Standalone shadow computation
+On light and mid surfaces a tint barely changes the composite; on dark surfaces
+it costs reach and opacity. On a tone-12 surface, black reaches 12 tones and
+needs α 0.54 for an 8-tone shadow; a pigment at `tint: 0.3, reach: 0.85`
+reaches about 10 and needs α 0.70.
 
-`glaze.shadow(input)` computes a shadow outside of a theme. `bg` and `fg` accept any `GlazeColorValue`:
+There is no opacity cap: the step is always exact when reachable. For a
+lighter overlay, lower `intensity`.
+
+### Standalone computation
+
+`glaze.shadow(input)` and `glaze.glow(input)` compute the overlay outside of a
+theme. `bg` and `fg` accept any `GlazeColorValue`:
 
 ```ts
-const v = glaze.shadow({
-  bg: '#f0eef5',
-  fg: '#1a1a2e',
-  intensity: 10,
-});
-// → { h: 280, s: 0.14, l: 0.2, alpha: 0.1 }
+const v = glaze.shadow({ bg: '#ffffff', intensity: 6 });
+// → { h: 0, s: 0, t: 0, alpha: 0.0814… }
 
-const css = glaze.format(v, 'oklch');
-// → 'oklch(0.15 0.014 280 / 0.1)'
+glaze.format(v, 'rgb');
+// → 'rgb(0 0 0 / 0.0814)'
+
+const lift = glaze.glow({ bg: '#1e1e22', fg: '#3a3a44', intensity: 4 });
 ```
 
-`GlazeShadowInput`:
+`GlazeShadowInput` / `GlazeGlowInput` (both `GlazeLightingInput`):
 
-| Field       | Type              | Description                                                                    |
-| ----------- | ----------------- | ------------------------------------------------------------------------------ |
-| `bg`        | `GlazeColorValue` | Background. Any `GlazeColorValue` form. Alpha components dropped with warning. |
-| `fg`        | `GlazeColorValue` | Optional foreground. Same forms as `bg`.                                       |
-| `intensity` | `number`          | 0–100.                                                                         |
-| `tuning`    | `ShadowTuning`    | Optional.                                                                      |
+| Field       | Type                          | Description                                                                    |
+| ----------- | ----------------------------- | ------------------------------------------------------------------------------ |
+| `bg`        | `GlazeColorValue`             | The surface. Any `GlazeColorValue` form. Alpha components dropped with warning. |
+| `fg`        | `GlazeColorValue`             | Optional object. Same forms as `bg`.                                           |
+| `intensity` | `number`                      | Tone step, 0–100.                                                              |
+| `tuning`    | `ShadowTuning` / `GlowTuning` | Optional. Merges over the global `shadowTuning` / `glowTuning`.                |
 
 ### Fixed opacity (regular colors)
 
-For a simple fixed-alpha color (no shadow algorithm), use `opacity` on a regular color:
+For a simple fixed-alpha color (no opacity solve), use `opacity` on a regular color:
 
 ```ts
 theme.colors({
@@ -1378,7 +1434,7 @@ theme.colors({
 });
 ```
 
-Mix colors **cannot** reference shadow colors (same restriction as regular dependent colors).
+Mix colors **cannot** reference shadow or glow colors (same restriction as regular dependent colors).
 
 ---
 
@@ -1423,7 +1479,7 @@ A `GlazePalette` exposes:
 const snapshot = palette.export();
 // → {
 //     kind: 'palette',
-//     version: 1,
+//     version: 2,
 //     primary: 'brand',
 //     themes: { brand: { kind: 'theme', ... }, danger: { ... } },
 //   }
@@ -1657,7 +1713,7 @@ On `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and stand
 
 `--accent-hue` repeats verbatim on purpose: a custom property substitutes `var()` at computed-value time on the element that declares it, so it has to be re-declared to pick up the new `--brand-hue`. Colors with `mode: 'static'` are pinned to an absolute hue instead, so they don't drift with the dark seed.
 
-**Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow and mix colors stay inline (blended hue). Standalone `.token()` / `.tasty()` do not support `splitHue` (return shape cannot carry the `$name-hue` declaration).
+**Limitations:** `oklch` only (native CSS `var()` in the hue slot). Shadow, glow and mix colors stay inline. Standalone `.token()` / `.tasty()` do not support `splitHue` (return shape cannot carry the `$name-hue` declaration).
 
 `theme.dtcg()` / `theme.dtcgResolver()` / `palette.dtcg()` / `palette.dtcgResolver()` ignore `format` — DTCG emits structured `$value` objects, not CSS strings. Use the `colorSpace` option (`'srgb'` or `'oklch'`) to pick the color representation instead.
 
@@ -1766,10 +1822,8 @@ glaze.configure({
     dark: true,
     highContrast: false,
   },
-  shadowTuning: {
-    alphaMax: 0.6,
-    bgHueBlend: 0.2,
-  },
+  shadowTuning: { objectInfluence: 0.5 },
+  glowTuning: { objectInfluence: 0.5 },
   contrastLevel: 'auto', // or 0–100 for a manual contrast slider
 });
 ```
@@ -1790,7 +1844,8 @@ boundaries, not the tone transfer.
 | `states.highContrast` | `'@media(prefers-contrast: more)'`     | State alias for HC tokens ([Tasty](https://tasty.style) export).                                                                                                                                                                                                                                                                                                                                                                                 |
 | `modes.dark`          | `true`                                 | Include dark variants in exports.                                                                                                                                                                                                                                                                                                                                                                                         |
 | `modes.highContrast`  | `false`                                | Include HC variants. Independent of [`contrastLevel`](#manual-contrast-level) — the level positions the normal variants while these stay the true HC resolution. A global level of `100` is the exception: the tier would duplicate the normal set, so it is dropped.                                                                                                                                                                                                                                                                                   |
-| `shadowTuning`        | `undefined`                            | Default tuning for all shadow colors. Per-color tuning merges field-by-field.                                                                                                                                                                                                                                                                                                                                             |
+| `shadowTuning`        | `undefined`                            | Default tuning for all shadow colors. Per-color tuning merges field-by-field. See [`ShadowTuning` / `GlowTuning`](#shadowtuning--glowtuning).                                                                                                                                                                                                                                                                             |
+| `glowTuning`          | `undefined`                            | Default tuning for all glow colors. Per-color tuning merges field-by-field.                                                                                                                                                                                                                                                                                                                                               |
 | `autoFlip`            | `true`                                 | Default for each color's `autoFlip`. When solving `contrast` (or applying a relative `tone` that overshoots `[0, 100]`), allow crossing to the opposite side instead of clamping. With `false`, only the requested direction is considered; unmet contrasts pin the tone to that direction's extreme (and emit a warning) and overshooting offsets clamp to the boundary. Override per color via [`autoFlip`](#autoflip). |
 | `inferRole`           | `true`                                 | Infer each color's [`role`](#roles) from its name when no explicit `role` is set. Set to `false` to opt out of name-based inference (the base-opposite and foreground-default fallbacks still apply).                                                                                                                                                                                                                     |
 | `contrastLevel`       | `'auto'`                               | Manual contrast level, `0`–`100`, putting the **normal** variants on a slider between themselves and the high-contrast ones. `0` reproduces the normal output and `100` the high-contrast output, bit for bit. The HC tier is unaffected. See [Manual contrast level](#manual-contrast-level).                                                                                                                                                                                          |
@@ -1854,17 +1909,15 @@ available result.
 | `saturation` outside 0–1                            | Clamp silently                                                                                           |
 | Circular `base` references                          | Validation error                                                                                         |
 | `base` references non-existent name                 | Validation error                                                                                         |
-| Shadow `bg` references non-existent color           | Validation error                                                                                         |
-| Shadow `fg` references non-existent color           | Validation error                                                                                         |
-| Shadow `bg` references another shadow color         | Validation error                                                                                         |
-| Shadow `fg` references another shadow color         | Validation error                                                                                         |
-| Regular color `base` references a shadow color      | Validation error                                                                                         |
-| Shadow `intensity` outside 0–100                    | Clamp silently                                                                                           |
+| Shadow / glow `bg` or `fg` references non-existent color | Validation error                                                                                    |
+| Shadow / glow `bg` or `fg` references a shadow or glow   | Validation error                                                                                    |
+| Regular color `base` references a shadow or glow    | Validation error                                                                                         |
+| Shadow / glow `intensity` outside 0–100             | Clamp silently                                                                                           |
+| Shadow / glow step out of the pigment's reach       | `console.warn` (deduped); pinned to the pigment's strongest composite                                    |
 | `contrast` + `opacity` combined                     | `console.warn`                                                                                           |
 | Mix `base` references non-existent color            | Validation error                                                                                         |
 | Mix `target` references non-existent color          | Validation error                                                                                         |
-| Mix `base` references a shadow color                | Validation error                                                                                         |
-| Mix `target` references a shadow color              | Validation error                                                                                         |
+| Mix `base` / `target` references a shadow or glow   | Validation error                                                                                         |
 | Mix `value` outside 0–100                           | Clamp silently                                                                                           |
 | Circular references involving mix colors            | Validation error                                                                                         |
 | Contrast target physically unreachable              | `console.warn` (deduped per `(name, scheme, target)`); closest passing variant returned                  |

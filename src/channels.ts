@@ -12,7 +12,7 @@
  */
 
 import { parseRelativeOrAbsolute } from './hc-pair';
-import { isMixDef, isShadowDef } from './shadow';
+import { isLightingDef, isMixDef } from './lighting';
 import type {
   ColorDef,
   ColorMap,
@@ -34,7 +34,7 @@ export interface HueDeclaration {
 export interface HuePlan {
   /** CSS `var()` reference spliced into `oklch(L C <hueVar>)`. */
   hueVar: string;
-  /** When true, emit a full inline color (shadow/mix/achromatic). */
+  /** When true, emit a full inline color (shadow/glow/mix/achromatic). */
   inline: boolean;
   /** Scheme-independent `--*-hue` declarations for this color. */
   declarations: HueDeclaration[];
@@ -87,7 +87,7 @@ function themeHuePlan(
 ): HuePlan {
   if (
     def === undefined ||
-    isShadowDef(def) ||
+    isLightingDef(def) ||
     isMixDef(def) ||
     isAchromatic(variant)
   ) {

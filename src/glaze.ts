@@ -6,7 +6,7 @@
  * - `theme.ts` — single-theme factory
  * - `palette.ts` — multi-theme composition
  * - `color-token.ts` — standalone single-color tokens (`glaze.color`)
- * - `shadow.ts` — standalone shadow factory (`glaze.shadow`)
+ * - `lighting.ts` — shadow / glow solver (`glaze.shadow`, `glaze.glow`)
  * - `formatters.ts` — variant → string (`glaze.format`)
  * - `config.ts` — global config singleton
  * - `serialize.ts` — authoring export type guards / version checks
@@ -26,8 +26,10 @@ import {
 } from './color-token';
 import { extractOkhslFromValue } from './color-value';
 import { formatVariant } from './formatters';
-import { computeShadow, resolveShadowTuning } from './shadow';
+import { computeLighting, resolveLightingTuning } from './lighting';
+import type { LightingKind } from './lighting';
 import { okhslToOkhst } from './okhst';
+import { warnLightingUnreachable } from './warnings';
 import {
   createPalette,
   createPaletteFromExport,
@@ -49,6 +51,8 @@ import type {
   GlazeConfigOverride,
   GlazeConfigResolved,
   GlazeFromInput,
+  GlazeGlowInput,
+  GlazeLightingInput,
   GlazePalette,
   GlazePaletteExport,
   GlazePaletteOptions,
@@ -191,25 +195,27 @@ glaze.color = function color(
   return createColorTokenFromValue(input as GlazeColorValue, undefined, config);
 };
 
-/**
- * Compute a shadow color from a bg/fg pair and intensity.
- *
- * Both `bg` and `fg` accept any `GlazeColorValue` form: hex (`#rgb` /
- * `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` / `oklch()`
- * strings, or `{ r, g, b }` / `{ h, s, l }` / `{ l, c, h }` objects.
- */
-glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
+/** Shared body of `glaze.shadow()` / `glaze.glow()`. */
+function standaloneLighting(
+  kind: LightingKind,
+  input: GlazeLightingInput,
+): ResolvedColorVariant {
   const bg = extractOkhslFromValue(input.bg as GlazeColorValue);
   const fg = input.fg
     ? extractOkhslFromValue(input.fg as GlazeColorValue)
     : undefined;
   const cfg = getConfig();
-  const tuning = resolveShadowTuning(input.tuning, cfg.shadowTuning);
-  const result = computeShadow(
-    { ...bg, alpha: 1 },
-    fg ? { ...fg, alpha: 1 } : undefined,
-    input.intensity,
-    tuning,
+  const tuning = resolveLightingTuning(
+    input.tuning,
+    kind === 'shadow' ? cfg.shadowTuning : cfg.glowTuning,
+  );
+  const result = computeLighting(kind, bg, fg, input.intensity, tuning, false);
+  warnLightingUnreachable(
+    kind,
+    undefined,
+    undefined,
+    result.step,
+    result.reached,
   );
   const { h, s, t } = okhslToOkhst({
     h: result.h,
@@ -217,6 +223,29 @@ glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
     l: result.l,
   });
   return { h, s, t, alpha: result.alpha };
+}
+
+/**
+ * Compute a shadow over a surface: a translucent pigment whose opacity lands
+ * `bg` exactly `intensity` tones darker once the browser composites it. The
+ * optional object `fg` scales the step (a darker object casts a deeper
+ * shadow).
+ *
+ * Both `bg` and `fg` accept any `GlazeColorValue` form: hex (`#rgb` /
+ * `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` / `oklch()`
+ * strings, or `{ r, g, b }` / `{ h, s, l }` / `{ l, c, h }` objects.
+ */
+glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
+  return standaloneLighting('shadow', input);
+};
+
+/**
+ * Compute a glow over a surface — the mirror of `glaze.shadow()`: the
+ * composite lands `bg` exactly `intensity` tones lighter, and a lighter
+ * object `fg` glows stronger. Accepts the same inputs.
+ */
+glaze.glow = function glow(input: GlazeGlowInput): ResolvedColorVariant {
+  return standaloneLighting('glow', input);
 };
 
 /** Format a resolved color variant as a CSS string. */

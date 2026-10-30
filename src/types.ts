@@ -278,50 +278,112 @@ export interface RegularColorDef {
   inherit?: boolean;
 }
 
-/** Shadow tuning knobs. All values use the 0–1 scale (OKHSL). */
-export interface ShadowTuning {
-  /** Fraction of fg saturation kept in pigment (0-1). Default: 0.18. */
-  saturationFactor?: number;
-  /** Upper clamp on pigment saturation (0-1). Default: 0.25. */
-  maxSaturation?: number;
-  /** Multiplier for bg lightness → pigment lightness. Default: 0.25. */
-  lightnessFactor?: number;
-  /** [min, max] clamp for pigment lightness (0-1). Default: [0.05, 0.20]. */
-  lightnessBounds?: [number, number];
+/**
+ * Tuning shared by `shadow` and `glow`. Global defaults come from
+ * `shadowTuning` / `glowTuning`; a per-color `tuning` merges over them field
+ * by field.
+ */
+export interface LightingTuning {
   /**
-   * Target minimum gap between pigment lightness and bg lightness (0-1).
-   * Default: 0.05.
+   * β — how strongly the object (`fg`) scales the step. The step is
+   * `intensity × k` with `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`,
+   * `d = +1` for a shadow and `−1` for a glow: a darker object deepens its
+   * shadow, a lighter one strengthens its glow. An object at the surface's
+   * own tone (or no `fg`) gives exactly `intensity`. `0` ignores the object.
+   * Default: 0.5.
    */
-  minGapTarget?: number;
-  /** Max alpha (0-1). Reached at intensity=100 with max contrast. Default: 1.0. */
-  alphaMax?: number;
+  objectInfluence?: number;
   /**
-   * Blend weight (0-1) pulling pigment hue toward bg hue.
-   * 0 = pure fg hue, 1 = pure bg hue. Default: 0.2.
+   * Pigment saturation (0–1) in the surface's hue. Default: 0 (neutral black /
+   * white). Shows only with `reach` below 1 — pure black and white have no hue.
    */
-  bgHueBlend?: number;
+  tint?: number;
+  /**
+   * Where the pigment sits (0–1): the fraction of the way from the surface's
+   * tone to black (shadow) / white (glow). Default: 1 (pure black / white),
+   * the most reach. Lower values let a `tint` show at the cost of reach.
+   */
+  reach?: number;
+  /**
+   * Pull (0–1) of the pigment hue from the surface's hue toward the object's
+   * (`fg`) hue. Default: 0. Needs `fg`, a `tint`, and `reach` below 1 to show.
+   */
+  hueBleed?: number;
 }
 
+/** Tuning for `shadow` colors. Same shape as {@link GlowTuning}. */
+export type ShadowTuning = LightingTuning;
+
+/** Tuning for `glow` colors. Same shape as {@link ShadowTuning}. */
+export type GlowTuning = LightingTuning;
+
+/**
+ * A translucent dark overlay that lands the surface (`bg`) exactly
+ * `intensity` tones darker in every scheme — a shade for state layers and
+ * scrims, or, with `fg`, an object-aware drop shadow.
+ */
 export interface ShadowColorDef {
   type: 'shadow';
   /**
-   * Background color name — the surface the shadow sits on.
-   * Must reference a non-shadow color in the same theme.
+   * The surface the shadow falls on. Must reference a color that is not a
+   * shadow or glow.
    */
   bg: string;
   /**
-   * Foreground color name for tinting and intensity modulation.
-   * Must reference a non-shadow color in the same theme.
-   * Omit for achromatic shadow at full user-specified intensity.
+   * The object casting the shadow (e.g. the card). A darker object casts a
+   * deeper shadow, a lighter one a softer shadow — see
+   * `LightingTuning.objectInfluence`. Omit for an exact shade of `intensity`
+   * tones. Must reference a color that is not a shadow or glow.
    */
   fg?: string;
   /**
-   * Shadow intensity, 0-100.
+   * Tone step, 0–100: how many tones darker than `bg` the composite lands.
    * Supports [normal, highContrast] pair.
    */
   intensity: HCPair<number>;
   /** Override default tuning. Merged field-by-field with global `shadowTuning`. */
   tuning?: ShadowTuning;
+
+  /**
+   * Per-color override for the hue-independent "safe" chroma limit used in
+   * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
+   * Falls through to the per-theme / per-token `pastel` override when omitted.
+   * @see GlazeConfigOverride.pastel
+   */
+  pastel?: boolean;
+
+  /**
+   * Whether this color is inherited by child themes created via `extend()`.
+   * Default: true. Set to false to make this color local to the current theme.
+   */
+  inherit?: boolean;
+}
+
+/**
+ * The mirror of {@link ShadowColorDef}: a translucent light overlay that lands
+ * the surface (`bg`) exactly `intensity` tones lighter in every scheme — for
+ * dark-mode elevation, edge highlights, and lightening state layers.
+ */
+export interface GlowColorDef {
+  type: 'glow';
+  /**
+   * The surface the glow falls on. Must reference a color that is not a
+   * shadow or glow.
+   */
+  bg: string;
+  /**
+   * The object emitting the glow. A lighter object glows stronger, a darker
+   * one weaker — see `LightingTuning.objectInfluence`. Omit for an exact tint
+   * of `intensity` tones. Must reference a color that is not a shadow or glow.
+   */
+  fg?: string;
+  /**
+   * Tone step, 0–100: how many tones lighter than `bg` the composite lands.
+   * Supports [normal, highContrast] pair.
+   */
+  intensity: HCPair<number>;
+  /** Override default tuning. Merged field-by-field with global `glowTuning`. */
+  tuning?: GlowTuning;
 
   /**
    * Per-color override for the hue-independent "safe" chroma limit used in
@@ -398,7 +460,11 @@ export interface MixColorDef {
   inherit?: boolean;
 }
 
-export type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
+export type ColorDef =
+  | RegularColorDef
+  | ShadowColorDef
+  | GlowColorDef
+  | MixColorDef;
 
 export type ColorMap = Record<string, ColorDef>;
 
@@ -437,7 +503,7 @@ export interface ResolvedColor {
   dark: ResolvedColorVariant;
   lightContrast: ResolvedColorVariant;
   darkContrast: ResolvedColorVariant;
-  /** Adaptation mode. Present only for regular colors, omitted for shadows. */
+  /** Adaptation mode. Present only for regular colors, omitted for shadow / glow / mix. */
   mode?: AdaptationMode;
 }
 
@@ -482,6 +548,8 @@ export interface GlazeConfig {
   modes?: GlazeOutputModes;
   /** Default tuning for all shadow colors. Per-color tuning merges field-by-field. */
   shadowTuning?: ShadowTuning;
+  /** Default tuning for all glow colors. Per-color tuning merges field-by-field. */
+  glowTuning?: GlowTuning;
   /**
    * Manual contrast level — a 0–100 slider from normal contrast (`0`) to high
    * contrast (`100`), or `'auto'` (the default) to take the authored normal
@@ -541,6 +609,7 @@ export interface GlazeConfigResolved {
   };
   modes: Required<GlazeOutputModes>;
   shadowTuning?: ShadowTuning;
+  glowTuning?: GlowTuning;
   autoFlip: boolean;
   /**
    * Manual contrast level (0–100) for the normal variants, or `'auto'` to take
@@ -603,6 +672,11 @@ export interface GlazeConfigOverride {
    * standalone color tokens.
    */
   shadowTuning?: ShadowTuning;
+  /**
+   * Glow tuning defaults. Only meaningful for themes; harmless on
+   * standalone color tokens.
+   */
+  glowTuning?: GlowTuning;
 }
 
 // ============================================================================
@@ -612,8 +686,13 @@ export interface GlazeConfigOverride {
 /**
  * Current authoring-export schema version. Bump when the export shape
  * changes in a non-compatible way. Written on every `.export()` snapshot.
+ *
+ * - `1` — Glaze 2.x.
+ * - `2` — Glaze 3: `shadow` `intensity` / `fg` / `tuning` changed meaning and
+ *   `glow` was added. Version-1 theme snapshots that carry shadow defs or a
+ *   `shadowTuning` are rejected on restore.
  */
-export const GLAZE_EXPORT_VERSION = 1 as const;
+export const GLAZE_EXPORT_VERSION = 2 as const;
 
 /** Literal type of {@link GLAZE_EXPORT_VERSION}. */
 export type GlazeExportVersion = typeof GLAZE_EXPORT_VERSION;
@@ -643,27 +722,30 @@ export interface GlazeThemeExport {
 }
 
 // ============================================================================
-// Standalone shadow
+// Standalone shadow / glow
 // ============================================================================
 
-/** Input for `glaze.shadow()` standalone factory. */
-export interface GlazeShadowInput {
+/** Input for the `glaze.shadow()` and `glaze.glow()` standalone factories. */
+export interface GlazeLightingInput {
   /**
-   * Background color — accepts any `GlazeColorValue` form: hex
+   * The surface — accepts any `GlazeColorValue` form: hex
    * (`#rgb` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()`
    * / `oklch()` strings, or literal objects (`{ r, g, b }`, `{ h, s, l }`,
    * `{ l, c, h }`). Alpha components are dropped with a warning.
    */
   bg: GlazeColorValue;
-  /**
-   * Foreground color for tinting + intensity modulation. Accepts the
-   * same forms as `bg`.
-   */
+  /** The object casting the shadow / emitting the glow. Same forms as `bg`. */
   fg?: GlazeColorValue;
-  /** Intensity 0-100. */
+  /** Tone step, 0–100. */
   intensity: number;
-  tuning?: ShadowTuning;
+  tuning?: LightingTuning;
 }
+
+/** Input for `glaze.shadow()`. */
+export type GlazeShadowInput = GlazeLightingInput;
+
+/** Input for `glaze.glow()`. */
+export type GlazeGlowInput = GlazeLightingInput;
 
 // ============================================================================
 // Standalone color token

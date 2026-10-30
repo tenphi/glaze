@@ -104,6 +104,7 @@ export function configure(config: GlazeConfig): void {
         config.modes?.highContrast ?? globalConfig.modes.highContrast,
     },
     shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
+    glowTuning: config.glowTuning ?? globalConfig.glowTuning,
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
     // Instance-only; never configurable globally.
     pastel: false,
@@ -144,6 +145,7 @@ export function mergeConfig(
     states: base.states,
     modes: base.modes,
     shadowTuning: override.shadowTuning ?? base.shadowTuning,
+    glowTuning: override.glowTuning ?? base.glowTuning,
     autoFlip: override.autoFlip ?? base.autoFlip,
     pastel: override.pastel ?? false,
     inferRole: override.inferRole ?? base.inferRole,
@@ -156,8 +158,8 @@ export function mergeConfig(
 /**
  * Freeze `getConfig() ∪ instanceLocal ∪ exportArg` as a plain, resolve-relevant
  * override for authoring export, so restored snapshots pin these fields. Later
- * wins; nested objects (`shadowTuning`) replace wholesale. The final
- * `structuredClone` detaches tone-window / shadow objects that `mergeConfig`
+ * wins; nested objects (`shadowTuning` / `glowTuning`) replace wholesale. The
+ * final `structuredClone` detaches tone-window / tuning objects that `mergeConfig`
  * may still share with the live global config.
  */
 export function freezeConfigForExport(
@@ -178,6 +180,9 @@ export function freezeConfigForExport(
   };
   if (effective.shadowTuning !== undefined) {
     out.shadowTuning = effective.shadowTuning;
+  }
+  if (effective.glowTuning !== undefined) {
+    out.glowTuning = effective.glowTuning;
   }
   // `contrastLevel` is deliberately NOT taken from the effective merge. A
   // global level is a live user preference (an accessibility slider), not
