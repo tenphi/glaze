@@ -359,9 +359,12 @@ export interface MixColorDef {
   /**
    * Interpolation color space for opaque blending. Default: 'okhsl'.
    * - 'okhsl': perceptually uniform, consistent with Glaze's internal model.
-   * - 'srgb': linear sRGB interpolation, matches browser compositing.
+   * - 'srgb': linear-light sRGB interpolation (like CSS
+   *   `color-mix(in srgb-linear, …)`).
    *
-   * Ignored for 'transparent' blend (always composites in linear sRGB).
+   * Ignored for 'transparent' blend: the browser composites that one, and
+   * its contrast solve models the browser (`source-over` on gamma-encoded
+   * sRGB).
    */
   space?: 'okhsl' | 'srgb';
   /**

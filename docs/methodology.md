@@ -538,9 +538,10 @@ defaultTheme.colors({
 
 Transparent mixes are good for hover overlays. Opaque mixes are good for solid
 tints. Opaque mixes default to perceptual OKHSL interpolation; choose `srgb`
-when matching channel compositing matters. Transparent mixes always composite
-in linear sRGB. Mix colors can also use `contrast`; the solver adjusts the
-value or opacity to hit the floor. See [Mix colors](api.md#mix-colors).
+for linear-light channel interpolation. Transparent mixes are composited by the
+browser, and their contrast solve models that compositing. Mix colors can also
+use `contrast`; the solver adjusts the value or opacity to hit the floor. See
+[Mix colors](api.md#mix-colors).
 
 ## Extend into status themes
 

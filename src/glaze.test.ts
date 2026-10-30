@@ -6,6 +6,7 @@ import {
   gamutClampedLuminance,
   apcaLuminanceFromLinearRgb,
   parseHex,
+  sRGBGammaToLinear,
   srgbToHex,
 } from './okhsl-color-math';
 import { apcaContrast } from './contrast-solver';
@@ -33,6 +34,28 @@ function variantContrast(
   const yA = gamutClampedLuminance(okhslToLinearSrgb(ca.h, ca.s, ca.l));
   const yB = gamutClampedLuminance(okhslToLinearSrgb(cb.h, cb.s, cb.l));
   return contrastRatioFromLuminance(yA, yB);
+}
+
+/**
+ * WCAG contrast of a translucent `overlay` painted over an opaque `base`,
+ * composited the way browsers do it: `source-over` on gamma-encoded sRGB.
+ */
+function overlayContrast(
+  overlay: ResolvedColorVariant,
+  base: ResolvedColorVariant,
+): number {
+  const co = variantToOkhsl(overlay);
+  const cb = variantToOkhsl(base);
+  const gO = okhslToSrgb(co.h, co.s, co.l);
+  const gB = okhslToSrgb(cb.h, cb.s, cb.l);
+  const composite = gB.map((c, i) =>
+    sRGBGammaToLinear(c + (gO[i] - c) * overlay.alpha),
+  ) as [number, number, number];
+  const yB = gB.map(sRGBGammaToLinear) as [number, number, number];
+  return contrastRatioFromLuminance(
+    gamutClampedLuminance(composite),
+    gamutClampedLuminance(yB),
+  );
 }
 
 /** APCA Lc magnitude of `candidate` against `base`, ordered by `polarity`. */
@@ -3243,6 +3266,79 @@ describe('glaze', () => {
       });
       const m = theme.resolve().get('m')!;
       expect(m.light.alpha).toBeCloseTo(0.4, 2);
+    });
+
+    describe('transparent contrast matches browser compositing', () => {
+      // Browsers composite `source-over` on gamma-encoded sRGB. A linear-light
+      // model under-delivers white overlays on dark surfaces (an AA floor
+      // rendered at ~2.4:1) and overshoots black overlays on light ones.
+      it('meets the floor for a white overlay on a dark surface', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { tone: 12, mode: 'static' },
+          white: { tone: 100, saturation: 0, mode: 'static' },
+          glow: {
+            type: 'mix',
+            base: 'surface',
+            target: 'white',
+            value: 0,
+            blend: 'transparent',
+            contrast: 'AA',
+          },
+        });
+        const r = theme.resolve();
+        const ratio = overlayContrast(
+          r.get('glow')!.light,
+          r.get('surface')!.light,
+        );
+        expectMeetsWcag(ratio, 4.5);
+        expect(ratio).toBeLessThan(4.7);
+      });
+
+      it('lands on the floor for a black overlay on a light surface', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { tone: 97, mode: 'static' },
+          black: { tone: 0, saturation: 0, mode: 'static' },
+          hover: {
+            type: 'mix',
+            base: 'surface',
+            target: 'black',
+            value: 0,
+            blend: 'transparent',
+            contrast: 1.2,
+          },
+        });
+        const r = theme.resolve();
+        const hover = r.get('hover')!.light;
+        const ratio = overlayContrast(hover, r.get('surface')!.light);
+        expectMeetsWcag(ratio, 1.2);
+        expect(ratio).toBeLessThan(1.25);
+        expect(hover.alpha).toBeLessThan(0.1);
+      });
+
+      it('composites a chromatic base and overlay channel by channel', () => {
+        const theme = glaze(260, 90);
+        theme.colors({
+          accent: { tone: 45, mode: 'static' },
+          tint: { tone: 95, hue: 60, mode: 'static' },
+          wash: {
+            type: 'mix',
+            base: 'accent',
+            target: 'tint',
+            value: 0,
+            blend: 'transparent',
+            contrast: 3,
+          },
+        });
+        const r = theme.resolve();
+        const ratio = overlayContrast(
+          r.get('wash')!.light,
+          r.get('accent')!.light,
+        );
+        expectMeetsWcag(ratio, 3);
+        expect(ratio).toBeLessThan(3.15);
+      });
     });
 
     it('mix solves a contrast floor against the base', () => {
