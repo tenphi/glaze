@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 2.0.3
+
+### Patch Changes
+
+- [#104](https://github.com/tenphi/glaze/pull/104) [`022e087`](https://github.com/tenphi/glaze/commit/022e08788f723161f745f95894c1f990283be5a0) Thanks [@tenphi](https://github.com/tenphi)! - Fix `contrast` on transparent mixes: the solver now composites the way browsers do (`source-over` on gamma-encoded sRGB) instead of in linear light. Previously a white overlay on a dark surface could render well below its floor (an `'AA'` overlay painted at ~2.4:1), and black overlays on light surfaces overshot theirs with roughly twice the needed opacity. Transparent mixes with `contrast` now resolve to different, correct alpha values.
+
 ## 2.0.2
 
 ### Patch Changes
