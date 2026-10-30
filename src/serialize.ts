@@ -44,6 +44,41 @@ export function assertExportVersion(
 }
 
 /**
+ * Reject a version-1 (Glaze 2) theme snapshot that carries shadow colors or a
+ * `shadowTuning`. Glaze 3 changed what shadow `intensity`, `fg` and tuning
+ * mean, so restoring one would silently re-render every shadow differently.
+ * Version-1 snapshots without shadows load as before. `fallbackVersion` is the
+ * enclosing palette's version, for a theme entry that carries none of its own.
+ */
+export function assertNoLegacyShadows(
+  data: GlazeThemeExport,
+  factory: string,
+  fallbackVersion?: unknown,
+): void {
+  if ((data.version ?? fallbackVersion) !== 1) return;
+  const colors = isPlainObject(data.colors) ? data.colors : {};
+  const shadows = Object.keys(colors).filter(
+    (name) =>
+      isPlainObject(colors[name]) &&
+      (colors[name] as { type?: unknown }).type === 'shadow',
+  );
+  const hasTuning =
+    isPlainObject(data.config) && data.config.shadowTuning !== undefined;
+  if (shadows.length === 0 && !hasTuning) return;
+
+  const what =
+    shadows.length > 0
+      ? `shadow colors (${shadows.map((n) => JSON.stringify(n)).join(', ')})`
+      : 'a "shadowTuning" config';
+  throw new Error(
+    `${factory}: this snapshot is export version 1 (Glaze 2) and contains ${what}. ` +
+      `Glaze 3 changed what shadow "intensity", "fg" and tuning mean, so it ` +
+      `would restore with different shadows. Re-author them as described in ` +
+      `docs/migration.md ("3.0 — shadows and glows") and export again.`,
+  );
+}
+
+/**
  * When `kind` is present, it must match the factory. Missing `kind` is
  * allowed for legacy snapshots.
  */

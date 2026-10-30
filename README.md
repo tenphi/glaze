@@ -30,7 +30,7 @@ contrast floor.
 - **WCAG 2 + APCA contrast solving** — automatic tone adjustment to meet a WCAG ratio or APCA Lc floor
 - **Unified dark mode** — one tone space for light, dark, and high-contrast; dark is a single `100 − t` inversion, no fitted curve
 - **Mix colors** — blend two colors with OKHSL or sRGB interpolation, opaque or transparent, with optional contrast solving
-- **Shadow colors** — OKHSL-native shadow computation with automatic alpha, fg/bg tinting, and per-scheme adaptation
+- **Shadows and glows** — translucent overlays whose opacity is solved per surface so `intensity` is an exact tone step on every surface and scheme, with object-aware strength
 - **Light + Dark + High-Contrast** — all schemes from one definition
 - **Manual contrast level** — put your normal palette on a `0–100` slider between itself and the high-contrast one; every level in between is solved, not approximated, and the high-contrast tier stays available on top
 - **Per-color hue override** — absolute or relative hue shifts within a theme

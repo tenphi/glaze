@@ -74,7 +74,7 @@ Use this order when defining a token:
    `surface`, `fill`, `bg`, and similar aliases already tell Glaze which side is
    foreground or background. Set `role` only when a name is ambiguous.
 7. Add high-contrast pairs only where HC should intentionally tighten:
-   text/content contrast, border tone, shadow intensity, mix value, or similar.
+   text/content contrast, border tone, shadow / glow intensity, mix value, or similar.
 
 ### Choosing adaptation mode
 
@@ -159,7 +159,9 @@ Prefer purpose first and variant last:
   `accent-icon`.
 - Disabled states: `disabled-surface`, `disabled-surface-text`,
   `accent-disabled-surface`, `accent-disabled-surface-text`.
-- Effects: `shadow-sm`, `shadow-md`, `shadow-lg`, `overlay`, `hover`, `tint`.
+- Effects: `shadow-sm`, `shadow-md`, `shadow-lg`, `surface-hover`,
+  `accent-surface-pressed`, `accent-surface-highlight`, `overlay`, `hover`,
+  `tint`.
 
 These names are not only readable. They also help APCA role inference pick the
 right polarity. For example, `button-text` is foreground, `input-bg` is a
@@ -477,36 +479,76 @@ pair only when the animation should become more pronounced in high contrast.
 
 ## Effects
 
-Define one neutral shadow system:
+Shadows and glows are translucent overlays with an exact tone step: `intensity`
+is how many tones darker (`shadow`) or lighter (`glow`) the surface ends up
+once the browser composites it. The opacity is solved per surface, so the same
+number reads the same on white, on a mid-tone accent and on a dark surface.
+Direction is fixed per type: a `shadow` always darkens and a `glow` always
+lightens, in every scheme.
+
+Define one neutral shadow system. Point `bg` at the surface the shadow falls on
+and `fg` at the element that casts it — here a `surface` card on the
+`surface-2` page:
 
 ```ts
 defaultTheme.colors({
   'shadow-sm': {
     type: 'shadow',
-    bg: 'surface',
-    fg: 'surface-text',
-    intensity: 5,
+    bg: 'surface-2',
+    fg: 'surface',
+    intensity: 4,
     inherit: false,
   },
   'shadow-md': {
     type: 'shadow',
-    bg: 'surface',
-    fg: 'surface-text',
-    intensity: [10, 20],
+    bg: 'surface-2',
+    fg: 'surface',
+    intensity: [8, 14],
     inherit: false,
   },
   'shadow-lg': {
     type: 'shadow',
-    bg: 'surface',
-    fg: 'surface-text',
-    intensity: [15, 30],
+    bg: 'surface-2',
+    fg: 'surface',
+    intensity: [12, 20],
     inherit: false,
   },
 });
 ```
 
-Including `fg` lets shadow strength follow the resolved foreground/background
-gap. Use an HC pair for shadows that should deepen in high contrast.
+`fg` modulates the step the way bounce light does: an object at the surface's
+own tone gives exactly `intensity`, a darker object casts a deeper shadow and a
+lighter one a softer shadow. Do not point `fg` at text — it is the object, not
+a contrast reference. Use an HC pair for shadows that should deepen in high
+contrast.
+
+Without `fg`, a shadow or glow is an exact shade or tint — the right tool for
+state layers, which need the same visible change on every fill:
+
+```ts
+defaultTheme.colors({
+  'surface-hover': { type: 'shadow', bg: 'surface', intensity: 3 },
+  'accent-surface-pressed': {
+    type: 'shadow',
+    bg: 'accent-surface',
+    intensity: [6, 10],
+  },
+  'accent-surface-highlight': {
+    type: 'glow',
+    bg: 'accent-surface',
+    intensity: 5,
+  },
+});
+```
+
+A fixed opacity cannot do this: an 8% black layer darkens white by about 6
+tones but a tone-10 surface by about 1.
+
+Glows are the mirror, for dark-mode elevation and edge highlights. A glow needs
+headroom above its surface, so a glow on a white light-mode surface has
+nothing to lighten — Glaze leaves it transparent and warns. Give glows a
+surface with room in every scheme you use them in, or bind them only where
+they apply.
 
 Use `opacity` for one fixed-alpha color:
 
@@ -629,14 +671,15 @@ wiring, and the `primary` alias pattern.
 ## High contrast
 
 High contrast is not a separate palette. Any value that accepts an HC pair can
-tighten the HC variant: `tone`, `contrast`, shadow `intensity`, and mix `value`.
+tighten the HC variant: `tone`, `contrast`, shadow / glow `intensity`, and mix
+`value`.
 
 Use HC pairs where users should actually get more separation:
 
 - Text/content contrast: `{ apca: ['content', 'body'] }`.
 - Accent fills: `{ apca: ['content', 'body'] }` or stronger.
 - Borders: `tone: ['-10', '-20']`.
-- Shadows: `intensity: [10, 20]`.
+- Shadows and glows: `intensity: [8, 14]`.
 - Decorative ramps that must stay perceivable.
 
 In HC variants, Glaze bypasses the normal tone window and uses the full

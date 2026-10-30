@@ -78,7 +78,7 @@ export function hcMirrorsNormal(config: {
 }
 
 /**
- * A numeric HC pair at a blend fraction (shadow `intensity`, mix `value`).
+ * A numeric HC pair at a blend fraction (shadow / glow `intensity`, mix `value`).
  *
  * The endpoints return the authored entry *by identity* rather than through
  * float arithmetic — `a + (b - a) * 1` is not bit-exactly `b` in IEEE 754, and
