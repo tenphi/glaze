@@ -23,6 +23,7 @@
 
 import {
   okhslToLinearSrgb,
+  sRGBGammaToLinear,
   sRGBLinearToGamma,
   srgbToOkhsl,
 } from './okhsl-color-math';
@@ -742,6 +743,33 @@ function linearSrgbLerp(
   ];
 }
 
+/** Gamma-encoded sRGB clamped to the display gamut — what a browser paints. */
+function toDisplayGamma(rgb: LinearRgb): LinearRgb {
+  return [
+    clamp(sRGBLinearToGamma(rgb[0]), 0, 1),
+    clamp(sRGBLinearToGamma(rgb[1]), 0, 1),
+    clamp(sRGBLinearToGamma(rgb[2]), 0, 1),
+  ];
+}
+
+/**
+ * Browser alpha compositing: `source-over` interpolates the gamma-encoded
+ * channels, not linear light (50% black over white paints `#808080`).
+ * Takes display-gamma inputs and returns the composite as linear sRGB for
+ * the luminance pipeline.
+ */
+function compositeOverGamma(
+  baseGamma: LinearRgb,
+  targetGamma: LinearRgb,
+  alpha: number,
+): LinearRgb {
+  return [
+    sRGBGammaToLinear(baseGamma[0] + (targetGamma[0] - baseGamma[0]) * alpha),
+    sRGBGammaToLinear(baseGamma[1] + (targetGamma[1] - baseGamma[1]) * alpha),
+    sRGBGammaToLinear(baseGamma[2] + (targetGamma[2] - baseGamma[2]) * alpha),
+  ];
+}
+
 function linearRgbToToneVariant(
   rgb: LinearRgb,
   pastel: boolean,
@@ -799,7 +827,12 @@ function resolveMixForScheme(
 
     let luminanceAt: (v: number) => number;
 
-    if (blend === 'transparent' || space === 'srgb') {
+    if (blend === 'transparent') {
+      const baseGamma = toDisplayGamma(baseLinear);
+      const targetGamma = toDisplayGamma(targetLinear);
+      luminanceAt = (v: number) =>
+        metricLuminance(metric, compositeOverGamma(baseGamma, targetGamma, v));
+    } else if (space === 'srgb') {
       luminanceAt = (v: number) =>
         metricLuminance(metric, linearSrgbLerp(baseLinear, targetLinear, v));
     } else {

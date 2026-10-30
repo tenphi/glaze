@@ -912,7 +912,7 @@ See [Shadows](#shadows) below for the algorithm and tuning details.
 | `target`   | `string`                    | "To" color name.                                                                                                                                               |
 | `value`    | `HCPair<number>`            | Mix ratio 0–100 (0 = pure base, 100 = pure target). In `'transparent'` blend, this becomes the target's opacity. Supports HC pairs.                            |
 | `blend`    | `'opaque' \| 'transparent'` | Default `'opaque'`.                                                                                                                                            |
-| `space`    | `'okhsl' \| 'srgb'`         | Interpolation space for opaque blending. Default `'okhsl'`. Ignored for `'transparent'` (always composites in linear sRGB).                                    |
+| `space`    | `'okhsl' \| 'srgb'`         | Interpolation space for opaque blending. Default `'okhsl'`. Ignored for `'transparent'` (the browser composites it).                                           |
 | `contrast` | `HCPair<ContrastSpec>`      | Optional contrast floor against `base` (WCAG or APCA — see [`contrast`](#contrast-floor)). The solver adjusts the mix ratio (opaque) or opacity (transparent). |
 | `pastel`   | `boolean`                   | Per-color `pastel` override. See [Per-color `pastel`](#per-color-pastel).                                                                                      |
 | `role`     | `RoleInput`                 | Semantic role of the mixed result against `base`. Same semantics as `RegularColorDef.role` (see [Roles](#roles)).                                              |
@@ -1325,12 +1325,12 @@ The output color has `h`, `s`, `l` from the target and `alpha = value / 100`.
 
 ### Blend space (opaque only)
 
-| `space`             | Behavior                                  | Best for                                                 |
-| ------------------- | ----------------------------------------- | -------------------------------------------------------- |
-| `'okhsl'` (default) | Perceptually uniform OKHSL interpolation. | Design token derivation.                                 |
-| `'srgb'`            | Linear sRGB channel interpolation.        | Matching browser compositing of CSS color-mix / overlay. |
+| `space`             | Behavior                                  | Best for                                                        |
+| ------------------- | ----------------------------------------- | --------------------------------------------------------------- |
+| `'okhsl'` (default) | Perceptually uniform OKHSL interpolation. | Design token derivation.                                        |
+| `'srgb'`            | Linear-light sRGB channel interpolation.  | Physical light mixing, like CSS `color-mix(in srgb-linear, …)`. |
 
-Transparent blending always composites in linear sRGB (matches browser alpha compositing).
+A transparent mix emits the target with alpha, so the browser does the compositing: `source-over` on gamma-encoded sRGB (50% black over white paints `#808080`, not the `#bcbcbc` linear light would give). The `contrast` solver models exactly that, so a solved opacity renders at the contrast it was solved for.
 
 ### Contrast solving on mixes
 
