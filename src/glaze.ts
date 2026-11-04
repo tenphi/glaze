@@ -213,7 +213,7 @@ glaze.color = function color(
     return createColorToken(input as GlazeColorInput, config);
   }
 
-  // Value-object: { h, s, l }, { r, g, b }, or { l, c, h }
+  // Value-object: { h, s, l }, { h, s, t }, { r, g, b }, or { l, c, h }
   return createColorTokenFromValue(input as GlazeColorValue, undefined, config);
 };
 
@@ -254,8 +254,10 @@ function standaloneLighting(
  * shadow).
  *
  * Both `bg` and `fg` accept any `GlazeColorValue` form: hex (`#rgb` /
- * `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` / `oklch()`
- * strings, or `{ r, g, b }` / `{ h, s, l }` / `{ l, c, h }` objects.
+ * `#rgba` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` /
+ * `okhst()` / `oklch()` strings, or `{ r, g, b }` / `{ h, s, l }` /
+ * `{ h, s, t }` / `{ l, c, h }` objects. Alpha components are dropped with
+ * a warning.
  */
 glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
   return standaloneLighting('shadow', input);

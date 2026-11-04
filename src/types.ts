@@ -820,17 +820,23 @@ export interface GlazeColorInput {
  * Any single-color input form accepted by the value-shorthand
  * overload of `glaze.color()`.
  *
- * Strings cover hex (`#rgb` / `#rrggbb` / `#rrggbbaa`, alpha dropped
- * with a warning) and the four CSS color functions Glaze itself emits:
- * `rgb()`, `hsl()`, `okhsl()`, `oklch()` (alpha components also dropped
- * with a warning).
+ * Strings cover hex with a leading `#` (`#rgb` / `#rgba` / `#rrggbb` /
+ * `#rrggbbaa`) and the five color functions Glaze itself emits: `rgb()`,
+ * `hsl()`, `okhsl()`, `okhst()`, `oklch()`, plus the `rgba()` / `hsla()`
+ * aliases. Function names are case-insensitive; components are numbers or
+ * percentages, separated by spaces or commas. An alpha component (hex
+ * alpha, `/ A`, or a fourth comma value) is dropped with a warning. Named
+ * colors, other color functions, and relative color syntax throw.
  *
- * Literal object forms:
- * - `{ h, s, l }` — OKHSL (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l`
- *   throws with a hint to use the structured form.
- * - `{ h, s, t }` — OKHST (h: 0–360, s/t: 0–1). Tone in 0–1.
+ * Literal object forms, told apart by their keys:
  * - `{ r, g, b }` — sRGB 0–255.
  * - `{ l, c, h }` — OKLCh (L/C: 0–1, H: degrees), same as `oklch()` strings.
+ * - `{ h, s, t }` — OKHST (h: 0–360, s/t: 0–1). Tone in 0–1, so `t: 0.7` is
+ *   tone 70.
+ * - `{ h, s, l }` — OKHSL (h: 0–360, s/l: 0–1).
+ *
+ * An object `s`, `l`, `t` or `c` above 1.5 throws, which catches 0–100
+ * input; the OKHSL / OKHST errors point to the structured form.
  */
 export type GlazeColorValue =
   | string
