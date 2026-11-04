@@ -15,7 +15,7 @@
  * - the scheme tone window, including the high-contrast bypass and its
  *   continuous generalization under a manual contrast level.
  *
- * See `docs/okhst.md` for the full specification and the calibrated
+ * See `docs/okhst.mdx` for the full specification and the calibrated
  * default constants.
  */
 

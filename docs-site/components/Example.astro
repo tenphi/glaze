@@ -1,0 +1,122 @@
+---
+/**
+ * Code + live result. Prints the `glaze()` source generated from the same
+ * props that drive the visual, so the two can never drift apart.
+ *
+ *   <Example hue={280} saturation={80} colors={{ ... }} visual="swatches" />
+ */
+import { CodeGroup } from '@tenphi/cookbook/components';
+import Swatches from './Swatches.tsx';
+import UiPreview from './UiPreview.tsx';
+import SchemeGrid from './SchemeGrid.tsx';
+import { resolveDemo, themeSource } from './glaze-docs.ts';
+import type { DemoTheme, Scheme, SchemeChoice } from './glaze-docs.ts';
+import type { UiRoles } from './demo-themes.ts';
+
+interface Props extends DemoTheme {
+  /** What to render under the code. Default `swatches`. */
+  visual?: 'swatches' | 'ui' | 'schemes' | 'schemes-swatches' | 'none';
+  /** Tab label of the code block. Default `theme.ts`. */
+  label?: string;
+  /** Lines appended after the generated source (e.g. an export call). */
+  after?: string;
+  /** Replace the generated source entirely. */
+  code?: string;
+  /** Add a second tab with the generated output: CSS custom properties. */
+  output?: 'css';
+  show?: string[];
+  on?: string;
+  scheme?: SchemeChoice;
+  schemes?: Scheme[];
+  roles?: Partial<UiRoles>;
+  value?: 'tone' | 'css' | 'none';
+  caption?: string;
+}
+
+const props = Astro.props;
+const visual = props.visual ?? 'swatches';
+const source =
+  props.code ??
+  [
+    "import { glaze } from '@tenphi/glaze';",
+    '',
+    themeSource(props),
+    ...(props.after ? ['', props.after] : []),
+  ].join('\n');
+const outputItems = [];
+if (props.output === 'css') {
+  const demo = resolveDemo(props);
+  const css = demo.theme.css({ format: 'rgb' });
+  outputItems.push({
+    label: 'Output (CSS)',
+    language: 'css',
+    code: [
+      `:root {\n${indentLines(css.light)}\n}`,
+      `@media (prefers-color-scheme: dark) {\n  :root {\n${indentLines(css.dark, 4)}\n  }\n}`,
+    ].join('\n\n'),
+  });
+}
+
+function indentLines(block: string, n = 2): string {
+  return block
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => ' '.repeat(n) + line)
+    .join('\n');
+}
+
+const theme: DemoTheme = {
+  hue: props.hue,
+  saturation: props.saturation,
+  darkHue: props.darkHue,
+  darkSaturation: props.darkSaturation,
+  config: props.config,
+  colors: props.colors,
+};
+---
+
+<CodeGroup
+  label="Example source"
+  items={[
+    { label: props.label ?? 'theme.ts', language: 'ts', code: source },
+    ...outputItems,
+  ]}
+/>
+{
+  visual === 'swatches' && (
+    <Swatches
+      {...theme}
+      show={props.show}
+      on={props.on}
+      scheme={props.scheme}
+      value={props.value}
+      caption={props.caption}
+    />
+  )
+}
+{
+  visual === 'ui' && (
+    <UiPreview {...theme} roles={props.roles} scheme={props.scheme} />
+  )
+}
+{
+  visual === 'schemes' && (
+    <SchemeGrid
+      {...theme}
+      roles={props.roles}
+      schemes={props.schemes}
+      caption={props.caption}
+    />
+  )
+}
+{
+  visual === 'schemes-swatches' && (
+    <SchemeGrid
+      {...theme}
+      kind="swatches"
+      show={props.show}
+      schemes={props.schemes}
+      caption={props.caption}
+    />
+  )
+}

@@ -1,0 +1,74 @@
+---
+/**
+ * What "Designing a palette" exports: the generated `palette.tasty()` and
+ * `palette.css()` output for a few tokens of the composed palette, so the
+ * prefix map's effect is visible on real values.
+ *
+ * The page configures `states` / `modes` globally with `glaze.configure()`.
+ * The docs build shares one Glaze config between pages, so this component
+ * passes the same `states` / `modes` to the export call instead — the output
+ * is identical.
+ */
+import { CodeGroup } from '@tenphi/cookbook/components';
+import { glaze, literal } from '../glaze-docs.ts';
+import type { GlazeTheme } from '../../../src/index.ts';
+import {
+  PURPLE_HUE,
+  SEED_SATURATION,
+  STATUS_THEMES,
+  TINTED_SURFACE_OVERRIDE,
+  colorsUpTo,
+} from './palette.ts';
+
+const defaultTheme = glaze(PURPLE_HUE, SEED_SATURATION);
+defaultTheme.colors(colorsUpTo('mixes'));
+const themes: Record<string, GlazeTheme> = { default: defaultTheme };
+const prefix: Record<string, string> = { default: '' };
+for (const status of STATUS_THEMES) {
+  themes[status.name] = defaultTheme.extend({
+    ...(status.hue !== undefined ? { hue: status.hue } : {}),
+    colors: TINTED_SURFACE_OVERRIDE,
+  });
+  prefix[status.name] = `${status.name}-`;
+}
+const palette = glaze.palette(themes);
+
+const SHOWN = [
+  'surface',
+  'surface-text',
+  'success-surface',
+  'success-accent-surface',
+  'danger-accent-text',
+];
+
+const tasty = palette.tasty({
+  prefix,
+  states: { dark: '@dark', highContrast: '@hc' },
+  modes: { dark: true, highContrast: true },
+});
+const total = Object.keys(tasty).length;
+const tastyShown = Object.fromEntries(
+  SHOWN.map((name) => [`#${name}`, tasty[`#${name}`]]),
+);
+
+const css = palette.css({ prefix });
+const cssLines = css.light.split('\n').filter(Boolean);
+const cssShown = cssLines.filter((line) =>
+  SHOWN.some((name) => line.trim().startsWith(`--${name}-color:`)),
+);
+
+const items = [
+  {
+    label: 'palette.tasty({ prefix })',
+    language: 'ts',
+    code: `// ${total} tokens in all; ${SHOWN.length} shown\n${literal(tastyShown)}`,
+  },
+  {
+    label: 'palette.css({ prefix }).light',
+    language: 'css',
+    code: `/* ${cssShown.length} of ${cssLines.length} declarations */\n${cssShown.join('\n')}`,
+  },
+];
+---
+
+<CodeGroup label="Generated palette output" items={items} />

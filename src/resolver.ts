@@ -593,9 +593,9 @@ function resolveDependentColor(
     // the probe solves the very problem that pass would solve, so it reproduces
     // that side. `flip` stays on, so a pinned side that physically cannot reach
     // the target still falls back to the opposite one and the floor is met.
-    // A color whose two endpoints genuinely disagree therefore changes side at
-    // most once, at level 50 — the same place every other un-interpolable
-    // decision switches.
+    // A color whose two endpoints genuinely disagree switches its preferred
+    // side at level 50, where every other un-interpolable decision switches;
+    // that fallback can still move it across earlier, or back and forth.
     const level = isHighContrast ? undefined : contrastFraction(config);
     let preferInitial = false;
     if (level !== undefined && level > 0 && level < 1) {
@@ -951,9 +951,10 @@ function seedField(
 }
 
 /**
- * After the passes, surface chromatic contrast drift (§10): a color
- * resolved with a `base` + `contrast` may land slightly under the contrast
- * its tone implies because chromatic luminance drifts from the gray tone.
+ * After the passes, surface chromatic contrast drift (the drift check in
+ * docs/okhst.mdx): a color resolved with a `base` + `contrast` may land
+ * slightly under the contrast its tone implies because chromatic luminance
+ * drifts from the gray tone.
  *
  * Under a manual `contrastLevel` the spec is resolved at the level, so the check
  * measures each normal variant against the target it was actually solved for. At

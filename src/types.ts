@@ -176,7 +176,7 @@ export interface RegularColorDef {
    */
   from?: GlazeColorValue;
   /**
-   * Tone value (0–100, contrast-uniform — see `docs/okhst.md`).
+   * Tone value (0–100, contrast-uniform — see `docs/okhst.mdx`).
    * - Number: absolute tone.
    * - String ('+N' / '-N'): relative to base color's tone (requires `base`).
    * - `'max'` / `'min'`: force to the scheme's tone extreme (no base needed).
@@ -503,7 +503,7 @@ export interface ResolvedColor {
   dark: ResolvedColorVariant;
   lightContrast: ResolvedColorVariant;
   darkContrast: ResolvedColorVariant;
-  /** Adaptation mode. Present only for regular colors, omitted for shadow / glow / mix. */
+  /** Adaptation mode of a regular color; `undefined` for shadow / glow / mix. */
   mode?: AdaptationMode;
 }
 
@@ -569,7 +569,7 @@ export interface GlazeConfig {
    * approximation, and a color keeps to one side of its base as the level moves.
    *
    * Pass `'auto'` to leave manual mode; `configure()` never clears a field by
-   * omission. See `docs/api.md` for the ramp's edge cases (un-interpolable
+   * omission. See `docs/reference/contrast.md` for the ramp's edge cases (un-interpolable
    * pairs, side changes) and the export-freeze rule.
    *
    * @default 'auto'

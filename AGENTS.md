@@ -13,7 +13,9 @@
 ```
 glaze/
 ├── src/                       Source
-├── docs/                      Long-form docs (okhst / api / methodology / migration)
+├── docs/                      Long-form docs: concepts, guides, reference (md/mdx, rendered by the site)
+├── docs-site/                 Site-only files: home page + live-example components
+├── playground/                Interactive playground (Vite)
 ├── assets/                    Logo + brand assets
 ├── scripts/                   Repo helpers
 ├── README.md                  Compact intro
@@ -23,6 +25,8 @@ glaze/
 ├── tsconfig.json
 ├── tsdown.config.ts           Build config
 ├── vitest.config.ts           Test config
+├── astro.config.ts            Docs site (Astro + Cookbook)
+├── docs.config.ts             Docs site config: navigation, theme, `@hc` state
 └── eslint.config.js
 ```
 
@@ -55,12 +59,30 @@ glaze/
 
 ### `docs/` files
 
+The documentation site (Cookbook on Astro) renders `docs/**/*.{md,mdx}` at the
+path without the extension, plus `docs-site/index.mdx` as the home page.
+Navigation lives in `docs.config.ts`. Concept and guide pages are `.mdx` with
+live examples; reference pages are plain Markdown.
+
 | File | Description |
 |---|---|
-| [docs/okhst.md](docs/okhst.md) | The OKHST color model spec — tone math, `REF_EPS`, the T↔L invariant, the scheme pipeline, calibrated window defaults, the contrast metric, and the APCA verification step. Source of truth for the color model. |
-| [docs/api.md](docs/api.md) | Full API reference. Every method, every option, every type. Reads as a lookup, not a tutorial. |
-| [docs/methodology.md](docs/methodology.md) | Palette design methodology — how to build a palette from scratch. Covers naming conventions, surface ladders, the accent anchor pattern, contrast-driven disabled chips, shadows / glows, and `extend` composition. |
-| [docs/migration.md](docs/migration.md) | Migration & integration guide — choosing an export shape, wiring tokens into [Tasty](https://tasty.style) / CSS / JSON, prefix-map strategies, migrating from a legacy color system, and common pitfalls. |
+| [docs/getting-started.mdx](docs/getting-started.mdx) | Install, a first theme built step by step, four schemes, and export. |
+| [docs/okhst.mdx](docs/okhst.mdx) | The OKHST color model spec — tone math, `REF_EPS`, the T↔L invariant, the scheme pipeline, calibrated window defaults, the contrast metric, and the APCA verification step. Source of truth for the color model. |
+| [docs/schemes.mdx](docs/schemes.mdx) | Light, dark, and high contrast: inversion + tone windows, adaptation modes, dark seed, HC pairs, the manual contrast level. |
+| [docs/contrast.mdx](docs/contrast.mdx) | Contrast solving: WCAG / APCA floors, roles and polarity, `autoFlip`, HC escalation, warnings. |
+| [docs/shadows-and-glows.mdx](docs/shadows-and-glows.mdx) | `shadow` / `glow`: exact tone steps, object influence, state layers, elevation, tuning. |
+| [docs/mixes.mdx](docs/mixes.mdx) | Opaque and transparent mixes, blend spaces, contrast on mixes. |
+| [docs/methodology.mdx](docs/methodology.mdx) | Palette design methodology — building a complete palette step by step, with the palette shown live as it grows. |
+| [docs/exporting.mdx](docs/exporting.mdx) | Choosing an export shape, wiring tokens into [Tasty](https://tasty.style) / CSS / JSON / DTCG / Tailwind, prefix maps, the `primary` alias. |
+| [docs/migration.md](docs/migration.md) | Migrating an existing color system, upgrading between majors (`3.0 — shadows and glows` is referenced by `src/serialize.ts` errors), common pitfalls. |
+| [docs/reference/](docs/reference/index.md) | API reference: `index` (map of every export + conventions), `theme`, `color-definitions`, `contrast`, `color-tokens`, `palette`, `output`, `configuration`, `utilities`. Lookup, not tutorial. |
+
+### `docs-site/` files
+
+| File | Description |
+|---|---|
+| [docs-site/index.mdx](docs-site/index.mdx) | Home page. |
+| [docs-site/components/](docs-site/components/README.md) | Live-example components (`Example`, `Swatches`, `UiPreview`, `SchemeGrid`, `ToneRamp`, page-specific folders). They resolve themes from `src/` at build time and pass colors through Tasty `styles` — Cookbook rejects `style` attributes and non-Tasty CSS. See the folder's README before adding one. |
 
 ## Commands
 
@@ -78,6 +100,10 @@ glaze/
 | `pnpm format:check` | Prettier check (no writes). |
 | `pnpm changeset` | Create a changeset entry. |
 | `pnpm release` | Build and publish (used by CI). |
+| `pnpm docs` | Docs site dev server (Astro + Cookbook). |
+| `pnpm build:docs` | Build the docs site into `dist/` (overwrites the library build there). |
+| `pnpm build:site` | Docs site + playground, as deployed to GitHub Pages. |
+| `pnpm docs:doctor` | Cookbook configuration / content checks. |
 
 ## Stack
 

@@ -8,52 +8,315 @@ hero:
   image:
     file: ../assets/glaze.svg
   actions:
+    - text: Get started
+      link: /getting-started
+      variant: primary
     - text: Open the playground
       link: https://glaze.tenphi.me/playground/
-      variant: primary
-    - text: Design a palette
-      link: /methodology
       variant: secondary
 ---
 
+import { Card, CodeGroup } from '@tenphi/cookbook/components';
+import Example from './components/Example.astro';
+import SchemeGrid from './components/SchemeGrid.tsx';
+import ToneRamp from './components/ToneRamp.tsx';
+import UiPreview from './components/UiPreview.tsx';
+import CardGrid from './components/home/CardGrid.tsx';
+import ContrastSamples from './components/home/ContrastSamples.tsx';
+import ExportShowcase from './components/home/ExportShowcase.astro';
+import LightingStrip from './components/home/LightingStrip.tsx';
+
+<UiPreview />
+
+Every color on this card — page, card, border, text, link, button, and shadow —
+comes from one Glaze theme seeded with hue 280 and saturation 80. Switch the
+site's appearance between light, dark, and high contrast: the card shows the
+variant Glaze resolved for each scheme.
+
 ## Color relationships, not color tables
 
-Glaze turns a hue and saturation seed into a complete palette. Define how each
-role relates to the others, and Glaze resolves the actual colors for every
-supported appearance.
+Glaze turns a hue and saturation seed into a complete palette. Instead of
+picking every color, you say how each color relates to the others. A **root**
+color places itself with an absolute tone. A **dependent** color names a `base`
+and sits a signed tone delta away from it, optionally with a contrast floor.
+Glaze resolves the actual colors for every scheme.
 
-### Contrast-aware by construction
+<Example
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'surface-2': { base: 'surface', tone: '-4', saturation: 0.2 },
+    border: { base: 'surface', tone: '-10', saturation: 0.2 },
+    'surface-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.4,
+      contrast: 'AAA',
+    },
+  }}
+/>
 
-Set WCAG ratios or APCA Lc floors on the roles that need them. Glaze adjusts
-tone only when necessary and reports targets that cannot be met.
+In dark mode the tone scale inverts, so `surface-2` and `border` step lighter
+instead of darker, in the same order. The dark tone window scales the steps
+down a little (about 3.3 and 8.5 tones here); the high-contrast variants keep
+the exact 4 and 10. See
+[how relative tone adapts](../docs/schemes.mdx#how-relative-tone-adapts).
 
-### Four schemes from one definition
+## Contrast-aware by construction
+
+Set a WCAG ratio or an APCA Lc floor on the colors that need one. Glaze keeps
+the tone you asked for when it already passes, otherwise moves it about as far as
+the floor requires, and warns when a color's floor can't be met (a
+[mix](../docs/mixes.mdx#contrast-on-mixes) settles without a warning). Each tile
+below measures the resolved colors in the scheme you're viewing.
+
+<ContrastSamples
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'surface-text-soft': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.3,
+      contrast: 'AA',
+    },
+    'surface-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.4,
+      contrast: 'AAA',
+    },
+    'accent-text': {
+      base: 'surface',
+      tone: '-1',
+      contrast: { apca: 'body' },
+    },
+  }}
+  samples={[
+    { fg: 'surface-text-soft', bg: 'surface', note: "contrast: 'AA'" },
+    { fg: 'surface-text', bg: 'surface', note: "contrast: 'AAA'" },
+    {
+      fg: 'accent-text',
+      bg: 'surface',
+      note: "contrast: { apca: 'body' }",
+      metric: 'apca',
+    },
+  ]}
+/>
+
+In high contrast, a floor without an explicit high-contrast value rises a tier:
+`'AA'` becomes `'AAA'` and an APCA target gains 15 Lc. A numeric WCAG ratio
+stays as written.
+
+## Four schemes from one definition
 
 Light, dark, light high-contrast, and dark high-contrast variants share one
-model. Dark mode is an adaptation of the same relationships rather than a
-second hand-maintained palette.
+model. Dark mode inverts tone (`100 − t`) and fits it into a dark tone window,
+so the relationships you define survive the switch — there is no second palette
+to maintain. High-contrast variants use the full tone range and the raised
+contrast floors.
 
-### Ready for applications and design tools
+<SchemeGrid caption="The product card from the top of this page, rendered in each scheme on its own background." />
 
-Export CSS custom properties, Tailwind CSS v4 themes, W3C DTCG tokens, JSON, or
-[Tasty](https://tasty.style) bindings. Glaze is zero-dependency, TypeScript-first,
-and runs in Node.js, browsers, and edge runtimes.
+## A tone axis built for contrast
 
-## Start with a seed
+Glaze works in OKHST: OKHSL with lightness replaced by **tone**, an axis shaped
+by WCAG luminance. Equal tone steps are equal contrast steps for neutrals and an
+approximation for chromatic colors, so a delta like `'-8'` means the same
+visible distance anywhere on the scale.
+
+<ToneRamp
+  hue={280}
+  saturation={0}
+  caption="Tone 0 to 100 in steps of 10, with the WCAG ratio between neighbors: every step is the same."
+/>
+
+<ToneRamp
+  hue={280}
+  saturation={0}
+  axis="lightness"
+  caption="The same steps in OKHSL lightness: the ratio between neighbors drifts from step to step."
+/>
+
+## Shadows and glows with exact steps
+
+`shadow` and `glow` colors are translucent overlays — black for a shadow and
+white for a glow by default. Glaze solves their opacity per surface, so once the
+browser composites them the surface lands exactly `intensity` tones darker or
+lighter: on light, dark, and chromatic surfaces alike, as long as the surface
+has room for the step. A shadow can't go past black and a glow can't go past
+white, so an out-of-reach step gets as close as it can and logs a console
+warning: the card shadow at the top of this page disappears in dark high
+contrast, where the page is already black (see
+[unreachable steps](../docs/shadows-and-glows.mdx#unreachable-steps)). An
+optional object color (`fg`) deepens or softens the step the way bounce light
+does.
+
+<LightingStrip
+  kind="shadow"
+  intensity={8}
+  surfaces={[
+    { tone: 97 },
+    { tone: 70 },
+    { tone: 50, saturation: 80 },
+    { tone: 30 },
+  ]}
+  caption="A shadow with intensity 8 on four surfaces. The opacity changes with the surface; the step does not."
+/>
+
+<LightingStrip
+  kind="glow"
+  intensity={8}
+  surfaces={[
+    { tone: 10 },
+    { tone: 20 },
+    { tone: 35, saturation: 80 },
+    { tone: 50 },
+  ]}
+  caption="A glow with intensity 8 on darker surfaces, for elevation and highlights in dark interfaces."
+/>
+
+## Ready for applications and design tools
+
+Export CSS custom properties, a Tailwind CSS v4 theme, W3C DTCG design tokens
+(one file per scheme, or a single Resolver-Module document), plain JSON, or
+[Tasty](https://tasty.style) bindings. Every tab below is the real output of the
+theme in the first tab.
+
+<ExportShowcase
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'surface-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.4,
+      contrast: 'AAA',
+    },
+  }}
+/>
+
+Glaze has zero runtime dependencies, is written in TypeScript with full type
+definitions, ships tree-shakeable ESM and CommonJS builds, and runs in Node.js,
+browsers, and edge runtimes.
+
+## More in the box
+
+- **Manual contrast level.** Put the normal palette on a 0–100 slider toward
+  high contrast. Every level in between is solved, not approximated, and the
+  high-contrast tier stays available on top. See
+  [manual contrast level](../docs/schemes.mdx#manual-contrast-level).
+- **Dark seed and per-color hue.** Give dark schemes their own hue and
+  saturation seed, or shift one color's hue absolutely or relative to the seed.
+  See [dark seed](../docs/schemes.mdx#dark-seed) and
+  [hue and saturation](../docs/reference/color-definitions.md#hue-and-saturation).
+- **Mixes.** Blend two colors in OKHSL or sRGB, opaque or transparent, with
+  optional contrast solving. See [Mixes and transparency](../docs/mixes.mdx).
+- **Brand colors.** Start a theme from a hex or RGB value with
+  `glaze.fromHex()` / `glaze.fromRgb()`, or seed a single color from a literal
+  value with `from`. See
+  [fromHex / fromRgb](../docs/reference/theme.md#glazefromhexhex--glazefromrgbr-g-b)
+  and [from](../docs/reference/color-definitions.md#from).
+- **Standalone colors.** `glaze.color()` gives one color, or a pair with a
+  contrast floor, the same scheme adaptation without a theme. See
+  [Color tokens](../docs/reference/color-tokens.md).
+- **Palettes.** Derive status themes with `extend()` and compose them into one
+  prefixed token set with `glaze.palette()`. See
+  [Designing a palette](../docs/methodology.mdx) and
+  [Palettes](../docs/reference/palette.md).
+- **Snapshots.** Export themes, color tokens, and palettes as JSON and restore
+  them with `glaze.themeFrom()`, `glaze.colorFrom()`, and
+  `glaze.paletteFrom()`. See
+  [Exporting and integration](../docs/exporting.mdx).
+- **Output formats.** Native `oklch()`, `rgb()`, and `hsl()`, plus Tasty's
+  `okhsl()` and `okhst()`. See
+  [color formats](../docs/reference/output.md#color-formats).
+
+## Quick start
+
+<CodeGroup
+  label="Install Glaze"
+  items={[
+    { label: 'pnpm', language: 'shell', code: 'pnpm add @tenphi/glaze' },
+    { label: 'npm', language: 'shell', code: 'npm install @tenphi/glaze' },
+    { label: 'yarn', language: 'shell', code: 'yarn add @tenphi/glaze' },
+  ]}
+/>
 
 ```ts
 import { glaze } from '@tenphi/glaze';
 
+glaze.configure({
+  modes: { dark: true, highContrast: true },
+});
+
 const theme = glaze(280, 80);
 
 theme.colors({
-  surface: { tone: 97 },
-  text: { base: 'surface', tone: '-1', contrast: 'AA' },
-  accent: { tone: 52, mode: 'fixed' },
+  surface: { tone: 97, saturation: 0.15 },
+  'surface-text': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.4,
+    contrast: { apca: ['content', 'body'] },
+  },
+  border: {
+    base: 'surface',
+    tone: ['-8', '-16'],
+    saturation: 0.2,
+    inherit: false,
+  },
+  'accent-surface-text': { tone: 100, mode: 'fixed' },
+  'accent-surface': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: 'AA',
+    mode: 'fixed',
+  },
 });
 
-const tokens = theme.tokens();
+const danger = theme.extend({ hue: 23 });
+const palette = glaze.palette({ default: theme, danger });
+
+const tokens = palette.tokens({
+  prefix: { default: '', danger: 'danger-' },
+});
+// → {
+//   light: { surface: 'oklch(...)', 'danger-surface': 'oklch(...)', ... },
+//   dark: { ... },
+//   lightContrast: { ... },
+//   darkContrast: { ... },
+// }
 ```
 
-Continue with the [palette methodology](/methodology), browse the complete
-[API reference](/api), or learn how Glaze's [OKHST tone axis](/okhst) works.
+`border` is marked `inherit: false`, so the `danger` theme gets every color
+except it.
+
+## Where to go next
+
+<CardGrid>
+  <Card title="Getting started" href="/getting-started">
+    Install Glaze, build a first theme step by step, and export it.
+  </Card>
+  <Card title="Concepts" href="/schemes">
+    Light and dark schemes, contrast solving, shadows and glows, mixes, and the
+    tone model under them.
+  </Card>
+  <Card title="Guides" href="/methodology">
+    Design a full palette, wire it into your app, and migrate an existing color
+    system.
+  </Card>
+  <Card title="Reference" href="/reference">
+    Every function, method, option, and type.
+  </Card>
+</CardGrid>
+
+Explore the tone axis in the
+[interactive playground](https://glaze.tenphi.me/playground/), read the
+[full OKHST specification](https://github.com/tenphi/okhst) for the math behind
+it, or see
+[AGENTS.md](https://github.com/tenphi/glaze/blob/main/AGENTS.md) for a tour of
+the source tree.

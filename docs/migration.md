@@ -1,263 +1,75 @@
-# Migration & Integration
+---
+title: Migration and upgrading
+description: Move an existing color system to Glaze without renaming tokens, and upgrade between major Glaze versions.
+---
 
-How to move an existing CSS, design-token, or application color system to
-Glaze, then export the resulting palette in the shape your app and design tools
-consume.
-
-If you're starting from scratch, see [methodology.md](methodology.md) first — that's about _designing_ the palette. This doc is about _consuming_ it.
-
-## Contents
-
-- [Choosing an export](#choosing-an-export)
-- [Wiring exports into the app](#wiring-exports-into-the-app)
-- [Prefix map strategies](#prefix-map-strategies)
-- [Migrating an existing color system](#migrating-from-an-existing-color-system)
-- [Upgrading Glaze](#upgrading-glaze)
-- [Common pitfalls](#common-pitfalls)
-
-## Choosing an export
-
-Glaze has two layers of “export”:
-
-1. **Authoring snapshots** — `theme.export(override?)` / `token.export(override?)` / `palette.export(override?)`, restored with `glaze.themeFrom` / `colorFrom` / `paletteFrom`. These carry definitions, relations, and a config freeze taken at export time (`kind` + `version`). Live instances keep only a sparse local override; omitted global fields track `configure()` until export.
-2. **Resolved output** — the seven shapes below. These are color strings / design-token documents for apps and tools, **not** restorable as authoring config.
-
-Glaze emits the same resolved colors in seven shapes. Pick one based on your
-renderer or tooling.
-
-| Method                           | Output shape                                                                                                       | Use it for                                                                                                                                                                        |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `palette.tasty(options?)`        | `{ '#name': { '': value, '@media(prefers-color-scheme: dark)': value, '@media(prefers-contrast: more)': value } }` | The [Tasty](https://tasty.style) style system. Single object, state aliases keyed inside each token.                                                                         |
-| `palette.tokens(options?)`       | `{ light: { name: value }, dark: { name: value }, ... }`                                                           | Most CSS-in-JS systems. Per-variant flat maps, easy to feed into a `:root { ... }` selector via your framework's globals.                                                         |
-| `palette.css(options?)`          | `{ light: '--name-color: rgb(...);', dark: '...', ... }`                                                           | Framework-free CSS / static stylesheets. Variant-grouped CSS custom property strings ready to wrap in `:root` and `prefers-color-scheme` queries.                                 |
-| `palette.json(options?)`         | `{ themeName: { name: { light, dark, ... } } }`                                                                    | Tooling, JSON pipelines.                                                                                                                                                          |
-| `palette.dtcg(options?)`         | `{ light: { name: { $type, $value } }, dark: { ... }, ... }`                                                       | W3C [DTCG 2025.10](https://www.designtokens.org/) `.tokens.json` — Figma, Tokens Studio, Style Dictionary, Terrazzo, Penpot. One document per scheme.                             |
-| `palette.dtcgResolver(options?)` | `{ version, sets, modifiers, resolutionOrder }`                                                                    | W3C DTCG **Resolver-Module** — a single document describing every scheme variant as `sets` + a `scheme` modifier with a context per variant. For resolver tools such as Dispersa. |
-| `palette.tailwind(options?)`     | `'@theme { --color-*: ... } .dark { ... } ...'`                                                                    | Tailwind CSS v4. A single ready-to-paste `@theme` block plus dark / high-contrast overrides.                                                                                      |
-
-`tasty()`, `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, and `tailwind()` accept `modes` (`{ dark, highContrast }`). `css()` always returns all four strings (`light`, `dark`, `lightContrast`, `darkContrast`). CSS-string exports accept `format` and default to `'oklch'` (`tokens`/`json`/`css`/`tailwind`/`tasty`; `'rgb'` and `'hsl'` also available). `'okhsl'` and `'okhst'` are supported only on [Tasty](https://tasty.style)-shaped exports (`tasty()`, standalone `token()` / `.tasty()`). `dtcg()` and `dtcgResolver()` ignore `format` and use `colorSpace` instead (`'srgb'` default, `'oklch'` opt-in). See [api.md → Palette](api.md#palette) for full options.
-
-## Wiring exports into the app
-
-### [Tasty](https://tasty.style)
-
-Spread the result of `palette.tasty()` into a global style call:
-
-```ts
-import type { Styles } from '@tenphi/tasty';
-import { useGlobalStyles } from '@tenphi/tasty';
-import { tastyStatic } from '@tenphi/tasty/static';
-
-export const PALETTE_TOKENS = palette.tasty({
-  /* prefix map */
-}) as Styles;
-
-// In your root component:
-useGlobalStyles('body', PALETTE_TOKENS);
-
-// Or, for zero-runtime builds:
-tastyStatic('body', PALETTE_TOKENS);
-```
-
-By default the dark / high-contrast variants are keyed by media-query states — `'@media(prefers-color-scheme: dark)'` and `'@media(prefers-contrast: more)'` — so the tokens react to the OS preference out of the box, with no extra [Tasty](https://tasty.style) setup.
-
-If you'd rather drive the schemes from custom aliases (e.g. a manual toggle that also falls back to the OS preference), set your own [`glaze.configure({ states })`](api.md#configuration) and register what those states _mean_:
-
-```ts
-import { setGlobalPredefinedStates } from '@tenphi/tasty';
-
-// glaze.configure({ states: { dark: '@dark', highContrast: '@hc' } });
-setGlobalPredefinedStates({
-  '@dark':
-    '@root(schema=dark) | (!@root(schema) & @media(prefers-color-scheme: dark))',
-  '@hc':
-    '@root(contrast=high) | (!@root(contrast) & @media(prefers-contrast: more))',
-});
-```
-
-The state names here must match the `states` you set in [`glaze.configure({ states })`](api.md#configuration).
-
-You can also register the tokens as a [Tasty](https://tasty.style) recipe instead of spreading them globally:
-
-```ts
-import { configure, tasty } from '@tenphi/tasty';
-
-configure({ recipes: { 'theme-tokens': PALETTE_TOKENS } });
-
-const Page = tasty({
-  styles: { recipe: 'theme-tokens', fill: '#surface', color: '#surface-text' },
-});
-```
-
-### CSS custom properties
-
-```ts
-const css = palette.css();
-const stylesheet = `
-:root { ${css.light} }
-@media (prefers-color-scheme: dark)   { :root { ${css.dark} } }
-@media (prefers-contrast: more)       { :root { ${css.lightContrast} } }
-@media (prefers-color-scheme: dark) and (prefers-contrast: more) {
-  :root { ${css.darkContrast} }
-}
-`;
-```
-
-Each property name is `--<prefix><name>-color` by default. Override the suffix:
-
-```ts
-palette.css({ suffix: '' }); // → '--surface: rgb(...);'
-palette.css({ format: 'oklch' }); // → '--surface-color: oklch(...);'
-```
-
-### Framework-agnostic JSON
-
-```ts
-const data = palette.json();
-// → { primary: { surface: { light: 'oklch(...)', dark: 'oklch(...)' } }, ... }
-```
-
-Feed into your tooling pipeline. Each color is grouped by theme name, then by token name, then by variant — no prefix logic to undo.
-
-### W3C DTCG (`.tokens.json`)
-
-```ts
-import { writeFileSync } from 'node:fs';
-const dtcg = palette.dtcg();
-
-writeFileSync('tokens.light.tokens.json', JSON.stringify(dtcg.light, null, 2));
-if (dtcg.dark) {
-  writeFileSync('tokens.dark.tokens.json', JSON.stringify(dtcg.dark, null, 2));
-}
-```
-
-Each document is a spec-conformant token tree. One file per scheme is the most tool-compatible convention — Style Dictionary treats them as themes, Tokens Studio as sets, and Figma as variable modes. Use `colorSpace: 'oklch'` for wide-gamut, Glaze-native values (no `hex`); the default `'srgb'` emits components plus a `hex` hint that every reader understands. Feed the files straight into Style Dictionary v4+, Tokens Studio, or any DTCG-compatible tool — no Glaze-specific transform needed.
-
-### W3C DTCG Resolver-Module (single document)
-
-When you want **one file** describing every scheme variant — for a resolver tool such as [Dispersa](https://github.com/dispersa-core/dispersa) — use `dtcgResolver()` instead of `dtcg()`:
-
-```ts
-import { writeFileSync } from 'node:fs';
-const resolver = palette.dtcgResolver({ modes: { highContrast: true } });
-
-writeFileSync('resolver.json', JSON.stringify(resolver, null, 2));
-```
-
-The document places the light tokens in `sets.base.sources[0]` (the default context) and emits a single `scheme` modifier with a context per variant (`light` / `dark` / `lightContrast` / `darkContrast`). Each non-default context holds that variant's exact resolved tokens — Glaze resolves `darkContrast` independently, so the four-context shape keeps every value correct (two independent modifiers would compose additively and produce wrong dark + high-contrast values). Rename the set, modifier, or contexts via `setName` / `modifierName` / `contextNames` if your resolver expects different labels. Prefer `dtcg()` when you need maximum per-file tool compatibility; prefer `dtcgResolver()` when a resolver tool consumes the document for you.
-
-### Tailwind CSS v4
-
-```ts
-const css = palette.tailwind();
-// Write to your CSS entry, or paste into a `@import "tailwindcss"` stylesheet:
-// @theme { --color-primary-surface: oklch(...); ... }
-// .dark { --color-primary-surface: oklch(...); ... }
-```
-
-The `--color-*` namespace makes every color available as `bg-*` / `text-*` / `border-*`. Drive dark mode from the OS preference instead of a class with `darkSelector: '@media (prefers-color-scheme: dark)'` (it nests `:root` automatically). High-contrast overrides land under `.high-contrast` and `.dark.high-contrast` by default; both are omitted unless `modes.highContrast` is enabled.
-
-## Prefix map strategies
-
-`palette.tokens()` / `tasty()` / `css()` / `dtcg()` / `tailwind()` accept a `prefix` option:
-
-| Value                    | Result                                                                     |
-| ------------------------ | -------------------------------------------------------------------------- |
-| `true` (default)         | Every theme prefixes its tokens with `<themeName>-`.                       |
-| `false`                  | No prefixes. Colliding keys produce a `console.warn`; first-write wins.    |
-| `Record<string, string>` | Per-theme prefix overrides. Themes not listed fall back to `<themeName>-`. |
-
-The most common production pattern: **default theme unprefixed, every other theme prefixed with its name**:
-
-```ts
-palette.tasty({
-  prefix: {
-    default: '',
-    primary: 'primary-',
-    success: 'success-',
-    danger: 'danger-',
-    warning: 'warning-',
-    note: 'note-',
-  },
-});
-```
-
-This makes neutral tokens consume as `#surface`, `#border`, `#disabled-surface` (no theme namespace) while status colors live under `#danger-surface`, `#success-accent-text`, etc.
-
-This explicit map is usually clearer for a neutral `default` theme. The
-separate `primary` palette option below solves a different namespace problem:
-it duplicates one named theme without a prefix while retaining that theme's
-prefixed tokens.
-
-### Alias themes for legacy names
-
-Two aliases for the same theme instance produce identical token values under different prefixes — useful when you want to support a legacy token name without duplicating definitions:
-
-```ts
-const palette = glaze.palette({
-  default: defaultTheme,
-  primary: primaryTheme,
-  purple: primaryTheme, // legacy alias — same theme, different prefix
-  // ...
-});
-
-palette.tasty({
-  prefix: {
-    default: '',
-    primary: 'primary-',
-    purple: 'purple-', // emits #purple-surface alongside #primary-surface
-  },
-});
-```
-
-Both `#primary-surface` and `#purple-surface` resolve to the exact same color. Drop the alias when the legacy name is no longer referenced.
-
-### `primary` (the unprefixed alias)
-
-`glaze.palette(themes, { primary })` and the per-export `primary` option duplicate one theme's tokens _without_ prefix on top of any prefix map. Equivalent to listing that theme twice with different prefixes; useful when the "primary" theme is conceptually distinct from `default` and you want both sets of unprefixed tokens.
-
-```ts
-const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
-palette.tokens();
-// → { light: { 'brand-surface': '...', 'surface': '...', 'accent-surface': '...' } }
-```
-
-Override per call: `palette.tokens({ primary: 'accent' })`, or disable with `palette.tokens({ primary: false })`.
+This page covers two kinds of move: bringing an existing CSS, design-token, or
+application color system over to Glaze, and upgrading Glaze itself across a
+major version. For designing a palette from scratch, see
+[Designing a palette](./methodology.mdx); for choosing an export shape and
+wiring it into your app, see [Exporting and integration](./exporting.mdx).
 
 ## Migrating from an existing color system
 
-The fastest path: **map first, design second**. Get every existing token name producing a Glaze-resolved color value (even if it's a rough first pass), wire the new palette in, then iterate on the resolved colors without touching component code.
+The fastest path is **map first, design second**. Get every existing token name
+producing a Glaze-resolved color (even a rough first pass), wire the new
+palette in, then iterate on the resolved colors without touching component
+code.
 
 ### 1. Inventory the existing tokens
 
-Walk your current color system and bucket every token into one of these categories:
+Walk your current color system and put every token into one of these buckets:
 
-- **Surfaces** — backgrounds, panels, cards, banners.
-- **Surface text** — body text, headings, captions, labels.
-- **Borders / dividers / focus rings** — neutral structural lines.
-- **Brand fills** — solid CTA backgrounds, badges, status banners.
-- **Brand foregrounds** — link text, status text, icon colors on neutral backgrounds.
-- **Disabled** — disabled chip + label.
-- **Shadows / overlays** — elevation, scrims, state layers (`shadow` / `glow`).
-- **One-off colors** — syntax highlighting, charts, illustrations.
+- **Surfaces**: backgrounds, panels, cards, banners.
+- **Surface text**: body text, headings, captions, labels.
+- **Borders, dividers, focus rings**: neutral structural lines.
+- **Brand fills**: solid CTA backgrounds, badges, status banners.
+- **Brand foregrounds**: link text, status text, icon colors on neutral
+  backgrounds.
+- **Disabled**: disabled chip and its label.
+- **Shadows and overlays**: elevation and state layers (`shadow` / `glow`),
+  and fixed-alpha overlays such as scrims (`opacity`).
+- **One-off colors**: syntax highlighting, charts, illustrations.
 
-Each bucket maps cleanly to one of the patterns in [methodology.md](methodology.md). The bucket determines the _shape_ of the Glaze definition (root vs dependent, `mode: 'auto'` vs `'fixed'`, contrast-floor vs absolute tone), not the value.
+Each bucket maps onto one of the patterns in
+[Designing a palette](./methodology.mdx). The bucket decides the _shape_ of the
+Glaze definition (root or dependent, `mode: 'auto'` or `'fixed'`, a contrast
+floor or an absolute tone), not its value.
 
 ### 2. Reproduce the existing values
 
-Pick a Glaze definition shape that lands the new color _close to_ the legacy hex in light mode. The methodology doc explains the shape per bucket; the API doc covers the levers (`tone`, `saturation`, `contrast`, `mode`, `hue`).
+Pick a definition shape that lands the new color _close to_ the legacy value in
+light mode. [Designing a palette](./methodology.mdx) explains the shape per
+bucket; the [Color definitions](./reference/color-definitions.md) reference
+covers the levers (`tone`, `saturation`, `contrast`, `mode`, `hue`).
 
-Two tactics that make matching easier:
+Three tactics make matching easier:
 
-- **Anchor strong text at the edge** instead of solving for `'AAA'`. The contrast solver stops at the floor (cr=7), which usually leaves text noticeably softer than a legacy hex like `#1a1a1a`. An absolute `tone: 2` (or wherever the legacy token sits) preserves the look.
+- **Anchor strong text at the edge** instead of solving for `'AAA'`. The
+  contrast solver stops at the floor, which usually leaves text noticeably
+  softer than the legacy value: on a white surface, a neutral
+  `contrast: 'AAA'` (7:1) solves to tone 36, while a legacy `#1a1a1a` sits at
+  tone 6.2 (17.4:1). An absolute `tone` preserves the look, but author it a
+  little below the measured value: the light
+  [tone window](./schemes.mdx#tone-windows) lifts authored tones (tone 0
+  renders at about 5, tone 2 at 6.9), so a neutral `tone: 1.3` renders
+  `#1a1a1a`. With `lightTone: false` on the theme, light tones render exactly
+  as authored.
 - **Match the metric the old system actually used.** Numeric WCAG ratios are
-  useful when reproducing a measured legacy ratio. For new content roles,
+  useful when you reproduce a measured legacy ratio. For new content roles,
   prefer the APCA presets from the methodology. For low-stakes spacing, use a
-  tone delta instead of inventing a contrast target.
+  tone delta instead of inventing a contrast target. See
+  [Contrast solving](./contrast.mdx).
+- **Pin values that are a contract with `from`.** A brand color you must honor
+  can be given as a literal: `{ from: '#2f5bff' }` reproduces that exact value
+  in the light scheme whatever the theme's seed saturation, while dark and high
+  contrast still adapt. Add `base` and `contrast` when it must stay legible
+  against something. See [`from`](./reference/color-definitions.md#from).
 
 ### 3. Keep the old token names
 
-Use a custom `prefix` map (and theme aliases if needed) so the names your components already consume keep working:
+Use a custom `prefix` map (and [alias themes](./exporting.mdx#alias-themes-for-legacy-names)
+if needed) so the names your components already consume keep working:
 
 ```ts
 // Old: components consume `#dark`, `#dark-02`, `#dark-03`.
@@ -280,34 +92,132 @@ defaultTheme.colors({
 });
 
 palette.tasty({ prefix: { default: '' } });
-// → '#dark', '#dark-02', '#dark-03' — components don't change.
+// → '#dark', '#dark-02', '#dark-03': components don't change.
 ```
 
-Once consumers are off the legacy names, rename the Glaze tokens to match your conventions.
+Once consumers are off the legacy names, rename the Glaze tokens to match your
+conventions. [Prefix map strategies](./exporting.mdx#prefix-map-strategies)
+shows every naming option with real output.
 
-### 4. Verify dark mode and HC before promoting
+### 4. Verify dark mode and high contrast before promoting
 
-Glaze gives you light/dark/HC for free, but only the light mode is matched against the legacy palette. Before promoting the migration:
+Glaze gives you light, dark, and high contrast for free, but only the light
+scheme was matched against the legacy palette. Before you promote the
+migration:
 
-- Spot-check every surface, text, accent, and disabled pair in dark mode. The tone inversion plus per-color `mode` choices may produce results that _look right_ in light but feel off in dark (typical fix: switch a brand color to `mode: 'fixed'`, or anchor a foreground to `surface` instead of the brand fill — see [methodology.md](methodology.md)).
-- If the legacy system had no high-contrast mode, audit the HC variants Glaze emits. Anywhere the resolved cr is too low or the color blows out, add an HC pair (`tone: ['-7', '-20']`, `contrast: [4.5, 7]`, etc.).
-- Run real screens, not just the token grid. The interaction of multiple Glaze tokens against each other (text on chip, hover bg vs. fill, disabled label on disabled chip) is where mismatches show up.
+- Spot-check every surface, text, accent, and disabled pair in dark mode. The
+  tone inversion plus the per-color `mode` can produce results that look right
+  in light but feel off in dark. The usual fixes: switch a brand color to
+  `mode: 'fixed'`, or anchor a foreground to `surface` instead of the brand
+  fill (see [adaptation modes](./schemes.mdx#adaptation-modes) and
+  [Designing a palette](./methodology.mdx)).
+- If the legacy system had no high-contrast mode, audit the high-contrast
+  variants Glaze emits. Wherever the resolved contrast is too low or a color
+  blows out, add a `[normal, highContrast]` pair (`tone: ['-7', '-20']`,
+  `contrast: [4.5, 7]`, and so on).
+- Run real screens, not just the token grid. The interaction of several Glaze
+  tokens against each other (text on a chip, a hover background against its
+  fill, a disabled label on a disabled chip) is where mismatches show up.
 
 ### 5. Trim what `extend()` doesn't need
 
-After migration, mark every default-only token (borders, shadows, glows, disabled chip, code highlighting, etc.) `inherit: false`. Colored sibling themes only need the accent + tinted-surface chain — flagging the rest cuts the emitted token set per theme dramatically.
+After the migration, mark every default-only token (borders, shadows, glows,
+the disabled chip, code highlighting, and so on) `inherit: false`. Colored
+sibling themes created with `extend()` only need the accent and tinted-surface
+chain; flagging the rest cuts the token set each theme emits dramatically.
 
 ## Upgrading Glaze
+
+### 3.0 — shadows and glows
+
+`shadow` was rebuilt so `intensity` produces the same visible change on every
+surface, and `glow` was added as its mirror. Both emit a translucent pigment
+whose opacity is solved, per surface and per scheme, so the composite lands an
+exact **tone step** away from `bg`: darker for `shadow`, lighter for `glow`.
+See [Shadows and glows](./shadows-and-glows.mdx).
+
+What changed:
+
+- **`intensity` is a tone step.** In 2.x it went through a `tanh` curve in
+  OKHSL lightness, so the same number darkened white by 9 tones, a tone-35
+  surface by 13.9, and a tone-6 surface by 4.4. Now `intensity: 10` is 10 tones
+  on every surface with 10 tones of room. A step past black (or white, for a
+  glow) is pinned to the strongest composite the pigment reaches, and Glaze
+  warns; see [Unreachable steps](./shadows-and-glows.mdx#unreachable-steps).
+- **`fg` is the object, not a contrast reference.** In 2.x, strength scaled
+  with `|l_bg − l_fg|` and the docs pointed `fg` at `text`, which ran opposite
+  to the physics: a white card on a light surface got almost no shadow. Now
+  `fg` is the element casting the shadow; a darker object deepens it, a lighter
+  one softens it, and an object at the surface's tone (or no `fg`) gives
+  exactly `intensity`.
+- **The pigment is neutral by default**: pure black for `shadow`, pure white
+  for `glow`. The surface keeps its hue and the output is clean: `intensity: 10`
+  on a white surface emits `rgb(0 0 0 / 0.1326)`, which composites to tone 90.
+- **The `ShadowTuning` fields were replaced.** `saturationFactor`,
+  `maxSaturation`, `lightnessFactor`, `lightnessBounds`, `minGapTarget`,
+  `alphaMax`, and `bgHueBlend` are gone. The new knobs are `objectInfluence`,
+  `tint`, `reach`, and `hueBleed`, shared by `shadowTuning` and the new
+  `glowTuning`. The type is now `LightingTuning`; `ShadowTuning` and
+  `GlowTuning` remain as aliases of it.
+- **`GLAZE_EXPORT_VERSION` is 2.** A version-1 theme or palette snapshot that
+  contains shadow colors or a `shadowTuning` now throws on restore instead of
+  silently re-rendering every shadow.
+- **`ColorDef` has a fourth member, `GlowColorDef`.** Exhaustive `switch`es
+  over `def.type` need a `'glow'` branch.
+
+How 2.x shadows map onto 3.0 (2.x steps measured with browser compositing):
+
+| 2.x definition | 2.x step for `intensity: 10` | 3.0 equivalent |
+| --- | --- | --- |
+| No `fg`, light surface (tone 97–100) | ≈ 9 tones | `intensity: 9`, or keep `10` (a tone stronger) |
+| No `fg`, mid surface (tone 50) | ≈ 13.6 tones | `intensity: 13.6`, or settle on one value for all surfaces |
+| No `fg`, dark surface (tone 10) | ≈ 7.6 tones, and saturating | `intensity: 7.6`; dark shadows were weaker than authored and now aren't |
+| `fg: 'text'` on a light surface | ≈ 7 tones | Drop `fg` and use `intensity: 7`, or point `fg` at the element and re-tune |
+| `fg` = a near-white card on light | ≈ 0.3 tones (barely visible) | `fg: 'card'`, then pick `intensity` for the look you want |
+
+Then:
+
+1. Replace `fg: 'text'` (or any contrast-reference `fg`) with either no `fg` or
+   the element that casts the shadow.
+2. Pick `intensity` as the number of tones you want. For a ladder, `4` / `8` /
+   `12` reads as evenly spaced on every surface with room for the deepest step.
+   Check the dark schemes: a white `auto` page sits at about tone 9 in dark and
+   at tone 0 in dark high contrast. Shadows on it deeper than about `8`–`9` (a
+   saturated page has a little less room) pin to black and warn in dark, and
+   every shadow on it stays transparent and warns in dark high contrast. Use
+   glows for dark elevation, on a surface that also leaves them room in light
+   ([Dark-mode elevation](./shadows-and-glows.mdx#dark-mode-elevation)). Leaving
+   a shadow token out of the dark schemes hides the pinned result but not the
+   warning: every color resolves in all four schemes.
+3. Delete the old fields inside `tuning` / `shadowTuning` (`saturationFactor`,
+   `alphaMax`, …); TypeScript flags them. A tinted pigment is
+   `tuning: { tint: 0.3, reach: 0.85 }`. There is no opacity cap: lower
+   `intensity` for a lighter overlay.
+4. Replace hand-tuned translucent white mixes (dark-mode elevation, edge
+   highlights, lightening state layers) with
+   `{ type: 'glow', bg, intensity }`. Direction is fixed per type, so a
+   `shadow` darkens and a `glow` lightens in light and dark alike. A glow on a
+   white light-mode surface has nothing to lighten and warns.
+5. Re-export snapshots. A 2.x snapshot with shadows or a `shadowTuning` throws
+   on restore, so re-author it. In code, rebuild the theme with 3.0 shadow defs
+   and call `export()`. In the JSON, fix the shadow defs, drop
+   `config.shadowTuning`, and set `version` to `2` (a palette snapshot has one at
+   the top and one per theme), then load it and export again. Snapshots without
+   shadows load unchanged.
+
+`glaze.shadow()` keeps its signature with the new semantics, and `glaze.glow()`
+takes the same input. See
+[`glaze.shadow()` / `glaze.glow()`](./reference/utilities.md#glazeshadowinput--glazeglowinput).
 
 ### 2.0 — `format*` takes 0–1
 
 The `format*` writers (`formatOkhsl`, `formatOkhst`, `formatRgb`, `formatHsl`,
-`formatOklch`) used to take `s` / `l` / `t` on a 0–100 percentage scale while
-everything that *produces* those values — `resolve()`, `variantToOkhsl`,
-`srgbToOkhsl`, `oklabToOkhsl`, `okhslToSrgb` — returns them on 0–1. Composing
-the two, which is the obvious thing to do, was off by 100x and failed silently:
-`0.7` is a legal percentage, so you got a valid CSS string naming the wrong
-(near-black) color.
+`formatOklch`) used to take `s` / `l` / `t` on a 0–100 percentage scale, while
+everything that _produces_ those values (`resolve()`, `variantToOkhsl`,
+`srgbToOkhsl`, `oklabToOkhsl`, `okhslToSrgb`) returns them on 0–1. Composing
+the two, which is the obvious thing to do, was off by 100x and failed
+silently: `0.7` is a legal percentage, so you got a valid CSS string naming the
+wrong (near-black) color.
 
 The writers now take the 0–1 factors, so the whole library speaks one scale.
 Drop the `* 100`:
@@ -321,98 +231,48 @@ Drop the `* 100`:
 ```
 
 Nothing else moves: `h` was always 0–360, `alpha` was always 0–1, and every
-export method (`css()` / `tokens()` / `json()` / `tasty()` / `dtcg()` /
-`tailwind()` / `glaze.format()`) emits the same colors — they were compensating
-internally. Dropping the redundant `×100 ÷100` round-trip shifts float noise by
-an ULP, which shows up nowhere except the (meaningless) hue term of a
-fully-desaturated `hsl()` string.
+export method (`css()`, `tokens()`, `json()`, `tasty()`, `dtcg()`,
+`tailwind()`, `glaze.format()`) emits the same colors, because they were
+compensating internally. Dropping the redundant `×100 ÷100` round-trip shifts
+float noise by an ULP, which shows up nowhere except the (meaningless) hue term
+of a fully desaturated `hsl()` string. `toTone` / `fromTone` still speak the
+0–100 tone axis the authoring API takes, so divide a tone from them by 100
+before passing it to `formatOkhst`.
 
-A leftover `* 100` is not silent any more: a value above 1 cannot be a factor,
-so the writers `console.warn` once per writer and you get an obviously-broken
-`7040.68%` instead of a plausible wrong color.
+A leftover `* 100` is no longer silent: a value above 1 cannot be a factor, so
+the writers `console.warn` once per writer, and you get an obviously broken
+string such as `okhsl(280 7040.68% 5000%)` instead of a plausible wrong color.
+See [format writers](./reference/utilities.md#format-writers).
 
-### 3.0 — shadows and glows
+### 0.14 — `lightness` became `tone`
 
-`shadow` was rebuilt so `intensity` produces the same visible change on every
-surface, and `glow` was added as its mirror. Both emit a translucent pigment
-whose opacity is solved, per surface and per scheme, so the composite lands an
-exact **tone step** away from `bg`: darker for `shadow`, lighter for `glow`.
-See [api.md → Shadows and glows](api.md#shadows-and-glows).
+Colors used to be authored on OKHSL lightness. They are now authored on
+**tone**, a contrast-uniform 0–100 axis (see [Tone and OKHST](./okhst.mdx)):
 
-What changed:
-
-- **`intensity` is a tone step.** In 2.x it went through a `tanh` curve in
-  OKHSL lightness, so the same number darkened white by 9 tones, a tone-35
-  surface by 13.9 and a tone-6 surface by 4.4. Now `intensity: 10` is 10 tones
-  everywhere.
-- **`fg` is the object, not a contrast reference.** In 2.x strength scaled with
-  `|l_bg − l_fg|` and the docs pointed `fg` at `text`, which ran opposite to
-  the physics: a white card on a light surface got almost no shadow. Now `fg` is
-  the element casting the shadow; a darker object deepens it, a lighter one
-  softens it, and an object at the surface's tone (or no `fg`) gives exactly
-  `intensity`.
-- **The pigment is neutral by default** — pure black for `shadow`, pure white
-  for `glow` — so the surface keeps its hue and the output is clean
-  (`rgb(0 0 0 / 0.0814)`).
-- **`ShadowTuning` was replaced.** `saturationFactor`, `maxSaturation`,
-  `lightnessFactor`, `lightnessBounds`, `minGapTarget`, `alphaMax` and
-  `bgHueBlend` are gone. The new knobs are `objectInfluence`, `tint`, `reach`
-  and `hueBleed`, shared by `shadowTuning` and the new `glowTuning`.
-- **`GLAZE_EXPORT_VERSION` is 2.** A version-1 theme or palette snapshot that
-  contains shadow colors or a `shadowTuning` now throws on restore instead of
-  silently re-rendering every shadow.
-- **`ColorDef` has a fourth member, `GlowColorDef`.** Exhaustive `switch`es
-  over `def.type` need a `'glow'` branch.
-
-How 2.x shadows map onto 3.0 (2.x steps measured with browser compositing):
-
-| 2.x definition                         | 2.x step for `intensity: 10`           | 3.0 equivalent                                                           |
-| -------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------ |
-| no `fg`, light surface (tone 97–100)   | ≈ 9 tones                              | `intensity: 9` — or keep `10`, a tone stronger                           |
-| no `fg`, mid surface (tone 50)         | ≈ 13.6 tones                           | `intensity: 13.6`, or settle on one value for all surfaces               |
-| no `fg`, dark surface (tone 10)        | ≈ 7.6 tones, and saturating            | `intensity: 7.6`; dark shadows were weaker than authored and now aren't  |
-| `fg: 'text'` on a light surface        | ≈ 7 tones                              | drop `fg`, `intensity: 7` — or point `fg` at the element and re-tune     |
-| `fg` = a near-white card on light      | ≈ 0.3 tones (barely visible)           | `fg: 'card'`, pick `intensity` for the look you want                     |
-
-Then:
-
-1. Replace `fg: 'text'` (or any contrast-reference `fg`) with either no `fg`
-   or the element that casts the shadow.
-2. Pick `intensity` as the number of tones you want. For a ladder,
-   `4` / `8` / `12` reads as evenly spaced on every surface.
-3. Delete the old `tuning` / `shadowTuning` keys. TypeScript flags them. A
-   tinted pigment is `tuning: { tint: 0.3, reach: 0.85 }`; there is no opacity
-   cap — lower `intensity` for a lighter overlay.
-4. Replace hand-tuned translucent white mixes (dark-mode elevation, edge
-   highlights, lightening state layers) with `{ type: 'glow', bg, intensity }`.
-   Direction is fixed per type, so a `shadow` darkens and a `glow` lightens in
-   light and dark alike; a glow on a white light-mode surface has nothing to
-   lighten and warns.
-5. Re-export snapshots. A 2.x snapshot with shadows has to be re-authored: fix
-   its shadow defs (and drop `config.shadowTuning`) in the JSON or in code, then
-   export again from 3.0 so it carries `version: 2`. Snapshots without shadows
-   load unchanged.
-
-`glaze.shadow()` keeps its signature with the new semantics; `glaze.glow()`
-takes the same input.
+- The `lightness` prop is gone everywhere (theme colors, `glaze.color()`
+  structured input, tone deltas); use `tone`. Equal tone steps give equal
+  WCAG contrast, so numeric values don't map to the same OKHSL lightness as
+  before. Re-check absolute mid-range values.
+- The config windows `lightLightness` / `darkLightness` became `lightTone` /
+  `darkTone`, and `darkCurve` was removed.
+- `ResolvedColorVariant` stores `{ h, s, t, alpha }` instead of `{ h, s, l }`.
+  Use `variantToOkhsl()` to recover OKHSL lightness.
+- Tone deltas that overshoot `[0, 100]` mirror to the other side of the base
+  by default instead of clamping. Set `autoFlip: false` on the color
+  (or globally) to clamp.
 
 ## Common pitfalls
 
-| Symptom                                                                        | Cause                                                                                                                                   | Fix                                                                                                                                                                                                        |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Disabled state stops looking disabled in dark mode.                            | Alpha-tinted overlay on `surface-text` (which inverts), giving asymmetric perceived contrast.                                           | Replace it with an adaptive color anchored to `surface`; use a tone delta for visual spacing or a contrast floor when required. See [Chips and disabled states](methodology.md#chips-and-disabled-states). |
-| Brand color flips to its complement in dark mode.                              | Default `mode: 'auto'` inverts the tone.                                                                                                | Set `mode: 'fixed'` so the tone is remapped (not inverted).                                                                                                                                                |
-| Brand text washes out against the dark surface.                                | Foreground was anchored to `accent-surface` (the brand fill), so contrast was only enforced against that fill — not the actual surface. | Anchor `accent-text` etc. to `surface` with `mode: 'auto'`.                                                                                                                                                |
-| Tokens look right in light, broken in HC.                                      | The HC pass bypasses the tone window — solver runs over the full `[0, 100]` range.                                                      | Add explicit `[normal, hc]` pairs to `tone` / `contrast` for the affected tokens.                                                                                                                          |
-| A relative `tone` like `'+48'` lands on the _wrong_ (darker) side of its base. | Overshooting offsets now mirror to the other side of the base by default (`autoFlip` inherits `autoFlip`).                              | Set `autoFlip: false` on the color to clamp to the boundary instead, or use `tone: 'max'`/`'min'` to force the extreme.                                                                                    |
-| `palette.tokens()` emits unexpected unprefixed names.                          | A `primary` was set on the palette (or per-call) and is duplicating the theme's tokens without prefix.                                  | Pass `primary: false` to disable for that export, or rename `glaze.palette(themes, { primary })`.                                                                                                          |
-| `console.warn: token "foo" collides with theme "bar"`.                         | Two themes resolved to the same output key under your prefix config.                                                                    | Adjust the prefix map so each token is unique, or accept the first-write-wins behavior.                                                                                                                    |
-| `console.warn: formatOkhsl() got a value above 1`.                             | Pre-2.0 percentage-scale input to a `format*` writer (a leftover `* 100`).                                                              | Pass the 0–1 factors the converters return — see [2.0 — `format*` takes 0–1](#20--format-takes-01).                                                                                                        |
-| `console.warn: color "X" cannot meet contrast`.                                | The requested contrast target is physically unreachable for the color's hue/saturation against its base.                                | Lower the floor, change the base, or accept the closest passing variant. Use the `name` override on standalone colors to make the warning identifiable.                                                    |
-| `console.warn: glow "X" cannot reach a N-tone step`.                           | The surface has fewer than `N` tones of headroom — a glow on white, a deep shadow on near-black. The overlay is pinned to its strongest. | Lower `intensity`, give the overlay a surface with headroom in that scheme, or don't bind the token there.                                                                                                 |
-| `glaze.themeFrom: this snapshot is export version 1 (Glaze 2) …`               | A 2.x snapshot with shadow colors or `shadowTuning`; shadows changed meaning in 3.0.                                                    | Re-author the shadows and export again — see [3.0 — shadows and glows](#30--shadows-and-glows).                                                                                                            |
-
-## See also
-
-- [methodology.md](methodology.md) — how to design the palette in the first place.
-- [api.md](api.md) — full reference for every option mentioned here.
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A disabled state stops looking disabled in dark mode. | An alpha-tinted overlay on `surface-text` (which inverts) gives asymmetric perceived contrast. | Replace it with an adaptive color anchored to `surface`: a tone delta for visual spacing, or a contrast floor when one is required. See [chips and disabled states](./methodology.mdx#chips-and-disabled-states). |
+| A brand fill turns dark in dark mode and stops reading as the brand. | The default `mode: 'auto'` inverts the tone. | Set `mode: 'fixed'` so the tone is remapped into the dark window, not inverted. See [adaptation modes](./schemes.mdx#adaptation-modes). |
+| Brand text washes out against the dark surface. | The foreground was anchored to `accent-surface` (the brand fill), so contrast was enforced only against that fill, not against the surface it sits on. | Anchor `accent-text` and friends to `surface` with `mode: 'auto'`. |
+| Tokens look right in light but broken in high contrast. | High contrast bypasses the tone window, so absolute tones and deltas land on the full `[0, 100]` range (a white `auto` page is black in dark high contrast), and floors without an explicit high-contrast value rise a tier (`'AA'` → `'AAA'`, APCA +15 Lc). | Add explicit `[normal, highContrast]` pairs to `tone` / `contrast` for the affected tokens. |
+| A tone delta like `'+48'` lands on the _wrong_ (darker) side of its base. | Overshooting tone deltas mirror to the other side of the base by default (a color's `autoFlip` defaults to the global `autoFlip`, which is on). | Set `autoFlip: false` on the color to clamp to the boundary instead, or use `tone: 'max'` / `'min'` to force the extreme. |
+| `palette.tokens()` emits unexpected unprefixed names. | A `primary` was set on the palette (or per call) and duplicates that theme's tokens without a prefix. | Pass `primary: false` to disable it for that export, or change `glaze.palette(themes, { primary })`. See [the `primary` alias](./exporting.mdx#the-primary-alias). |
+| `glaze: token "surface" from theme "danger" collides with theme "default" — skipping.` | Two themes resolved to the same output name under your prefix config. | Adjust the prefix map so each name is unique, or accept first-write-wins. See [Collisions](./exporting.mdx#collisions). |
+| `glaze: formatOkhsl() got a value above 1 …` | Pre-2.0 percentage-scale input to a `format*` writer (a leftover `* 100`). | Pass the 0–1 factors the converters return; see [2.0 — `format*` takes 0–1](#20--format-takes-01). |
+| `glaze: color "X" cannot meet WCAG … in light scheme (got …)` | The contrast target is physically unreachable for the color's hue and saturation against its base. The color pins to the extreme of the side it searched first, which may not be the closer one; see [When a floor can't be met](./contrast.mdx#when-a-floor-cant-be-met). | Lower the floor or change the base. If only the high-contrast schemes fail, give `contrast` an explicit, reachable high-contrast entry (`['AA', 'AA']`). On standalone colors, set `name` so the warning is identifiable; see [`name`](./reference/color-tokens.md#name). |
+| `glaze: shadow "X" cannot reach a 10.0-tone step …` (or `glow`) | The surface has fewer tones of room than `intensity` asks for: a glow on white, a deep shadow on near-black, or any shadow on a light `auto` page in dark high contrast (at or near tone 0 there). The overlay is pinned to its strongest composite (transparent when the surface is already at the pigment's extreme). | Lower `intensity` or give the overlay a surface with room in every scheme, and use glows for dark elevation. Otherwise expect the warning: every color resolves in all four schemes, so not using the token in a scheme doesn't silence it. See [Unreachable steps](./shadows-and-glows.mdx#unreachable-steps). |
+| `glaze.themeFrom: this snapshot is export version 1 (Glaze 2) …` | A 2.x snapshot with shadow colors or `shadowTuning`; shadows changed meaning in 3.0. | Re-author the shadows and export again; see [3.0 — shadows and glows](#30--shadows-and-glows). |

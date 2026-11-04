@@ -1,0 +1,536 @@
+---
+title: Light, dark, and high contrast
+description: How one color definition adapts to light, dark, and high-contrast schemes, and the options that steer it.
+---
+
+import { Callout } from '@tenphi/cookbook/components';
+import SchemeGrid from '../docs-site/components/SchemeGrid.tsx';
+import WindowMap from '../docs-site/components/schemes/WindowMap.tsx';
+import SchemeExample from '../docs-site/components/schemes/SchemeExample.astro';
+
+You define each color once. Glaze resolves it four times — light, dark, light
+high contrast, and dark high contrast — by moving its **tone** through a
+per-scheme pipeline. Hue and saturation stay as you authored them, apart from a
+small dark desaturation, unless you give dark a seed of its own.
+
+<SchemeGrid caption="One theme in all four schemes. Every color is resolved by Glaze for its scheme; none is tuned by hand." />
+
+## Four variants per color
+
+Every color resolves to four variants:
+
+| Variant         | Scheme                    | Window                                                                                  |
+| --------------- | ------------------------- | --------------------------------------------------------------------------------------- |
+| `light`         | Light                     | `lightTone`, default `[10, 100]` in OKHSL lightness (tone 4.9–100)                      |
+| `dark`          | Dark                      | `darkTone`, default `[15, 95]` in OKHSL lightness (tone 9.3–95.9), inverted for `auto` |
+| `lightContrast` | Light, high contrast      | The full range, tone 0–100                                                              |
+| `darkContrast`  | Dark, high contrast       | The full range, inverted for `auto`                                                     |
+
+`theme.resolve()` always returns all four. Exports include `light` and `dark`
+by default; [output modes](#output-modes) choose which variants they emit.
+
+For a regular color, each variant runs the same pipeline:
+
+```text
+authored tone
+  -> invert (100 - t) when the scheme is dark and mode is 'auto'
+  -> remap into the scheme's tone window (the full range in high contrast)
+  -> store the canonical tone; convert to OKHSL lightness when formatting
+```
+
+The tone axis itself — why equal tone steps give equal contrast, and the
+transfer math — is covered in [Tone and OKHST](./okhst.mdx).
+
+## Dark is an inversion
+
+Under the default `mode: 'auto'`, dark mode is a single inversion: an authored
+tone `t` becomes `100 − t`, which is then remapped into the dark window. There
+is no fitted curve. Because tone is contrast-shaped, the inversion itself keeps
+the authored spacing — exactly for neutrals, approximately for chromatic
+colors, whose luminance drifts a little with hue and saturation. The dark window
+then scales every step to its span, about 0.87× at the defaults, so order and
+direction carry over but steps come out a little smaller in dark. Tone deltas
+have one more wrinkle, covered in
+[How relative tone adapts](#how-relative-tone-adapts).
+
+A surface at tone 97 becomes a dark surface, and text 52 tones below it
+becomes light text above it. Hierarchy, ladders, and borders keep their order
+without a second definition.
+
+### Tone windows
+
+Ordinary schemes don't use the whole tone scale. Each one has a **tone window**:
+
+```ts
+glaze.configure({
+  lightTone: [10, 100], // default
+  darkTone: [15, 95], // default
+});
+```
+
+The bounds are OKHSL lightness values. Glaze converts them to tone — the light
+window spans tone 4.9 to 100, the dark window 9.3 to 95.9 — and spreads the
+whole authored `0–100` scale across that interval. The window is a remap, not a
+clamp: an authored tone of 0 renders at tone 4.9 in light, and every other tone
+moves proportionally. Per scheme and mode:
+
+```text
+light:          t' = remap(t, lightTone)
+dark, auto:     t' = remap(100 - t, darkTone)
+dark, fixed:    t' = remap(t, darkTone)
+static:         t' = t
+high contrast:  the same, with the window [0, 100]
+
+remap(t, [lo, hi]) = tone(lo) + t / 100 × (tone(hi) - tone(lo))
+```
+
+<WindowMap caption="Authored tones 0–100 (top row) and the tone Glaze stores for each in light and dark. The light window lifts the bottom of the scale; the dark window reverses it and trims both ends." />
+
+A window takes three forms:
+
+- `[lo, hi]` — OKHSL lightness bounds at the reference eps. The common form.
+- `{ lo, hi, eps }` — the same bounds with an explicit render eps for that
+  scheme (the reference eps is `0.05`). Glaze still stores the result on the
+  reference scale, so deltas and contrast stay comparable. Advanced; most
+  palettes keep the default.
+- `false` — the full range `[0, 100]`. This removes the boundaries, not the
+  tone transfer.
+
+Set windows globally with `glaze.configure()` or per theme or token with a
+config override (`glaze(280, 80, { darkTone: [10, 98] })`). The defaults and
+every field are listed in [Configuration](./reference/configuration.md#tone-windows).
+
+Some colors skip a window:
+
+- **High-contrast variants** ignore both windows and use the full range. See
+  [High contrast](#high-contrast).
+- **`mode: 'static'` colors** skip both windows in every scheme. See
+  [Adaptation modes](#adaptation-modes).
+- **A color seeded with `from`** (a literal hex, `rgb()`, `oklch()`, … value)
+  skips the light window, so its light variant reproduces the literal exactly,
+  and so does its light high-contrast variant, whose window is the full range
+  anyway. Dark, dark high contrast, and a contrast floor still adapt it. See
+  [`from`](./reference/color-definitions.md#from).
+- **An extreme with a base** (`tone: 'max'` / `'min'`) can land outside the dark
+  window. See [Extremes in dark](#extremes-in-dark).
+
+## Adaptation modes
+
+A color's `mode` decides how its tone moves between schemes:
+
+| Mode               | Light                         | Dark                                       | Use it for                                                                                      |
+| ------------------ | ----------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `'auto'` (default) | Remap into the light window   | Invert, then remap into the dark window    | Surfaces, text, borders, icons — anything that should trade places with its background in dark. |
+| `'fixed'`          | Remap into the light window   | Remap into the dark window, no inversion   | Brand fills, CTAs, status banners, inverse surfaces — colors that stay on their side of the scale. |
+| `'static'`         | The authored tone, unchanged  | The authored tone, unchanged               | Colors that must render the exact authored tone and saturation in every scheme.                  |
+
+<SchemeExample
+  hue={280}
+  saturation={60}
+  colors={{
+    'pale-auto': { tone: 92 },
+    'deep-auto': { tone: 25 },
+    'pale-fixed': { tone: 92, mode: 'fixed' },
+    'deep-fixed': { tone: 25, mode: 'fixed' },
+    'pale-static': { tone: 92, mode: 'static' },
+    'deep-static': { tone: 25, mode: 'static' },
+  }}
+  rows={[
+    { label: "mode: 'auto'", show: ['pale-auto', 'deep-auto'] },
+    { label: "mode: 'fixed'", show: ['pale-fixed', 'deep-fixed'] },
+    { label: "mode: 'static'", show: ['pale-static', 'deep-static'] },
+  ]}
+  caption="The same two tones under each mode. auto swaps them, fixed keeps them on their side and only remaps them into the dark window, static renders the authored tone everywhere."
+/>
+
+`static` skips more than the window: it also skips
+[dark desaturation](#dark-desaturation) and any [dark seed](#dark-seed), so the
+color is pinned to one tone, hue, and saturation. In high-contrast variants,
+`auto` still inverts and `fixed` / `static` don't.
+
+<Callout kind="note" title="Inversion is not autoFlip">
+  Dark tone inversion is controlled by `mode` alone. `autoFlip` is unrelated:
+  it only lets an overshooting tone delta, or a contrast floor that can't be met
+  on the requested side, reverse around its base. See
+  [autoFlip](./contrast.mdx#autoflip-crossing-to-the-other-side).
+</Callout>
+
+For a worked palette that picks a mode per token — surfaces and text `auto`,
+accent fills `fixed` — see [Designing a palette](./methodology.mdx).
+
+## How relative tone adapts
+
+A tone delta (`'+N'` / `'-N'`) places a dependent color relative to its base,
+and the base is resolved separately in each scheme. What happens to the delta
+depends on the dependent's mode:
+
+- **`auto`** — in light, the delta is applied to the base's light tone as
+  written. In dark, Glaze adds the delta to the base's _light_ tone, then
+  inverts and remaps that result through the dark window, exactly like an
+  authored tone. The step flips direction and keeps its place in the ladder.
+  On a base near the top of the scale, such as a light surface, it comes out
+  about 0.87× the authored size. The base's light tone already carries the
+  light window's lift (about 5 tones at the bottom of the scale, none at the
+  top), and that lift is carried into dark, so on a lower base the dark step is
+  uneven: on a tone-50 base, `'+4'` becomes −5.6 and `'-4'` becomes +1.3. In
+  high contrast the windows are the full range, so the step is exact in both
+  schemes.
+- **`fixed`** — the delta is applied to the base's tone in each scheme with its
+  sign preserved. A `'+30'` label stays 30 tones lighter than its fill in light
+  and in dark. A label on a `fixed` fill should be `fixed` too: the inversion
+  follows the label's own mode, so an `auto` label inverts in dark and lands on
+  the other side of its fill (30 tones above it in light, 31.5 below it in
+  dark).
+- **`static`** — the delta is applied the same way as `fixed`, to the base's
+  tone in each scheme, without inversion. A static dependent of an adaptive base
+  therefore still moves with that base; only its own tone mapping is skipped.
+
+<SchemeExample
+  hue={280}
+  saturation={30}
+  colors={{
+    surface: { tone: 97 },
+    'surface-2': { base: 'surface', tone: '-4' },
+    border: { base: 'surface', tone: '-12' },
+    text: { base: 'surface', tone: '-52' },
+    fill: { tone: 52, mode: 'fixed' },
+    'fill-text': { base: 'fill', tone: '+30', mode: 'fixed' },
+  }}
+  schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
+  delta
+  ratio
+  caption="Each dependent is drawn over its base, with its tone step from the base (Δ) and the measured WCAG ratio. The auto ladder flips in dark with slightly smaller steps; the fixed pair keeps +30 everywhere; high contrast keeps every step exact."
+/>
+
+The `text` row shows why legibility belongs to `contrast`, not to a delta: the
+same `'-52'` step measures 4.93:1 in light and 3.91:1 in dark. A delta is a
+visual relationship; a [contrast floor](./contrast.mdx) is a guarantee that is
+solved in every scheme.
+
+### Overshooting deltas
+
+When `base + delta` falls outside `[0, 100]`, the delta is mirrored to the other
+side of the base — `'+10'` on a tone-97 surface resolves to 87.1 in light
+instead of clamping at 100. If the mirrored target is also out of range, the
+original delta is kept and clamped on the authored side. This is `autoFlip`,
+on by default; set `autoFlip: false` on the color (or globally) to always clamp
+on the authored side.
+
+## Extremes in dark
+
+`tone: 'max'` and `tone: 'min'` force a color to the end of the scheme's tone
+scale without a magic number. `'max'` is authored tone 100 and `'min'` is 0, so
+without a `base` they go through the ordinary scheme mapping:
+
+- Under `auto`, they invert: `'max'` is the lightest color in light (tone 100)
+  and the darkest in dark (tone 9.3, the bottom of the dark window).
+- Under `fixed`, they keep their end: `'max'` stays the lightest (tone 95.9 in
+  dark).
+- Under `static`, they're pinned to the absolute end in every scheme.
+
+With a `base`, an extreme keeps its contrast with that base instead. Remapping
+the extreme through the narrower dark window would squeeze the span between
+the two, so Glaze measures the tone shift the light scheme applied between base
+and extreme, then replays it against the base's dark tone — mirrored under
+`auto`, same-signed under `fixed`.
+
+<SchemeExample
+  hue={0}
+  saturation={0}
+  colors={{
+    bg: { tone: 60 },
+    fg: { base: 'bg', tone: 'max' },
+    top: { tone: 'max' },
+    bottom: { tone: 'min' },
+  }}
+  delta
+  ratio
+  caption="fg replays the light shift (+38) as -38 in dark, keeping the same ratio. The root extremes top and bottom invert and land on the window edges."
+/>
+
+The replayed tone is clamped to `[0, 100]` only, so it can cross the `darkTone`
+boundary — `fg` above lands at tone 5.9, below the dark window's 9.3. That is
+intended: you asked for the extreme. When the shift doesn't fit above or below
+the dark base, the color pins at tone 100 or 0. `static` extremes are
+unaffected. High-contrast variants follow the same rule, but their window is
+already the full range, so the replay matches the plain mapping unless the base
+itself sits asymmetrically across schemes.
+
+## Hue and saturation in dark
+
+Tone is the only channel the scheme pipeline adapts. Hue and saturation enter
+it as authored, with two adjustments for the dark schemes.
+
+### Dark desaturation
+
+Dark variants get a flat saturation reduction:
+
+```text
+S_dark = S_light × (1 − darkDesaturation)    darkDesaturation defaults to 0.1
+```
+
+It applies to `dark` and `darkContrast`, skips `static` colors, and is bypassed
+entirely for a color that has an explicit dark saturation (below). Set it
+globally or per instance with `darkDesaturation`.
+
+<SchemeExample
+  hue={280}
+  saturation={80}
+  colors={{
+    accent: { tone: 55 },
+    logo: { tone: 55, mode: 'static' },
+  }}
+  value="channels"
+  caption="Seed saturation 80: accent loses 10% of its saturation in dark; the static logo keeps it."
+/>
+
+### Dark seed
+
+When a uniform reduction isn't enough — a hue that turns muddy on dark
+surfaces, an accent that stays loud however far you turn the global knob — give
+the theme a second seed for the dark schemes:
+
+<SchemeExample
+  hue={280}
+  saturation={80}
+  darkHue={250}
+  darkSaturation={50}
+  colors={{
+    accent: { tone: 55 },
+    'accent-alt': { tone: 55, hue: '+20' },
+    warning: { tone: 55, hue: 40 },
+    link: { tone: 55, hue: '+20', darkHue: '+35' },
+    highlight: { tone: 55, saturation: 0.9, darkSaturation: 0.6 },
+    logo: { tone: 55, mode: 'static' },
+  }}
+  value="channels"
+  caption="Hue and saturation per scheme. Relative hues re-anchor to the dark seed, the absolute warning hue stays put, link and highlight override dark on their own, and the static logo ignores the dark seed."
+/>
+
+How the dark channels resolve:
+
+- **Both levels.** `darkHue` / `darkSaturation` exist on the seed and on each
+  color, and apply to `dark` and `darkContrast`. On the seed, `darkSaturation`
+  is `0–100` like `saturation`; on a color it is a `0–1` factor of the dark seed
+  saturation, like a color's `saturation`.
+- **Fallbacks.** A missing dark value falls back to its light counterpart, and
+  a color falls back to the seed. Omitting all of them reproduces the single-seed
+  output exactly.
+- **Relative hue follows the dark seed.** `darkHue: '+N'` is relative to the dark
+  seed hue, and so is a plain `hue: '+N'` with no `darkHue`, so a whole palette
+  rotates together.
+- **Absolute hue stays absolute.** A numeric `hue` with no `darkHue` is used
+  verbatim in dark.
+- **No double reduction.** Any explicit dark saturation, on the seed or the
+  color, replaces `darkDesaturation` instead of stacking with it. The number you
+  write is the number you get. A
+  [`from`](./reference/color-definitions.md#from) color with neither
+  `saturation` nor `darkSaturation` of its own is the exception: it starts from
+  the literal's saturation, ignores a seed-level `darkSaturation`, and still
+  gets `darkDesaturation`. Give it a `saturation` and it reads the seed again,
+  dark seed included.
+- **`static` ignores both**, and **shadows, glows, and mixes** have no channels
+  of their own: they derive hue and saturation from the colors they reference,
+  so they inherit dark overrides automatically.
+
+With `splitHue` output, a dark seed makes the hue custom properties
+scheme-dependent, and Glaze re-declares them in the dark block — see
+[Dark hues](./reference/output.md#dark-hues). The full field rules are in
+[Color definitions](./reference/color-definitions.md#dark-seed-darkhue--darksaturation); prefer tuning the seed
+over scattering per-color dark overrides, as
+[Designing a palette](./methodology.mdx) explains.
+
+## High contrast
+
+The `lightContrast` and `darkContrast` variants serve readers who ask for more
+contrast — by default through `@media(prefers-contrast: more)`. They differ from
+the normal variants in three ways:
+
+1. **No tone windows.** Both windows are bypassed and the full `[0, 100]` range
+   is available, so edge tones reach the edge and contrast floors have more
+   room to solve. `auto` still inverts; `fixed` and `static` don't.
+2. **High-contrast pairs.** Any value written as `[normal, highContrast]` takes
+   its second entry.
+3. **Escalated contrast floors.** Unless you write an explicit high-contrast
+   value, WCAG presets step up (`AA → AAA`, `AA-large → AAA-large`) and APCA
+   targets gain 15 Lc. A bare WCAG number (`4.5`, `{ wcag: 6 }`) and the AAA
+   presets are not escalated; give them an explicit pair such as `[4.5, 7]`.
+   See [Contrast solving](./contrast.mdx#high-contrast).
+
+<WindowMap
+  rows={[
+    { scheme: 'light' },
+    { scheme: 'lightContrast' },
+    { scheme: 'dark' },
+    { scheme: 'darkContrast' },
+  ]}
+  caption="Authored tones 0–100 in each scheme. The high-contrast rows use the full scale: auto still inverts, but nothing is trimmed."
+/>
+
+High-contrast variants are always resolved. Whether they're exported is up to
+[output modes](#output-modes), which leave them out by default.
+
+### High-contrast pairs
+
+`HCPair<T>` is either one value used in both tiers or an explicit
+`[normal, highContrast]` pair:
+
+```ts
+type HCPair<T> = T | [T, T];
+```
+
+It is accepted by `tone`, `contrast`, shadow and glow `intensity`, and mix
+`value`:
+
+```ts
+theme.colors({
+  surface: { tone: 97 },
+  // -8 in both tiers
+  divider: { base: 'surface', tone: '-8' },
+  // -8 normal, -16 high contrast
+  border: { base: 'surface', tone: ['-8', '-16'] },
+  // APCA preset: Lc 60, escalated to 75 in high contrast
+  text: { base: 'surface', contrast: { apca: 'content' } },
+  // Explicit pair: Lc 60 normal, Lc 90 high contrast
+  'text-strong': {
+    base: 'surface',
+    contrast: { apca: ['content', 'preferred'] },
+  },
+});
+```
+
+For `contrast`, the pair can wrap the whole spec (`[4.5, 7]`) or sit inside the
+metric (`{ wcag: [4.5, 7] }`). An explicit high-contrast value turns off the
+automatic WCAG promotion or APCA boost for that color.
+
+<SchemeExample
+  hue={280}
+  saturation={30}
+  colors={{
+    surface: { tone: 97 },
+    border: { base: 'surface', tone: ['-12', '-24'] },
+    text: { base: 'surface', tone: '-45', contrast: 'AA' },
+  }}
+  schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
+  ratio
+  caption="The border doubles its step through an HC pair; the text's AA floor is promoted to AAA in high contrast."
+/>
+
+High contrast is not a separate palette. Add pairs where readers should get
+more separation — text and content contrast, accent fills, borders, shadows
+and glows, decorative ramps that must stay perceivable — and leave the rest to
+the window bypass and the automatic escalation.
+
+## Manual contrast level
+
+The two tiers assume contrast is a binary OS preference. When it is a setting
+your users control, set `contrastLevel` to a number from `0` to `100`: the
+**normal** variants slide from the palette you authored (`0`) to its
+high-contrast resolution (`100`), and every level in between is resolved at
+that level. The default, `'auto'`, takes the authored normal entries as they
+are. The authoring work is the same: the high-contrast pairs you already wrote
+are what the slider ramps toward.
+
+`contrastLevel` is a config field, so it works globally, per theme, per token,
+and through `extend()`:
+
+```ts
+glaze.configure({ contrastLevel: 60 });
+const theme = glaze(280, 80, { contrastLevel: 60 });
+glaze.color('#26fcb2', { contrastLevel: 60 });
+```
+
+<SchemeExample
+  visual="levels"
+  hue={280}
+  saturation={60}
+  colors={{
+    surface: { tone: 97, saturation: 0.2 },
+    border: { base: 'surface', tone: ['-12', '-24'], saturation: 0.3 },
+    text: { base: 'surface', tone: '-45', contrast: 'AA', saturation: 0.5 },
+    'accent-label': { tone: 100, mode: 'fixed' },
+    accent: {
+      base: 'accent-label',
+      tone: '-30',
+      contrast: { apca: ['content', 'body'] },
+      mode: 'fixed',
+    },
+  }}
+  after="// Each column: the same theme with { contrastLevel: 0 | 25 | 50 | 75 | 100 }"
+  caption="The normal light and dark variants at five levels, with the measured WCAG ratio of text and border against the surface. Level 0 is the authored palette, level 100 equals the theme's high-contrast tier (last column)."
+/>
+
+What the level moves:
+
+- **Authored pairs** — `tone`, `contrast`, `intensity`, and mix `value` pairs
+  are interpolated between their two entries.
+- **The tone windows** — each endpoint walks toward the full range: light
+  `10 → 0`, dark `15 → 0` and `95 → 100`.
+- **Contrast escalation** — the normal and escalated targets are interpolated,
+  so `AA` at level 50 solves for 5.75:1.
+
+The interpolated values go through the ordinary resolve, so a contrast floor is
+**solved** at every level, not approximated. Hue, saturation,
+`darkDesaturation`, `opacity`, and `pastel` don't change with the level.
+
+Level `0` reproduces `'auto'` and level `100` reproduces the high-contrast
+output, bit for bit. The high-contrast tier itself ignores the level:
+`lightContrast` / `darkContrast` stay the true high-contrast resolution, so a
+`prefers-contrast: more` block still escalates on top of the reader's chosen
+level. At a global level of `100` the tier would duplicate the normal set, so
+it is dropped.
+
+A pair with no midpoint switches from its normal entry to its high-contrast one
+at level 50: one that mixes kinds (`[50, 'max']`, `[50, '+20']`), or any pair
+of extremes (`['max', 'min']`), which have no magnitude to blend. A
+contrast-solved color is pinned to the side of its base that the nearer
+endpoint (level 0 or 100) resolves to, so it normally changes side at most
+once, at level 50. Where the pinned side can't reach the target, it falls back
+to the other side at that level. The full rules are in
+[Manual contrast level](./reference/contrast.md#manual-contrast-level).
+
+Because `configure()` invalidates every theme cache, a runtime slider only needs
+to re-export:
+
+```ts
+slider.oninput = () => {
+  glaze.configure({ contrastLevel: slider.valueAsNumber });
+  apply(theme.css());
+};
+```
+
+`contrastLevel: 0` is the natural rest position for a slider you ship but
+default off. `configure()` never clears a field by omission, so pass
+`contrastLevel: 'auto'` to leave manual mode. How `.export()` treats a level,
+and what happens when a dependent and its base sit at different levels, is in
+[Clearing it, exporting it, base links](./reference/contrast.md#clearing-it-exporting-it-base-links).
+
+## Output modes
+
+Resolution always produces four variants; `modes` decides which ones an export
+includes:
+
+```ts
+// Light only
+theme.tokens({ modes: { dark: false } });
+
+// Light + dark (the default)
+theme.tokens();
+
+// All four
+theme.tokens({ modes: { dark: true, highContrast: true } });
+// → { light, dark, lightContrast, darkContrast }
+```
+
+`modes` is accepted by `tokens()`, `tasty()`, `json()`, `dtcg()`,
+`dtcgResolver()`, and `tailwind()`, on themes and palettes alike. `css()` has
+no `modes` option: it always returns all four declaration blocks. A per-call
+`modes` overrides `glaze.configure({ modes })`, and a global `contrastLevel` of
+`100` drops the high-contrast tier even when `modes` asks for it; the full
+precedence is in [Output modes](./reference/output.md#output-modes).
+
+The selectors that switch variants in [Tasty](https://tasty.style) output come
+from [`states.dark` and `states.highContrast`](./reference/output.md#state-aliases)
+(by default the `prefers-color-scheme: dark` and `prefers-contrast: more` media
+queries). How each export lays out its variants is in
+[Output formats](./reference/output.md) and [Exporting and integration](./exporting.mdx).

@@ -1,0 +1,57 @@
+---
+/**
+ * One small theme and what each export method returns for it, as tabs of a
+ * code group: the source first, then the real output of `css()`,
+ * `tailwind()`, `tasty()`, `dtcg()`, and `json()` resolved while the site
+ * builds.
+ *
+ *   <ExportShowcase hue={280} saturation={80} colors={{ ... }} />
+ */
+import { CodeGroup } from '@tenphi/cookbook/components';
+import { resolveDemo, themeSource } from '../glaze-docs.ts';
+import type { DemoTheme } from '../glaze-docs.ts';
+
+type Props = DemoTheme;
+
+const props = Astro.props;
+const { theme } = resolveDemo(props);
+
+const source = [
+  "import { glaze } from '@tenphi/glaze';",
+  '',
+  themeSource(props),
+  '',
+  'theme.css(); // CSS custom properties',
+  'theme.tailwind(); // Tailwind CSS v4 theme',
+  'theme.tasty(); // Tasty tokens',
+  'theme.dtcg(); // W3C design tokens, one tree per scheme',
+  'theme.json(); // plain JSON',
+].join('\n');
+
+const css = theme.css();
+const indent = (block: string, n: number) =>
+  block
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => ' '.repeat(n) + line)
+    .join('\n');
+const json = (value: unknown) => JSON.stringify(value, null, 2);
+
+const items = [
+  { label: 'theme.ts', language: 'ts', code: source },
+  {
+    label: 'CSS',
+    language: 'css',
+    code: [
+      `:root {\n${indent(css.light, 2)}\n}`,
+      `@media (prefers-color-scheme: dark) {\n  :root {\n${indent(css.dark, 4)}\n  }\n}`,
+    ].join('\n\n'),
+  },
+  { label: 'Tailwind', language: 'css', code: theme.tailwind() },
+  { label: 'Tasty', language: 'json', code: json(theme.tasty()) },
+  { label: 'DTCG', language: 'json', code: json(theme.dtcg()) },
+  { label: 'JSON', language: 'json', code: json(theme.json()) },
+];
+---
+
+<CodeGroup label="Export formats" items={items} />

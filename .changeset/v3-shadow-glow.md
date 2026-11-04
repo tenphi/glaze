@@ -14,3 +14,5 @@ Breaking changes:
 - **`ColorDef` gains `GlowColorDef`.** Add a `'glow'` branch to exhaustive switches.
 
 New: `{ type: 'glow', bg, fg?, intensity }` and `glaze.glow()`. Out-of-reach steps (a glow on white, a deep shadow on near-black) pin to the strongest composite and emit a deduped warning. See "3.0 — shadows and glows" in `docs/migration.md`.
+
+The documentation is rewritten and reorganized: getting started, concept pages (tone and OKHST, schemes, contrast, shadows and glows, mixes) with live examples that follow the reader's light/dark and contrast settings, guides, and an API reference split into focused pages under `docs/reference/`. `docs/api.md` is replaced by `docs/reference/*.md`.

@@ -75,10 +75,11 @@ export function warnContrastUnmet(
 }
 
 /**
- * Verification (§10): a chromatic swatch inherits the gray tone's
- * lightness but drifts in real luminance, so a contrast-floored color may
- * land slightly under the contrast its tone implies. Emit an advisory
- * warning when the actual measured contrast drifts below the target.
+ * Verification (the drift check in docs/okhst.mdx): a chromatic swatch
+ * inherits the gray tone's lightness but drifts in real luminance, so a
+ * contrast-floored color may land slightly under the contrast its tone
+ * implies. Emit an advisory warning when the actual measured contrast
+ * drifts below the target.
  */
 export function warnContrastDrift(
   name: string,

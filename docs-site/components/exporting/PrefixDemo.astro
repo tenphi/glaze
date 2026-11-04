@@ -1,0 +1,38 @@
+---
+/**
+ * Source + the token names a palette emits under several prefix settings.
+ * The listing is generated from the same props that build the palette, so the
+ * code and the names under it can never drift apart.
+ *
+ *   <PrefixDemo themes={{ ... }} calls={[{}, { prefix: { default: '' } }]} />
+ */
+import { CodeGroup } from '@tenphi/cookbook/components';
+import PrefixTable from './PrefixTable.tsx';
+import { paletteSource } from './palette-demo.ts';
+import type { PaletteDemoProps } from './palette-demo.ts';
+
+interface Props extends PaletteDemoProps {
+  /** Tab label of the code block. Default `palette.ts`. */
+  label?: string;
+  caption?: string;
+}
+
+const props = Astro.props;
+---
+
+<CodeGroup
+  label="Example source"
+  items={[
+    {
+      label: props.label ?? 'palette.ts',
+      language: 'ts',
+      code: paletteSource(props),
+    },
+  ]}
+/>
+<PrefixTable
+  themes={props.themes}
+  primary={props.primary}
+  calls={props.calls}
+  caption={props.caption}
+/>
