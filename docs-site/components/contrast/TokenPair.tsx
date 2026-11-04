@@ -9,11 +9,7 @@ import { Figure } from '../primitives';
 import { glaze, literal, paint } from '../glaze-docs';
 import type { SchemeChoice, SchemeColors } from '../glaze-docs';
 import { MetricsBlock, Sample, measurePair, quietly } from './ContrastRows';
-import {
-  inferRoleFromName,
-  normalizeRole,
-  roleToPolarity,
-} from '../../../src/index.ts';
+import { normalizeRole, roleToPolarity } from '../../../src/index.ts';
 import type { GlazeColorValue, GlazeFromInput } from '../../../src/index.ts';
 
 /** The paired token's input, without `base` (the component supplies it). */
@@ -65,10 +61,8 @@ export default function TokenPair(props: TokenPairProps) {
     text: text.json({ format: 'rgb', ...MODES }) as SchemeColors,
   }));
   const resolved = { bg: bg.resolve(), text: text.resolve() };
-  const role =
-    normalizeRole(props.color.role) ??
-    (props.color.name ? inferRoleFromName(props.color.name) : undefined) ??
-    'text';
+  // A token's role is its explicit `role`, else 'text'; `name` never feeds it.
+  const role = normalizeRole(props.color.role) ?? 'text';
   const polarity = roleToPolarity(role);
 
   return (

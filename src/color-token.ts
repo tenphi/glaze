@@ -6,6 +6,11 @@
  * `{ l, c, h }`), the structured-input validator, the two factory paths
  * (value vs structured), and the JSON-safe export / rehydration round-trip.
  *
+ * A token's role is pinned here rather than left to the resolver's chain: an
+ * explicit `role`, else `'text'`. The token is the foreground against its
+ * anchor — its `base`, or the hidden seed holding its own input color — and
+ * the user-supplied `name` is a debug label that never drives role inference.
+ *
  * Tokens store a sparse local config override only. Resolve merges the
  * live global config with that local override (invalidated on
  * `configure()`). Authoring `.export(override?)` freezes
@@ -30,6 +35,7 @@ import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
 import { pairNormal } from './hc-pair';
 import { resolveAllColors } from './resolver';
+import { normalizeRole } from './roles';
 import { hasRelativeTone } from './validation';
 import {
   buildCssMap,
@@ -66,6 +72,8 @@ import type {
   OkhslColor,
   RegularColorDef,
   ResolvedColor,
+  Role,
+  RoleInput,
   ToneValue,
 } from './types';
 
@@ -252,6 +260,21 @@ function pinExtremeTone(tone: HCPair<ToneValue>): HCPair<ToneValue> {
 }
 
 /**
+ * The role the user-facing def resolves with: an explicit `role`, else
+ * `'text'`.
+ *
+ * A token is the foreground against its anchor in both pairings — an
+ * external `base` (which the resolver treats as a background) and the hidden
+ * `STANDALONE_SEED` holding the token's own input color (marked `'surface'`
+ * below). Pinning the role here, instead of leaving it to the resolver's
+ * chain, also keeps the user-supplied `name` a pure debug label: it becomes
+ * the def's key, so the resolver would otherwise infer a role from it.
+ */
+function standaloneRole(role: RoleInput | undefined): Role {
+  return normalizeRole(role) ?? 'text';
+}
+
+/**
  * Build the `ColorMap` for a value-shorthand `glaze.color()` call.
  *
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
@@ -307,7 +330,7 @@ function buildStandaloneValueDefs(
     autoFlip: options?.autoFlip,
     opacity: options?.opacity,
     pastel: options?.pastel,
-    role: options?.role,
+    role: standaloneRole(options?.role),
     base: hasExternalBase
       ? STANDALONE_BASE
       : needsSeedAnchor
@@ -323,6 +346,8 @@ function buildStandaloneValueDefs(
       saturation: 1,
       tone: seedTone,
       mode: 'static',
+      // The anchor is the background the token is measured on.
+      role: 'surface',
     };
   }
 
@@ -588,7 +613,7 @@ export function createColorToken(
       contrast: input.contrast,
       opacity: input.opacity,
       pastel: input.pastel,
-      role: input.role,
+      role: standaloneRole(input.role),
       base: hasExternalBase
         ? STANDALONE_BASE
         : needsSeedAnchor
@@ -604,6 +629,8 @@ export function createColorToken(
       tone: pinExtremeTone(pairNormal(input.tone)),
       saturation: 1,
       mode: 'static',
+      // The anchor is the background the token is measured on.
+      role: 'surface',
     };
   }
 

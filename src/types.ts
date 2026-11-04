@@ -729,9 +729,10 @@ export interface GlazeThemeExport {
 export interface GlazeLightingInput {
   /**
    * The surface — accepts any `GlazeColorValue` form: hex
-   * (`#rgb` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()`
-   * / `oklch()` strings, or literal objects (`{ r, g, b }`, `{ h, s, l }`,
-   * `{ l, c, h }`). Alpha components are dropped with a warning.
+   * (`#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` /
+   * `okhsl()` / `okhst()` / `oklch()` strings, or literal objects
+   * (`{ r, g, b }`, `{ h, s, l }`, `{ h, s, t }`, `{ l, c, h }`). Alpha
+   * components are dropped with a warning.
    */
   bg: GlazeColorValue;
   /** The object casting the shadow / emitting the glow. Same forms as `bg`. */
@@ -782,14 +783,17 @@ export interface GlazeColorInput {
    */
   base?: GlazeColorToken | GlazeColorValue;
   /**
-   * Contrast floor against `base`. Requires `base` to be set. A bare
+   * Contrast floor. Without `base`, solved against the token's own input
+   * color (`hue`, `saturation`, normal `tone`), held fixed in every scheme;
+   * with `base`, against the base's resolved variant per scheme. A bare
    * number/preset is WCAG; use `{ wcag }` / `{ apca }` to pick the metric.
    */
   contrast?: HCPair<ContrastSpec>;
   /**
    * Optional human-readable name for the token. Used in error and
    * warning messages (otherwise an internal name like `"value"` is
-   * used). Does not affect output keys.
+   * used) and as `resolve().name`. A debug label only: it does not
+   * affect output keys or the token's `role`.
    */
   name?: string;
 
@@ -802,11 +806,12 @@ export interface GlazeColorInput {
   pastel?: boolean;
 
   /**
-   * Semantic role against `base` / the literal seed: how this token is used.
-   * Fixes APCA contrast polarity. Same resolution chain as
-   * `RegularColorDef.role` (explicit → name inference → opposite of base →
-   * `'text'`). For standalone tokens the name is internal, so set `role`
-   * explicitly or rely on the base-opposite / foreground default.
+   * Semantic role against the token's anchor (`base`, or its own input
+   * color when `contrast` is set without one): how this token is used.
+   * Fixes APCA contrast polarity; WCAG ignores it. Defaults to `'text'` —
+   * the token is the foreground and the anchor the background, with or
+   * without `base`. Unlike a theme color, a token never infers its role
+   * from `name`, so `inferRole` has no effect on it.
    */
   role?: RoleInput;
 }
@@ -935,7 +940,8 @@ export interface GlazeColorOverrides {
   /**
    * Optional human-readable name for the token. Used in error and
    * warning messages (otherwise an internal name like `"value"` is
-   * used). Does not affect output keys.
+   * used) and as `resolve().name`. A debug label only: it does not
+   * affect output keys or the token's `role`.
    */
   name?: string;
 
@@ -948,9 +954,12 @@ export interface GlazeColorOverrides {
   pastel?: boolean;
 
   /**
-   * Semantic role against `base` / the literal seed: how this token is used.
-   * Fixes APCA contrast polarity. Same resolution chain as
-   * `RegularColorDef.role`.
+   * Semantic role against the token's anchor (`base`, or the literal seed
+   * when `contrast` / a relative `tone` is set without one): how this token
+   * is used. Fixes APCA contrast polarity; WCAG ignores it. Defaults to
+   * `'text'` — the token is the foreground and the anchor the background,
+   * with or without `base`. Unlike a theme color, a token never infers its
+   * role from `name`, so `inferRole` has no effect on it.
    */
   role?: RoleInput;
 }

@@ -333,7 +333,7 @@ Each color's role is the first of:
 3. The opposite of the base's role: a color on a `surface` is `text`; a color on `text` or a `border` is a `surface`.
 4. `'text'`: the base is treated as the background.
 
-Turn name inference off with `glaze.configure({ inferRole: false })` or a per-theme config override; steps 1, 3, and 4 still apply. Shadows and glows always resolve as `'surface'`. Mixes take the same `role` field and chain. The concept, with a polarity demo and an example, is in [Contrast solving](../contrast.mdx#roles-and-apca-polarity). The role helpers (`normalizeRole`, `inferRoleFromName`, `roleToPolarity`, `oppositeRole`) are in [Role helpers](./utilities.md#role-helpers).
+Turn name inference off with `glaze.configure({ inferRole: false })` or a per-theme config override; steps 1, 3, and 4 still apply. Shadows and glows always resolve as `'surface'`. Mixes take the same `role` field and chain. Standalone `glaze.color()` tokens don't: their role is an explicit `role` or `'text'`, never inferred from `name` (see [Roles on tokens](./color-tokens.md#roles-on-tokens)). The concept, with a polarity demo and an example, is in [Contrast solving](../contrast.mdx#roles-and-apca-polarity). The role helpers (`normalizeRole`, `inferRoleFromName`, `roleToPolarity`, `oppositeRole`) are in [Role helpers](./utilities.md#role-helpers).
 
 ### `inherit`
 

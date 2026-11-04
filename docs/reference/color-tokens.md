@@ -116,7 +116,7 @@ The fields a value form can carry next to its color. `GlazeFromInput` is `GlazeC
 | `base` | `GlazeColorToken \| GlazeColorValue` | — | The color this token's contrast and tone delta are measured against. See [Pairing colors](#pairing-colors). |
 | `opacity` | `number` | `1` | Fixed alpha, 0–1. Out of range throws. With `contrast`, emits a `console.warn`. |
 | `pastel` | `boolean` | The config override's `pastel` (`false`) | See [Per-color `pastel`](./color-definitions.md#per-color-pastel). |
-| `role` | `RoleInput` | Inferred | Fixes APCA polarity. See [Roles on tokens](#roles-on-tokens). |
+| `role` | `RoleInput` | `'text'` | Fixes APCA polarity. See [Roles on tokens](#roles-on-tokens). |
 | `name` | `string` | — | Debug label. See [`name`](#name). |
 
 ```ts
@@ -147,7 +147,7 @@ The structured form: the same definition a theme color would have, with its own 
 | `base` | `GlazeColorToken \| GlazeColorValue` | — | See [Pairing colors](#pairing-colors). |
 | `contrast` | `HCPair<ContrastSpec>` | — | Without `base`, measured against the token's own input color (`hue`, `saturation`, normal `tone`). |
 | `pastel` | `boolean` | The config override's `pastel` (`false`) | Per-color `pastel`. |
-| `role` | `RoleInput` | Inferred | Fixes APCA polarity. |
+| `role` | `RoleInput` | `'text'` | Fixes APCA polarity. See [Roles on tokens](#roles-on-tokens). |
 | `name` | `string` | — | Debug label. |
 
 Out-of-range numbers throw before anything resolves, for example `glaze.color: structured saturation must be a finite number in 0–100 (got 120).` or `glaze.color: structured tone must be a finite number in 0–100 or 'max'/'min' (got +5).` `hue` and `darkHue` must be finite; the saturation seeds 0–100; the factors and `opacity` 0–1.
@@ -233,6 +233,7 @@ On a token specifically:
 
 - Value forms resolve with a local `lightTone: false`; a `lightTone` in the override replaces it (see [Defaults](#defaults)).
 - `shadowTuning` and `glowTuning` are accepted but have no effect: a token has no shadows.
+- `inferRole` is accepted but has no effect: a token never infers its role from `name` (see [Roles on tokens](#roles-on-tokens)).
 - A `contrastLevel` moves only this token. On a token with a `base`, set it on both; see [Clearing it, exporting it, base links](./contrast.md#clearing-it-exporting-it-base-links).
 - `modes` and `states` aren't part of the override. Pass them to the output methods or set them globally.
 
@@ -304,18 +305,25 @@ const label = glaze.color({
 
 ### Roles on tokens
 
-The [role](./color-definitions.md#roles) chain applies to tokens, with these inputs:
+A token's [role](./color-definitions.md#roles) is its explicit `role`, or `'text'`. The token is the foreground and its anchor is the background, whichever anchor it has:
 
-- An explicit `role` wins.
-- With `inferRole` on, the [`name`](#name) is used for inference: `name: 'brand-bg'` resolves as a surface.
-- With a `base` token, the base is treated as the background, so the token defaults to `'text'`.
-- Without a `base`, a `contrast` floor or tone delta is measured against a hidden copy of the input color. That copy resolves as `'text'`, so the token defaults to `'surface'`.
+- With a `base`, the base is the background.
+- Without a `base`, a `contrast` floor or tone delta is measured against a hidden copy of the token's own input color, and that copy is the background.
 
-APCA results depend on the role, so set `role` explicitly on any token with an `{ apca }` floor.
+```ts
+// Text on white: light is rgb(141 141 141), Lc 60.5. Identical to the same
+// token with base: glaze.color({ from: '#ffffff', mode: 'static' }).
+glaze.color({ from: '#ffffff', contrast: { apca: 60 } });
+
+// A fill with white on top: light is rgb(152 152 152), Lc 60.5 the other way.
+glaze.color({ from: '#ffffff', contrast: { apca: 60 }, role: 'surface' });
+```
+
+Set `role: 'surface'` (or an alias such as `'bg'`) for a token that is a fill with its anchor drawn on top. Unlike a theme color, a token never infers its role from [`name`](#name), so `inferRole` has no effect on it. WCAG ignores the role.
 
 ## `name`
 
-`name` is a debug label. It appears in warnings and errors instead of `"value"`, and as `resolve().name`. It doesn't change output keys: `token()`, `tasty()`, and `json()` stay keyed by scheme, and the custom property name comes from `css({ name })`. It also feeds [role inference](#roles-on-tokens).
+`name` is a debug label. It appears in warnings and errors instead of `"value"`, and as `resolve().name`. It doesn't change output keys: `token()`, `tasty()`, and `json()` stay keyed by scheme, and the custom property name comes from `css({ name })`. It doesn't change the [role](#roles-on-tokens) either: `name: 'card-bg'` is still measured as text unless you set `role`.
 
 | Invalid `name` | Error |
 | --- | --- |

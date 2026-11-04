@@ -399,7 +399,9 @@ theme with `glaze(hue, saturation, { inferRole: false })`; rules 1, 3, and 4
 still apply. Shadows and glows always resolve as surfaces. Mix colors take the
 same chain and the same `role` field. Good token names do double duty: they
 describe the palette and give APCA the right polarity without any `role`
-fields.
+fields. Standalone `glaze.color()` tokens are the exception: their `name` is a
+label only, and they default to text
+([Pairing standalone colors](#pairing-standalone-colors)).
 
 ## High contrast
 
@@ -657,9 +659,15 @@ In light all three keep their exact values, since each already clears its floor.
 In dark they invert, and the label is solved against the inverted button.
 
 Without a `base`, a token's `contrast` (and a tone delta) is measured
-against the token's own literal value, held fixed in every scheme. Base
-resolution timing, structured-base linking, and the `name` label are covered in
-[Color tokens](./reference/color-tokens.md#pairing-colors).
+against the token's own literal value, held fixed in every scheme.
+
+Either way the token is the foreground: APCA measures it as text on its anchor,
+the base or its own literal value. Set `role: 'surface'` for a token that is a
+fill with its anchor drawn on top. A token's `name` never changes the role —
+`button-fill` above is a label for warnings, and its WCAG floor ignores roles
+anyway. Base resolution timing, structured-base linking, and the `name` label
+are covered in [Color tokens](./reference/color-tokens.md#pairing-colors) and
+[Roles on tokens](./reference/color-tokens.md#roles-on-tokens).
 
 ## Contrast on mixes
 
