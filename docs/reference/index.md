@@ -94,8 +94,8 @@ All public types are exported with `import type`.
 | Color values | `GlazeColorValue`, `HexColor`, `OkhslColor`, `OkhstColor`, `RgbColor`, `OklchColor` | [Color tokens](./color-tokens.md) |
 | Color tokens | `GlazeColorToken`, `GlazeColorInput`, `GlazeFromInput`, `GlazeColorOverrides`, `GlazeColorCssOptions`, `GlazeColorTailwindOptions`, `GlazeColorDtcgResult`, `GlazeColorDtcgResolverOptions`, `GlazeColorTokenExport`, `GlazeColorInputExport`, `GlazeColorOverridesExport` | [Color tokens](./color-tokens.md) |
 | Standalone shadow and glow | `GlazeLightingInput`, `GlazeShadowInput`, `GlazeGlowInput` | [Utilities](./utilities.md) |
-| Palette | `GlazePalette`, `GlazePaletteOptions`, `GlazePaletteExportOptions`, `GlazePaletteExport` | [Palettes](./palette.md) |
-| Output options | `GlazeColorFormat`, `GlazeOutputModes`, `GlazeTokenOptions`, `GlazeJsonOptions`, `GlazeCssOptions`, `GlazeCssResult`, `GlazeTailwindOptions` | [Output formats](./output.md) |
+| Palette | `GlazePalette`, `GlazePaletteOptions`, `GlazePaletteExportOptions`, `GlazePaletteTastyOptions`, `GlazePaletteCssOptions`, `GlazePaletteExport` | [Palettes](./palette.md) |
+| Output options | `GlazeColorFormat`, `GlazeOutputModes`, `GlazeTokenOptions`, `GlazeTastyOptions`, `GlazeJsonOptions`, `GlazeCssOptions`, `GlazeCssResult`, `GlazeTailwindOptions` | [Output formats](./output.md) |
 | DTCG | `GlazeDtcgOptions`, `GlazeDtcgResult`, `DtcgColorSpace`, `DtcgColorToken`, `DtcgColorValue`, `DtcgSrgbColorValue`, `DtcgOklchColorValue`, `DtcgDocument` | [Output formats](./output.md#dtcgoptions) |
 | DTCG resolver | `GlazeDtcgResolverOptions`, `GlazeDtcgResolverContextNames`, `GlazeDtcgResolverDocument`, `DtcgResolverSet`, `DtcgResolverModifier`, `DtcgResolverRef`, `DtcgTokenTree` | [Output formats](./output.md#dtcgresolveroptions) |
 | `splitHue` planning | `HuePlan`, `HueDeclaration`, `ChannelCtx` | [Output formats](./output.md#planning-types) |

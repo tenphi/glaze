@@ -205,7 +205,7 @@ brand.tailwind({ name: 'brand' });
 
 - Every output that takes `format` defaults to `'oklch'`; `dtcg()` and `dtcgResolver()` take a `colorSpace` instead (`'srgb'` by default). `json()`, `css()`, and `tailwind()` accept only the native CSS formats (`'oklch'`, `'rgb'`, `'hsl'`) and throw on `'okhsl'` / `'okhst'`; `token()` and `tasty()` accept all five. See [Color formats](./output.md#color-formats).
 - `modes` and `states` default to the global config, as on themes. `css()` ignores `modes`. See [Output modes](./output.md#output-modes).
-- The output methods share their option types with themes; full shapes are in [Output formats](./output.md).
+- The output methods share their option types with themes, with two exceptions: `token()` and `tasty()` take `GlazeTokenOptions` — `theme.tasty()`'s options without `splitHue` and `name` — and `css()` takes the `GlazeColorCssOptions` below. Full shapes are in [Output formats](./output.md).
 
 ### `GlazeColorCssOptions`
 
@@ -214,12 +214,12 @@ brand.tailwind({ name: 'brand' });
 | `name` | `string` | — | Required. The custom property name without `--`: `'brand'` gives `--brand-color`. |
 | `format` | `GlazeColorFormat` | `'oklch'` | Native formats only. |
 | `suffix` | `string` | `'-color'` | Appended to `name`, matching `theme.css()`. |
-| `splitHue` | `boolean` | `false` | Emit the hue as a separate `--<name>-hue` property referenced with `var()`. Applies only with `format: 'oklch'`; other formats ignore it and emit the color inline. Throws when the token isn't pastel. See [`splitHue`](./output.md#hue-channel-splitting-splithue). |
+| `splitHue` | `boolean` | `false` | Emit the hue as a separate `--<name>-hue` property referenced with `var()`, rounded to 2 decimals like the hue in `oklch()` output. Requires `format: 'oklch'`: any other format throws. Throws when the token isn't pastel. See [`splitHue`](./output.md#hue-channel-splitting-splithue). |
 
 ```ts
 const brand = glaze.color('#26fcb2', { pastel: true });
 brand.css({ name: 'brand', splitHue: true }).light;
-// → '--brand-hue: 162.4653546883244;\n' +
+// → '--brand-hue: 162.47;\n' +
 //   '--brand-color: oklch(0.8789 0.0572 var(--brand-hue));'
 ```
 

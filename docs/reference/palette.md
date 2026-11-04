@@ -111,16 +111,15 @@ Every palette output method except `json()` accepts these on top of its own opti
 | --- | --- | --- | --- |
 | `prefix` | `boolean \| Record<string, string>` | `true` | `true` prefixes each theme's tokens with `"<themeName>-"`. A map sets a custom prefix per theme; themes not in the map fall back to `"<themeName>-"`. `false` disables prefixing. |
 | `primary` | `string \| false` | The palette's `primary` | A theme name sets or changes the primary for this call (throws if no theme has that name). `false` disables the primary alias for this call. |
-| `splitHue` | `boolean` | `false` | Emit hue as separate custom properties. Used by `tasty()` and `css()` only; ignored by the other methods. See [`splitHue` in palettes](#splithue-in-palettes). |
 
 Each method's own options:
 
 | Method | Own options (type) | Notes |
 | --- | --- | --- |
 | `palette.tokens(options?)` | `format`, `modes` (`GlazeJsonOptions`) | |
-| `palette.tasty(options?)` | `format`, `modes`, `states`, `splitHue` (`GlazeTokenOptions`) | `name` is ignored: the hue var base name is each theme's name. `states` defaults to the global config. |
-| `palette.json(options?)` | `format`, `modes` (`GlazeJsonOptions`) | No prefix, primary, or collision handling — see [`palette.json()`](#palettejson). |
-| `palette.css(options?)` | `format`, `suffix`, `splitHue` (`GlazeCssOptions`) | No `modes`: always returns all four strings. `name` is ignored, as for `tasty()`. |
+| `palette.tasty(options?)` | `format`, `modes`, `states`, `splitHue` (`GlazePaletteTastyOptions`) | No `name`: the hue var base name is each theme's name. `states` defaults to the global config. |
+| `palette.json(options?)` | `format`, `modes` (`GlazeJsonOptions`) | Only these two: no prefix, primary, or collision handling — see [`palette.json()`](#palettejson). |
+| `palette.css(options?)` | `format`, `suffix`, `splitHue` (`GlazePaletteCssOptions`) | No `modes`: always returns all four strings. No `name`, as for `tasty()`. |
 | `palette.dtcg(options?)` | `colorSpace`, `modes` (`GlazeDtcgOptions`) | |
 | `palette.dtcgResolver(options?)` | `colorSpace`, `modes`, `setName`, `modifierName`, `contextNames`, `version` (`GlazeDtcgResolverOptions`) | |
 | `palette.tailwind(options?)` | `format`, `modes`, `namespace`, `darkSelector`, `highContrastSelector` (`GlazeTailwindOptions`) | `prefix` (theme prefix) and `namespace` (the `--color-` CSS namespace) are separate options. |
@@ -252,11 +251,11 @@ palette.json();
 // }
 ```
 
-Accepts `format` and `modes`. Its type also allows `prefix`, but the value is ignored, and there is no primary alias. The per-theme entries have the [`theme.json()`](./output.md#jsonoptions) shape.
+Accepts only `format` and `modes` (`GlazeJsonOptions`): no `prefix`, and no primary alias. The per-theme entries have the [`theme.json()`](./output.md#jsonoptions) shape.
 
 ### `palette.css()`
 
-Accepts `GlazeCssOptions` plus `GlazePaletteExportOptions`. It has no `modes` option: all four strings (`light`, `dark`, `lightContrast`, `darkContrast`) are always returned, each holding every theme's declarations joined by newlines.
+Accepts `GlazePaletteCssOptions`: `format`, `suffix`, and `splitHue` from [`theme.css()`](./output.md#cssoptions) (without its `name`) plus `GlazePaletteExportOptions`. It has no `modes` option: all four strings (`light`, `dark`, `lightContrast`, `darkContrast`) are always returned, each holding every theme's declarations joined by newlines.
 
 ```ts
 const css = palette.css();
@@ -353,8 +352,17 @@ All themes merge into one `@theme` block plus one block per override, so every c
 
 `palette.css({ splitHue: true })` and `palette.tasty({ splitHue: true })` follow the [`splitHue` rules](./output.md#hue-channel-splitting-splithue) per theme, with two differences:
 
-- The theme-level hue var is named after the theme (`--primary-hue`, `--danger-hue`); the `name` option is ignored.
+- The theme-level hue var is named after the theme (`--primary-hue`, `--danger-hue`); there is no `name` option.
 - Per-color hue vars use the theme's prefix (`--primary-accent-hue`). The primary's unprefixed aliases reference those same vars instead of declaring their own, so they never collide with another theme's hue vars.
+
+The [name-collision check](./output.md#variable-names) spans the whole palette. Without a prefix, a color that sets its own hue declares `--<color>-hue`, which is another theme's hue var when the color is named after that theme. The export throws rather than let one override the other:
+
+```text
+glaze: splitHue would declare "--accent-hue" twice: for color "accent"'s
+  own hue (theme "brand") and for the hue of theme "accent". One would
+  silently override the other. Rename the color or the theme, or give the
+  theme a prefix that keeps its hue vars apart.
+```
 
 ```css
 /* palette.css({ splitHue: true }).light

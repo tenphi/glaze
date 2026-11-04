@@ -24,7 +24,7 @@ import {
   GLAZE_EXPORT_VERSION,
   isColorTokenExport,
 } from './serialize';
-import type { ChannelCtx } from './channels';
+import { assertSplitHueFormat, type ChannelCtx } from './channels';
 import { extractOkhslFromValue } from './color-value';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
@@ -414,13 +414,14 @@ function createColorTokenFromDefs(
     css(options: GlazeColorCssOptions): GlazeCssResult {
       const format = options.format ?? 'oklch';
       assertNativeFormat(format, 'css');
+      assertSplitHueFormat(options.splitHue, format);
       const resolved = resolveOnce().get(primary)!;
       const renamed = new Map<string, ResolvedColor>([
         [options.name, resolved],
       ]);
 
       let channelCtx: ChannelCtx | undefined;
-      if (options.splitHue && format === 'oklch') {
+      if (options.splitHue) {
         const modes = resolveModes();
         assertAllPastel(renamed, modes);
         channelCtx = {

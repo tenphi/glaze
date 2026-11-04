@@ -7,12 +7,18 @@
  * `tasty` / `json` / `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a
  * `buildPaletteOutput` driver that handles validation, per-theme iteration,
  * prefix resolution, collision filtering, and primary duplication.
+ * `tasty()` / `css()` with `splitHue` share one hue-var registry across the
+ * themes of a call, so two themes declaring the same `--*-hue` throws.
  *
  * Authoring round-trip: `palette.export()` / `createPaletteFromExport()`
  * (wired as `glaze.paletteFrom`).
  */
 
-import type { ChannelCtx } from './channels';
+import {
+  assertSplitHueFormat,
+  claimHueVars,
+  type ChannelCtx,
+} from './channels';
 import { getConfig } from './config';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
@@ -35,7 +41,6 @@ import {
 import { createTheme } from './theme';
 import type {
   ColorMap,
-  GlazeCssOptions,
   GlazeCssResult,
   GlazeConfigOverride,
   GlazeDtcgOptions,
@@ -45,12 +50,13 @@ import type {
   GlazeJsonOptions,
   GlazePalette,
   GlazePaletteExport,
+  GlazePaletteCssOptions,
   GlazePaletteExportOptions,
   GlazePaletteOptions,
+  GlazePaletteTastyOptions,
   GlazeTailwindOptions,
   GlazeTheme,
   GlazeThemeExport,
-  GlazeTokenOptions,
   ResolvedColor,
 } from './types';
 import type { GlazeTailwindLines } from './formatters';
@@ -134,19 +140,26 @@ function colorMapFromTheme(theme: GlazeTheme): ColorMap {
   return defs;
 }
 
+/**
+ * `splitHue` context for one theme pass of `palette.tasty()` / `css()`, or
+ * `undefined` without `splitHue` (the caller has already checked the format).
+ * `hueOwners` is shared by every pass of one export call, so a hue var two
+ * themes would both declare — a color named after another theme under an
+ * empty prefix — throws instead of one silently overriding the other.
+ */
 function channelCtxForTheme(
   theme: GlazeTheme,
   themeName: string,
   passPrefix: string,
   themedPrefix: string,
   splitHue: boolean | undefined,
-  format: string,
   modes: ReturnType<typeof resolveModes>,
   filtered: Map<string, ResolvedColor>,
+  hueOwners: Map<string, string>,
 ): ChannelCtx | undefined {
-  if (!splitHue || format !== 'oklch') return undefined;
+  if (!splitHue) return undefined;
   assertAllPastel(filtered, modes);
-  return {
+  const ctx: ChannelCtx = {
     seedHue: theme.hue,
     darkSeedHue: theme.darkHue,
     baseName: themeName,
@@ -160,6 +173,14 @@ function channelCtxForTheme(
     // themed prefix (the prefixed pass, or the single pass when prefix:false).
     emitDeclarations: passPrefix === themedPrefix,
   };
+  claimHueVars(filtered, ctx, hueOwners, {
+    theme: `the hue of theme "${themeName}"`,
+    color: (name) => `color "${name}"'s own hue (theme "${themeName}")`,
+    fix:
+      'Rename the color or the theme, or give the theme a prefix that ' +
+      'keeps its hue vars apart.',
+  });
+  return ctx;
 }
 
 /**
@@ -389,7 +410,7 @@ export function createPalette(
     },
 
     tasty(
-      options?: GlazeTokenOptions & GlazePaletteExportOptions,
+      options?: GlazePaletteTastyOptions,
     ): Record<string, Record<string, string>> {
       const cfg = getConfig();
       const states = {
@@ -398,6 +419,8 @@ export function createPalette(
       };
       const modes = resolveModes(options?.modes);
       const format = options?.format ?? 'oklch';
+      assertSplitHueFormat(options?.splitHue, format);
+      const hueOwners = new Map<string, string>();
       return buildPaletteOutput<
         Record<string, Record<string, string>>,
         Record<string, Record<string, string>>
@@ -413,9 +436,9 @@ export function createPalette(
             prefix,
             themedPrefix,
             options?.splitHue,
-            format,
             modes,
             filtered,
+            hueOwners,
           );
           return buildTokenMap(
             filtered,
@@ -433,9 +456,7 @@ export function createPalette(
     },
 
     json(
-      options?: GlazeJsonOptions & {
-        prefix?: boolean | Record<string, string>;
-      },
+      options?: GlazeJsonOptions,
     ): Record<string, Record<string, Record<string, string>>> {
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'json');
@@ -455,11 +476,13 @@ export function createPalette(
       return result;
     },
 
-    css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult {
+    css(options?: GlazePaletteCssOptions): GlazeCssResult {
       const suffix = options?.suffix ?? '-color';
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
+      assertSplitHueFormat(options?.splitHue, format);
       const modes = resolveModes();
+      const hueOwners = new Map<string, string>();
 
       const lines = buildPaletteOutput<
         GlazeCssResult,
@@ -476,9 +499,9 @@ export function createPalette(
             prefix,
             themedPrefix,
             options?.splitHue,
-            format,
             modes,
             filtered,
+            hueOwners,
           );
           return buildCssMap(
             filtered,

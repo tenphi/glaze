@@ -2249,11 +2249,14 @@ describe('glaze', () => {
       expect(tokens['#accent']['']).toMatch(/oklch\([^)]*var\(--accent-hue\)/);
     });
 
-    it('is a no-op for hsl and rgb formats', () => {
+    it('throws for hsl and rgb formats', () => {
       const theme = pastelTheme();
-      const inline = theme.css({ format: 'rgb' });
-      const withFlag = theme.css({ format: 'rgb', splitHue: true });
-      expect(withFlag.light).toBe(inline.light);
+      expect(() => theme.css({ format: 'rgb', splitHue: true })).toThrow(
+        "glaze: splitHue requires format 'oklch' (got 'rgb').",
+      );
+      expect(() => theme.css({ format: 'hsl', splitHue: true })).toThrow(
+        "(got 'hsl')",
+      );
     });
 
     it('emits no dark hue declarations without a dark hue', () => {

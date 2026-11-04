@@ -600,7 +600,11 @@ In practice:
   theme, the token, or the color), so its chroma stays inside sRGB at any hue.
   Otherwise the export throws and names the non-pastel colors.
 - **`oklch` only.** The hue slot is native CSS `var()` only in `oklch()`; with
-  another `format` the option has no effect.
+  another `format` the export throws.
+- **One name per hue variable.** A color that sets its own hue gets
+  `--<color>-hue`, so it can't share its name with the theme hue (`name`), or,
+  in an unprefixed palette, with another theme. The export throws and names
+  both sides rather than let one silently override the other.
 - **Palettes name the hue after the theme.** `palette.css({ splitHue: true })`
   emits `--brand-hue`, `--brand-accent-hue`, and so on for a theme named
   `brand`; a `primary` alias references the same hue variables.

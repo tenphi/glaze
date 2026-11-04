@@ -3,7 +3,7 @@ title: Output formats
 description: Every output method (tokens, tasty, json, css, dtcg, dtcgResolver, tailwind), its options, color formats, output modes, state aliases, and splitHue.
 ---
 
-Output methods turn a resolved theme or palette into color strings or token documents. They exist on [themes](./theme.md) and [palettes](./palette.md) with the same options; palettes add [prefix and primary options](./palette.md#glazepaletteexportoptions). Standalone [color tokens](./color-tokens.md) have single-color versions of the same methods. For choosing an export and wiring it into an app, see [Exporting and integration](../exporting.mdx).
+Output methods turn a resolved theme or palette into color strings or token documents. They exist on [themes](./theme.md) and [palettes](./palette.md) with the same options, except that palette `tasty()` and `css()` have no `name` (each theme's hue var is named after the theme); palettes add [prefix and primary options](./palette.md#glazepaletteexportoptions). Standalone [color tokens](./color-tokens.md) have single-color versions of the same methods. For choosing an export and wiring it into an app, see [Exporting and integration](../exporting.mdx).
 
 Examples on this page use this theme:
 
@@ -23,7 +23,7 @@ theme.colors({
 | Method | Returns | Options type | Honors `modes` |
 | --- | --- | --- | --- |
 | [`tokens()`](#tokensoptions) | `{ light: { name: value }, dark: {…}, … }` | `GlazeJsonOptions` | Yes |
-| [`tasty()`](#tastyoptions) | `{ '#name': { '': value, [state]: value } }` | `GlazeTokenOptions` | Yes |
+| [`tasty()`](#tastyoptions) | `{ '#name': { '': value, [state]: value } }` | `GlazeTastyOptions` | Yes |
 | [`json()`](#jsonoptions) | `{ name: { light: value, dark: value, … } }` | `GlazeJsonOptions` | Yes |
 | [`css()`](#cssoptions) | `GlazeCssResult` (four strings) | `GlazeCssOptions` | No: all four |
 | [`dtcg()`](#dtcgoptions) | `GlazeDtcgResult` (one document per variant) | `GlazeDtcgOptions` | Yes |
@@ -173,7 +173,7 @@ theme.tasty();
 // }
 ```
 
-`GlazeTokenOptions`:
+`GlazeTastyOptions` — `GlazeTokenOptions` (the first four rows, also taken by [`token.tasty()`](./color-tokens.md#token-methods)) plus `splitHue` and `name`:
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -181,9 +181,8 @@ theme.tasty();
 | `modes` | `GlazeOutputModes` | Global config | Which variants to include. |
 | `states.dark` | `string` | Global `states.dark` (`'@media(prefers-color-scheme: dark)'`) | State alias for the dark variant. |
 | `states.highContrast` | `string` | Global `states.highContrast` (`'@media(prefers-contrast: more)'`) | State alias for the light high-contrast variant. |
-| `splitHue` | `boolean` | `false` | Emit hue as separate `$name-hue` tokens referenced with `var()`. See [`splitHue`](#hue-channel-splitting-splithue). |
-| `name` | `string` | `'theme'` | Base name of the theme-level hue var (`$theme-hue` / `--theme-hue`). Used only with `splitHue`. Palettes use each theme's name instead. |
-| `prefix` | `boolean \| Record<string, string>` | — | Palettes only; ignored by `theme.tasty()`. See [Prefix behavior](./palette.md#prefix-behavior). |
+| `splitHue` | `boolean` | `false` | Emit hue as separate `$name-hue` tokens referenced with `var()`. Throws unless `format` is `'oklch'`. See [`splitHue`](#hue-channel-splitting-splithue). |
+| `name` | `string` | `'theme'` | Base name of the theme-level hue var (`$theme-hue` / `--theme-hue`). Used only with `splitHue`. `palette.tasty()` has no `name`: it uses each theme's name. |
 
 ### State aliases
 
@@ -265,8 +264,8 @@ theme.css();
 | --- | --- | --- | --- |
 | `format` | `GlazeColorFormat` | `'oklch'` | `'oklch'`, `'rgb'`, or `'hsl'`. `'okhsl'` / `'okhst'` throw. |
 | `suffix` | `string` | `'-color'` | Appended to each property name. Pass `''` for bare names (`--surface`). |
-| `splitHue` | `boolean` | `false` | Emit hue as separate `--*-hue` properties referenced with `var()`. See [`splitHue`](#hue-channel-splitting-splithue). |
-| `name` | `string` | `'theme'` | Base name of the theme-level hue var (`--theme-hue`). Used only with `splitHue`. Palettes use each theme's name instead. |
+| `splitHue` | `boolean` | `false` | Emit hue as separate `--*-hue` properties referenced with `var()`. Throws unless `format` is `'oklch'`. See [`splitHue`](#hue-channel-splitting-splithue). |
+| `name` | `string` | `'theme'` | Base name of the theme-level hue var (`--theme-hue`). Used only with `splitHue`. `palette.css()` has no `name`: it uses each theme's name. |
 
 `GlazeCssResult` always has all four keys — `light`, `dark`, `lightContrast`, `darkContrast` — whatever `modes` says. A key is `''` when the theme has no colors. Which selectors or media queries to wrap each string in is up to you; [Exporting and integration](../exporting.mdx) shows common setups.
 
@@ -480,7 +479,7 @@ theme.tailwind({
 
 With `splitHue: true` and `format: 'oklch'`, Glaze emits hue as its own custom property and references it with `var()` in the color values, so you can re-skin colors at runtime by changing one variable.
 
-Supported on `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and the standalone [`token.css()`](./color-tokens.md). Not supported on `token.token()` / `token.tasty()`, whose return shape can't carry the hue declaration, nor on `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, or `tailwind()`.
+Supported on `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and the standalone [`token.css()`](./color-tokens.md). Not supported on `token.token()` / `token.tasty()`, whose return shape can't carry the hue declaration, nor on `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, or `tailwind()`; their option types have no `splitHue`.
 
 ```ts
 const theme = glaze(
@@ -511,7 +510,12 @@ theme.css({ splitHue: true, name: 'brand' });
 
 ### Requirements
 
-- **`format: 'oklch'`.** CSS `var()` can stand in for the hue slot of `oklch()` only. With any other format `splitHue` is ignored and colors are emitted inline, without an error.
+- **`format: 'oklch'`.** CSS `var()` can stand in for the hue slot of `oklch()` only, so any other format throws before anything is emitted:
+
+  ```text
+  glaze: splitHue requires format 'oklch' (got 'rgb'). Use format: 'oklch'
+    or drop splitHue.
+  ```
 - **Every exported color is pastel.** Set `pastel: true` on the theme or token override, or per color. Pastel mode bounds chroma by the hue-independent safe chroma at each lightness, so the emitted `C` stays inside sRGB for any rotated hue. A non-pastel color in any emitted variant throws rather than emit values that would clip under rotation:
 
   ```text
@@ -533,8 +537,15 @@ theme.css({ splitHue: true, name: 'brand' });
 
 In `tasty()` the hue declarations become `$…-hue` keys next to the `#color` keys, with the same state map shape. In palettes `<name>` is the theme name and `<prefix>` the theme's prefix; see [`splitHue` in palettes](./palette.md#splithue-in-palettes).
 
-> [!WARNING]
-> Theme and per-color vars share one namespace. A color named the same as `name` (a `brand` color with `name: 'brand'`) produces `--brand-hue` twice; only the theme var is kept, so that color silently renders at the theme hue. Pick a `name` that no color uses.
+Theme and per-color vars share one namespace. A color named the same as `name` (a `brand` color with `name: 'brand'`) that sets its own hue would declare `--brand-hue` a second time, and one declaration would silently override the other, so the export throws instead:
+
+```text
+glaze: splitHue would declare "--brand-hue" twice: for the theme hue
+  (name: 'brand') and for color "brand"'s own hue. One would silently
+  override the other. Rename the color or pass a different `name`.
+```
+
+A same-named color without its own hue is fine: it has no per-color var and reads `var(--brand-hue)` directly. Palettes run the same check across themes; see [`splitHue` in palettes](./palette.md#splithue-in-palettes).
 
 ### How each color references hue
 
@@ -548,6 +559,8 @@ In `tasty()` the hue declarations become `$…-hue` keys next to the `#color` ke
 | `mode: 'static'` while the theme has a dark seed hue different from `hue` | Per-color var pinned to the resolved hue, so the color doesn't drift with the dark seed. |
 | Shadow, glow, and mix colors | Inline full `oklch()` value; they don't follow hue rotation. |
 | Achromatic (saturation 0) | Inline `oklch(L 0 0)`. |
+
+Every number in a hue declaration — the seed, an authored hue or offset, a resolved hue — is rounded to 2 decimals, the precision of `H` in `oklch()` output: a `from: '#2f5bff'` color gets `--logo-hue: 266.16`.
 
 ### Dark hues
 

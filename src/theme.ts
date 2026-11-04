@@ -10,9 +10,17 @@
  * resolve time** so the theme still reacts to later `configure()` calls
  * for fields it didn't override. The merged config is memoized by
  * `configVersion` to avoid rebuilding it on every export call.
+ *
+ * `tasty()` / `css()` with `splitHue` run its guards before emitting: format
+ * `'oklch'`, every color pastel, and no color whose own hue var would take the
+ * theme var's name (`--{name}-hue`).
  */
 
-import type { ChannelCtx } from './channels';
+import {
+  assertSplitHueFormat,
+  claimHueVars,
+  type ChannelCtx,
+} from './channels';
 import {
   freezeConfigForExport,
   getConfig,
@@ -38,6 +46,7 @@ import type {
   GlazeConfigOverride,
   GlazeConfigResolved,
   GlazeCssOptions,
+  GlazeColorFormat,
   GlazeCssResult,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
@@ -45,11 +54,12 @@ import type {
   GlazeDtcgResult,
   GlazeExtendOptions,
   GlazeJsonOptions,
+  GlazeOutputModes,
   GlazeTailwindOptions,
+  GlazeTastyOptions,
   GlazeTheme,
   GlazeThemeExport,
   GlazeThemeSeed,
-  GlazeTokenOptions,
   ResolvedColor,
 } from './types';
 
@@ -88,31 +98,35 @@ export function createTheme(
     cache = null;
   }
 
+  /**
+   * `splitHue` context for `tasty()` / `css()`, or `undefined` without it.
+   * Throws on a non-oklch format, a non-pastel color, or a color whose own
+   * hue var would take the theme var's name.
+   */
   function channelCtxFor(
-    options:
-      | {
-          splitHue?: boolean;
-          name?: string;
-          format?: GlazeCssOptions['format'];
-          modes?: GlazeJsonOptions['modes'];
-        }
-      | undefined,
-    formatDefault: 'rgb' | 'oklch' | 'okhsl',
-    prefix: string,
+    options: GlazeTastyOptions | GlazeCssOptions | undefined,
+    format: GlazeColorFormat,
+    modes: Required<GlazeOutputModes>,
   ): ChannelCtx | undefined {
-    const format = options?.format ?? formatDefault;
-    if (!options?.splitHue || format !== 'oklch') return undefined;
+    if (!options?.splitHue) return undefined;
+    assertSplitHueFormat(options.splitHue, format);
     const resolved = resolveCached();
-    const modes = resolveModes(options?.modes);
     assertAllPastel(resolved, modes);
-    return {
+    const baseName = options.name ?? 'theme';
+    const ctx: ChannelCtx = {
       seedHue: hue,
       darkSeedHue: darkHue,
-      baseName: options.name ?? 'theme',
-      prefix,
+      baseName,
+      prefix: '',
       defs: colorDefs,
       mode: 'theme',
     };
+    claimHueVars(resolved, ctx, new Map(), {
+      theme: `the theme hue (name: '${baseName}')`,
+      color: (name) => `color "${name}"'s own hue`,
+      fix: 'Rename the color or pass a different `name`.',
+    });
+    return ctx;
   }
 
   const theme: GlazeTheme = {
@@ -227,7 +241,7 @@ export function createTheme(
       );
     },
 
-    tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>> {
+    tasty(options?: GlazeTastyOptions): Record<string, Record<string, string>> {
       const cfg = getEffectiveConfig();
       const states = {
         dark: options?.states?.dark ?? cfg.states.dark,
@@ -235,7 +249,7 @@ export function createTheme(
       };
       const modes = resolveModes(options?.modes);
       const format = options?.format ?? 'oklch';
-      const channelCtx = channelCtxFor(options, 'oklch', '');
+      const channelCtx = channelCtxFor(options, format, modes);
       return buildTokenMap(
         resolveCached(),
         '',
@@ -262,7 +276,7 @@ export function createTheme(
     css(options?: GlazeCssOptions): GlazeCssResult {
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
-      const channelCtx = channelCtxFor(options, 'oklch', '');
+      const channelCtx = channelCtxFor(options, format, resolveModes());
       return buildCssMap(
         resolveCached(),
         '',

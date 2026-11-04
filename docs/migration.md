@@ -209,7 +209,7 @@ Then:
 takes the same input. See
 [`glaze.shadow()` / `glaze.glow()`](./reference/utilities.md#glazeshadowinput--glazeglowinput).
 
-#### Even dark steps for tone deltas
+### 3.0 — even dark steps for tone deltas
 
 In 2.x an `auto` tone delta's dark variant stepped from the base's light tone,
 which already carries the light window's lift, so the lift landed in the dark
@@ -223,6 +223,31 @@ surface — and so does anything solved, mixed, or lit from them in dark. Light
 and high-contrast variants are unchanged, and `glaze.color()` tokens already
 stepped this way. Re-check dark values you have pinned in tests or snapshots;
 see [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts).
+
+### 3.0 — output options
+
+Options an output method accepted but never read are gone from its type, so
+TypeScript flags them. Delete them; the output doesn't change.
+
+- `palette.json()` takes `GlazeJsonOptions` only: no `prefix`.
+- `splitHue` is gone from `palette.tokens()`, `dtcg()`, `dtcgResolver()`, and
+  `tailwind()` (it left `GlazePaletteExportOptions`), and from `token.token()` /
+  `token.tasty()`.
+- `theme.tasty()` takes the new `GlazeTastyOptions`, without `prefix`.
+  `GlazeTokenOptions` is now just `format`, `modes`, and `states`, as taken by
+  `token.token()` / `token.tasty()`.
+- `palette.tasty()` and `palette.css()` take the new
+  `GlazePaletteTastyOptions` / `GlazePaletteCssOptions`, without `name`: their
+  hue vars are always named after each theme.
+
+`splitHue` also stops failing silently. With a `format` other than `'oklch'`
+it now throws instead of emitting inline colors, and a color that sets its own
+hue under the theme hue var's name (a `brand` color with `name: 'brand'`, or a
+color named after another theme in an unprefixed palette) throws instead of
+rendering at the theme's hue. Hue values in its declarations are rounded to 2
+decimals, so a `from` color emits `--logo-hue: 266.16` rather than
+`266.15797905637027`. See
+[`splitHue`](./reference/output.md#hue-channel-splitting-splithue).
 
 ### 2.0 — `format*` takes 0–1
 

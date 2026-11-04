@@ -985,8 +985,9 @@ export interface GlazeColorCssOptions {
    */
   suffix?: string;
   /**
-   * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and a pastel token. oklch + all-pastel only.
+   * Emit hue as a separate `--{name}-hue` custom property, referenced via
+   * `var()`. Requires `format: 'oklch'` (any other format throws) and a
+   * pastel token.
    */
   splitHue?: boolean;
 }
@@ -1207,7 +1208,7 @@ export interface GlazeTheme {
    * Spread into component styles or register as a recipe via `configure({ recipes })`.
    * @see https://tasty.style/docs
    */
-  tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
+  tasty(options?: GlazeTastyOptions): Record<string, Record<string, string>>;
 
   /** Export as plain JSON. */
   json(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
@@ -1256,9 +1257,11 @@ export interface GlazeExtendOptions {
 // Palette API
 // ============================================================================
 
+/**
+ * Options for `token.token()` / `token.tasty()`, and the base of the theme and
+ * palette `tasty()` options: output format, scheme variants, state aliases.
+ */
 export interface GlazeTokenOptions {
-  /** Prefix mode. `true` uses "<themeName>-", or provide a custom map. */
-  prefix?: boolean | Record<string, string>;
   /** Override state aliases for this export. */
   states?: {
     dark?: string;
@@ -1268,18 +1271,24 @@ export interface GlazeTokenOptions {
   modes?: GlazeOutputModes;
   /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
+}
+
+/** Options for `theme.tasty()`. */
+export interface GlazeTastyOptions extends GlazeTokenOptions {
   /**
    * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and every color to be pastel.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel.
    */
   splitHue?: boolean;
   /**
    * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
-   * Palette export auto-derives this from the theme name.
+   * Must not equal the name of a color that sets its own hue (throws).
    */
   name?: string;
 }
 
+/** Options for `theme.tokens()` / `theme.json()` and their palette and token counterparts. */
 export interface GlazeJsonOptions {
   /** Override which scheme variants to include. */
   modes?: GlazeOutputModes;
@@ -1287,6 +1296,7 @@ export interface GlazeJsonOptions {
   format?: GlazeColorFormat;
 }
 
+/** Options for `theme.css()`. */
 export interface GlazeCssOptions {
   /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
@@ -1294,12 +1304,13 @@ export interface GlazeCssOptions {
   suffix?: string;
   /**
    * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and every color to be pastel.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel.
    */
   splitHue?: boolean;
   /**
    * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
-   * Palette export auto-derives this from the theme name.
+   * Must not equal the name of a color that sets its own hue (throws).
    */
   name?: string;
 }
@@ -1533,7 +1544,10 @@ export interface GlazePaletteOptions {
   primary?: string;
 }
 
-/** Options shared by palette `tokens()`, `tasty()`, and `css()` exports. */
+/**
+ * Options shared by every palette export except `json()`: `tokens()`,
+ * `tasty()`, `css()`, `dtcg()`, `dtcgResolver()`, and `tailwind()`.
+ */
 export interface GlazePaletteExportOptions {
   /**
    * Prefix mode. `true` uses `"<themeName>-"`, or provide a custom map.
@@ -1548,9 +1562,35 @@ export interface GlazePaletteExportOptions {
    * When omitted, inherits the palette-level `primary`.
    */
   primary?: string | false;
+}
+
+/**
+ * Options for `palette.tasty()`. There is no `name`: each theme's hue var is
+ * named after the theme.
+ */
+export interface GlazePaletteTastyOptions
+  extends GlazeTokenOptions, GlazePaletteExportOptions {
   /**
    * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and every color to be pastel.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel. The theme-level hue var is `--{themeName}-hue`.
+   */
+  splitHue?: boolean;
+}
+
+/**
+ * Options for `palette.css()`. There is no `name`: each theme's hue var is
+ * named after the theme.
+ */
+export interface GlazePaletteCssOptions extends GlazePaletteExportOptions {
+  /** Output color format. Default: 'oklch'. */
+  format?: GlazeColorFormat;
+  /** Suffix appended to each CSS custom property name. Default: '-color'. */
+  suffix?: string;
+  /**
+   * Emit hue as a separate custom property, referenced via `var()`.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel. The theme-level hue var is `--{themeName}-hue`.
    */
   splitHue?: boolean;
 }
@@ -1601,18 +1641,19 @@ export interface GlazePalette {
    * @see https://tasty.style/docs
    */
   tasty(
-    options?: GlazeTokenOptions & GlazePaletteExportOptions,
+    options?: GlazePaletteTastyOptions,
   ): Record<string, Record<string, string>>;
 
-  /** Export all themes as plain JSON grouped by theme name. */
+  /**
+   * Export all themes as plain JSON grouped by theme name. No prefix, primary
+   * alias, or collision handling: each theme keeps its own key.
+   */
   json(
-    options?: GlazeJsonOptions & {
-      prefix?: boolean | Record<string, string>;
-    },
+    options?: GlazeJsonOptions,
   ): Record<string, Record<string, Record<string, string>>>;
 
   /** Export all themes as CSS custom property declarations. */
-  css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult;
+  css(options?: GlazePaletteCssOptions): GlazeCssResult;
 
   /**
    * Export all themes as W3C DTCG documents, one per scheme variant.
