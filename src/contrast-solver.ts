@@ -6,9 +6,16 @@
  * contrast-uniform, the WCAG branch gets a closed-form seed and the search
  * converges quickly.
  *
+ * Both solvers search two branches that meet at the preferred position, which
+ * has already missed the overshooting search target and so sits between the
+ * passing regions. Each branch therefore reaches only its own side: a result
+ * sits where its `branch` / `flipped` say, and keeps the overshoot that absorbs
+ * formatting rounding.
+ *
  * Public API: `findToneForContrast`, `findValueForMixContrast`,
- * `resolveMinContrast`, `resolveContrastForMode`, `resolveContrastForLevel`,
- * `apcaContrast`.
+ * `resolveMinContrast`, `resolveApcaTarget`, `resolveContrastForMode`,
+ * `resolveContrastForLevel`, `apcaContrast`, plus the `APCA_PRESETS`,
+ * `APCA_HC_ENHANCEMENT` and `APCA_MAX_LC` constants.
  */
 
 import {
@@ -335,6 +342,12 @@ const luminanceCache = new Map<string, number>();
 const cacheOrder: string[] = [];
 
 /**
+ * Tones are rounded to `1 / TONE_STEPS` (0.0001) before measuring, so the tone
+ * solver can't resolve a crossing more finely than that, whatever `epsilon`.
+ */
+const TONE_STEPS = 10000;
+
+/**
  * Luminance of an OKHST color `(h, s, t)` with t in 0–1 (reference eps), in
  * the metric's luminance basis. The metric is part of the cache key because
  * WCAG and APCA derive different luminances from the same color.
@@ -346,7 +359,7 @@ function cachedLuminance(
   t: number,
   pastel: boolean,
 ): number {
-  const tRounded = Math.round(t * 10000) / 10000;
+  const tRounded = Math.round(t * TONE_STEPS) / TONE_STEPS;
   const key = `${metric}|${h}|${s}|${tRounded}|${pastel}`;
 
   const cached = luminanceCache.get(key);
@@ -419,7 +432,11 @@ export interface FindToneForContrastOptions {
   maxIterations?: number;
   /** Preferred search direction before auto-flip is considered. */
   initialDirection?: 'lighter' | 'darker';
-  /** Auto-flip tone direction when contrast can't be met. Default: false. */
+  /**
+   * Also search the opposite direction. Default: false. When both directions
+   * meet the target, the result nearer `preferredTone` wins; a gap within the
+   * search resolution is a tie and keeps `initialDirection`.
+   */
   flip?: boolean;
   /**
    * When `flip` is on and *both* directions meet the target, keep
@@ -445,7 +462,11 @@ export interface FindToneForContrastResult {
   contrast: number;
   /** Whether the target was reached. */
   met: boolean;
-  /** Which branch was selected. */
+  /**
+   * The side the result was found on. The two sides meet at `preferredTone`,
+   * so a met result sits on that side of the base too. `'preferred'` when
+   * `preferredTone` already passed.
+   */
   branch: 'lighter' | 'darker' | 'preferred';
   /** Whether the result auto-flipped to the opposite direction. */
   flipped?: boolean;
@@ -458,68 +479,52 @@ export interface FindToneForContrastResult {
 interface BranchResult {
   pos: number;
   contrast: number;
-  met: boolean;
 }
 
 /**
- * Binary search one branch `[lo, hi]` for the position nearest to `anchor`
- * that meets `target`. The domain is whatever `lum` interprets (tone 0–1 or
- * mix parameter 0–1); the search is identical in both cases.
+ * Binary search one branch, from its `inner` bound out to its `outer` extreme,
+ * for the position nearest `inner` that meets `target`. The domain is whatever
+ * `lum` interprets (tone 0–1 or mix parameter 0–1); the search is identical in
+ * both cases, and either end may be the numerically lower one.
+ *
+ * The score falls toward the base, so a branch's passing positions form one run
+ * that reaches out to `outer`: the outer extreme is the most the branch can
+ * reach. When even it falls short, the branch reports that extreme — never
+ * `inner`, which borders the opposite branch: a near-miss there may sit on the
+ * other side of the base, and returning it as this branch's answer would
+ * mislabel its side and drop the overshoot.
  */
 function searchBranch(
   lum: (x: number) => number,
-  lo: number,
-  hi: number,
+  inner: number,
+  outer: number,
   yBase: number,
   metric: 'wcag' | 'apca',
   target: number,
   epsilon: number,
   maxIter: number,
-  anchor: number,
   polarity?: 'fg' | 'bg',
 ): BranchResult {
-  const scoreLo = metricScore(metric, lum(lo), yBase, polarity);
-  const scoreHi = metricScore(metric, lum(hi), yBase, polarity);
+  const scoreOuter = metricScore(metric, lum(outer), yBase, polarity);
+  if (scoreOuter < target) return { pos: outer, contrast: scoreOuter };
 
-  if (scoreLo < target && scoreHi < target) {
-    return scoreLo >= scoreHi
-      ? { pos: lo, contrast: scoreLo, met: false }
-      : { pos: hi, contrast: scoreHi, met: false };
-  }
+  const scoreInner = metricScore(metric, lum(inner), yBase, polarity);
+  if (scoreInner >= target) return { pos: inner, contrast: scoreInner };
 
-  let low = lo;
-  let high = hi;
-
+  // Invariant: `pass` meets the target, `fail` does not.
+  let fail = inner;
+  let pass = outer;
   for (let i = 0; i < maxIter; i++) {
-    if (high - low < epsilon) break;
-    const mid = (low + high) / 2;
-    const scoreMid = metricScore(metric, lum(mid), yBase, polarity);
-
-    if (scoreMid >= target) {
-      if (mid < anchor) low = mid;
-      else high = mid;
-    } else {
-      if (mid < anchor) high = mid;
-      else low = mid;
-    }
+    if (Math.abs(pass - fail) < epsilon) break;
+    const mid = (fail + pass) / 2;
+    if (metricScore(metric, lum(mid), yBase, polarity) >= target) pass = mid;
+    else fail = mid;
   }
 
-  const scoreLow = metricScore(metric, lum(low), yBase, polarity);
-  const scoreHigh = metricScore(metric, lum(high), yBase, polarity);
-  const lowPasses = scoreLow >= target;
-  const highPasses = scoreHigh >= target;
-
-  if (lowPasses && highPasses) {
-    return Math.abs(low - anchor) <= Math.abs(high - anchor)
-      ? { pos: low, contrast: scoreLow, met: true }
-      : { pos: high, contrast: scoreHigh, met: true };
-  }
-  if (lowPasses) return { pos: low, contrast: scoreLow, met: true };
-  if (highPasses) return { pos: high, contrast: scoreHigh, met: true };
-
-  return scoreLow >= scoreHigh
-    ? { pos: low, contrast: scoreLow, met: false }
-    : { pos: high, contrast: scoreHigh, met: false };
+  return {
+    pos: pass,
+    contrast: metricScore(metric, lum(pass), yBase, polarity),
+  };
 }
 
 /**
@@ -540,12 +545,22 @@ function wcagToneSeed(yBase: number, target: number, darker: boolean): number {
  * solvers. Both pick an initial direction within `[lo, hi]`, binary-search
  * that branch, optionally flip to the opposite branch, and pin to the
  * initial extreme on failure — they only differ in their domain and how the
- * branch boundary / luminance closure are built.
+ * search anchor / luminance closure are built.
  *
- * `searchAnchor` biases the branch boundary and the in-branch tiebreak (the
- * WCAG seed for the tone solver; `preferred` otherwise). `distanceAnchor`
- * is the position the flip step measures closeness against (the original
- * preferred position, before any seed bias).
+ * The two branches meet at `preferred`. The core only runs once `preferred`
+ * has missed `searchTarget`, so it sits strictly between the passing region on
+ * each side of the base: the lower branch `[lo, preferred]` can only reach the
+ * lower side's passing positions and the upper branch `[preferred, hi]` only
+ * the upper side's. That is what keeps a result on the side its branch reports
+ * and, away from the bounds, its contrast at `searchTarget` (overshoot
+ * included).
+ *
+ * `searchAnchor` may bias the *initial* branch's inner bound — and with it the
+ * in-branch tiebreak — outward from `preferred` (the WCAG seed for the tone
+ * solver; `preferred` itself otherwise). It is clamped to the initial side, so
+ * it can shrink that branch but never stretch it across `preferred` into the
+ * opposite one. The opposite branch always starts at `preferred`, which is
+ * also the position the flip step measures closeness against.
  */
 interface SolveCoreOptions {
   lum: (x: number) => number;
@@ -555,16 +570,21 @@ interface SolveCoreOptions {
   searchTarget: number;
   lo: number;
   hi: number;
-  /** Branch-boundary + in-branch tiebreak anchor. */
+  /** Inner bound + tiebreak anchor of the initial branch (outward bias). */
   searchAnchor: number;
-  /** Position the flip step minimizes distance to. */
-  distanceAnchor: number;
+  /** Boundary between the branches; the flip step minimizes distance to it. */
+  preferred: number;
   epsilon: number;
+  /**
+   * How finely a branch result is known: `epsilon`, or coarser when `lum` is
+   * quantized. Nearest-wins treats distances within twice this as a tie.
+   */
+  resolution: number;
   maxIterations: number;
   flip: boolean;
   /** Keep the initial branch when both meet, instead of taking the nearest. */
   preferInitial: boolean;
-  /** Force the first branch ('lower' searches `[lo, anchor]`). */
+  /** Force the first branch ('lower' searches `[lo, searchAnchor]`). */
   initialIsLower: boolean;
   /** APCA argument order; ignored for WCAG. Default `'fg'`. */
   polarity?: 'fg' | 'bg';
@@ -589,8 +609,9 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
     lo,
     hi,
     searchAnchor,
-    distanceAnchor,
+    preferred,
     epsilon,
+    resolution,
     maxIterations,
     flip,
     preferInitial,
@@ -598,72 +619,56 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
     polarity,
   } = opts;
 
-  const runBranch = (lower: boolean): BranchResult =>
-    lower
-      ? searchBranch(
-          lum,
-          lo,
-          searchAnchor,
-          yBase,
-          metric,
-          searchTarget,
-          epsilon,
-          maxIterations,
-          searchAnchor,
-          polarity,
-        )
-      : searchBranch(
-          lum,
-          searchAnchor,
-          hi,
-          yBase,
-          metric,
-          searchTarget,
-          epsilon,
-          maxIterations,
-          searchAnchor,
-          polarity,
-        );
+  const boundary = clamp(preferred, lo, hi);
 
-  const initialResult = runBranch(initialIsLower);
-  initialResult.met = initialResult.contrast >= target;
-
-  if (initialResult.met && !flip) {
-    return { ...initialResult, lower: initialIsLower };
-  }
-
-  if (flip) {
-    // The opposite branch exists only when `distanceAnchor` is strictly
-    // interior on that side (matches the legacy canDarker/canUpper guards).
-    const canOpposite = initialIsLower
-      ? distanceAnchor < hi
-      : distanceAnchor > lo;
-    const oppositeResult = canOpposite ? runBranch(!initialIsLower) : null;
-    if (oppositeResult) oppositeResult.met = oppositeResult.contrast >= target;
-
-    if (initialResult.met && oppositeResult?.met) {
-      if (preferInitial) return { ...initialResult, lower: initialIsLower };
-      const initialDist = Math.abs(initialResult.pos - distanceAnchor);
-      const oppositeDist = Math.abs(oppositeResult.pos - distanceAnchor);
-      return initialDist <= oppositeDist
-        ? { ...initialResult, lower: initialIsLower }
-        : { ...oppositeResult, lower: !initialIsLower, flipped: true };
-    }
-    if (initialResult.met) return { ...initialResult, lower: initialIsLower };
-    if (oppositeResult?.met) {
-      return { ...oppositeResult, lower: !initialIsLower, flipped: true };
-    }
-  }
-
-  // Failure: pin to the initial direction's extreme.
-  const extreme = initialIsLower ? lo : hi;
-  const scoreExtreme = metricScore(metric, lum(extreme), yBase, polarity);
-  return {
-    pos: extreme,
-    contrast: scoreExtreme,
-    met: false,
-    lower: initialIsLower,
+  const runBranch = (lower: boolean, inner: number) => {
+    const result = searchBranch(
+      lum,
+      inner,
+      lower ? lo : hi,
+      yBase,
+      metric,
+      searchTarget,
+      epsilon,
+      maxIterations,
+      polarity,
+    );
+    return { ...result, met: result.contrast >= target, lower };
   };
+
+  // The seed bias may only pull the initial branch's inner bound outward.
+  const initialInner = clamp(
+    initialIsLower
+      ? Math.min(searchAnchor, boundary)
+      : Math.max(searchAnchor, boundary),
+    lo,
+    hi,
+  );
+  const initial = runBranch(initialIsLower, initialInner);
+
+  // A branch that misses the target reports its outer extreme, so an unmet
+  // `initial` is already pinned to the initial direction's extreme — the
+  // failure result whether or not the flip is tried.
+  if (!flip) return initial;
+
+  // The opposite branch exists only when `preferred` is strictly interior on
+  // that side (matches the legacy canDarker/canUpper guards).
+  const canOpposite = initialIsLower ? preferred < hi : preferred > lo;
+  if (!canOpposite) return initial;
+  const opposite = { ...runBranch(!initialIsLower, boundary), flipped: true };
+
+  if (initial.met && opposite.met) {
+    if (preferInitial) return initial;
+    const initialDist = Math.abs(initial.pos - preferred);
+    const oppositeDist = Math.abs(opposite.pos - preferred);
+    // Each distance is only known to within `resolution`, so a gap inside
+    // twice that is a tie — and a tie keeps the initial side. Without the
+    // margin, an exact tie (a neutral color with no tone of its own sits the
+    // same tone distance from either side's crossing) is decided by search
+    // noise.
+    return initialDist <= oppositeDist + 2 * resolution ? initial : opposite;
+  }
+  return opposite.met && !initial.met ? opposite : initial;
 }
 
 /**
@@ -729,18 +734,13 @@ export function findToneForContrast(
     initialIsDarker = scoreMin >= scoreMax;
   }
 
-  // For WCAG, bias the search start toward the closed-form seed (darker =
-  // the "lower" branch). The flip step still measures distance against the
-  // original `preferredTone`, not the seed.
+  // For WCAG, bias the initial branch's search start toward the closed-form
+  // seed (darker = the "lower" branch). The core only lets the seed shrink that
+  // branch outward from `preferredTone`; the opposite branch and the flip
+  // step's distance both stay anchored to `preferredTone` itself.
   const searchAnchor =
     metric === 'wcag'
-      ? clamp(
-          initialIsDarker
-            ? Math.min(preferredTone, wcagToneSeed(yBase, target, true))
-            : Math.max(preferredTone, wcagToneSeed(yBase, target, false)),
-          minT,
-          maxT,
-        )
+      ? wcagToneSeed(yBase, target, initialIsDarker)
       : preferredTone;
 
   const solved = solveNearestContrast({
@@ -752,8 +752,9 @@ export function findToneForContrast(
     lo: minT,
     hi: maxT,
     searchAnchor,
-    distanceAnchor: preferredTone,
+    preferred: preferredTone,
     epsilon,
+    resolution: Math.max(epsilon, 1 / TONE_STEPS),
     maxIterations,
     flip: options.flip ?? false,
     preferInitial: options.preferInitial ?? false,
@@ -777,13 +778,15 @@ export function findToneForContrast(
 export interface FindValueForMixContrastOptions {
   /** Preferred mix parameter (0–1). */
   preferredValue: number;
-  /** Base color as linear sRGB. */
+  /** Base color as linear sRGB — the color the mix is measured against. */
   baseLinearRgb: LinearRgb;
-  /** Target color as linear sRGB. */
-  targetLinearRgb: LinearRgb;
   /** Resolved contrast floor (metric + target). */
   contrast: ResolvedContrast;
-  /** Compute the luminance of the mixed color at parameter t. */
+  /**
+   * Luminance of the mixed color at parameter t, in the metric's basis
+   * ({@link metricLuminance}). This closure is the only view the solver has of
+   * the mix's target color, blend, and color space.
+   */
   luminanceAtValue: (t: number) => number;
   /** Convergence threshold. Default: 1e-4. */
   epsilon?: number;
@@ -864,8 +867,9 @@ export function findValueForMixContrast(
     lo: 0,
     hi: 1,
     searchAnchor: preferredValue,
-    distanceAnchor: preferredValue,
+    preferred: preferredValue,
     epsilon,
+    resolution: epsilon,
     maxIterations,
     flip: options.flip ?? false,
     // A mix searches along the base→target segment rather than across a base,

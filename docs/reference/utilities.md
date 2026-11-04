@@ -305,7 +305,7 @@ Searches tone for the value nearest `preferredTone` that meets a floor against a
 | `epsilon` | `number` | `1e-4` | Convergence threshold. |
 | `maxIterations` | `number` | `18` | Binary-search iterations per side. |
 | `initialDirection` | `'lighter' \| 'darker'` | Side whose bound scores higher | Side to search first. When `preferredTone` sits on a bound, the only open side. |
-| `flip` | `boolean` | `false` | Also search the opposite side. Without it, a side that can't reach the target pins the result to that side's bound. |
+| `flip` | `boolean` | `false` | Also search the opposite side. Without it, a side that can't reach the target pins the result to that side's bound. When both sides pass, the result nearer `preferredTone` wins; a tie keeps `initialDirection`. |
 | `preferInitial` | `boolean` | `false` | With `flip`, when both sides pass, keep `initialDirection` instead of the result nearer `preferredTone`. The manual contrast level uses it so a color keeps its side across the ramp. |
 | `pastel` | `boolean` | `false` | Use the pastel gamut for the candidate. |
 
@@ -316,10 +316,12 @@ Searches tone for the value nearest `preferredTone` that meets a floor against a
 | `tone` | `number` | The chosen tone, 0–1. |
 | `contrast` | `number` | The achieved score: WCAG ratio or APCA Lc magnitude. |
 | `met` | `boolean` | Whether `contrast` reaches the target. |
-| `branch` | `'lighter' \| 'darker' \| 'preferred'` | Where the result came from. `'preferred'` means `preferredTone` already passed. |
+| `branch` | `'lighter' \| 'darker' \| 'preferred'` | The side the result was found on. `'preferred'` means `preferredTone` already passed. |
 | `flipped` | `true` (optional) | Present when the result is on the side opposite `initialDirection`. |
 
 The search aims slightly past the target (WCAG ×1.01, APCA +0.5 Lc) to absorb rounding in the output formats; `met` is judged against the exact target. WCAG scores use `gamutClampedLuminance`, APCA scores use `Ys` with `polarity` deciding which side is the text.
+
+The two sides meet at `preferredTone`. Once it misses the overshoot target it sits between the passing tones on either side of the base, so each side can only reach its own: a met `'darker'` result sits below the base and a `'lighter'` one above it, and clears the overshoot unless it is that side's bound. A side that can't reach the target reports its bound, never a tone next to `preferredTone`. For WCAG, the first side's search starts from the closed-form gray seed, which can narrow that side but never extend it past `preferredTone`. With `flip`, two passing sides whose distances from `preferredTone` differ by no more than twice the search resolution (`epsilon`, or the solver's 0.0001 tone step if coarser) count as a tie. A neutral color whose `preferredTone` is the base's own tone sits exactly as far from either crossing, so without that margin search noise would pick its side.
 
 ```ts
 import {
@@ -367,14 +369,13 @@ The same search over a mix parameter (0–1) between a base and a target — wha
 | --- | --- | --- | --- |
 | `preferredValue` | `number` | — | Starting mix value, 0–1. Returned as-is if it already passes. |
 | `baseLinearRgb` | `[r, g, b]` | — | The base color, linear sRGB. Contrast is measured against it. |
-| `targetLinearRgb` | `[r, g, b]` | — | The target color, linear sRGB. Required by the type; the search reads the mix only through `luminanceAtValue`. |
 | `contrast` | `ResolvedContrast` | — | The floor. |
-| `luminanceAtValue` | `(t: number) => number` | — | Luminance of the mixed color at `t`, in the metric's basis (WCAG Y or APCA `Ys`). You choose the blend model here. |
+| `luminanceAtValue` | `(t: number) => number` | — | Luminance of the mixed color at `t`, in the metric's basis (WCAG Y or APCA `Ys`). The solver sees the mix's target color, blend, and color space only through this function. |
 | `epsilon` | `number` | `1e-4` | Convergence threshold. |
 | `maxIterations` | `number` | `20` | Binary-search iterations per side. |
 | `flip` | `boolean` | `false` | Also search the opposite side of `preferredValue`. |
 
-It starts toward whichever end (0 or 1) scores higher, or toward the only open side when `preferredValue` is 0 or 1, and on failure pins to the end it started toward. So a mix at value 1 that misses its floor pins to 0, the pure base. `FindValueForMixContrastResult` is `{ value, contrast, met, flipped? }`.
+It starts toward whichever end (0 or 1) scores higher, or toward the only open side when `preferredValue` is 0 or 1, and on failure pins to the end it started toward. So a mix at value 1 that misses its floor pins to 0, the pure base. As with tone, the two sides meet at `preferredValue`, and a side that can't reach the target reports its end — never `preferredValue` itself, even when that clears the bare target but not the overshoot. `FindValueForMixContrastResult` is `{ value, contrast, met, flipped? }`.
 
 ```ts
 import {
@@ -392,7 +393,6 @@ const lerp = (t: number) =>
 findValueForMixContrast({
   preferredValue: 0.1,
   baseLinearRgb: base,
-  targetLinearRgb: target,
   contrast: { metric: 'wcag', target: 3 },
   luminanceAtValue: (t) => relativeLuminanceFromLinearRgb(lerp(t)),
 });

@@ -3,6 +3,7 @@ import {
   resolveContrastForLevel,
   resolveContrastForMode,
   findToneForContrast,
+  findValueForMixContrast,
   apcaContrast,
 } from './contrast-solver';
 import type { ResolvedContrast } from './contrast-solver';
@@ -584,6 +585,223 @@ describe('contrast-solver', () => {
       });
       expect(result.met).toBe(true);
       expect(result.contrast).toBeGreaterThanOrEqual(7);
+    });
+  });
+
+  describe('branch sides', () => {
+    const grayBase = (tone: number) =>
+      okhslToLinearSrgb(0, 0, fromTone(tone * 100, REF_EPS));
+    const sideOf = (tone: number, baseTone: number) =>
+      tone < baseTone ? 'darker' : 'lighter';
+
+    it('keeps the seed-anchored darker solve on its side (reported repro)', () => {
+      // Against a gray base near tone 0.5247, white reaches only ~4.25:1, so AA
+      // is reachable going darker alone. The darker gray seed (tone ~0.0307)
+      // scores exactly 4.5:1 and used to be the boundary of *both* branches,
+      // so the lighter branch fell back to it: tone 0.0307, contrast
+      // 4.500001, branch 'lighter', flipped — the overshoot gone and the label
+      // wrong. Which bases hit it depends on the 1e-4 tone quantization, so
+      // sweep the neighborhood.
+      for (let i = -50; i <= 50; i++) {
+        const baseTone = 0.5247 + i * 1e-5;
+        const shared = {
+          hue: 0,
+          saturation: 0,
+          preferredTone: baseTone - 0.02,
+          baseLinearRgb: grayBase(baseTone),
+          contrast: wcag(4.5),
+          initialDirection: 'darker' as const,
+        };
+        const withFlip = findToneForContrast({ ...shared, flip: true });
+        const withoutFlip = findToneForContrast({ ...shared, flip: false });
+
+        expect(withFlip).toEqual(withoutFlip);
+        expect(withFlip.met).toBe(true);
+        expect(withFlip.branch).toBe('darker');
+        expect(withFlip.flipped).toBeUndefined();
+        expect(withFlip.tone).toBeLessThan(baseTone);
+        expect(withFlip.contrast).toBeGreaterThanOrEqual(4.5 * 1.01);
+      }
+    });
+
+    it('never answers with a preferred tone that only clears the bare target', () => {
+      // Between the overshoot crossing (4.545:1, tone ~0.0274) and the seed
+      // (4.5:1, tone ~0.0307) a preferred tone meets AA but not the 1%
+      // overshoot, so it is searched. The lighter branch used to return that
+      // preferred tone itself as its best endpoint — nearer than any darker
+      // result — labeled 'lighter' and flipped while sitting below the base.
+      const baseTone = 0.5247;
+      for (const preferredTone of [0.0285, 0.029, 0.03, 0.0305]) {
+        const shared = {
+          hue: 0,
+          saturation: 0,
+          preferredTone,
+          baseLinearRgb: grayBase(baseTone),
+          contrast: wcag(4.5),
+          initialDirection: 'darker' as const,
+        };
+        const withFlip = findToneForContrast({ ...shared, flip: true });
+
+        expect(withFlip).toEqual(
+          findToneForContrast({ ...shared, flip: false }),
+        );
+        expect(withFlip.branch).toBe('darker');
+        expect(withFlip.tone).toBeLessThan(preferredTone);
+        expect(withFlip.contrast).toBeGreaterThanOrEqual(4.5 * 1.01);
+      }
+    });
+
+    it('reports the side every result sits on (gray sweep)', () => {
+      const failures: string[] = [];
+      for (let baseTone = 0.02; baseTone < 0.99; baseTone += 0.0123) {
+        const baseLinearRgb = grayBase(baseTone);
+        for (const target of [1.5, 3, 4.5, 7, 11]) {
+          for (const offset of [-0.2, -0.02, 0, 0.02, 0.2]) {
+            const preferredTone = Math.min(1, Math.max(0, baseTone + offset));
+            for (const initialDirection of ['darker', 'lighter'] as const) {
+              for (const flip of [true, false]) {
+                const r = findToneForContrast({
+                  hue: 0,
+                  saturation: 0,
+                  preferredTone,
+                  baseLinearRgb,
+                  contrast: wcag(target),
+                  initialDirection,
+                  flip,
+                });
+                if (r.branch === 'preferred') continue;
+
+                const problems: string[] = [];
+                if (
+                  r.flipped !== (r.branch !== initialDirection || undefined)
+                ) {
+                  problems.push('flipped disagrees with branch');
+                }
+                if (r.met) {
+                  if (sideOf(r.tone, baseTone) !== r.branch) {
+                    problems.push('result on the other side of the base');
+                  }
+                  // Away from the bounds, a met result carries the overshoot.
+                  const atBound = r.tone === 0 || r.tone === 1;
+                  if (!atBound && r.contrast < target * 1.01) {
+                    problems.push('overshoot lost');
+                  }
+                } else if (
+                  r.branch !== initialDirection ||
+                  r.tone !== (initialDirection === 'darker' ? 0 : 1)
+                ) {
+                  problems.push('unmet result not pinned to its extreme');
+                }
+                if (problems.length > 0) {
+                  failures.push(
+                    `base ${baseTone.toFixed(4)} target ${target} ` +
+                      `preferred ${preferredTone.toFixed(4)} ` +
+                      `${initialDirection} flip=${flip}: ` +
+                      `${problems.join(', ')} ${JSON.stringify(r)}`,
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+      expect(failures).toEqual([]);
+    });
+
+    it('breaks an exact tie toward the initial side', () => {
+      // A neutral with no tone of its own sits the same tone distance from the
+      // crossing on either side (tone is contrast-uniform for grays), so
+      // nearest-wins is a tie that search noise used to decide.
+      const failures: string[] = [];
+      for (let baseTone = 0.3; baseTone < 0.8; baseTone += 0.0037) {
+        for (const target of [1.2, 1.5, 2, 3]) {
+          const shared = {
+            hue: 0,
+            saturation: 0,
+            preferredTone: baseTone,
+            baseLinearRgb: grayBase(baseTone),
+            contrast: wcag(target),
+          };
+          const darker = findToneForContrast({
+            ...shared,
+            initialDirection: 'darker',
+          });
+          const lighter = findToneForContrast({
+            ...shared,
+            initialDirection: 'lighter',
+          });
+          // Only a genuine tie: both sides reach the overshoot off the bounds.
+          if (!darker.met || darker.tone === 0) continue;
+          if (!lighter.met || lighter.tone === 1) continue;
+
+          for (const initialDirection of ['darker', 'lighter'] as const) {
+            const r = findToneForContrast({
+              ...shared,
+              initialDirection,
+              flip: true,
+            });
+            if (r.branch !== initialDirection || r.flipped) {
+              failures.push(
+                `base ${baseTone.toFixed(4)} target ${target} ` +
+                  `${initialDirection}: ${JSON.stringify(r)}`,
+              );
+            }
+          }
+        }
+      }
+      expect(failures).toEqual([]);
+    });
+  });
+
+  describe('findValueForMixContrast', () => {
+    // A gray mix whose luminance rises from the base (v = 0) toward white.
+    const yBase = 0.2;
+    const shared = {
+      baseLinearRgb: [yBase, yBase, yBase] as [number, number, number],
+      contrast: wcag(2),
+      luminanceAtValue: (v: number) => yBase + (1 - yBase) * v * v,
+    };
+
+    it('meets the floor nearest the preferred value', () => {
+      const result = findValueForMixContrast({
+        ...shared,
+        preferredValue: 0.3,
+      });
+      expect(result.met).toBe(true);
+      expect(result.value).toBeGreaterThan(0.3);
+      expect(result.contrast).toBeGreaterThanOrEqual(2 * 1.01);
+    });
+
+    it('keeps the overshoot when the preferred value only clears the bare target', () => {
+      // 2:1 needs v >= 0.559 and the 1% overshoot v >= 0.5646; 0.56 sits in
+      // between. The lower branch used to return 0.56 itself as its best
+      // endpoint, which then won as the "nearest" flipped result.
+      const withFlip = findValueForMixContrast({
+        ...shared,
+        preferredValue: 0.56,
+        flip: true,
+      });
+      expect(withFlip).toEqual(
+        findValueForMixContrast({
+          ...shared,
+          preferredValue: 0.56,
+          flip: false,
+        }),
+      );
+      expect(withFlip.value).toBeGreaterThan(0.56);
+      expect(withFlip.contrast).toBeGreaterThanOrEqual(2 * 1.01);
+      expect(withFlip.flipped).toBeUndefined();
+    });
+
+    it('pins to the starting end when neither side meets the floor', () => {
+      const result = findValueForMixContrast({
+        ...shared,
+        contrast: wcag(10),
+        preferredValue: 0.5,
+        flip: true,
+      });
+      expect(result.met).toBe(false);
+      expect(result.value).toBe(1);
     });
   });
 });

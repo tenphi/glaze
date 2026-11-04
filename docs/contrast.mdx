@@ -248,7 +248,8 @@ mid-tone button, for instance. `autoFlip` decides what happens then:
 
 - **On (default):** the solver also searches the opposite side of the base and
   takes the passing tone nearest the preferred one. The light label becomes a
-  dark one.
+  dark one. When both sides are equally near — a neutral color with no tone of
+  its own sits exactly between them — it keeps the side it searched first.
 - **Off:** only the authored side is searched. When it falls short, the color
   pins to that side's extreme (tone `0` or `100`) and Glaze warns.
 

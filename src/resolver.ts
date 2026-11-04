@@ -913,7 +913,6 @@ function resolveMixForScheme(
     const result = findValueForMixContrast({
       preferredValue: t,
       baseLinearRgb: baseLinear,
-      targetLinearRgb: targetLinear,
       contrast: resolvedContrast,
       luminanceAtValue: luminanceAt,
       flip: ctx.config.autoFlip,
