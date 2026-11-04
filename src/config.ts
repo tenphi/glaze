@@ -56,10 +56,12 @@ export function defaultConfig(): GlazeConfigResolved {
     states: {
       dark: '@media(prefers-color-scheme: dark)',
       highContrast: '@media(prefers-contrast: more)',
+      hdr: '@media(dynamic-range: high)',
     },
     modes: {
       dark: true,
       highContrast: false,
+      hdr: false,
     },
     autoFlip: true,
     pastel: false,
@@ -311,11 +313,13 @@ export function configure(config: GlazeConfig): void {
       dark: config.states?.dark ?? globalConfig.states.dark,
       highContrast:
         config.states?.highContrast ?? globalConfig.states.highContrast,
+      hdr: config.states?.hdr ?? globalConfig.states.hdr,
     },
     modes: {
       dark: config.modes?.dark ?? globalConfig.modes.dark,
       highContrast:
         config.modes?.highContrast ?? globalConfig.modes.highContrast,
+      hdr: config.modes?.hdr ?? globalConfig.modes.hdr,
     },
     shadowTuning: normalizeLightingTuning(
       'shadow',

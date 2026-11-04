@@ -6,7 +6,10 @@
  * unprefixed copy of its tokens. All seven export methods (`tokens` /
  * `tasty` / `json` / `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a
  * `buildPaletteOutput` driver that handles validation, per-theme iteration,
- * prefix resolution, collision filtering, and primary duplication.
+ * prefix resolution, collision filtering, and primary duplication. The HDR
+ * tier of glows (with `modes.hdr`, or `css({ hdr })`) is built from the same
+ * filtered maps, so prefixes, the primary alias and collisions apply to it the
+ * same way.
  * `tasty()` / `css()` with `splitHue` share one custom-property registry across
  * the passes of a call, so two themes declaring the same `--*-hue` throws — as
  * does a `css()` value property (primary aliases included) landing on a hue
@@ -34,8 +37,14 @@ import {
   buildJsonMap,
   buildTailwindLines,
   buildTokenMap,
+  DEFAULT_TAILWIND_HDR_SELECTOR,
   emitTailwindCss,
+  emptySchemeLines,
+  emptyTailwindLines,
+  joinSchemeLines,
+  mergeTailwindLines,
   resolveModes,
+  SCHEMES,
 } from './formatters';
 import {
   assertExportKind,
@@ -47,6 +56,7 @@ import { createTheme } from './theme';
 import type {
   ColorMap,
   GlazeCssResult,
+  GlazeCssSchemeBlocks,
   GlazeConfigOverride,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
@@ -439,6 +449,7 @@ export function createPalette(
       const states = {
         dark: options?.states?.dark ?? cfg.states.dark,
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
+        hdr: options?.states?.hdr ?? cfg.states.hdr,
       };
       const modes = resolveModes(options?.modes);
       const format = options?.format ?? 'oklch';
@@ -505,11 +516,13 @@ export function createPalette(
       assertNativeFormat(format, 'css');
       assertSplitHueFormat(options?.splitHue, format);
       const modes = resolveModes();
+      const hdr = options?.hdr ?? modes.hdr;
       const hueOwners: SplitHueOwners = new Map();
+      type SchemeLines = Record<keyof GlazeCssSchemeBlocks, string[]>;
 
       const lines = buildPaletteOutput<
         GlazeCssResult,
-        Record<keyof GlazeCssResult, string[]>
+        { sdr: SchemeLines; hdr: SchemeLines }
       >(
         themes,
         paletteOptions,
@@ -534,34 +547,21 @@ export function createPalette(
             format,
             pastel,
             channelCtx,
+            hdr,
           );
         },
         (acc, part) => {
-          for (const key of [
-            'light',
-            'dark',
-            'lightContrast',
-            'darkContrast',
-          ] as const) {
-            if (part[key]) {
-              acc[key].push(part[key]);
-            }
+          for (const key of SCHEMES) {
+            if (part[key]) acc.sdr[key].push(part[key]);
+            if (part.hdr?.[key]) acc.hdr[key].push(part.hdr[key]);
           }
         },
-        () => ({
-          light: [],
-          dark: [],
-          lightContrast: [],
-          darkContrast: [],
-        }),
+        () => ({ sdr: emptySchemeLines(), hdr: emptySchemeLines() }),
       );
 
-      return {
-        light: lines.light.join('\n'),
-        dark: lines.dark.join('\n'),
-        lightContrast: lines.lightContrast.join('\n'),
-        darkContrast: lines.darkContrast.join('\n'),
-      };
+      const result: GlazeCssResult = joinSchemeLines(lines.sdr);
+      if (hdr) result.hdr = joinSchemeLines(lines.hdr);
+      return result;
     },
 
     dtcg(
@@ -586,32 +586,32 @@ export function createPalette(
       const darkSelector = options?.darkSelector ?? '.dark';
       const highContrastSelector =
         options?.highContrastSelector ?? '.high-contrast';
+      const hdrSelector = options?.hdrSelector ?? DEFAULT_TAILWIND_HDR_SELECTOR;
 
       const lines = buildPaletteOutput<GlazeTailwindLines, GlazeTailwindLines>(
         themes,
         paletteOptions,
         options,
         (filtered, prefix, pastel, _themeName, _theme) =>
-          buildTailwindLines(filtered, prefix, cssPrefix, format, pastel),
-        (acc, part) => {
-          for (const variant of [
-            'light',
-            'dark',
-            'lightContrast',
-            'darkContrast',
-          ] as const) {
-            acc[variant].push(...part[variant]);
-          }
-        },
-        () => ({
-          light: [],
-          dark: [],
-          lightContrast: [],
-          darkContrast: [],
-        }),
+          buildTailwindLines(
+            filtered,
+            prefix,
+            cssPrefix,
+            format,
+            pastel,
+            modes,
+          ),
+        mergeTailwindLines,
+        emptyTailwindLines,
       );
 
-      return emitTailwindCss(lines, modes, darkSelector, highContrastSelector);
+      return emitTailwindCss(
+        lines,
+        modes,
+        darkSelector,
+        highContrastSelector,
+        hdrSelector,
+      );
     },
   };
 }

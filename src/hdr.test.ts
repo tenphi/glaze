@@ -1,3 +1,5 @@
+import { renderStyles } from '@tenphi/tasty/core';
+import type { Styles } from '@tenphi/tasty/core';
 import { glaze } from './glaze';
 import { contrastFraction, numberAt } from './hc-pair';
 import { computeLighting, resolveLightingTuning } from './lighting';
@@ -11,7 +13,10 @@ import {
 import { okhstToOkhsl, toneFromY, variantToOkhsl, yFromTone } from './okhst';
 import type {
   ColorMap,
+  DtcgColorToken,
+  DtcgDocument,
   GlazeConfigOverride,
+  GlazeOutputModes,
   GlazeTheme,
   GlowTuning,
   OkhstColor,
@@ -136,24 +141,31 @@ const ALL_MODES = { modes: { dark: true, highContrast: true } };
 
 /**
  * Every exporter's output, serialized so key order counts too. `splitHue`
- * needs an all-pastel theme, so it runs on a pastel twin.
+ * needs an all-pastel theme, so it runs on a pastel twin. `extra` is merged
+ * into every `modes`.
  */
-function exportAll(defs: ColorMap, config?: GlazeConfigOverride): string {
+function exportAll(
+  defs: ColorMap,
+  config?: GlazeConfigOverride,
+  extra?: GlazeOutputModes,
+): string {
   const theme = themeWith(defs, config);
   const pastel = themeWith(defs, { ...config, pastel: true });
+  const all = { modes: { ...ALL_MODES.modes, ...extra } };
+  const css = extra?.hdr !== undefined ? { hdr: extra.hdr } : {};
   return JSON.stringify({
-    tasty: theme.tasty(ALL_MODES),
-    tastyOkhst: theme.tasty({ ...ALL_MODES, format: 'okhst' }),
-    tastySplitHue: pastel.tasty({ ...ALL_MODES, splitHue: true }),
-    cssSplitHue: pastel.css({ splitHue: true }),
-    json: theme.json(ALL_MODES),
-    jsonRgb: theme.json({ ...ALL_MODES, format: 'rgb' }),
-    css: theme.css(),
-    cssHsl: theme.css({ format: 'hsl' }),
-    tokens: theme.tokens(ALL_MODES),
-    dtcg: theme.dtcg(ALL_MODES),
-    dtcgResolver: theme.dtcgResolver(ALL_MODES),
-    tailwind: theme.tailwind(ALL_MODES),
+    tasty: theme.tasty(all),
+    tastyOkhst: theme.tasty({ ...all, format: 'okhst' }),
+    tastySplitHue: pastel.tasty({ ...all, splitHue: true }),
+    cssSplitHue: pastel.css({ ...css, splitHue: true }),
+    json: theme.json(all),
+    jsonRgb: theme.json({ ...all, format: 'rgb' }),
+    css: theme.css(css),
+    cssHsl: theme.css({ ...css, format: 'hsl' }),
+    tokens: theme.tokens(all),
+    dtcg: theme.dtcg(all),
+    dtcgResolver: theme.dtcgResolver(all),
+    tailwind: theme.tailwind(all),
   });
 }
 
@@ -242,6 +254,11 @@ describe('HDR glows', () => {
         themeWith(DEFS).resolve().get('near-glow')!.light.hdr,
       ).toBeDefined();
       expect(exportAll(DEFS)).toBe(sdr);
+
+      // `modes.hdr: false` — the default — said out loud, globally too.
+      glaze.configure({ modes: { hdr: false } });
+      expect(exportAll(DEFS)).toBe(sdr);
+      expect(exportAll(DEFS, undefined, { hdr: false })).toBe(sdr);
     });
   });
 
@@ -885,5 +902,765 @@ describe('HDR glows', () => {
         undefined,
       );
     });
+  });
+});
+
+// ============================================================================
+// Exporters
+// ============================================================================
+
+/**
+ * Glows whose HDR value sits in different schemes (headroom 1):
+ * - `surface-glow`: light + lightContrast (the white surface inverts in dark);
+ * - `near-glow`: all four (a static near-white surface);
+ * - `ink-glow`: dark + darkContrast (a near-black surface inverts to light);
+ * - `paper-glow`: lightContrast only (only its HC intensity passes white);
+ * - `inverse-glow`: none.
+ */
+const EXPORT_DEFS: ColorMap = {
+  surface: { tone: 100 },
+  'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
+  near: { tone: 95, saturation: 0, mode: 'static' },
+  'near-glow': { type: 'glow', bg: 'near', intensity: 12 },
+  ink: { tone: 3, saturation: 0 },
+  'ink-glow': { type: 'glow', bg: 'ink', intensity: 12 },
+  paper: { tone: 92, saturation: 0 },
+  'paper-glow': { type: 'glow', bg: 'paper', intensity: [6, 14] },
+  inverse: { tone: 12, saturation: 0, mode: 'static' },
+  'inverse-glow': { type: 'glow', bg: 'inverse', intensity: 12 },
+};
+
+const HDR_GLOWS = ['surface-glow', 'near-glow', 'ink-glow', 'paper-glow'];
+
+const HDR_MODES = { modes: { dark: true, highContrast: true, hdr: true } };
+
+const WHITE_12 = 'color(srgb-linear 1.4631 1.4631 1.4631)';
+const NEAR_12 = 'color(srgb-linear 1.2494 1.2494 1.2494)';
+
+const DARK = '@media(prefers-color-scheme: dark)';
+const HC = '@media(prefers-contrast: more)';
+const HDR = '@media(dynamic-range: high)';
+
+const EXT = 'me.tenphi.glaze';
+
+type Scheme = (typeof SCHEMES)[number];
+
+function exportTheme(config?: GlazeConfigOverride): GlazeTheme {
+  return themeWith(EXPORT_DEFS, { glowTuning: { headroom: 1 }, ...config });
+}
+
+/** A variant's HDR string when it has one and `hdr`, else its SDR string. */
+function valueOf(v: ResolvedColorVariant, hdr: boolean): string {
+  return hdr && v.hdr !== undefined ? glaze.formatHdr(v)! : glaze.format(v);
+}
+
+/** The schemes of a resolved color that carry an HDR value. */
+function hdrSchemes(color: ResolvedColor): Scheme[] {
+  return SCHEMES.filter((scheme) => color[scheme].hdr !== undefined);
+}
+
+// A tiny evaluator for the media queries Tasty compiles state maps into.
+
+interface MediaEnv {
+  dark: boolean;
+  hc: boolean;
+  hdr: boolean;
+}
+
+const MEDIA_FEATURES: Record<string, keyof MediaEnv> = {
+  'prefers-color-scheme: dark': 'dark',
+  'prefers-contrast: more': 'hc',
+  'dynamic-range: high': 'hdr',
+};
+
+const ENVS: MediaEnv[] = [false, true].flatMap((dark) =>
+  [false, true].flatMap((hc) =>
+    [false, true].map((hdr) => ({ dark, hc, hdr })),
+  ),
+);
+
+/**
+ * Whether an `@media` at-rule matches `env`. Understands the forms Tasty
+ * emits — `,`-separated queries of `and`-joined `(feature)` / `(not
+ * (feature))` terms — and throws on anything else rather than guessing.
+ */
+function mediaMatches(rule: string, env: MediaEnv): boolean {
+  const query = /^@media (.+)$/.exec(rule);
+  if (!query) throw new Error(`unexpected at-rule: ${rule}`);
+  return query[1].split(/\s*,\s*/).some((q) =>
+    q.split(/\s+and\s+/).every((term) => {
+      const negated = /^\(not \((.+)\)\)$/.exec(term);
+      const feature = negated ? negated[1] : /^\((.+)\)$/.exec(term)?.[1];
+      const key = feature === undefined ? undefined : MEDIA_FEATURES[feature];
+      if (key === undefined) throw new Error(`unexpected media term: ${term}`);
+      return negated ? !env[key] : env[key];
+    }),
+  );
+}
+
+/** Every value Tasty's compiled CSS gives each custom property in `env`. */
+function compiledValues(
+  styles: Record<string, Record<string, string>>,
+  env: MediaEnv,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const rule of renderStyles(styles as Styles, '.t0')) {
+    if (!(rule.atRules ?? []).every((r) => mediaMatches(r, env))) continue;
+    for (const decl of rule.declarations.split(';')) {
+      const m = /^\s*(--[\w-]+):\s*(.+?)\s*$/.exec(decl);
+      if (m) (out[m[1]] ??= []).push(m[2]);
+    }
+  }
+  return out;
+}
+
+describe('HDR exporters', () => {
+  describe('tasty()', () => {
+    it('follows each SDR key with its HDR key, only where one exists', () => {
+      const tokens = exportTheme().tasty(HDR_MODES);
+      expect(tokens['#surface-glow']).toEqual({
+        '': 'oklch(1 0 0 / 0)',
+        [HDR]: WHITE_12,
+        [DARK]: 'oklch(1 0 0 / 0.1237)',
+        [HC]: 'oklch(1 0 0 / 0)',
+        [`${HC} & ${HDR}`]: WHITE_12,
+        [`${DARK} & ${HC}`]: 'oklch(1 0 0 / 0.1603)',
+      });
+      expect(Object.keys(tokens['#surface-glow'])).toEqual([
+        '',
+        HDR,
+        DARK,
+        HC,
+        `${HC} & ${HDR}`,
+        `${DARK} & ${HC}`,
+      ]);
+      expect(Object.keys(tokens['#near-glow'])).toEqual([
+        '',
+        HDR,
+        DARK,
+        `${DARK} & ${HDR}`,
+        HC,
+        `${HC} & ${HDR}`,
+        `${DARK} & ${HC}`,
+        `${DARK} & ${HC} & ${HDR}`,
+      ]);
+      expect(Object.keys(tokens['#ink-glow'])).toEqual([
+        '',
+        DARK,
+        `${DARK} & ${HDR}`,
+        HC,
+        `${DARK} & ${HC}`,
+        `${DARK} & ${HC} & ${HDR}`,
+      ]);
+      expect(Object.keys(tokens['#paper-glow'])).toEqual([
+        '',
+        DARK,
+        HC,
+        `${HC} & ${HDR}`,
+        `${DARK} & ${HC}`,
+      ]);
+      // Without HDR anywhere, the map is the SDR one.
+      expect(tokens['#inverse-glow']).toEqual(
+        exportTheme().tasty(ALL_MODES)['#inverse-glow'],
+      );
+    });
+
+    it('gates the HDR keys by the other modes', () => {
+      const theme = exportTheme();
+      expect(theme.tasty({ modes: { hdr: true } })['#near-glow']).toEqual({
+        '': 'oklch(1 0 0)',
+        [HDR]: NEAR_12,
+        [DARK]: 'oklch(1 0 0)',
+        [`${DARK} & ${HDR}`]: NEAR_12,
+      });
+      expect(
+        theme.tasty({ modes: { dark: false, hdr: true } })['#ink-glow'],
+      ).toEqual({ '': 'oklch(1 0 0 / 0.1191)' });
+      const paper = theme.resolve().get('paper-glow')!.lightContrast;
+      expect(
+        theme.tasty({ modes: { dark: false, highContrast: true, hdr: true } })[
+          '#paper-glow'
+        ],
+      ).toEqual({
+        '': 'oklch(1 0 0 / 0.7815)',
+        [HC]: glaze.format(paper),
+        [`${HC} & ${HDR}`]: glaze.formatHdr(paper),
+      });
+    });
+
+    it('compiles with @tenphi/tasty so each context gets its scheme value', () => {
+      const theme = exportTheme();
+      const resolved = theme.resolve();
+      const modeSets: Required<GlazeOutputModes>[] = [
+        { dark: true, highContrast: true, hdr: true },
+        { dark: true, highContrast: false, hdr: true },
+        { dark: false, highContrast: true, hdr: true },
+        { dark: true, highContrast: true, hdr: false },
+      ];
+      let checked = 0;
+      for (const modes of modeSets) {
+        const styles = theme.tasty({ modes });
+        for (const env of ENVS) {
+          const values = compiledValues(styles, env);
+          const dark = env.dark && modes.dark;
+          const hc = env.hc && modes.highContrast;
+          const scheme: Scheme = dark
+            ? hc
+              ? 'darkContrast'
+              : 'dark'
+            : hc
+              ? 'lightContrast'
+              : 'light';
+          for (const [name, color] of resolved) {
+            // Tasty's rules never overlap, so exactly one value applies:
+            // later keys win, and a dark key beats the light HDR one.
+            expect(values[`--${name}-color`]).toEqual([
+              valueOf(color[scheme], env.hdr && modes.hdr),
+            ]);
+            checked++;
+          }
+        }
+      }
+      expect(checked).toBe(4 * 8 * resolved.size);
+    });
+
+    it('takes the HDR state from options, configure(), or the default', () => {
+      const theme = exportTheme();
+      const custom = theme.tasty({
+        modes: { hdr: true },
+        states: { dark: '@dark', hdr: '@hdr' },
+      })['#near-glow'];
+      expect(Object.keys(custom)).toEqual([
+        '',
+        '@hdr',
+        '@dark',
+        '@dark & @hdr',
+      ]);
+
+      glaze.configure({ modes: { hdr: true }, states: { hdr: '@hdr' } });
+      expect(glaze.getConfig().states.hdr).toBe('@hdr');
+      expect(glaze.getConfig().modes.hdr).toBe(true);
+      expect(Object.keys(theme.tasty()['#near-glow'])).toEqual([
+        '',
+        '@hdr',
+        DARK,
+        `${DARK} & @hdr`,
+      ]);
+      // A per-call mode still turns it off.
+      expect(
+        Object.keys(theme.tasty({ modes: { hdr: false } })['#near-glow']),
+      ).toEqual(['', DARK]);
+
+      glaze.resetConfig();
+      expect(glaze.getConfig().states.hdr).toBe(HDR);
+      expect(glaze.getConfig().modes.hdr).toBe(false);
+      expect(Object.keys(theme.tasty()['#near-glow'])).toEqual(['', DARK]);
+    });
+
+    it('writes HDR values as literals under splitHue', () => {
+      const theme = exportTheme({ pastel: true });
+      const split = theme.tasty({ ...HDR_MODES, splitHue: true });
+      const plain = theme.tasty(HDR_MODES);
+      let hdrKeys = 0;
+      for (const name of HDR_GLOWS) {
+        for (const [key, value] of Object.entries(split[`#${name}`])) {
+          if (!key.includes(HDR)) continue;
+          hdrKeys++;
+          expect(value).toMatch(/^color\(srgb-linear [\d. ]+\)$/);
+          expect(value).toBe(plain[`#${name}`][key]);
+        }
+      }
+      expect(hdrKeys).toBe(9);
+      expect(split['#surface-glow'][HDR]).toBe(WHITE_12);
+    });
+
+    it('writes srgb-linear whatever the SDR format', () => {
+      const light = exportTheme().resolve().get('surface-glow')!.light;
+      for (const format of ['okhsl', 'okhst', 'rgb', 'hsl'] as const) {
+        const tokens = exportTheme().tasty({ ...HDR_MODES, format });
+        expect(tokens['#surface-glow'][HDR]).toBe(WHITE_12);
+        expect(tokens['#surface-glow']['']).toBe(glaze.format(light, format));
+      }
+    });
+  });
+
+  describe('json()', () => {
+    it('adds a sparse <scheme>Hdr key after each SDR key that has one', () => {
+      const json = exportTheme().json(HDR_MODES);
+      expect(json['surface-glow']).toEqual({
+        light: 'oklch(1 0 0 / 0)',
+        lightHdr: WHITE_12,
+        dark: 'oklch(1 0 0 / 0.1237)',
+        lightContrast: 'oklch(1 0 0 / 0)',
+        lightContrastHdr: WHITE_12,
+        darkContrast: 'oklch(1 0 0 / 0.1603)',
+      });
+      expect(Object.keys(json['near-glow'])).toEqual([
+        'light',
+        'lightHdr',
+        'dark',
+        'darkHdr',
+        'lightContrast',
+        'lightContrastHdr',
+        'darkContrast',
+        'darkContrastHdr',
+      ]);
+      expect(Object.keys(json['ink-glow'])).toEqual([
+        'light',
+        'dark',
+        'darkHdr',
+        'lightContrast',
+        'darkContrast',
+        'darkContrastHdr',
+      ]);
+      expect(json['inverse-glow']).toEqual(
+        exportTheme().json(ALL_MODES)['inverse-glow'],
+      );
+    });
+
+    it('gates the HDR keys by the other modes and ignores the format', () => {
+      const json = exportTheme().json({ modes: { hdr: true }, format: 'rgb' });
+      expect(Object.keys(json['near-glow'])).toEqual([
+        'light',
+        'lightHdr',
+        'dark',
+        'darkHdr',
+      ]);
+      expect(json['near-glow'].light).toMatch(/^rgb\(/);
+      expect(json['near-glow'].lightHdr).toBe(NEAR_12);
+      expect(Object.keys(json['paper-glow'])).toEqual(['light', 'dark']);
+    });
+  });
+
+  describe('tokens()', () => {
+    it('adds a dense <scheme>Hdr map after each scheme', () => {
+      const theme = exportTheme();
+      const tokens = theme.tokens(HDR_MODES);
+      const sdr = theme.tokens(ALL_MODES);
+      expect(Object.keys(tokens)).toEqual([
+        'light',
+        'lightHdr',
+        'dark',
+        'darkHdr',
+        'lightContrast',
+        'lightContrastHdr',
+        'darkContrast',
+        'darkContrastHdr',
+      ]);
+      const resolved = theme.resolve();
+      for (const scheme of SCHEMES) {
+        // The SDR maps don't change.
+        expect(tokens[scheme]).toEqual(sdr[scheme]);
+        const hdrMap = tokens[`${scheme}Hdr`];
+        expect(Object.keys(hdrMap)).toEqual(HDR_GLOWS);
+        for (const name of HDR_GLOWS) {
+          expect(hdrMap[name]).toBe(valueOf(resolved.get(name)![scheme], true));
+        }
+      }
+      expect(tokens.darkHdr).toEqual({
+        'surface-glow': 'oklch(1 0 0 / 0.1237)',
+        'near-glow': NEAR_12,
+        'ink-glow': glaze.formatHdr(resolved.get('ink-glow')!.dark),
+        'paper-glow': glaze.format(resolved.get('paper-glow')!.dark),
+      });
+    });
+
+    it('counts only the emitted schemes toward the dense set', () => {
+      const tokens = exportTheme().tokens({ modes: { hdr: true } });
+      expect(Object.keys(tokens)).toEqual([
+        'light',
+        'lightHdr',
+        'dark',
+        'darkHdr',
+      ]);
+      // `paper-glow` has HDR only in lightContrast, which isn't emitted.
+      expect(Object.keys(tokens.lightHdr)).toEqual([
+        'surface-glow',
+        'near-glow',
+        'ink-glow',
+      ]);
+      expect(
+        Object.keys(
+          exportTheme().tokens({ modes: { dark: false, hdr: true } }),
+        ),
+      ).toEqual(['light', 'lightHdr']);
+    });
+
+    it('emits empty HDR maps when nothing passes white', () => {
+      const tokens = themeWith(EXPORT_DEFS).tokens({ modes: { hdr: true } });
+      expect(tokens.lightHdr).toEqual({});
+      expect(tokens.darkHdr).toEqual({});
+    });
+
+    it('drops the HDR maps of a mirrored high-contrast tier with it', () => {
+      glaze.configure({ contrastLevel: 100 });
+      expect(Object.keys(exportTheme().tokens(HDR_MODES))).toEqual([
+        'light',
+        'lightHdr',
+        'dark',
+        'darkHdr',
+      ]);
+    });
+  });
+
+  describe('css()', () => {
+    it('adds dense hdr blocks with the hdr option', () => {
+      const theme = exportTheme();
+      const { hdr, ...sdr } = theme.css({ hdr: true });
+      expect(sdr).toEqual(theme.css());
+      expect('hdr' in theme.css()).toBe(false);
+
+      const resolved = theme.resolve();
+      const decl = (name: string, value: string) =>
+        `--${name}-color: ${value};`;
+      for (const scheme of SCHEMES) {
+        expect(hdr![scheme]).toBe(
+          HDR_GLOWS.map((name) =>
+            decl(name, valueOf(resolved.get(name)![scheme], true)),
+          ).join('\n'),
+        );
+      }
+      expect(hdr!.light).toBe(
+        [
+          decl('surface-glow', WHITE_12),
+          decl('near-glow', NEAR_12),
+          decl('ink-glow', 'oklch(1 0 0 / 0.1191)'),
+          decl('paper-glow', 'oklch(1 0 0 / 0.7815)'),
+        ].join('\n'),
+      );
+    });
+
+    it('matches the design worked example', () => {
+      const theme = glaze(280, 80, { glowTuning: { headroom: 1 } });
+      theme.colors({
+        surface: { tone: 100 },
+        'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
+        near: { tone: 95, saturation: 0, mode: 'static' },
+        'near-glow': { type: 'glow', bg: 'near', intensity: 12 },
+        inverse: { tone: 12, saturation: 0, mode: 'static' },
+        'inverse-glow': { type: 'glow', bg: 'inverse', intensity: 12 },
+      });
+      const near = `--near-glow-color: ${NEAR_12};`;
+      expect(theme.css({ hdr: true }).hdr).toEqual({
+        light: `--surface-glow-color: ${WHITE_12};\n${near}`,
+        dark: `--surface-glow-color: oklch(1 0 0 / 0.1237);\n${near}`,
+        lightContrast: `--surface-glow-color: ${WHITE_12};\n${near}`,
+        darkContrast: `--surface-glow-color: oklch(1 0 0 / 0.1603);\n${near}`,
+      });
+    });
+
+    it('falls back to the global modes.hdr', () => {
+      const theme = exportTheme();
+      glaze.configure({ modes: { hdr: true } });
+      expect(theme.css().hdr).toEqual(theme.css({ hdr: true }).hdr);
+      expect('hdr' in theme.css({ hdr: false })).toBe(false);
+    });
+
+    it('re-declares the SDR line verbatim under splitHue', () => {
+      // A tinted glow over a chromatic surface: a chromatic SDR fallback.
+      const theme = themeWith(
+        {
+          ...EXPORT_DEFS,
+          chip: { tone: 99 },
+          'chip-glow': {
+            type: 'glow',
+            bg: 'chip',
+            intensity: 20,
+            tuning: { reach: 0.6, tint: 0.8 },
+          },
+        },
+        { glowTuning: { headroom: 1 }, pastel: true },
+      );
+      const css = theme.css({ hdr: true, splitHue: true, suffix: '' });
+      expect(css.light).toContain(
+        '--chip: oklch(0.9899 0.0037 var(--theme-hue));',
+      );
+      for (const scheme of SCHEMES) {
+        const sdr = css[scheme].split('\n');
+        const lines = css.hdr![scheme].split('\n');
+        expect(lines.map((line) => line.split(':')[0])).toEqual(
+          [...HDR_GLOWS, 'chip-glow'].map((name) => `--${name}`),
+        );
+        for (const line of lines) {
+          if (line.includes('srgb-linear')) continue;
+          expect(sdr).toContain(line);
+        }
+      }
+      expect(css.hdr!.dark).toMatch(/--chip-glow: oklch\([\d.]+ [\d.]+ 280 \//);
+      expect(css.hdr!.light).toContain(`--surface-glow: ${WHITE_12};`);
+      // Hue vars stay in the SDR blocks.
+      for (const scheme of SCHEMES) {
+        expect(css.hdr![scheme]).not.toMatch(/-hue:/);
+      }
+    });
+
+    it('writes empty blocks when nothing passes white', () => {
+      expect(themeWith(EXPORT_DEFS).css({ hdr: true }).hdr).toEqual({
+        light: '',
+        dark: '',
+        lightContrast: '',
+        darkContrast: '',
+      });
+    });
+  });
+
+  describe('tailwind()', () => {
+    it('appends dense HDR blocks after every SDR block', () => {
+      const theme = exportTheme();
+      const sdr = theme.tailwind(ALL_MODES);
+      const css = theme.tailwind(HDR_MODES);
+      expect(css.startsWith(`${sdr}\n\n`)).toBe(true);
+      const resolved = theme.resolve();
+      const block = (selector: string, scheme: Scheme) =>
+        `@media (dynamic-range: high) {\n  ${selector} {\n` +
+        HDR_GLOWS.map(
+          (name) =>
+            `    --color-${name}: ${valueOf(resolved.get(name)![scheme], true)};`,
+        ).join('\n') +
+        '\n  }\n}';
+      expect(css.slice(sdr.length + 2)).toBe(
+        [
+          block(':root', 'light'),
+          block('.dark', 'dark'),
+          block('.high-contrast', 'lightContrast'),
+          block('.dark.high-contrast', 'darkContrast'),
+        ].join('\n\n'),
+      );
+    });
+
+    it('honors hdrSelector and the other selectors', () => {
+      const css = exportTheme().tailwind({
+        modes: { hdr: true },
+        darkSelector: '@media (prefers-color-scheme: dark)',
+        hdrSelector: '.hdr',
+      });
+      expect(css).toContain(`.hdr {\n  --color-surface-glow: ${WHITE_12};`);
+      expect(css).toContain(
+        '@media (prefers-color-scheme: dark) {\n  .hdr {\n' +
+          '    --color-surface-glow: oklch(1 0 0 / 0.1237);',
+      );
+      expect(css).not.toContain('dynamic-range');
+      expect(css).not.toContain('high-contrast');
+    });
+
+    it('gates the HDR blocks by the other modes', () => {
+      const lightOnly = exportTheme().tailwind({
+        modes: { dark: false, hdr: true },
+      });
+      expect(lightOnly.match(/dynamic-range/g)).toHaveLength(1);
+      expect(lightOnly).not.toContain('.dark');
+      // Nothing past white: no HDR blocks at all.
+      expect(themeWith(EXPORT_DEFS).tailwind(HDR_MODES)).toBe(
+        themeWith(EXPORT_DEFS).tailwind(ALL_MODES),
+      );
+    });
+  });
+
+  describe('dtcg() / dtcgResolver()', () => {
+    it('carries HDR in $extensions only in the scheme documents that have it', () => {
+      const theme = exportTheme();
+      const doc = theme.dtcg(HDR_MODES);
+      const sdr = theme.dtcg(ALL_MODES);
+      const resolved = theme.resolve();
+      for (const scheme of SCHEMES) {
+        for (const [name, color] of resolved) {
+          const token: DtcgColorToken = doc[scheme]![name];
+          if (color[scheme].hdr === undefined) {
+            expect(token).toEqual(sdr[scheme]![name]);
+          } else {
+            expect(token.$value).toEqual(sdr[scheme]![name].$value);
+            expect(Object.keys(token)).toEqual([
+              '$type',
+              '$value',
+              '$extensions',
+            ]);
+            expect(Object.keys(token.$extensions!)).toEqual([EXT]);
+          }
+        }
+      }
+      for (const name of HDR_GLOWS) {
+        expect(
+          SCHEMES.filter((s) => doc[s]![name].$extensions !== undefined),
+        ).toEqual(hdrSchemes(resolved.get(name)!));
+      }
+    });
+
+    it('writes exposure, tone, the sRGB base and the linear value', () => {
+      const doc = exportTheme().dtcg(HDR_MODES);
+      expect(doc.light['surface-glow'].$extensions![EXT].hdr).toEqual({
+        exposure: 0.548987,
+        tone: 112,
+        base: { colorSpace: 'srgb', components: [1, 1, 1], hex: '#ffffff' },
+        value: {
+          colorSpace: 'srgb-linear',
+          components: [1.463058, 1.463058, 1.463058],
+        },
+      });
+      const near = doc.dark!['near-glow'].$extensions![EXT].hdr;
+      expect(near.exposure).toBeCloseTo(0.3212, 4);
+      expect(near.tone).toBe(107);
+      expect(near.value.components).toEqual([1.249405, 1.249405, 1.249405]);
+
+      // The base is sRGB whatever `colorSpace`; `$value` follows it.
+      const oklch = exportTheme().dtcg({ ...HDR_MODES, colorSpace: 'oklch' });
+      expect(oklch.light['near-glow'].$value.colorSpace).toBe('oklch');
+      expect(oklch.light['near-glow'].$extensions![EXT].hdr).toEqual(
+        doc.light['near-glow'].$extensions![EXT].hdr,
+      );
+    });
+
+    it('rebuilds the HDR value from a tinted base', () => {
+      const theme = glaze(40, 60, { glowTuning: { headroom: 2 } });
+      theme.colors({
+        chip: { tone: 97 },
+        'chip-glow': {
+          type: 'glow',
+          bg: 'chip',
+          intensity: 20,
+          tuning: { reach: 0.6, tint: 0.6 },
+        },
+      });
+      const v = theme.resolve().get('chip-glow')!.light;
+      const hdr =
+        theme.dtcg(HDR_MODES).light['chip-glow'].$extensions![EXT].hdr;
+      expect(hdr.value.components[0]).not.toBe(hdr.value.components[2]);
+      const gain = 2 ** hdr.exposure;
+      hdr.base.components.forEach((c, i) => {
+        expect(sRGBGammaToLinear(c) * gain).toBeCloseTo(
+          hdr.value.components[i],
+          4,
+        );
+      });
+      expect(hdr.tone).toBeGreaterThan(100);
+      expect(hdr.tone).toBeCloseTo(hdrTone(v.hdr), 3);
+    });
+
+    it('places the extensions in the resolver contexts', () => {
+      const doc = exportTheme().dtcgResolver(HDR_MODES);
+      const base = doc.sets.base.sources[0] as DtcgDocument;
+      const ctx = (name: string) =>
+        doc.modifiers.scheme.contexts[name][0] as DtcgDocument;
+      expect(base['surface-glow'].$extensions![EXT].hdr.tone).toBe(112);
+      expect(ctx('dark')['surface-glow'].$extensions).toBeUndefined();
+      expect(ctx('dark')['ink-glow'].$extensions).toBeDefined();
+      expect(ctx('lightContrast')['paper-glow'].$extensions).toBeDefined();
+      expect(ctx('darkContrast')['paper-glow'].$extensions).toBeUndefined();
+      expect(
+        JSON.stringify(
+          exportTheme().dtcgResolver({
+            modes: { ...ALL_MODES.modes, hdr: false },
+          }),
+        ),
+      ).toBe(JSON.stringify(exportTheme().dtcgResolver(ALL_MODES)));
+    });
+  });
+
+  describe('palettes', () => {
+    function palette(primary?: string) {
+      const brand = exportTheme();
+      const accent = glaze(40, 60, { glowTuning: { headroom: 1 } });
+      accent.colors(EXPORT_DEFS);
+      return glaze.palette({ brand, accent }, { primary });
+    }
+
+    it('prefixes HDR entries and duplicates them for the primary', () => {
+      const p = palette('brand');
+      const tasty = p.tasty(HDR_MODES);
+      for (const key of [
+        '#brand-surface-glow',
+        '#surface-glow',
+        '#accent-surface-glow',
+      ]) {
+        expect(tasty[key][HDR]).toBe(WHITE_12);
+      }
+      expect(tasty['#surface-glow']).toEqual(tasty['#brand-surface-glow']);
+
+      const tokens = p.tokens(HDR_MODES);
+      expect(Object.keys(tokens.lightHdr)).toEqual([
+        ...HDR_GLOWS.map((n) => `brand-${n}`),
+        ...HDR_GLOWS,
+        ...HDR_GLOWS.map((n) => `accent-${n}`),
+      ]);
+      expect(tokens.darkHdr['ink-glow']).toBe(tokens.darkHdr['brand-ink-glow']);
+
+      const css = p.css({ hdr: true });
+      expect(css.hdr!.light).toContain(
+        `--brand-surface-glow-color: ${WHITE_12};`,
+      );
+      expect(css.hdr!.light).toContain(`\n--surface-glow-color: ${WHITE_12};`);
+      expect(css.hdr!.dark).toContain(
+        '--brand-surface-glow-color: oklch(1 0 0 / 0.1237);',
+      );
+      expect(css.hdr!.dark).toMatch(
+        /\n--accent-surface-glow-color: oklch\(1 0 0 \/ [\d.]+\);/,
+      );
+      const { hdr, ...sdrCss } = css;
+      expect(hdr).toBeDefined();
+      expect(sdrCss).toEqual(p.css());
+      expect('hdr' in p.css()).toBe(false);
+
+      const tailwind = p.tailwind(HDR_MODES);
+      expect(tailwind.startsWith(`${p.tailwind(ALL_MODES)}\n\n`)).toBe(true);
+      expect(tailwind).toContain(`--color-brand-near-glow: ${NEAR_12};`);
+      expect(tailwind).toContain(`--color-near-glow: ${NEAR_12};`);
+      expect(tailwind.match(/dynamic-range/g)).toHaveLength(4);
+
+      const dtcg = p.dtcg(HDR_MODES);
+      expect(dtcg.light['accent-surface-glow'].$extensions).toBeDefined();
+      expect(dtcg.light['surface-glow']).toEqual(
+        dtcg.light['brand-surface-glow'],
+      );
+      expect(dtcg.dark!['surface-glow'].$extensions).toBeUndefined();
+      const resolver = p.dtcgResolver(HDR_MODES);
+      expect(
+        (resolver.sets.base.sources[0] as DtcgDocument)['surface-glow'],
+      ).toEqual(dtcg.light['surface-glow']);
+
+      const json = p.json(HDR_MODES);
+      expect(json.brand['surface-glow'].lightHdr).toBe(WHITE_12);
+      expect(json.accent['ink-glow'].darkHdr).toBeDefined();
+    });
+
+    it('applies prefix maps and primary: false to HDR entries', () => {
+      const tokens = palette().tokens({
+        ...HDR_MODES,
+        prefix: { brand: 'b-', accent: 'a-' },
+      });
+      expect(Object.keys(tokens.lightHdr)).toEqual([
+        ...HDR_GLOWS.map((n) => `b-${n}`),
+        ...HDR_GLOWS.map((n) => `a-${n}`),
+      ]);
+      const tasty = palette('brand').tasty({ ...HDR_MODES, primary: false });
+      expect(tasty['#surface-glow']).toBeUndefined();
+      expect(tasty['#brand-surface-glow'][HDR]).toBe(WHITE_12);
+    });
+
+    it('follows the SDR collision filter', () => {
+      const tokens = palette('brand').tokens({
+        ...HDR_MODES,
+        prefix: false,
+        primary: false,
+      });
+      expect(warnings('collides')).not.toEqual([]);
+      // The accent theme's colors collide with the brand's and are skipped.
+      expect(Object.keys(tokens.lightHdr)).toEqual(HDR_GLOWS);
+      expect(tokens.lightHdr).toEqual(exportTheme().tokens(HDR_MODES).lightHdr);
+    });
+  });
+
+  it('leaves glaze.color() tokens untouched — they are never glows', () => {
+    const token = glaze.color({ hue: 280, saturation: 80, tone: 97 });
+    const all = () =>
+      JSON.stringify([
+        token.tasty(ALL_MODES),
+        token.json(ALL_MODES),
+        token.css({ name: 'brand' }),
+        token.dtcg(ALL_MODES),
+        token.dtcgResolver({ ...ALL_MODES, name: 'brand' }),
+        token.tailwind({ ...ALL_MODES, name: 'brand' }),
+      ]);
+    const off = all();
+    glaze.configure({ modes: { hdr: true } });
+    expect(all()).toBe(off);
   });
 });

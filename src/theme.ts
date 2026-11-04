@@ -13,6 +13,10 @@
  * copied once when the theme is created and `getConfig()` hands out a deep copy
  * of the merged config, so mutating either object can't reach a resolve.
  *
+ * Exports carry the HDR tier of glows (`variant.hdr`) only with `modes.hdr`
+ * — `css()` reads its own `hdr` option, defaulting to the global mode — and
+ * `tasty()` keys it with `states.hdr`; the shapes live in `formatters.ts`.
+ *
  * `tasty()` / `css()` with `splitHue` run its guards before emitting: format
  * `'oklch'`, every color pastel, and no color whose own hue var would take the
  * theme var's name (`--{name}-hue`). `css()` also claims each color's value
@@ -45,6 +49,7 @@ import {
   buildJsonMap,
   buildTailwindMap,
   buildTokenMap,
+  DEFAULT_TAILWIND_HDR_SELECTOR,
   resolveModes,
 } from './formatters';
 import { resolveAllColors } from './resolver';
@@ -274,6 +279,7 @@ export function createTheme(
       const states = {
         dark: options?.states?.dark ?? cfg.states.dark,
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
+        hdr: options?.states?.hdr ?? cfg.states.hdr,
       };
       const modes = resolveModes(options?.modes);
       const format = options?.format ?? 'oklch';
@@ -305,7 +311,8 @@ export function createTheme(
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
       const suffix = options?.suffix ?? '-color';
-      const channelCtx = channelCtxFor(options, format, resolveModes(), suffix);
+      const modes = resolveModes();
+      const channelCtx = channelCtxFor(options, format, modes, suffix);
       return buildCssMap(
         resolveCached(),
         '',
@@ -313,6 +320,7 @@ export function createTheme(
         format,
         getEffectiveConfig().pastel,
         channelCtx,
+        options?.hdr ?? modes.hdr,
       );
     },
 
@@ -353,6 +361,7 @@ export function createTheme(
         options?.darkSelector ?? '.dark',
         options?.highContrastSelector ?? '.high-contrast',
         getEffectiveConfig().pastel,
+        options?.hdrSelector ?? DEFAULT_TAILWIND_HDR_SELECTOR,
       );
     },
   } as GlazeTheme;

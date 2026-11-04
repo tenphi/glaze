@@ -11,6 +11,22 @@
  * - `buildDtcgMap` — W3C DTCG (2025.10) token documents, one per scheme.
  * - `buildDtcgResolver` — W3C DTCG Resolver-Module document (one modifier, a context per scheme).
  * - `buildTailwindMap` — Tailwind v4 `@theme` block + dark/HC overrides.
+ *
+ * The HDR tier (`variant.hdr`, a glow past SDR white) is emitted only with
+ * `modes.hdr` (`css()`: its `hdr` option), and always as a literal
+ * `color(srgb-linear R G B)` — whatever `format`, even under `splitHue`.
+ * Without it every shape is byte-identical to SDR. Each shape carries it the
+ * way its consumer composes values:
+ * - Tasty: a sparse `hdr` state key after each SDR key that has one (`''`,
+ *   hdr, dark, dark & hdr, hc, hc & hdr, dark & hc, dark & hc & hdr). Tasty
+ *   gives later keys priority, so a dark key still beats the light HDR one.
+ * - `json()`: sparse `lightHdr` / `darkHdr` / … keys per color.
+ * - `tokens()` / `css()` / Tailwind: dense per-scheme HDR blocks — every
+ *   color with an HDR value in any (emitted) scheme, re-declared with its SDR
+ *   value where a scheme has none — so a cascade layering one HDR block over
+ *   the SDR ones can't leak a light HDR value into dark.
+ * - DTCG: `$value` stays SDR; the HDR value rides in
+ *   `$extensions['me.tenphi.glaze'].hdr` of the scheme documents that have it.
  */
 
 import {
@@ -28,9 +44,10 @@ import {
   formatSrgbLinear,
   okhslToOklch,
   okhslToSrgb,
+  relativeLuminanceFromLinearRgb,
   srgbToHex,
 } from './okhsl-color-math';
-import { variantToOkhsl } from './okhst';
+import { okhstToOkhsl, toneFromY, variantToOkhsl } from './okhst';
 import { hdrToLinearSrgb } from './lighting';
 import { getConfig } from './config';
 import { hcMirrorsNormal } from './hc-pair';
@@ -39,9 +56,12 @@ import type {
   DtcgColorToken,
   DtcgColorValue,
   DtcgDocument,
+  DtcgSrgbColorValue,
   DtcgTokenTree,
   GlazeColorFormat,
   GlazeCssResult,
+  GlazeCssSchemeBlocks,
+  GlazeDtcgHdr,
   GlazeDtcgResolverDocument,
   GlazeDtcgResolverOptions,
   GlazeDtcgResult,
@@ -49,9 +69,61 @@ import type {
   GlazeOutputModes,
   ResolvedColor,
   ResolvedColorVariant,
+  ResolvedHdr,
 } from './types';
 
 export type { ChannelCtx } from './channels';
+
+/** The four scheme variants, in emission order. */
+export const SCHEMES = [
+  'light',
+  'dark',
+  'lightContrast',
+  'darkContrast',
+] as const;
+
+type Scheme = (typeof SCHEMES)[number];
+
+/** Key of a scheme's HDR counterpart (`lightHdr`, `darkHdr`, …). */
+type HdrScheme = `${Scheme}Hdr`;
+
+function hdrKey(scheme: Scheme): HdrScheme {
+  return `${scheme}Hdr`;
+}
+
+/** The scheme variants `modes` emits, in order. Light always. */
+function emittedSchemes(modes: Required<GlazeOutputModes>): Scheme[] {
+  const schemes: Scheme[] = ['light'];
+  if (modes.dark) schemes.push('dark');
+  if (modes.highContrast) schemes.push('lightContrast');
+  if (modes.dark && modes.highContrast) schemes.push('darkContrast');
+  return schemes;
+}
+
+/**
+ * Whether a color belongs in the dense HDR blocks: it has an HDR value in at
+ * least one of `schemes`.
+ */
+function hasHdrIn(color: ResolvedColor, schemes: readonly Scheme[]): boolean {
+  return schemes.some((scheme) => color[scheme].hdr !== undefined);
+}
+
+/** Join per-scheme declaration lines into `css()` blocks. */
+export function joinSchemeLines(
+  lines: Record<Scheme, string[]>,
+): GlazeCssSchemeBlocks {
+  return {
+    light: lines.light.join('\n'),
+    dark: lines.dark.join('\n'),
+    lightContrast: lines.lightContrast.join('\n'),
+    darkContrast: lines.darkContrast.join('\n'),
+  };
+}
+
+/** Fresh, empty per-scheme declaration line buckets. */
+export function emptySchemeLines(): Record<Scheme, string[]> {
+  return { light: [], dark: [], lightContrast: [], darkContrast: [] };
+}
 
 const formatters: Record<
   Exclude<GlazeColorFormat, 'okhst'>,
@@ -178,13 +250,24 @@ export function resolveModes(
   return {
     dark: override?.dark ?? cfg.modes.dark,
     highContrast: highContrast && !hcMirrorsNormal(cfg),
+    hdr: override?.hdr ?? cfg.modes.hdr,
   };
+}
+
+/**
+ * Tasty state aliases. `hdr` falls back to the global `states.hdr` — a
+ * `glaze.color()` token, which is never a glow, doesn't pass it.
+ */
+export interface TastyStates {
+  dark: string;
+  highContrast: string;
+  hdr?: string;
 }
 
 export function buildTokenMap(
   resolved: Map<string, ResolvedColor>,
   prefix: string,
-  states: { dark: string; highContrast: string },
+  states: TastyStates,
   modes: Required<GlazeOutputModes>,
   format: GlazeColorFormat = 'oklch',
   pastel = false,
@@ -229,41 +312,52 @@ export function buildTokenMap(
   return tokens;
 }
 
+/**
+ * One color's Tasty state map. With `modes.hdr`, each SDR key whose variant
+ * has an HDR value is followed by its `hdr` key (`states.hdr` alone after
+ * `''`, `<key> & <hdr>` after the others), so the order is `''`, hdr, dark,
+ * dark & hdr, hc, hc & hdr, dark & hc, dark & hc & hdr — only the HDR keys
+ * that exist. Tasty gives later keys priority, so in a dark HDR context the
+ * dark key (or its own HDR key) still beats the light HDR one.
+ */
 function buildTokenEntry(
   color: ResolvedColor,
-  states: { dark: string; highContrast: string },
+  states: TastyStates,
   modes: Required<GlazeOutputModes>,
   format: GlazeColorFormat,
   pastel: boolean,
   huePlan?: HuePlan,
 ): Record<string, string> {
-  const entry: Record<string, string> = {
-    '': formatColorValue(color.light, format, pastel, huePlan),
+  const entry: Record<string, string> = {};
+  const add = (key: string, v: ResolvedColorVariant): void => {
+    entry[key] = formatColorValue(v, format, pastel, huePlan);
+    if (modes.hdr && v.hdr !== undefined) {
+      const hdrState = states.hdr ?? getConfig().states.hdr;
+      entry[key === '' ? hdrState : `${key} & ${hdrState}`] =
+        formatHdrVariant(v)!;
+    }
   };
 
+  add('', color.light);
   if (modes.dark) {
-    entry[states.dark] = formatColorValue(color.dark, format, pastel, huePlan);
+    add(states.dark, color.dark);
   }
   if (modes.highContrast) {
-    entry[states.highContrast] = formatColorValue(
-      color.lightContrast,
-      format,
-      pastel,
-      huePlan,
-    );
+    add(states.highContrast, color.lightContrast);
   }
   if (modes.dark && modes.highContrast) {
-    entry[`${states.dark} & ${states.highContrast}`] = formatColorValue(
-      color.darkContrast,
-      format,
-      pastel,
-      huePlan,
-    );
+    add(`${states.dark} & ${states.highContrast}`, color.darkContrast);
   }
 
   return entry;
 }
 
+/**
+ * Per-scheme flat maps (`{ light, dark, … }`), gated by `modes`. With
+ * `modes.hdr` each emitted scheme gains a dense `<scheme>Hdr` map right after
+ * it (`light`, `lightHdr`, `dark`, `darkHdr`, …): every color with an HDR
+ * value in any emitted scheme, its SDR value where that scheme has none.
+ */
 export function buildFlatTokenMap(
   resolved: Map<string, ResolvedColor>,
   prefix: string,
@@ -271,76 +365,62 @@ export function buildFlatTokenMap(
   format: GlazeColorFormat = 'oklch',
   pastel = false,
 ): Record<string, Record<string, string>> {
-  const result: Record<string, Record<string, string>> = {
-    light: {},
-  };
-
-  if (modes.dark) {
-    result.dark = {};
-  }
-  if (modes.highContrast) {
-    result.lightContrast = {};
-  }
-  if (modes.dark && modes.highContrast) {
-    result.darkContrast = {};
+  const schemes = emittedSchemes(modes);
+  const result: Record<string, Record<string, string>> = {};
+  for (const scheme of schemes) {
+    result[scheme] = {};
+    if (modes.hdr) result[hdrKey(scheme)] = {};
   }
 
   for (const [name, color] of resolved) {
     const key = `${prefix}${name}`;
-
-    result.light[key] = formatVariant(color.light, format, pastel);
-
-    if (modes.dark) {
-      result.dark[key] = formatVariant(color.dark, format, pastel);
-    }
-    if (modes.highContrast) {
-      result.lightContrast[key] = formatVariant(
-        color.lightContrast,
-        format,
-        pastel,
-      );
-    }
-    if (modes.dark && modes.highContrast) {
-      result.darkContrast[key] = formatVariant(
-        color.darkContrast,
-        format,
-        pastel,
-      );
+    const dense = modes.hdr && hasHdrIn(color, schemes);
+    for (const scheme of schemes) {
+      const v = color[scheme];
+      const sdr = formatVariant(v, format, pastel);
+      result[scheme][key] = sdr;
+      if (dense) result[hdrKey(scheme)][key] = formatHdrVariant(v) ?? sdr;
     }
   }
 
   return result;
 }
 
+/**
+ * Per-color JSON (`{ name: { light, dark, … } }`), gated by `modes`. With
+ * `modes.hdr`, a variant with an HDR value adds a sparse `<scheme>Hdr` key
+ * right after its SDR one (`light`, `lightHdr`, `dark`, …).
+ */
 export function buildJsonMap(
   resolved: Map<string, ResolvedColor>,
   modes: Required<GlazeOutputModes>,
   format: GlazeColorFormat = 'oklch',
   pastel = false,
 ): Record<string, Record<string, string>> {
+  const schemes = emittedSchemes(modes);
   const result: Record<string, Record<string, string>> = {};
 
   for (const [name, color] of resolved) {
-    const entry: Record<string, string> = {
-      light: formatVariant(color.light, format, pastel),
-    };
-
-    if (modes.dark) {
-      entry.dark = formatVariant(color.dark, format, pastel);
+    const entry: Record<string, string> = {};
+    for (const scheme of schemes) {
+      const v = color[scheme];
+      entry[scheme] = formatVariant(v, format, pastel);
+      if (modes.hdr && v.hdr !== undefined) {
+        entry[hdrKey(scheme)] = formatHdrVariant(v)!;
+      }
     }
-    if (modes.highContrast) {
-      entry.lightContrast = formatVariant(color.lightContrast, format, pastel);
-    }
-    if (modes.dark && modes.highContrast) {
-      entry.darkContrast = formatVariant(color.darkContrast, format, pastel);
-    }
-
     result[name] = entry;
   }
 
   return result;
 }
 
+/**
+ * CSS custom-property declarations for all four schemes. With `hdr`, the
+ * result gains dense `hdr` blocks: every color with an HDR value in any
+ * scheme, re-declared in each block with that scheme's HDR value, or its
+ * exact SDR declaration where the scheme has none.
+ */
 export function buildCssMap(
   resolved: Map<string, ResolvedColor>,
   prefix: string,
@@ -348,13 +428,10 @@ export function buildCssMap(
   format: GlazeColorFormat,
   pastel = false,
   channelCtx?: ChannelCtx,
+  hdr = false,
 ): GlazeCssResult {
-  const lines: Record<keyof GlazeCssResult, string[]> = {
-    light: [],
-    dark: [],
-    lightContrast: [],
-    darkContrast: [],
-  };
+  const lines = emptySchemeLines();
+  const hdrLines = hdr ? emptySchemeLines() : undefined;
 
   const huePlans =
     channelCtx !== undefined && format === 'oklch'
@@ -375,26 +452,22 @@ export function buildCssMap(
   for (const [name, color] of resolved) {
     const prop = `--${prefix}${name}${suffix}`;
     const plan = huePlans?.get(name);
-    lines.light.push(
-      `${prop}: ${formatColorValue(color.light, format, pastel, plan)};`,
-    );
-    lines.dark.push(
-      `${prop}: ${formatColorValue(color.dark, format, pastel, plan)};`,
-    );
-    lines.lightContrast.push(
-      `${prop}: ${formatColorValue(color.lightContrast, format, pastel, plan)};`,
-    );
-    lines.darkContrast.push(
-      `${prop}: ${formatColorValue(color.darkContrast, format, pastel, plan)};`,
-    );
+    const dense = hdrLines !== undefined && hasHdrIn(color, SCHEMES);
+    for (const scheme of SCHEMES) {
+      const v = color[scheme];
+      const decl = `${prop}: ${formatColorValue(v, format, pastel, plan)};`;
+      lines[scheme].push(decl);
+      if (dense) {
+        hdrLines[scheme].push(
+          v.hdr !== undefined ? `${prop}: ${formatHdrVariant(v)};` : decl,
+        );
+      }
+    }
   }
 
-  return {
-    light: lines.light.join('\n'),
-    dark: lines.dark.join('\n'),
-    lightContrast: lines.lightContrast.join('\n'),
-    darkContrast: lines.darkContrast.join('\n'),
-  };
+  const result: GlazeCssResult = joinSchemeLines(lines);
+  if (hdrLines !== undefined) result.hdr = joinSchemeLines(hdrLines);
+  return result;
 }
 
 // ============================================================================
@@ -432,27 +505,77 @@ export function dtcgColorValue(
     return value;
   }
 
-  const [r, g, b] = okhslToSrgb(v.h, v.s, l, effectivePastel);
-  const value: DtcgColorValue = {
+  const value = dtcgSrgbValue(v.h, v.s, l, effectivePastel);
+  if (alpha !== undefined) value.alpha = alpha;
+  return value;
+}
+
+/** A DTCG sRGB color value (gamma components, 6 decimals, plus `hex`). */
+function dtcgSrgbValue(
+  h: number,
+  s: number,
+  l: number,
+  pastel: boolean,
+): DtcgSrgbColorValue {
+  const [r, g, b] = okhslToSrgb(h, s, l, pastel);
+  return {
     colorSpace: 'srgb',
     components: [roundTo(r, 6), roundTo(g, 6), roundTo(b, 6)],
     hex: srgbToHex([r, g, b]),
   };
-  if (alpha !== undefined) value.alpha = alpha;
-  return value;
+}
+
+/** The `$extensions` namespace Glaze writes into DTCG tokens. */
+const DTCG_EXTENSION_NAMESPACE = 'me.tenphi.glaze';
+
+/**
+ * The DTCG form of an HDR value: `exposure` in stops, the luminance `tone`
+ * it lands (past 100), the opaque `base` as a DTCG sRGB color (always sRGB,
+ * whatever `colorSpace`, and never pastel — the base is standard OKHSL), and
+ * the HDR color as linear sRGB components above 1.
+ */
+function dtcgHdrValue(hdr: ResolvedHdr): GlazeDtcgHdr {
+  const linear = hdrToLinearSrgb(hdr);
+  const { h, s, l } = okhstToOkhsl(hdr);
+  return {
+    exposure: roundTo(hdr.exposure, 6),
+    tone: roundTo(toneFromY(relativeLuminanceFromLinearRgb(linear)), 4),
+    base: dtcgSrgbValue(h, s, l, false),
+    value: {
+      colorSpace: 'srgb-linear',
+      components: [
+        roundTo(linear[0], 6),
+        roundTo(linear[1], 6),
+        roundTo(linear[2], 6),
+      ],
+    },
+  };
 }
 
 function dtcgToken(
   v: ResolvedColorVariant,
   colorSpace: DtcgColorSpace,
   pastel: boolean,
+  hdr: boolean,
 ): DtcgColorToken {
-  return { $type: 'color', $value: dtcgColorValue(v, colorSpace, pastel) };
+  const token: DtcgColorToken = {
+    $type: 'color',
+    $value: dtcgColorValue(v, colorSpace, pastel),
+  };
+  if (hdr && v.hdr !== undefined) {
+    token.$extensions = {
+      [DTCG_EXTENSION_NAMESPACE]: { hdr: dtcgHdrValue(v.hdr) },
+    };
+  }
+  return token;
 }
 
 /**
  * Build a `GlazeDtcgResult`: one spec-conformant DTCG token document per
- * scheme variant, gated by `modes`. Light is always present.
+ * scheme variant, gated by `modes`. Light is always present. With
+ * `modes.hdr`, a token whose variant has an HDR value carries it in
+ * `$extensions['me.tenphi.glaze'].hdr` — only in that scheme's document;
+ * `$value` stays SDR.
  */
 export function buildDtcgMap(
   resolved: Map<string, ResolvedColor>,
@@ -468,17 +591,15 @@ export function buildDtcgMap(
     : undefined;
   const darkContrast: DtcgDocument | undefined =
     modes.dark && modes.highContrast ? {} : undefined;
+  const token = (v: ResolvedColorVariant): DtcgColorToken =>
+    dtcgToken(v, colorSpace, pastel, modes.hdr);
 
   for (const [name, color] of resolved) {
     const key = `${prefix}${name}`;
-    light[key] = dtcgToken(color.light, colorSpace, pastel);
-    if (dark) dark[key] = dtcgToken(color.dark, colorSpace, pastel);
-    if (lightContrast) {
-      lightContrast[key] = dtcgToken(color.lightContrast, colorSpace, pastel);
-    }
-    if (darkContrast) {
-      darkContrast[key] = dtcgToken(color.darkContrast, colorSpace, pastel);
-    }
+    light[key] = token(color.light);
+    if (dark) dark[key] = token(color.dark);
+    if (lightContrast) lightContrast[key] = token(color.lightContrast);
+    if (darkContrast) darkContrast[key] = token(color.darkContrast);
   }
 
   return { light, dark, lightContrast, darkContrast };
@@ -550,12 +671,37 @@ export function buildDtcgResolver(
 // Tailwind CSS v4 (@theme)
 // ============================================================================
 
-/** Per-scheme declaration lines (`--prop: value;`) accumulated for emission. */
-export interface GlazeTailwindLines {
-  light: string[];
-  dark: string[];
-  lightContrast: string[];
-  darkContrast: string[];
+/** Default `hdrSelector` for `tailwind()`. */
+export const DEFAULT_TAILWIND_HDR_SELECTOR = '@media (dynamic-range: high)';
+
+/**
+ * Per-scheme declaration lines (`--prop: value;`) accumulated for emission,
+ * plus the dense HDR lines (`lightHdr`, …), filled only with `modes.hdr`.
+ */
+export type GlazeTailwindLines = Record<Scheme | HdrScheme, string[]>;
+
+/** Fresh, empty Tailwind line buckets. */
+export function emptyTailwindLines(): GlazeTailwindLines {
+  return {
+    light: [],
+    dark: [],
+    lightContrast: [],
+    darkContrast: [],
+    lightHdr: [],
+    darkHdr: [],
+    lightContrastHdr: [],
+    darkContrastHdr: [],
+  };
+}
+
+/** Append every bucket of `part` to `acc` (palette accumulation). */
+export function mergeTailwindLines(
+  acc: GlazeTailwindLines,
+  part: GlazeTailwindLines,
+): void {
+  for (const key of Object.keys(acc) as (keyof GlazeTailwindLines)[]) {
+    acc[key].push(...part[key]);
+  }
 }
 
 function tailwindLinesFor(
@@ -564,23 +710,23 @@ function tailwindLinesFor(
   cssPrefix: string,
   format: GlazeColorFormat,
   pastel: boolean,
+  modes: Required<GlazeOutputModes>,
 ): GlazeTailwindLines {
-  const lines: GlazeTailwindLines = {
-    light: [],
-    dark: [],
-    lightContrast: [],
-    darkContrast: [],
-  };
+  const lines = emptyTailwindLines();
+  const schemes = emittedSchemes(modes);
   for (const [name, color] of resolved) {
     const prop = `--${cssPrefix}${themePrefix}${name}`;
-    lines.light.push(`${prop}: ${formatVariant(color.light, format, pastel)};`);
-    lines.dark.push(`${prop}: ${formatVariant(color.dark, format, pastel)};`);
-    lines.lightContrast.push(
-      `${prop}: ${formatVariant(color.lightContrast, format, pastel)};`,
-    );
-    lines.darkContrast.push(
-      `${prop}: ${formatVariant(color.darkContrast, format, pastel)};`,
-    );
+    const dense = modes.hdr && hasHdrIn(color, schemes);
+    for (const scheme of SCHEMES) {
+      const v = color[scheme];
+      const decl = `${prop}: ${formatVariant(v, format, pastel)};`;
+      lines[scheme].push(decl);
+      if (dense) {
+        lines[hdrKey(scheme)].push(
+          v.hdr !== undefined ? `${prop}: ${formatHdrVariant(v)};` : decl,
+        );
+      }
+    }
   }
   return lines;
 }
@@ -626,33 +772,56 @@ function emitScoped(
  * Render accumulated per-scheme declaration lines as a Tailwind v4 CSS string:
  * an `@theme` block (light baseline) plus dark / high-contrast overrides under
  * the configured selectors. Empty blocks are skipped.
+ *
+ * With `modes.hdr`, the dense HDR blocks follow every SDR block, in scheme
+ * order: light under `hdrSelector`, dark under `darkSelector` + `hdrSelector`,
+ * and so on. Each re-declares the same set of colors, so whichever scheme
+ * block wins the cascade in an HDR context carries that scheme's values.
  */
 export function emitTailwindCss(
   lines: GlazeTailwindLines,
   modes: Required<GlazeOutputModes>,
   darkSelector: string,
   highContrastSelector: string,
+  hdrSelector: string = DEFAULT_TAILWIND_HDR_SELECTOR,
 ): string {
   const blocks: string[] = [];
+  const push = (block: string | undefined): void => {
+    if (block) blocks.push(block);
+  };
 
   if (lines.light.length > 0) {
     blocks.push(emitRule('@theme', lines.light.join('\n')));
   }
 
   if (modes.dark) {
-    const dark = emitScoped([darkSelector], lines.dark);
-    if (dark) blocks.push(dark);
+    push(emitScoped([darkSelector], lines.dark));
   }
   if (modes.highContrast) {
-    const hc = emitScoped([highContrastSelector], lines.lightContrast);
-    if (hc) blocks.push(hc);
+    push(emitScoped([highContrastSelector], lines.lightContrast));
   }
   if (modes.dark && modes.highContrast) {
-    const dhc = emitScoped(
-      [darkSelector, highContrastSelector],
-      lines.darkContrast,
-    );
-    if (dhc) blocks.push(dhc);
+    push(emitScoped([darkSelector, highContrastSelector], lines.darkContrast));
+  }
+
+  if (modes.hdr) {
+    push(emitScoped([hdrSelector], lines.lightHdr));
+    if (modes.dark) {
+      push(emitScoped([darkSelector, hdrSelector], lines.darkHdr));
+    }
+    if (modes.highContrast) {
+      push(
+        emitScoped([highContrastSelector, hdrSelector], lines.lightContrastHdr),
+      );
+    }
+    if (modes.dark && modes.highContrast) {
+      push(
+        emitScoped(
+          [darkSelector, highContrastSelector, hdrSelector],
+          lines.darkContrastHdr,
+        ),
+      );
+    }
   }
 
   return blocks.join('\n\n');
@@ -660,7 +829,9 @@ export function emitTailwindCss(
 
 /**
  * Build per-scheme declaration lines for a single theme (used by
- * `theme.tailwind()` and as the palette `buildOne` step).
+ * `theme.tailwind()` and as the palette `buildOne` step). `modes` decides
+ * whether the HDR lines are filled and which schemes count toward the dense
+ * set.
  */
 export function buildTailwindLines(
   resolved: Map<string, ResolvedColor>,
@@ -668,8 +839,16 @@ export function buildTailwindLines(
   cssPrefix: string,
   format: GlazeColorFormat,
   pastel: boolean,
+  modes: Required<GlazeOutputModes>,
 ): GlazeTailwindLines {
-  return tailwindLinesFor(resolved, themePrefix, cssPrefix, format, pastel);
+  return tailwindLinesFor(
+    resolved,
+    themePrefix,
+    cssPrefix,
+    format,
+    pastel,
+    modes,
+  );
 }
 
 /**
@@ -684,6 +863,7 @@ export function buildTailwindMap(
   darkSelector: string,
   highContrastSelector: string,
   pastel = false,
+  hdrSelector: string = DEFAULT_TAILWIND_HDR_SELECTOR,
 ): string {
   const lines = tailwindLinesFor(
     resolved,
@@ -691,6 +871,13 @@ export function buildTailwindMap(
     cssPrefix,
     format,
     pastel,
+    modes,
   );
-  return emitTailwindCss(lines, modes, darkSelector, highContrastSelector);
+  return emitTailwindCss(
+    lines,
+    modes,
+    darkSelector,
+    highContrastSelector,
+    hdrSelector,
+  );
 }

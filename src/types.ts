@@ -119,6 +119,19 @@ export interface GlazeOutputModes {
    * @see GlazeConfig.contrastLevel
    */
   highContrast?: boolean;
+  /**
+   * Include the HDR tier of glows past SDR white (`variant.hdr`, set by
+   * `GlowTuning.headroom`). Default: false — every exporter's output stays
+   * byte-identical to SDR even when a headroom is set.
+   *
+   * When on, each exporter adds the HDR values next to the SDR ones it
+   * already emits (only for the scheme variants the other modes include),
+   * always written as `color(srgb-linear R G B)`: Tasty `hdr` state keys,
+   * `json()` `lightHdr` / `darkHdr` / … keys, `tokens()` `lightHdr` / … maps,
+   * Tailwind blocks under `hdrSelector`, DTCG `$extensions`. `css()` reads
+   * its own `hdr` option, which falls back to this.
+   */
+  hdr?: boolean;
 }
 
 // ============================================================================
@@ -589,16 +602,19 @@ export interface GlazeConfig {
   darkDesaturation?: number;
   /**
    * State alias names for Tasty token export. Default to media-query states
-   * (`'@media(prefers-color-scheme: dark)'` / `'@media(prefers-contrast: more)'`)
-   * so tokens react to the OS preference without registering custom states.
+   * (`'@media(prefers-color-scheme: dark)'` / `'@media(prefers-contrast: more)'`
+   * / `'@media(dynamic-range: high)'`) so tokens react to the OS preference
+   * and the display without registering custom states. `hdr` keys an HDR
+   * glow value and is used only with `modes.hdr`.
    */
   states?: {
     dark?: string;
     highContrast?: string;
+    hdr?: string;
   };
   /**
    * Which scheme variants to include in exports. Defaults: `dark: true`,
-   * `highContrast: false`.
+   * `highContrast: false`, `hdr: false`.
    */
   modes?: GlazeOutputModes;
   /**
@@ -667,6 +683,7 @@ export interface GlazeConfigResolved {
   states: {
     dark: string;
     highContrast: string;
+    hdr: string;
   };
   modes: Required<GlazeOutputModes>;
   shadowTuning?: ShadowTuning;
@@ -1289,6 +1306,11 @@ export interface GlazeTheme {
    * theme.tokens()
    * // → { light: { surface: 'okhsl(...)' }, dark: { surface: 'okhsl(...)' } }
    * ```
+   *
+   * With `modes.hdr`, each scheme map is followed by a dense `<scheme>Hdr`
+   * map (`lightHdr`, `darkHdr`, …): every glow with an HDR value in any
+   * emitted scheme, as `color(srgb-linear …)`, or its SDR value where that
+   * scheme has none.
    */
   tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
 
@@ -1296,11 +1318,16 @@ export interface GlazeTheme {
    * Export as tasty style-to-state bindings.
    * Uses `#name` color token keys and state aliases (`''`, `'@media(prefers-color-scheme: dark)'`, etc.).
    * Spread into component styles or register as a recipe via `configure({ recipes })`.
+   * With `modes.hdr`, a glow's HDR value follows each SDR key that has one,
+   * under `states.hdr` (`'@media(dynamic-range: high)'`) combined with it.
    * @see https://tasty.style/docs
    */
   tasty(options?: GlazeTastyOptions): Record<string, Record<string, string>>;
 
-  /** Export as plain JSON. */
+  /**
+   * Export as plain JSON. With `modes.hdr`, a glow variant with an HDR value
+   * adds a `<scheme>Hdr` key (`lightHdr`, …) right after its SDR key.
+   */
   json(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
 
   /** Export as CSS custom property declarations. */
@@ -1352,10 +1379,15 @@ export interface GlazeExtendOptions {
  * palette `tasty()` options: output format, scheme variants, state aliases.
  */
 export interface GlazeTokenOptions {
-  /** Override state aliases for this export. */
+  /**
+   * Override state aliases for this export. `hdr` keys an HDR glow value
+   * (with `modes.hdr`); a `glaze.color()` token is never a glow, so it never
+   * uses it.
+   */
   states?: {
     dark?: string;
     highContrast?: string;
+    hdr?: string;
   };
   /** Override which scheme variants to include. */
   modes?: GlazeOutputModes;
@@ -1403,14 +1435,34 @@ export interface GlazeCssOptions {
    * Must not equal the name of a color that sets its own hue (throws).
    */
   name?: string;
+  /**
+   * Add the HDR tier as `result.hdr` (see {@link GlazeCssResult.hdr}).
+   * Default: the global `modes.hdr` (false). `css()` has no `modes` — it
+   * always emits all four schemes — so this is its HDR switch.
+   */
+  hdr?: boolean;
 }
 
-/** CSS custom property declarations grouped by scheme variant. */
-export interface GlazeCssResult {
+/** CSS custom property declarations for each scheme variant. */
+export interface GlazeCssSchemeBlocks {
   light: string;
   dark: string;
   lightContrast: string;
   darkContrast: string;
+}
+
+/** CSS custom property declarations grouped by scheme variant. */
+export interface GlazeCssResult extends GlazeCssSchemeBlocks {
+  /**
+   * The HDR tier, present only with the `hdr` option: one block per scheme,
+   * each re-declaring every color that has an HDR value in any scheme — its
+   * HDR value (`color(srgb-linear R G B)`) where that scheme has one, and
+   * the scheme's SDR declaration where it has none. The blocks are dense so
+   * a light HDR value can never leak into dark: wire each one after the SDR
+   * blocks, under the same selector plus `(dynamic-range: high)`. Every block
+   * is an empty string when no color has an HDR value.
+   */
+  hdr?: GlazeCssSchemeBlocks;
 }
 
 // ============================================================================
@@ -1451,13 +1503,44 @@ export interface DtcgOklchColorValue {
 export type DtcgColorValue = DtcgSrgbColorValue | DtcgOklchColorValue;
 
 /**
+ * The HDR value of a glow past SDR white, carried in a DTCG token's
+ * `$extensions['me.tenphi.glaze'].hdr` (`$value` stays the SDR color, since
+ * DTCG color components stop at 1). Maps onto native APIs: UIKit / AppKit
+ * `exposure`, SwiftUI `exposureAdjust(exposure)` on `base`, or Android
+ * `Color.pack(…components, LINEAR_EXTENDED_SRGB)` from `value`.
+ */
+export interface GlazeDtcgHdr {
+  /** Gain over `base` in stops (`log2` of the linear factor), above 0. */
+  exposure: number;
+  /** Luminance tone of the HDR value, past 100 (e.g. `112`). */
+  tone: number;
+  /** The opaque base (what SDR paints), as a DTCG sRGB color. */
+  base: DtcgSrgbColorValue;
+  /** The HDR color: linear sRGB `base × 2^exposure`, channels above 1. */
+  value: {
+    colorSpace: 'srgb-linear';
+    components: [number, number, number];
+  };
+}
+
+/** The Glaze namespace of a DTCG token's `$extensions`. */
+export interface GlazeDtcgExtensions {
+  'me.tenphi.glaze': {
+    /** Present only with `modes.hdr`, on a glow variant that has an HDR value. */
+    hdr: GlazeDtcgHdr;
+  };
+}
+
+/**
  * A single W3C DTCG color token: `{ $type: 'color', $value }`.
- * `$description` is optional and not populated by Glaze today.
+ * `$description` is optional and not populated by Glaze today. `$extensions`
+ * is set only with `modes.hdr`, on a glow variant with an HDR value.
  */
 export interface DtcgColorToken {
   $type: 'color';
   $value: DtcgColorValue;
   $description?: string;
+  $extensions?: GlazeDtcgExtensions;
 }
 
 /**
@@ -1609,6 +1692,15 @@ export interface GlazeTailwindOptions {
    * `.dark.high-contrast`).
    */
   highContrastSelector?: string;
+  /**
+   * Selector wrapping the HDR overrides, emitted with `modes.hdr` after every
+   * SDR block. Default: `'@media (dynamic-range: high)'`. Each HDR block is
+   * dense (every color with an HDR value in any emitted scheme, SDR value
+   * where the scheme has none) and is scoped by this selector alone (light),
+   * combined with `darkSelector` (dark), with `highContrastSelector` (light
+   * high contrast), or with both.
+   */
+  hdrSelector?: string;
 }
 
 /** Options for `glaze.color().tailwind()`. `name` is required. */
@@ -1683,6 +1775,11 @@ export interface GlazePaletteCssOptions extends GlazePaletteExportOptions {
    * be pastel. The theme-level hue var is `--{themeName}-hue`.
    */
   splitHue?: boolean;
+  /**
+   * Add the HDR tier as `result.hdr` (see {@link GlazeCssResult.hdr}).
+   * Default: the global `modes.hdr` (false).
+   */
+  hdr?: boolean;
 }
 
 export interface GlazePalette {
