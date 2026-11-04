@@ -15,6 +15,11 @@
  * the caller's object can't reach it later. Resolve merges the live global
  * config with that local override (invalidated on `configure()`). Authoring
  * `.export(override?)` freezes `getConfig() ∪ local ∪ override` at call time.
+ *
+ * `css()` with `splitHue` claims the token's `--{name}-hue` and its value
+ * property in one namespace, so `suffix: '-hue'` throws whenever the token
+ * declares a hue var (it is chromatic in light), instead of emitting a value
+ * that reads itself through `var()`.
  */
 
 import {
@@ -30,7 +35,14 @@ import {
   GLAZE_EXPORT_VERSION,
   isColorTokenExport,
 } from './serialize';
-import { assertSplitHueFormat, type ChannelCtx } from './channels';
+import {
+  assertSplitHueFormat,
+  claimHueVars,
+  claimValueProps,
+  type ChannelCtx,
+  type HueVarLabels,
+  type SplitHueOwners,
+} from './channels';
 import { extractOkhslFromValue } from './color-value';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
@@ -441,6 +453,7 @@ function createColorTokenFromDefs(
       const format = options.format ?? 'oklch';
       assertNativeFormat(format, 'css');
       assertSplitHueFormat(options.splitHue, format);
+      const suffix = options.suffix ?? '-color';
       const resolved = resolveOnce().get(primary)!;
       const renamed = new Map<string, ResolvedColor>([
         [options.name, resolved],
@@ -458,12 +471,25 @@ function createColorTokenFromDefs(
           mode: 'standalone',
           resolvedHue: resolved.light.h,
         };
+        // `--{name}-hue` and the value `--{name}{suffix}` share a namespace:
+        // `suffix: '-hue'` would make the value a `var()` cycle on itself.
+        const owners: SplitHueOwners = new Map();
+        const fix = "Pass a `suffix` other than '-hue'.";
+        const labels: HueVarLabels = {
+          theme: `the hue of token "${options.name}"`,
+          color: (name) => `the hue of token "${name}"`,
+          value: (name) => `the value of token "${name}"`,
+          fix,
+          valueFix: fix,
+        };
+        claimHueVars(renamed, channelCtx, owners, labels);
+        claimValueProps(renamed, '', suffix, owners, labels);
       }
 
       return buildCssMap(
         renamed,
         '',
-        options.suffix ?? '-color',
+        suffix,
         format,
         getEffectiveConfig().pastel,
         channelCtx,

@@ -7,8 +7,10 @@
  * `tasty` / `json` / `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a
  * `buildPaletteOutput` driver that handles validation, per-theme iteration,
  * prefix resolution, collision filtering, and primary duplication.
- * `tasty()` / `css()` with `splitHue` share one hue-var registry across the
- * themes of a call, so two themes declaring the same `--*-hue` throws.
+ * `tasty()` / `css()` with `splitHue` share one custom-property registry across
+ * the passes of a call, so two themes declaring the same `--*-hue` throws — as
+ * does a `css()` value property (primary aliases included) landing on a hue
+ * var.
  *
  * Authoring round-trip: `palette.export()` / `createPaletteFromExport()`
  * (wired as `glaze.paletteFrom`).
@@ -17,7 +19,10 @@
 import {
   assertSplitHueFormat,
   claimHueVars,
+  claimValueProps,
   type ChannelCtx,
+  type HueVarLabels,
+  type SplitHueOwners,
 } from './channels';
 import { getConfig } from './config';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
@@ -143,9 +148,12 @@ function colorMapFromTheme(theme: GlazeTheme): ColorMap {
 /**
  * `splitHue` context for one theme pass of `palette.tasty()` / `css()`, or
  * `undefined` without `splitHue` (the caller has already checked the format).
- * `hueOwners` is shared by every pass of one export call, so a hue var two
- * themes would both declare — a color named after another theme under an
- * empty prefix — throws instead of one silently overriding the other.
+ * `hueOwners` is shared by every pass of one export call, so a property two
+ * declarations would share — a color named after another theme under an empty
+ * prefix, or (`css()`, which passes its `suffix`) a color's value property
+ * landing on a hue var — throws instead of one silently overriding the other.
+ * Value properties are claimed on the primary's alias pass too: it declares no
+ * hue vars, but its unprefixed values are emitted all the same.
  */
 function channelCtxForTheme(
   theme: GlazeTheme,
@@ -155,10 +163,14 @@ function channelCtxForTheme(
   splitHue: boolean | undefined,
   modes: ReturnType<typeof resolveModes>,
   filtered: Map<string, ResolvedColor>,
-  hueOwners: Map<string, string>,
+  hueOwners: SplitHueOwners,
+  valueSuffix?: string,
 ): ChannelCtx | undefined {
   if (!splitHue) return undefined;
   assertAllPastel(filtered, modes);
+  // The primary's unprefixed alias pass, which only references the hue vars
+  // its prefixed pass declares.
+  const aliasPass = passPrefix !== themedPrefix;
   const ctx: ChannelCtx = {
     seedHue: theme.hue,
     darkSeedHue: theme.darkHue,
@@ -171,15 +183,26 @@ function channelCtxForTheme(
     mode: 'theme',
     // Emit declarations only in the pass whose color-prop prefix matches the
     // themed prefix (the prefixed pass, or the single pass when prefix:false).
-    emitDeclarations: passPrefix === themedPrefix,
+    emitDeclarations: !aliasPass,
   };
-  claimHueVars(filtered, ctx, hueOwners, {
+  const labels: HueVarLabels = {
     theme: `the hue of theme "${themeName}"`,
     color: (name) => `color "${name}"'s own hue (theme "${themeName}")`,
+    value: (name) =>
+      aliasPass
+        ? `the primary alias of color "${name}" (theme "${themeName}")`
+        : `color "${name}"'s value (theme "${themeName}")`,
     fix:
       'Rename the color or the theme, or give the theme a prefix that ' +
       'keeps its hue vars apart.',
-  });
+    valueFix:
+      'Rename the color or the theme, or pass a different `suffix` or ' +
+      'theme prefix.',
+  };
+  claimHueVars(filtered, ctx, hueOwners, labels);
+  if (valueSuffix !== undefined) {
+    claimValueProps(filtered, passPrefix, valueSuffix, hueOwners, labels);
+  }
   return ctx;
 }
 
@@ -420,7 +443,7 @@ export function createPalette(
       const modes = resolveModes(options?.modes);
       const format = options?.format ?? 'oklch';
       assertSplitHueFormat(options?.splitHue, format);
-      const hueOwners = new Map<string, string>();
+      const hueOwners: SplitHueOwners = new Map();
       return buildPaletteOutput<
         Record<string, Record<string, string>>,
         Record<string, Record<string, string>>
@@ -482,7 +505,7 @@ export function createPalette(
       assertNativeFormat(format, 'css');
       assertSplitHueFormat(options?.splitHue, format);
       const modes = resolveModes();
-      const hueOwners = new Map<string, string>();
+      const hueOwners: SplitHueOwners = new Map();
 
       const lines = buildPaletteOutput<
         GlazeCssResult,
@@ -502,6 +525,7 @@ export function createPalette(
             modes,
             filtered,
             hueOwners,
+            suffix,
           );
           return buildCssMap(
             filtered,

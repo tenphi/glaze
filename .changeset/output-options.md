@@ -15,5 +15,9 @@ Breaking changes (runtime):
 
 - `splitHue` with a `format` other than `'oklch'` throws (`glaze: splitHue requires format 'oklch' (got 'rgb').`) on `theme.css()` / `tasty()`, `palette.css()` / `tasty()`, and `token.css()`, instead of quietly emitting inline colors.
 - A color that sets its own hue under the theme hue var's name (a `brand` color with `name: 'brand'`, or, in an unprefixed palette, a color named after another theme) throws and names both sides, instead of silently rendering at the theme's hue.
+- In `css()` with `splitHue`, a color's value property that lands on a hue var — `suffix: '-hue'`, or `suffix: ''` with a color named `*-hue` — throws the same way, instead of emitting a `var()` cycle or replacing a hue var with a color. This covers `theme.css()`, `palette.css()` (primary aliases included), and `token.css()`.
 
-Fixed: `splitHue` hue declarations are rounded to 2 decimals like the hue in `oklch()` output, so a `from` color emits `--logo-hue: 266.16` instead of `266.15797905637027`.
+Fixed:
+
+- `splitHue` hue declarations are rounded to 2 decimals like the hue in `oklch()` output, so a `from` color emits `--logo-hue: 266.16` instead of `266.15797905637027`.
+- A color achromatic in light no longer emits a dead dark `--*-hue` declaration. It renders as a literal `oklch()` in every scheme, and in an unprefixed palette that declaration could override another theme's hue var in dark.

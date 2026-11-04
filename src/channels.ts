@@ -8,13 +8,16 @@
  * so declarations are collected per scheme (`'light'` / `'dark'`) and the dark
  * set is emitted only when it actually differs — see `buildHueDeclarations`.
  * A color that authors a hue in *either* scheme gets its own var in both, so
- * the shared `var()` reference stays valid. Numeric hue values are rounded to
- * 2 decimals, the precision of the hue in `oklch()` output.
+ * the shared `var()` reference stays valid. Every scheme renders with the
+ * light plan (`buildHuePlans`), so a color inline in light (achromatic there)
+ * is inline everywhere and declares no var in any scheme. Numeric hue values
+ * are rounded to 2 decimals, the precision of the hue in `oklch()` output.
  *
  * Also owns the `splitHue` guards the output methods run before planning:
- * `assertSplitHueFormat` (only `oklch()` takes a `var()` hue) and
- * `claimHueVars` (no two declarations may share a hue var name — the theme
- * var and a color named after it, or two palette themes).
+ * `assertSplitHueFormat` (only `oklch()` takes a `var()` hue), and
+ * `claimHueVars` / `claimValueProps`, which keep every custom property an
+ * export declares to one owner — the theme var, a color's own hue var, and
+ * (`css()` only) each color's value property share one namespace.
  */
 
 import { parseRelativeOrAbsolute } from './hc-pair';
@@ -240,6 +243,29 @@ export function buildHuePlan(
   return themeHuePlan(name, def, variant, ctx, scheme);
 }
 
+/**
+ * The plan whose declarations `name` contributes in `scheme`, or `undefined`
+ * when the color declares nothing.
+ *
+ * Rendering uses the light plan in every scheme (`buildHuePlans`), so a color
+ * whose light plan is inline — achromatic in light, say — is a literal
+ * `oklch()` everywhere. Its dark plan may still name a var (it has chroma
+ * there), but nothing would read it: a dead declaration that, in an unprefixed
+ * palette, could override another theme's live hue var.
+ */
+function declaringPlan(
+  name: string,
+  color: ResolvedColor,
+  ctx: ChannelCtx,
+  scheme: HueScheme,
+): HuePlan | undefined {
+  const def = ctx.defs[name];
+  const light = buildHuePlan(name, def, color.light, ctx);
+  if (light.inline) return undefined;
+  if (scheme === 'light') return light;
+  return buildHuePlan(name, def, color.dark, ctx, scheme);
+}
+
 /** Collect unique hue declarations across all colors (theme + per-color). */
 function collectHueDeclarations(
   resolved: Map<string, ResolvedColor>,
@@ -265,10 +291,8 @@ function collectHueDeclarations(
   }
 
   for (const [name, color] of resolved) {
-    const def = ctx.defs[name];
-    const variant = scheme === 'dark' ? color.dark : color.light;
-    const plan = buildHuePlan(name, def, variant, ctx, scheme);
-    for (const decl of plan.declarations) {
+    const plan = declaringPlan(name, color, ctx, scheme);
+    for (const decl of plan?.declarations ?? []) {
       push(decl);
     }
   }
@@ -315,62 +339,124 @@ export function buildHuePlans(
   return plans;
 }
 
-/** How a `claimHueVars` caller words who declares a hue var, and the fix. */
+/** Who declares a custom property in a `splitHue` export. */
+export interface SplitHueOwner {
+  /** The owner as the collision error names it. */
+  label: string;
+  /** True for a color's `css()` value property, false for a hue var. */
+  value: boolean;
+}
+
+/**
+ * Every custom property a `splitHue` export declares, by name. Pass one map
+ * across all the passes of an export call (a palette runs one per theme, plus
+ * the primary's aliases) to catch collisions between them.
+ */
+export type SplitHueOwners = Map<string, SplitHueOwner>;
+
+/** How a caller words who declares a property, and the fix. */
 export interface HueVarLabels {
   /** The theme-level var's owner, e.g. `the theme hue (name: 'brand')`. */
   theme: string;
   /** A color's own var's owner, e.g. `color "brand"'s own hue`. */
   color: (name: string) => string;
-  /** The remedy appended to the error. */
+  /** A color's `css()` value property's owner, e.g. `color "brand"'s value`. */
+  value: (name: string) => string;
+  /** The remedy appended when two hue vars clash. */
   fix: string;
+  /** The remedy appended when a value property is one side of the clash. */
+  valueFix: string;
 }
 
 /**
- * Record every hue var this pass declares in `owners` (var name → who declares
- * it) and throw when a name is already held by someone else.
+ * Record `prop` as `owner`'s, or throw when someone else already holds it. A
+ * repeat claim by the same owner is fine: that is the same declaration seen
+ * again (a theme pass re-run with the same prefix).
+ */
+function claim(
+  owners: SplitHueOwners,
+  prop: string,
+  owner: SplitHueOwner,
+  labels: HueVarLabels,
+): void {
+  const held = owners.get(prop);
+  if (held === undefined) {
+    owners.set(prop, owner);
+    return;
+  }
+  if (held.label === owner.label) return;
+  const fix = held.value || owner.value ? labels.valueFix : labels.fix;
+  throw new Error(
+    `glaze: splitHue would declare "${prop}" twice: for ${held.label} and ` +
+      `for ${owner.label}. One would silently override the other. ${fix}`,
+  );
+}
+
+/**
+ * Claim every hue var this pass declares in `owners` and throw when a name is
+ * already held by someone else.
  *
  * Theme and per-color vars share one namespace: `--{baseName}-hue` and
  * `--{prefix}{color}-hue`. A color named after the theme var (`brand` with
  * `name: 'brand'`), or a palette color named after another theme under an
  * empty prefix, would declare the same property as the theme. Only one value
  * survives — the theme's, after `collectHueDeclarations` dedupes — so the
- * color would silently render at the wrong hue. Pass one `owners` map across
- * the passes of a palette export to catch collisions between its themes.
+ * color would silently render at the wrong hue.
  *
- * Both schemes are claimed, so a color that declares its own var only in dark
- * (achromatic in light) is still covered. A repeat claim by the same owner is
- * fine: that is the same declaration seen again.
+ * Exactly the declarations `collectHueDeclarations` emits are claimed, in both
+ * schemes: a color's own var only when its light plan references it. A color
+ * achromatic in light is inline in every scheme and declares nothing, so it
+ * can share a name with the theme var — the theme's declaration is the only
+ * one emitted.
  */
 export function claimHueVars(
   resolved: Map<string, ResolvedColor>,
   ctx: ChannelCtx,
-  owners: Map<string, string>,
+  owners: SplitHueOwners,
   labels: HueVarLabels,
 ): void {
   if (ctx.emitDeclarations === false) return;
 
-  const claim = (prop: string, owner: string): void => {
-    const held = owners.get(prop);
-    if (held === undefined) {
-      owners.set(prop, owner);
-      return;
-    }
-    if (held === owner) return;
-    throw new Error(
-      `glaze: splitHue would declare "${prop}" twice: for ${held} and for ` +
-        `${owner}. One would silently override the other. ${labels.fix}`,
-    );
-  };
-
-  if (ctx.mode === 'theme') claim(`--${ctx.baseName}-hue`, labels.theme);
+  if (ctx.mode === 'theme') {
+    const owner = { label: labels.theme, value: false };
+    claim(owners, `--${ctx.baseName}-hue`, owner, labels);
+  }
 
   for (const [name, color] of resolved) {
+    const owner = { label: labels.color(name), value: false };
     for (const scheme of SCHEMES) {
-      const variant = scheme === 'dark' ? color.dark : color.light;
-      const plan = buildHuePlan(name, ctx.defs[name], variant, ctx, scheme);
-      for (const decl of plan.declarations) {
-        claim(decl.prop, labels.color(name));
+      const plan = declaringPlan(name, color, ctx, scheme);
+      for (const decl of plan?.declarations ?? []) {
+        claim(owners, decl.prop, owner, labels);
       }
     }
+  }
+}
+
+/**
+ * Claim each color's `css()` value property, `--{prefix}{color}{suffix}`, in
+ * the same `owners` map as the hue vars.
+ *
+ * Value properties share the custom-property namespace with the hue vars, so
+ * `suffix: '-hue'` — or `suffix: ''` with a color named `*-hue` — can land a
+ * color's value on a hue var: its own, which makes a `var()` cycle, or the
+ * theme's, which hands every color reading it a color string where a hue
+ * belongs. Either way the CSS is invalid at computed-value time.
+ *
+ * Unlike `claimHueVars` this runs on every pass, including one that declares
+ * no hue vars (a palette's primary aliases): its value properties are emitted
+ * all the same. Not for `tasty()`, whose `#name` colors compile to
+ * `--name-color` and can't land on a `$…-hue` var.
+ */
+export function claimValueProps(
+  resolved: Map<string, ResolvedColor>,
+  prefix: string,
+  suffix: string,
+  owners: SplitHueOwners,
+  labels: HueVarLabels,
+): void {
+  for (const name of resolved.keys()) {
+    const owner = { label: labels.value(name), value: true };
+    claim(owners, cssProp(prefix, name, suffix), owner, labels);
   }
 }

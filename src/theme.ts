@@ -15,13 +15,18 @@
  *
  * `tasty()` / `css()` with `splitHue` run its guards before emitting: format
  * `'oklch'`, every color pastel, and no color whose own hue var would take the
- * theme var's name (`--{name}-hue`).
+ * theme var's name (`--{name}-hue`). `css()` also claims each color's value
+ * property, so a `suffix` that lands one on a hue var (`'-hue'`, or `''` with a
+ * color named `*-hue`) throws too.
  */
 
 import {
   assertSplitHueFormat,
   claimHueVars,
+  claimValueProps,
   type ChannelCtx,
+  type HueVarLabels,
+  type SplitHueOwners,
 } from './channels';
 import {
   copyConfigOverride,
@@ -108,12 +113,15 @@ export function createTheme(
   /**
    * `splitHue` context for `tasty()` / `css()`, or `undefined` without it.
    * Throws on a non-oklch format, a non-pastel color, or a color whose own
-   * hue var would take the theme var's name.
+   * hue var would take the theme var's name. `css()` passes its `suffix` so
+   * each color's value property is claimed too: `--{color}{suffix}` must not
+   * land on a hue var.
    */
   function channelCtxFor(
     options: GlazeTastyOptions | GlazeCssOptions | undefined,
     format: GlazeColorFormat,
     modes: Required<GlazeOutputModes>,
+    valueSuffix?: string,
   ): ChannelCtx | undefined {
     if (!options?.splitHue) return undefined;
     assertSplitHueFormat(options.splitHue, format);
@@ -128,11 +136,18 @@ export function createTheme(
       defs: colorDefs,
       mode: 'theme',
     };
-    claimHueVars(resolved, ctx, new Map(), {
+    const owners: SplitHueOwners = new Map();
+    const labels: HueVarLabels = {
       theme: `the theme hue (name: '${baseName}')`,
       color: (name) => `color "${name}"'s own hue`,
+      value: (name) => `color "${name}"'s value`,
       fix: 'Rename the color or pass a different `name`.',
-    });
+      valueFix: 'Rename the color, or pass a different `suffix` or `name`.',
+    };
+    claimHueVars(resolved, ctx, owners, labels);
+    if (valueSuffix !== undefined) {
+      claimValueProps(resolved, '', valueSuffix, owners, labels);
+    }
     return ctx;
   }
 
@@ -289,11 +304,12 @@ export function createTheme(
     css(options?: GlazeCssOptions): GlazeCssResult {
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
-      const channelCtx = channelCtxFor(options, format, resolveModes());
+      const suffix = options?.suffix ?? '-color';
+      const channelCtx = channelCtxFor(options, format, resolveModes(), suffix);
       return buildCssMap(
         resolveCached(),
         '',
-        options?.suffix ?? '-color',
+        suffix,
         format,
         getEffectiveConfig().pastel,
         channelCtx,

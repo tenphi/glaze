@@ -12,9 +12,11 @@ function pastelTheme() {
 
 describe('output options', () => {
   describe('ignored options are gone from the types', () => {
-    // `tsconfig.json` leaves test files out of `pnpm typecheck`; run tsc on
-    // this file to check the directives. The calls run too, so each one also
-    // shows the option is still harmless at runtime for untyped callers.
+    // The `@ts-expect-error` directives are the assertions: `pnpm typecheck`
+    // runs tsc over the test files too (`tsconfig.test.json`), and an option
+    // that came back would leave its directive unused, failing the check. The
+    // calls run too, so each one also shows the option is still harmless at
+    // runtime for untyped callers.
     it('rejects options a method never read', () => {
       const theme = pastelTheme();
       const p = glaze.palette({ brand: theme });
@@ -189,6 +191,55 @@ describe('output options', () => {
       );
     });
 
+    it('lets a color achromatic in light share the theme var name', () => {
+      // Every scheme renders with the light plan, so a color gray in light is
+      // a literal oklch() everywhere and never reads a var of its own.
+      const theme = glaze(240, 18, { pastel: true });
+      theme.colors({
+        surface: { tone: 97 },
+        brand: { tone: 52, hue: 30, saturation: 0, darkSaturation: 1 },
+      });
+
+      const { light, dark } = theme.css({ splitHue: true, name: 'brand' });
+      expect(light).toContain('--brand-hue: 240;');
+      expect(light).toContain('--brand-color: oklch(0.5961 0 0);');
+      expect(dark).toContain('--brand-color: oklch(0.5699 0.0174 30);');
+      expect(dark).not.toContain('--brand-hue:');
+      expect(
+        theme.tasty({ splitHue: true, name: 'brand' })['$brand-hue'],
+      ).toEqual({ '': '240' });
+    });
+
+    it('emits no dead dark hue var for a color achromatic in light', () => {
+      const theme = glaze(240, 18, { pastel: true });
+      theme.colors({
+        surface: { tone: 97 },
+        brand: { tone: 52, hue: 30, saturation: 0, darkSaturation: 1 },
+      });
+
+      // The dark set matches light again, so no dark hue block at all.
+      expect(theme.css({ splitHue: true }).dark).not.toContain('-hue:');
+      expect(theme.tasty({ splitHue: true })).not.toHaveProperty('$brand-hue');
+    });
+
+    it('keeps such a color off another theme’s hue var in a palette', () => {
+      const b = glaze(200, 18, { pastel: true });
+      b.colors({ surface: { tone: 97 } });
+      const a = glaze(240, 18, { pastel: true });
+      a.colors({
+        card: { tone: 95 },
+        b: { tone: 52, hue: 30, saturation: 0, darkSaturation: 1 },
+      });
+      const p = glaze.palette({ b, a });
+
+      // Theme "a"'s gray-in-light color "b" used to declare `--b-hue: 30` in
+      // dark, overriding theme "b"'s `--b-hue: 200` for its surface.
+      const { light, dark } = p.css({ splitHue: true, prefix: false });
+      expect(light).toContain('--b-hue: 200;');
+      expect(dark).not.toContain('--b-hue:');
+      expect(dark).toContain('--b-color: oklch(0.5699 0.0174 30);');
+    });
+
     it('lets a theme re-declare its own var across passes', () => {
       // `prefix: false` plus a primary runs the primary theme twice with the
       // same (empty) prefix; its hue var is the same declaration both times.
@@ -201,6 +252,119 @@ describe('output options', () => {
       } finally {
         warn.mockRestore();
       }
+    });
+  });
+
+  describe('splitHue value property collisions', () => {
+    const themeFix =
+      'One would silently override the other. Rename the color, or pass a ' +
+      'different `suffix` or `name`.';
+
+    it('throws when a value lands on its own hue var (suffix -hue)', () => {
+      // `--accent-hue: oklch(… var(--accent-hue))` would be a var() cycle.
+      expect(() =>
+        pastelTheme().css({ splitHue: true, suffix: '-hue' }),
+      ).toThrow(
+        'glaze: splitHue would declare "--accent-hue" twice: for color ' +
+          `"accent"'s own hue and for color "accent"'s value. ${themeFix}`,
+      );
+    });
+
+    it('throws when a value lands on the theme var', () => {
+      const theme = glaze(240, 18, { pastel: true });
+      theme.colors({ theme: { tone: 52 }, surface: { tone: 97 } });
+      const message =
+        'glaze: splitHue would declare "--theme-hue" twice: for the theme ' +
+        `hue (name: 'theme') and for color "theme"'s value. ${themeFix}`;
+      expect(() => theme.css({ splitHue: true, suffix: '-hue' })).toThrow(
+        message,
+      );
+
+      // suffix '' with a color named after the var does the same.
+      const named = glaze(240, 18, { pastel: true });
+      named.colors({ 'theme-hue': { tone: 52 }, surface: { tone: 97 } });
+      expect(() => named.css({ splitHue: true, suffix: '' })).toThrow(
+        /"--theme-hue" twice: for the theme hue \(name: 'theme'\) and for color "theme-hue"'s value/,
+      );
+      // Tasty colors compile to `--{name}-color`, clear of the hue vars.
+      expect(() => named.tasty({ splitHue: true })).not.toThrow();
+    });
+
+    it('throws when a value lands on another color’s hue var', () => {
+      const theme = pastelTheme();
+      theme.colors({ 'accent-hue': { tone: 40 } });
+      expect(() => theme.css({ splitHue: true, suffix: '' })).toThrow(
+        /"--accent-hue" twice: for color "accent"'s own hue and for color "accent-hue"'s value/,
+      );
+    });
+
+    it('allows suffix -hue when nothing lands on a hue var', () => {
+      // `surface` reads the theme var and declares no var of its own.
+      const theme = glaze(240, 18, { pastel: true });
+      theme.colors({ surface: { tone: 97 } });
+      expect(theme.css({ splitHue: true, suffix: '-hue' }).light).toBe(
+        '--theme-hue: 240;\n' +
+          '--surface-hue: oklch(0.97 0.0025 var(--theme-hue));',
+      );
+    });
+
+    it('throws on a palette value landing on its own hue var', () => {
+      const p = glaze.palette({ brand: pastelTheme() });
+      expect(() => p.css({ splitHue: true, suffix: '-hue' })).toThrow(
+        'glaze: splitHue would declare "--brand-accent-hue" twice: for ' +
+          'color "accent"\'s own hue (theme "brand") and for color ' +
+          '"accent"\'s value (theme "brand"). One would silently override ' +
+          'the other. Rename the color or the theme, or pass a different ' +
+          '`suffix` or theme prefix.',
+      );
+    });
+
+    it('throws on a palette value landing on another theme’s hue var', () => {
+      const brand = glaze(240, 18, { pastel: true });
+      brand.colors({ surface: { tone: 97 } });
+      const ui = glaze(20, 18, { pastel: true });
+      ui.colors({ 'brand-hue': { tone: 52 } });
+      const p = glaze.palette({ brand, ui });
+      expect(() =>
+        p.css({ splitHue: true, prefix: false, suffix: '' }),
+      ).toThrow(
+        /"--brand-hue" twice: for the hue of theme "brand" and for color "brand-hue"'s value \(theme "ui"\)/,
+      );
+    });
+
+    it('throws on a primary alias landing on another theme’s hue var', () => {
+      // The prefixed pass emits `--brand-ui-hue`, a value nothing else
+      // declares; the unprefixed alias `--ui-hue` is theme "ui"'s hue var.
+      const brand = glaze(240, 18, { pastel: true });
+      brand.colors({ ui: { tone: 52 } });
+      const ui = glaze(20, 18, { pastel: true });
+      ui.colors({ ink: { tone: 40 } });
+      const p = glaze.palette({ brand, ui }, { primary: 'brand' });
+      expect(() => p.css({ splitHue: true, suffix: '-hue' })).toThrow(
+        /"--ui-hue" twice: for the primary alias of color "ui" \(theme "brand"\) and for the hue of theme "ui"/,
+      );
+      expect(() =>
+        p.css({ splitHue: true, suffix: '-hue', primary: false }),
+      ).not.toThrow();
+    });
+
+    it('throws on token.css() with suffix -hue', () => {
+      const token = glaze.color(
+        { hue: 240, saturation: 18, tone: 52 },
+        { pastel: true },
+      );
+      expect(() =>
+        token.css({ name: 'x', splitHue: true, suffix: '-hue' }),
+      ).toThrow(
+        'glaze: splitHue would declare "--x-hue" twice: for the hue of token ' +
+          '"x" and for the value of token "x". One would silently override ' +
+          "the other. Pass a `suffix` other than '-hue'.",
+      );
+      // A gray token declares no hue var, so its value is the only `--x-hue`.
+      const gray = glaze.color('#808080', { pastel: true });
+      expect(
+        gray.css({ name: 'x', splitHue: true, suffix: '-hue' }).light,
+      ).toBe('--x-hue: oklch(0.5999 0 0);');
     });
   });
 

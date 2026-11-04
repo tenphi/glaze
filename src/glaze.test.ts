@@ -17,6 +17,7 @@ import type {
   ColorMap,
   ContrastSpec,
   DtcgColorToken,
+  DtcgSrgbColorValue,
   GlazeColorTokenExport,
   HCPair,
   LightingTuning,
@@ -1895,7 +1896,7 @@ describe('glaze', () => {
       theme.colors({ surface: { tone: 97 } });
       const exported = theme.export();
       exported.colors.surface = { tone: 10 };
-      expect(theme.color('surface')!.tone).toBe(97);
+      expect((theme.color('surface') as RegularColorDef).tone).toBe(97);
     });
 
     it('accepts legacy theme snapshots without kind/version', () => {
@@ -2524,7 +2525,8 @@ describe('glaze', () => {
       const dtcg = theme.dtcg();
       const lightToken = dtcg.light.surface;
       expect(lightToken.$type).toBe('color');
-      const value = lightToken.$value;
+      // `srgb` is the default color space; the assertion below checks it.
+      const value = lightToken.$value as DtcgSrgbColorValue;
       expect(value.colorSpace).toBe('srgb');
       expect(value.components).toHaveLength(3);
       for (const c of value.components) {
@@ -4253,7 +4255,7 @@ describe('glaze', () => {
       const LEVELS = [0, 10, 20, 30, 40, 49, 50, 51, 60, 80, 90, 100];
 
       /** Signed tone delta of a solved color against its base, per level. */
-      function deltasAcrossRamp(baseTone: number, tone: string): number[] {
+      function deltasAcrossRamp(baseTone: number, tone: ToneValue): number[] {
         return LEVELS.map((level) => {
           glaze.resetConfig();
           glaze.configure({ contrastLevel: level });
