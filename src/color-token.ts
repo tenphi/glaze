@@ -6,6 +6,10 @@
  * `{ l, c, h }`), the structured-input validator, the two factory paths
  * (value vs structured), and the JSON-safe export / rehydration round-trip.
  *
+ * Every token also registers an internal dark-delta anchor hook: a token that
+ * links to it as `base` passes the hook to the resolver, so a `'+N'` link steps
+ * in dark from where the base sits under the base's own windows.
+ *
  * A token's role is pinned here rather than left to the resolver's chain: an
  * explicit `role`, else `'text'`. The token is the foreground against its
  * anchor — its `base`, or the hidden seed holding its own input color — and
@@ -47,7 +51,8 @@ import { extractOkhslFromValue } from './color-value';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
 import { pairNormal } from './hc-pair';
-import { resolveAllColors } from './resolver';
+import { darkAnchorOf, resolveAllColors } from './resolver';
+import type { DarkAnchorHook } from './resolver';
 import { normalizeRole } from './roles';
 import { hasRelativeTone } from './validation';
 import {
@@ -375,6 +380,22 @@ function buildStandaloneValueDefs(
   };
 }
 
+/**
+ * Each token's dark-delta anchor (internal, not public API). A token linking to
+ * another as its `base` hands the resolver the base's hook, so a `'+N'` link
+ * steps in dark from where the base sits on its own authored scale — read in the
+ * base's own resolve context, under its windows and defs.
+ */
+const darkAnchorHooks = new WeakMap<GlazeColorToken, DarkAnchorHook>();
+
+function withDarkAnchor(
+  hook: DarkAnchorHook,
+  token: GlazeColorToken,
+): GlazeColorToken {
+  darkAnchorHooks.set(token, hook);
+  return token;
+}
+
 function createColorTokenFromDefs(
   seed: GlazeThemeSeed,
   defs: ColorMap,
@@ -383,6 +404,13 @@ function createColorTokenFromDefs(
   baseToken: GlazeColorToken | undefined,
   buildExport: (override?: GlazeConfigOverride) => GlazeColorTokenExport,
 ): GlazeColorToken {
+  const externalBases = (): Map<string, ResolvedColor> | undefined =>
+    baseToken ? new Map([[STANDALONE_BASE, baseToken.resolve()]]) : undefined;
+  const baseHook = baseToken && darkAnchorHooks.get(baseToken);
+  const externalAnchors = baseHook
+    ? new Map([[STANDALONE_BASE, baseHook]])
+    : undefined;
+
   let cache: {
     map: Map<string, ResolvedColor> | null;
     version: number;
@@ -401,12 +429,26 @@ function createColorTokenFromDefs(
     const version = getConfigVersion();
     if (cache && cache.version === version && cache.map) return cache.map;
     const effectiveConfig = getEffectiveConfig();
-    const externalBases = baseToken
-      ? new Map([[STANDALONE_BASE, baseToken.resolve()]])
-      : undefined;
-    const map = resolveAllColors(seed, defs, effectiveConfig, externalBases);
+    const map = resolveAllColors(
+      seed,
+      defs,
+      effectiveConfig,
+      externalBases(),
+      externalAnchors,
+    );
     cache = { map, version, effectiveConfig };
     return map;
+  };
+
+  const darkAnchor: DarkAnchorHook = (isHighContrast) => {
+    const resolved = resolveOnce();
+    return darkAnchorOf(primary, isHighContrast, {
+      defs,
+      config: getEffectiveConfig(),
+      resolved,
+      externalBases: externalBases(),
+      externalAnchors,
+    });
   };
 
   const resolveStates = (options?: GlazeTokenOptions) => {
@@ -429,7 +471,7 @@ function createColorTokenFromDefs(
     return tokenMap[`#${primary}`];
   };
 
-  return {
+  return withDarkAnchor(darkAnchor, {
     resolve(): ResolvedColor {
       return resolveOnce().get(primary)!;
     },
@@ -559,7 +601,7 @@ function createColorTokenFromDefs(
     export(override?: GlazeConfigOverride): GlazeColorTokenExport {
       return buildExport(override);
     },
-  };
+  });
 }
 
 /**
