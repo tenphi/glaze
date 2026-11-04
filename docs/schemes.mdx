@@ -50,7 +50,7 @@ the authored spacing — exactly for neutrals, approximately for chromatic
 colors, whose luminance drifts a little with hue and saturation. The dark window
 then scales every step to its span, about 0.87× at the defaults, so order and
 direction carry over but steps come out a little smaller in dark. Tone deltas
-scale the same way on every base that inverts in dark; see
+scale the same way on every base; see
 [How relative tone adapts](#how-relative-tone-adapts).
 
 A surface at tone 97 becomes a dark surface, and text 52 tones below it
@@ -185,7 +185,7 @@ depends on the dependent's mode:
   sign preserved. A `'+30'` label stays 30 tones lighter than its fill in light
   and in dark. A label on a `fixed` fill should be `fixed` too: the inversion
   follows the label's own mode, so an `auto` label inverts in dark and lands on
-  the other side of its fill (30 tones above it in light, 29.5 below it in
+  the other side of its fill (30 tones above it in light, 26.0 below it in
   dark).
 - **`static`** — the delta is applied the same way as `fixed`, to the base's
   tone in each scheme, without inversion. A static dependent of an adaptive base
@@ -216,17 +216,16 @@ solved in every scheme.
 ### Where a dark step starts
 
 An `auto` dependent steps in dark from its base's **anchor**: where the base
-sits on the authored scale, from 0 to 100. A base that inverts in dark has
-that tone, inverted, as its dark variant. Glaze finds the anchor from how the
-base got its tone:
+sits on the authored scale, from 0 to 100, which is the tone an `auto` color
+would be authored at to land where the base sits in dark. Glaze finds the
+anchor from how the base got its tone:
 
-| Base                                                                                                           | Anchor                                               |
-| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Placed by a tone: a number, a `from` color, an extreme with no base, or a `fixed` / `static` extreme on a base | Its authored tone                                    |
-| A tone delta                                                                                                   | Its base's anchor plus the delta                     |
-| No `tone` or `contrast` of its own                                                                             | Its base's anchor                                    |
-| `auto` with a contrast floor, an `auto` extreme on a base, or a mix                                            | Its own dark tone, read back through the dark window |
-| `fixed` or `static` with a contrast floor                                                                      | Its light tone, read back through the light window   |
+| Base                                                                                                      | Anchor                                               |
+| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| An `auto` color placed by a tone: a number, a `from` color, or an extreme with no base                    | Its authored tone                                    |
+| An `auto` tone delta                                                                                      | Its base's anchor plus the delta                     |
+| An `auto` color with no `tone` or `contrast` of its own                                                   | Its base's anchor                                    |
+| Any other color: `fixed` or `static`, `auto` with a contrast floor, an `auto` extreme on a base, or a mix | Its own dark tone, read back through the dark window |
 
 The fourth row is why a dependent follows where its base lands in dark, not
 where it sits in light. A contrast floor solves the base's dark tone on its
@@ -248,13 +247,14 @@ own, and a mix blends two dark variants, yet the steps off them stay even:
   caption="Hovers on a contrast-solved button and on a mix. The button's own step from surface differs between light and dark, because the floor is solved per scheme, yet button-hover steps +3.5 in dark and wash-hover +5.2, both 0.87× their delta; high contrast keeps them exact."
 />
 
-A `fixed` or `static` base doesn't invert, so its anchor stays on the light
-side and the dependent's own mode decides whether it inverts (see the `fixed`
-bullet above). A `fixed` delta on an `auto` base still follows that base into
-dark, so an `auto` dependent can land far from it there: in `glaze(280, 30)`,
-an `auto` `'-4'` on `{ base: 'surface', tone: '-10', mode: 'fixed' }` over a
-tone-97 surface sits 22.1 tones above it in dark. Make such a dependent
-`fixed` too.
+A `fixed` or `static` base doesn't invert: it keeps its side of the scale,
+or, as a `fixed` delta, rides its own base into dark with its sign kept. An
+`auto` dependent still inverts, so it mirrors to the other side of wherever
+the base sits. In `glaze(280, 30)`, an `auto` `'+30'` label on a `fixed` fill
+at tone 52 lands 26.0 below it in dark, and an `auto` `'-4'` hover on
+`{ base: 'surface', tone: '-10', mode: 'fixed' }` over a tone-97 surface steps
++3.5. Make the dependent `fixed` too when it should keep its side with its
+base, as a label on a brand fill does.
 
 The 0.87× scale holds at the reference dark `eps`. A custom dark `eps` bends
 the dark window's curve, so a dark delta lands where the same authored tone
@@ -285,7 +285,11 @@ limits of its own:
   dark tone can meet it at either end. In `glaze(280, 40)`, text with
   `contrast: 12` on a tone-97 surface sits at 15.6 in light, but its dark tone
   reads back to 2.7, so a `'-4'` hover on it steps +2.3 in dark, not +3.5.
-  Add a contrast floor if the step has to survive.
+  A `fixed` or `static` base near the dark end meets it hardest, because it
+  keeps its side while the dependent inverts: an `auto` `'+20'` on a `static`
+  tone-10 base steps up to 30 in light, but its mirrored step in dark runs off
+  the scale and stops at 9.25, next to the base. Add a contrast floor if the
+  step has to survive, or make the dependent `fixed` or `static` too.
 - **A base past the dark window.** A contrast floor or an extreme on a base can
   push a base past the dark window's edge. A step back toward the window moves
   by the full scaled delta; a step further out stops at the window's edge or

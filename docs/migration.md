@@ -234,14 +234,15 @@ base, `'+4'` stepped −5.6 in dark and `'-4'` +1.3, and in `glaze(280, 40)` a
 `'-4'` hover on an `'AAA'` button stepped darker in dark as well (−5.5).
 
 In 3.0 a dark delta steps from where its base sits on the authored scale: the
-base's authored tone, or, for an `auto` contrast-solved base, a mix, or an
-`auto` `'max'` / `'min'` on a base, the base's own dark tone read back through
-the dark window. A dark delta then lands where the same authored tone would, on
-every base that inverts in dark, along chains of deltas, and for `from` colors.
-At the default dark window that is about 0.87× the delta: `'+4'` steps −3.5,
-`'-4'` +3.5, and the `'AAA'` hover above +3.5. Under a custom dark `eps` the
-steps follow that window's curve instead of a fixed scale. On a `fixed` or
-`static` base the inversion still follows the dependent's own mode. See
+base's authored tone, or, for a `fixed` or `static` base, an `auto`
+contrast-solved base, a mix, or an `auto` `'max'` / `'min'` on a base, the
+base's own dark tone read back through the dark window. A dark delta then
+lands where the same authored tone would, on every base, along chains of
+deltas, and for `from` colors. At the default dark window that is about 0.87×
+the delta: `'+4'` steps −3.5, `'-4'` +3.5, and the `'AAA'` hover above +3.5.
+Under a custom dark `eps` the steps follow that window's curve instead of a
+fixed scale. On a `fixed` or `static` base the `auto` dependent still inverts
+on its own, mirrored around wherever the base sits. See
 [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts).
 
 What moves:
@@ -256,6 +257,13 @@ What moves:
   it most of the scale: in `glaze(0, 0)`,
   `{ base: 'fill', tone: '-1', contrast: 3 }` on a tone-50 fill goes from
   16.2 to 89.0 in dark.
+- **`auto` deltas on a `fixed` or `static` base**, in dark and dark high
+  contrast. 2.x reflected them across the whole scale, so how far one landed
+  from its base depended on the base's tone. They now mirror around the base:
+  in `glaze(280, 30)`, an `auto` `'+30'` label on a `fixed` tone-52 fill goes
+  from 31.5 to 26.0 tones below it in dark (34 to 30 in dark high contrast),
+  and a `'-4'` hover on `{ base: 'surface', tone: '-10', mode: 'fixed' }`
+  over a tone-97 surface goes from 22.0 to 3.5 tones above it.
 - **High-contrast variants**, only for deltas on contrast-solved, mixed, or
   extreme bases, or under a custom light `eps`: at the default dark `eps`, a
   high-contrast dark step is now exactly the delta, short of the limits below.
@@ -265,11 +273,11 @@ What moves:
   `auto` `'max'` / `'min'` on a base. They now step like any other link in
   dark, and a `'+0'` link lands on its base there: in 2.x a `'+0'` link on an
   `'AAA'` token over `#f7f7fb` sat 8.95 tones below it in dark. Links on
-  other bases already stepped this way. Light is unchanged: a structured base
-  is still linked at its raw input tone.
-- **Light variants** only through a float-noise tie: a contrast-solved color
-  whose preferred tone lands within 1e-9 tones of its base's (a `'+0'` /
-  `'-0'` delta, or an absolute tone equal to the base's) takes the solver's
+  other bases already stepped this way.
+- **Other light variants** only through a float-noise tie: a
+  contrast-solved color whose preferred tone lands within 1e-9 tones of its
+  base's (a `'+0'` / `'-0'` delta, or an absolute tone equal to the base's)
+  takes the solver's
   own tie rule instead of a side picked by float noise, in every scheme, so it
   can land on the other side of its base. Under a manual `contrastLevel`, a
   level probe that lands on its base pins no side either.
@@ -313,6 +321,14 @@ you have pinned:
   `role: 'surface'` to keep a fill's 2.x polarity. WCAG floors don't change.
   A relative high-contrast tone on a token (`tone: [50, '+20']`) is measured
   from the token's own color; 2.x read `'+20'` as tone 20.
+- **Value-form `glaze.color()` links on a structured base**
+  (`glaze.color({ from, base })` with `base` made by
+  `glaze.color({ hue, saturation, tone })`), in light. 2.x read such a base at
+  its raw input tone in light, not at the tone it renders, so the link
+  measured against a color that is never painted: a `'+0'` link on
+  `glaze.color({ hue: 280, saturation: 80, tone: 50 })` sat 2.5 tones below
+  it, and an `'AA'` link measured 4.16:1 against it, with no warning. Links
+  now resolve against what the base paints in every scheme.
 - **Transparent mixes with `contrast`** solve against browser compositing
   (`source-over` on gamma-encoded sRGB) instead of linear light. A white
   `'AA'` overlay on a surface rendered at tone 12

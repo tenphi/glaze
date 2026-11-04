@@ -185,12 +185,12 @@ For each scheme, Glaze resolves the base first, then the dependent color:
    absolute tone is mapped through the scheme. A tone delta is applied to the
    base's tone in that scheme, except in dark under the default
    `mode: 'auto'`. There the delta steps from where the base sits on the
-   authored scale: its authored tone, or, for an `auto` contrast-solved base,
-   a mix, or an `auto` `'max'` / `'min'` on a base, its dark tone read back
-   through the dark window. The result is inverted and remapped like an
-   absolute tone. At the default dark window the dark step is about 0.87× the
-   delta, mirrored, on every base that inverts in dark: a `'-4'` hover on an
-   AAA button steps +3.5 in dark. High contrast keeps the step exact.
+   authored scale: its authored tone, or, for a `fixed` or `static` base, an
+   `auto` contrast-solved base, a mix, or an `auto` `'max'` / `'min'` on a
+   base, its dark tone read back through the dark window. The result is
+   inverted and remapped like an absolute tone. At the default dark window the
+   dark step is about 0.87× the delta, mirrored, on every base: a `'-4'` hover
+   on an AAA button steps +3.5 in dark. High contrast keeps the step exact.
    [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts) covers
    fixed bases, and [Overshooting deltas](./schemes.mdx#overshooting-deltas)
    the clamps near the ends of the range. With no `tone`, the color starts at
@@ -645,24 +645,20 @@ variant in every scheme.
 With a `base`:
 
 - `contrast` is solved per scheme against the base's `light`, `dark`,
-  `lightContrast`, and `darkContrast` variants, with one exception: in light,
-  a structured base (`glaze.color({ hue, saturation, tone })`) is linked at
-  its raw input tone, not its windowed light variant. An `'AA'` token on
-  `glaze.color({ hue: 280, saturation: 80, tone: 50 })` therefore measures
-  4.20:1 against the base's rendered light color, and no warning fires. When
-  the light pair must hold, give such a base `{ lightTone: false }` or use a
-  value-form base.
-- A tone delta (`tone: '+N'` / `'-N'`) is measured from the base. Under the
-  default `mode: 'auto'`, the dark variant steps from where the base token
-  sits on its own authored scale, read under its own `lightTone`; for an
-  `auto` base placed by a contrast floor or an extreme, that is its own dark
-  tone read back through the dark window, as in a theme. The step flips
+  `lightContrast`, and `darkContrast` variants: what the base token paints,
+  under its own config.
+- A tone delta (`tone: '+N'` / `'-N'`) is measured from the base, exactly in
+  light and high contrast. Under the default `mode: 'auto'`, the dark variant
+  steps from where the base token sits on its own authored scale, read under
+  its own `lightTone`; for a `fixed` or `static` base, or an `auto` base
+  placed by a contrast floor or an extreme, that is its own dark tone read
+  back through the dark window, as in a theme. The step flips
   direction and comes out about 0.87× the delta at the default dark window,
   the same as a theme color
-  ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). An
-  `auto` base whose dark window differs from the token's (its own `darkTone`,
-  or another `contrastLevel`) is read back through the token's dark window, so
-  a `'+0'` lands on it in dark. A relative `hue` still anchors to the token's
+  ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). A
+  base whose dark window differs from the token's (its own `darkTone`, or
+  another `contrastLevel`) is read back through the token's dark window, so a
+  `'+0'` lands on it in dark. A relative `hue` still anchors to the token's
   own seed value.
 - Pairs chain: a paired token can be the base of the next one.
 

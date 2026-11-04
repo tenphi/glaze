@@ -403,19 +403,17 @@ How the delta travels depends on the dependent color's `mode`:
 The anchor depends on how the base got its tone, and the same rules hold in
 both dark passes:
 
-- A base placed by a tone (a number, a `from` color, an extreme with no base,
-  or a `fixed` / `static` extreme on a base) anchors at its authored tone, and
-  a tone delta at its base's anchor plus the delta, so a chain steps evenly. A
-  color with no `tone` or `contrast` of its own anchors at its base's anchor.
-- An `auto` base whose dark tone is not the inversion of an authored one — a
-  contrast-solved color, an `auto` extreme on a base, a mix — anchors at its
-  own dark tone read back through the dark window (the window remap run
-  backwards, then un-inverted), so a dependent follows where the base lands in
-  dark.
-- A `fixed` or `static` contrast-solved base keeps its light-side answer: its
-  light tone read back through the light window.
+- An `auto` base placed by a tone (a number, a `from` color, an extreme with
+  no base) anchors at its authored tone, and an `auto` tone delta at its base's
+  anchor plus the delta, so a chain steps evenly. An `auto` color with no
+  `tone` or `contrast` of its own anchors at its base's anchor.
+- Any other base, whose dark tone is not the inversion of an authored one — a
+  `fixed` or `static` color, an `auto` contrast-solved color, an `auto` extreme
+  on a base, a mix — anchors at its own dark tone read back through the dark
+  window (the window remap run backwards, then un-inverted), so a dependent
+  follows where the base lands in dark.
 
-On every base that inverts in dark, the step is then the dark window's scale
+On every base, the step is then the dark window's scale
 times the delta at the reference dark `eps`, 86.6% of the authored delta at
 the default windows. A tone-50 base steps `'+4'` to −3.5 and `'-4'` to +3.5,
 and a `'-4'` hover on an AAA-solved button steps +3.5 too. A custom dark `eps`
@@ -429,10 +427,10 @@ doesn't change the step away from the ends.
 
 Order carries over only when the base inverts too. An `auto` delta on a
 `fixed` or `static` base inverts on its own while the base does not (it keeps
-its side, or, as a `fixed` delta, follows its own base without inverting), so
-it can cross to the other side of the base in dark: a `'+50'` label on a
-`fixed` tone-30 fill sits 50 tones above it in light and about 9 below it in
-dark. Make such a dependent `fixed` as well.
+its side, or, as a `fixed` delta, rides its own base into dark), so it mirrors
+to the other side of the base in dark: a `'+30'` label on a `fixed` tone-52
+fill sits 30 tones above it in light and 26.0 below it in dark. Make such a
+dependent `fixed` as well when it should keep its side.
 
 If `base + delta` overshoots `[0, 100]`, `autoFlip` (on by default) mirrors the
 delta to the other side of the base; if the mirror overshoots too, or `autoFlip`

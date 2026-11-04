@@ -48,10 +48,9 @@ light to dark. A relative **tone delta** such as `tone: '-4'` is an exact tone
 step from its base in light. In dark it steps from where the base sits on the
 authored scale and is inverted and remapped like any authored tone, so it flips
 with its base and keeps its place in the ladder, slightly compressed by the
-dark window (about 0.87× at the defaults, on every base that inverts in dark;
-high contrast keeps it exact). The step is exactly contrast-even for neutrals
-and approximate for chromatic colors; add a `contrast` floor when the measured
-result matters.
+dark window (about 0.87× at the defaults; high contrast keeps it exact). The
+step is exactly contrast-even for neutrals and approximate for chromatic
+colors; add a `contrast` floor when the measured result matters.
 [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts) shows the
 mapping.
 
@@ -87,9 +86,10 @@ Use this order when defining a token:
 2. Use an absolute numeric `tone` for independent placement. Use a signed
    **tone delta** (`'+N'` / `'-N'`) for distance from a base: surface ladders,
    soft chips, disabled states, and similar relationships. Under `auto`, the
-   dark step mirrors the light one on a base placed by tone, solved by a
-   contrast floor, or mixed, but a `fixed` base doesn't invert while the delta
-   does: make a delta off a `fixed` base `fixed` too. A delta has no floor
+   dark step mirrors the light one around its base, wherever the base sits,
+   but a `fixed` base doesn't invert while the delta does, so the delta lands
+   on the other side of it in dark: make a delta off a `fixed` base `fixed`
+   too when it should keep its side. A delta has no floor
    of its own, so give a hover that must stay readable its own `contrast`, or
    use a [state layer](#state-layers) on fills.
 3. Add `contrast` only when readability or recognizability needs a measured
