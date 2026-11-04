@@ -25,6 +25,7 @@ export type {
   ToneValue,
   AdaptationMode,
   GlazeColorFormat,
+  GlazeHdrFormat,
   GlazeOutputModes,
   HexColor,
   OkhslColor,
@@ -43,6 +44,7 @@ export type {
   ColorMap,
   ResolvedColor,
   ResolvedColorVariant,
+  ResolvedHdr,
   GlazeConfig,
   GlazeConfigOverride,
   GlazeConfigResolved,
@@ -165,6 +167,7 @@ export {
   formatHsl,
   formatOkhst,
   formatOklch,
+  formatSrgbLinear,
   srgbToHex,
   okhslToOklch,
 } from './okhsl-color-math';

@@ -95,6 +95,14 @@ export type ToneValue = number | RelativeValue | ExtremeValue;
 export type GlazeColorFormat = 'okhsl' | 'okhst' | 'rgb' | 'hsl' | 'oklch';
 
 /**
+ * Output format for an HDR glow value (`glaze.formatHdr()`). Only
+ * `'srgb-linear'` — `color(srgb-linear R G B)` with channels that may exceed
+ * 1 — since OKLCH lightness clamps at parse time and `rgb()` / `hsl()` cannot
+ * go past white.
+ */
+export type GlazeHdrFormat = 'srgb-linear';
+
+/**
  * Controls which scheme variants are generated in the export.
  * Light is always included (it's the default).
  */
@@ -311,11 +319,30 @@ export interface LightingTuning {
   hueBleed?: number;
 }
 
-/** Tuning for `shadow` colors. Same shape as {@link GlowTuning}. */
+/**
+ * Tuning for `shadow` colors: the shared {@link LightingTuning}. It has no
+ * `headroom` — a shadow darkens toward black, and nothing goes below black —
+ * so a `headroom` set on a shadow's tuning throws.
+ */
 export type ShadowTuning = LightingTuning;
 
-/** Tuning for `glow` colors. Same shape as {@link ShadowTuning}. */
-export type GlowTuning = LightingTuning;
+/** Tuning for `glow` colors: the shared {@link LightingTuning} plus HDR `headroom`. */
+export interface GlowTuning extends LightingTuning {
+  /**
+   * Stops above SDR white a glow may use when its step crosses white. Default:
+   * 0 (SDR only). Counted in stops — doublings of SDR white's luminance — not
+   * as a ratio: `1` allows up to 2× white, `2` up to 4×. Must be a finite
+   * number ≥ 0; values above 2 clamp to 2 with a one-time warning.
+   *
+   * Only a glow whose target tone (surface tone + `intensity × k`) passes 100
+   * gets an HDR value: the variant's `hdr`, an opaque exposure of what SDR
+   * already paints (the SDR composite over the surface) plus a gain in stops.
+   * Nothing about the SDR variant changes. The gain lands the exact step when
+   * the headroom allows it; the brightest channel caps at `2^headroom`.
+   * High-contrast schemes use the same headroom.
+   */
+  headroom?: number;
+}
 
 /**
  * A translucent dark overlay that lands the surface (`bg`) exactly
@@ -494,6 +521,34 @@ export interface ResolvedColorVariant {
    * gamut mapping applied during resolution.
    */
   pastel?: boolean;
+  /**
+   * HDR tier of a glow whose step crosses SDR white, present only when the
+   * glow's `headroom` is above 0 and its target tone passes 100 (see
+   * `GlowTuning.headroom`). Absent everywhere else — shadows, mixes, regular
+   * colors, and every glow at the default headroom of 0.
+   */
+  hdr?: ResolvedHdr;
+}
+
+/**
+ * The HDR value of a glow past SDR white: an opaque base plus a gain. The base
+ * is what SDR paints — the glow's composite over its surface at the solved
+ * opacity — and the HDR color is that base's linear sRGB times
+ * `2^exposure`. Format it with `glaze.formatHdr()`.
+ *
+ * Stored in OKHST like the variant. `s` is always standard (non-pastel)
+ * OKHSL saturation, whatever the variant's `pastel`, since the base is an
+ * arbitrary in-gamut composite.
+ */
+export interface ResolvedHdr {
+  /** Base OKHSL hue (0–360). */
+  h: number;
+  /** Base OKHSL saturation (0–1, non-pastel). */
+  s: number;
+  /** Base canonical tone (0–1, reference eps). */
+  t: number;
+  /** Gain over the base in stops (`log2` of the linear factor), above 0. */
+  exposure: number;
 }
 
 /** Fully resolved color across all scheme variants. */
@@ -546,9 +601,15 @@ export interface GlazeConfig {
    * `highContrast: false`.
    */
   modes?: GlazeOutputModes;
-  /** Default tuning for all shadow colors. Per-color tuning merges field-by-field. */
+  /**
+   * Default tuning for all shadow colors. Per-color tuning merges field-by-field.
+   * A `headroom` here throws: it is a glow-only field.
+   */
   shadowTuning?: ShadowTuning;
-  /** Default tuning for all glow colors. Per-color tuning merges field-by-field. */
+  /**
+   * Default tuning for all glow colors, including HDR `headroom`. Per-color
+   * tuning merges field-by-field.
+   */
   glowTuning?: GlowTuning;
   /**
    * Manual contrast level — a 0–100 slider from normal contrast (`0`) to high
@@ -745,8 +806,10 @@ export interface GlazeLightingInput {
 /** Input for `glaze.shadow()`. */
 export type GlazeShadowInput = GlazeLightingInput;
 
-/** Input for `glaze.glow()`. */
-export type GlazeGlowInput = GlazeLightingInput;
+/** Input for `glaze.glow()`: the shared input, with glow tuning (`headroom`). */
+export interface GlazeGlowInput extends GlazeLightingInput {
+  tuning?: GlowTuning;
+}
 
 // ============================================================================
 // Standalone color token

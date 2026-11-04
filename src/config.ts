@@ -15,7 +15,10 @@
  * `contrastLevel` clamps to 0–100, `darkDesaturation` to 0–1, and tone windows
  * are checked and clamped by `normalizeToneWindow`; a non-finite value throws.
  * Both entry points treat only `undefined` as "keep" for a tone window, so a
- * `null` throws in either.
+ * `null` throws in either. A glow's HDR `headroom` (`normalizeLightingTuning`,
+ * shared with the per-color and standalone validators) must be a finite number
+ * ≥ 0 and clamps to `MAX_HEADROOM` stops with a one-time warning; a `headroom`
+ * on shadow tuning throws.
  *
  * No config object is shared with a caller, in either direction. Going in,
  * `configure()` copies what it keeps and a theme or token copies its override
@@ -27,12 +30,15 @@
  * or handed out can't change a resolve or an export.
  */
 
+import { MAX_HEADROOM } from './lighting';
+import type { LightingKind } from './lighting';
 import { normalizeToneWindow } from './okhst';
+import { warnHeadroomClamped } from './warnings';
 import type {
   GlazeConfig,
   GlazeConfigOverride,
   GlazeConfigResolved,
-  LightingTuning,
+  GlowTuning,
   ToneWindow,
 } from './types';
 
@@ -110,11 +116,51 @@ export function normalizeToneWindowInput(
   return Array.isArray(win) ? [lo, hi] : { lo, hi, eps };
 }
 
-/** Detached copy of a (flat) lighting tuning, or `undefined`. */
-function copyTuning(
-  tuning: LightingTuning | undefined,
-): LightingTuning | undefined {
-  return tuning === undefined ? undefined : { ...tuning };
+/**
+ * Validate a glow's HDR `headroom` (stops above SDR white). A non-number,
+ * non-finite, or negative value throws; one above `MAX_HEADROOM` clamps to it
+ * with a one-time warning, since a ratio typed where stops were meant (`4` for
+ * "4× white") is the likely cause. `where` names the tuning in messages
+ * (`glowTuning`, `glow "x" tuning`, `glaze.glow() tuning`).
+ */
+export function normalizeHeadroom(value: unknown, where: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(
+      `glaze: ${where}.headroom must be a finite number ≥ 0 — stops above ` +
+        `SDR white (got ${typeof value === 'string' ? JSON.stringify(value) : String(value)}).`,
+    );
+  }
+  if (value > MAX_HEADROOM) {
+    warnHeadroomClamped(where, value);
+    return MAX_HEADROOM;
+  }
+  return value;
+}
+
+/**
+ * Validate and copy a lighting tuning: a detached copy (or `undefined`) with a
+ * glow's `headroom` checked and clamped by `normalizeHeadroom`. A shadow has no
+ * headroom — it darkens toward black, and nothing goes below black — so a
+ * `headroom` on shadow tuning throws. Only `undefined` counts as unset.
+ */
+export function normalizeLightingTuning(
+  kind: LightingKind,
+  tuning: GlowTuning | undefined,
+  where: string,
+): GlowTuning | undefined {
+  if (tuning === undefined) return undefined;
+  const out: GlowTuning = { ...tuning };
+  const headroom = (tuning as { headroom?: unknown } | null)?.headroom;
+  if (headroom === undefined) return out;
+  if (kind === 'shadow') {
+    throw new Error(
+      `glaze: ${where}.headroom is not supported — a shadow darkens toward ` +
+        `black, and nothing goes below black. Headroom is for glows ` +
+        `(glowTuning or a glow's tuning).`,
+    );
+  }
+  out.headroom = normalizeHeadroom(headroom, where);
+  return out;
 }
 
 /**
@@ -271,8 +317,16 @@ export function configure(config: GlazeConfig): void {
       highContrast:
         config.modes?.highContrast ?? globalConfig.modes.highContrast,
     },
-    shadowTuning: copyTuning(config.shadowTuning ?? globalConfig.shadowTuning),
-    glowTuning: copyTuning(config.glowTuning ?? globalConfig.glowTuning),
+    shadowTuning: normalizeLightingTuning(
+      'shadow',
+      config.shadowTuning ?? globalConfig.shadowTuning,
+      'shadowTuning',
+    ),
+    glowTuning: normalizeLightingTuning(
+      'glow',
+      config.glowTuning ?? globalConfig.glowTuning,
+      'glowTuning',
+    ),
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
     // Instance-only; never configurable globally.
     pastel: false,
@@ -322,8 +376,16 @@ export function mergeConfig(
     ),
     states: { ...base.states },
     modes: { ...base.modes },
-    shadowTuning: copyTuning(override.shadowTuning ?? base.shadowTuning),
-    glowTuning: copyTuning(override.glowTuning ?? base.glowTuning),
+    shadowTuning: normalizeLightingTuning(
+      'shadow',
+      override.shadowTuning ?? base.shadowTuning,
+      'shadowTuning',
+    ),
+    glowTuning: normalizeLightingTuning(
+      'glow',
+      override.glowTuning ?? base.glowTuning,
+      'glowTuning',
+    ),
     autoFlip: override.autoFlip ?? base.autoFlip,
     pastel: override.pastel ?? false,
     inferRole: override.inferRole ?? base.inferRole,

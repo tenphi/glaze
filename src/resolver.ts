@@ -29,7 +29,11 @@
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
  * `t` is the canonical contrast-uniform tone (0–1, reference eps). The
  * resolver works in tone for regular colors and converts to/from OKHSL
- * lightness only at the mix / shadow / glow and luminance edges.
+ * lightness only at the mix / shadow / glow and luminance edges. A glow whose
+ * step crosses white with `headroom` above 0 also carries `hdr` — its opaque
+ * base in OKHST plus an exposure in stops — and swaps the SDR shortfall
+ * warning for one that fires only when the headroom cap falls short. HDR
+ * values never feed another color: nothing may build on a glow.
  *
  * Every function receives a single `GlazeConfigResolved` so the full
  * per-instance config (including overrides) is available without
@@ -75,6 +79,7 @@ import {
   isLightingDef,
   isMixDef,
   resolveLightingTuning,
+  toResolvedHdr,
 } from './lighting';
 import {
   REF_EPS,
@@ -96,7 +101,7 @@ import { hasAbsoluteTone, topoSort, validateColorDefs } from './validation';
 import {
   warnContrastUnmet,
   warnContrastDrift,
-  warnLightingUnreachable,
+  warnLightingShortfall,
   warnMixContrastUnmet,
 } from './warnings';
 import type {
@@ -961,6 +966,8 @@ function resolveColorForScheme(
  * Shadow / glow: solve the pigment opacity that lands this scheme's `bg`
  * exactly `intensity × k` tones darker / lighter. `bg` and `fg` are read per
  * scheme, so the object factor `k` adapts on its own in dark and high contrast.
+ * A glow past white with `headroom` gets `hdr` (base in OKHST + exposure); the
+ * same headroom applies in every scheme, high contrast included.
  */
 function resolveLightingForScheme(
   name: string,
@@ -992,15 +999,15 @@ function resolveLightingForScheme(
     tuning,
     pastel,
   );
-  warnLightingUnreachable(
+  warnLightingShortfall(
     def.type,
     name,
     { isDark, isHighContrast },
-    result.step,
-    result.reached,
+    result,
+    tuning.headroom,
   );
 
-  return {
+  const variant: ResolvedColorVariant = {
     ...toToneVariant({
       h: result.h,
       s: result.s,
@@ -1009,6 +1016,8 @@ function resolveLightingForScheme(
     }),
     pastel,
   };
+  if (result.hdr) variant.hdr = toResolvedHdr(result.hdr);
+  return variant;
 }
 
 function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {

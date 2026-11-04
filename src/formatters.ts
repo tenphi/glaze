@@ -2,7 +2,8 @@
  * Output formatting for resolved color maps.
  *
  * Owns the CSS-string formatter dispatch table (`okhsl` / `rgb` / `hsl` /
- * `oklch`) and the token-map shapes Glaze emits:
+ * `oklch`), the HDR glow writer (`formatHdrVariant`, `color(srgb-linear …)`),
+ * and the token-map shapes Glaze emits:
  * - `buildTokenMap` — Tasty style-to-state bindings (`#name` keys, state aliases).
  * - `buildFlatTokenMap` — `{ light, dark, ... }` per-variant maps.
  * - `buildJsonMap` — `{ name: { light, dark, ... } }` per-color JSON.
@@ -24,11 +25,13 @@ import {
   formatOkhst,
   formatOklch,
   formatRgb,
+  formatSrgbLinear,
   okhslToOklch,
   okhslToSrgb,
   srgbToHex,
 } from './okhsl-color-math';
 import { variantToOkhsl } from './okhst';
+import { hdrToLinearSrgb } from './lighting';
 import { getConfig } from './config';
 import { hcMirrorsNormal } from './hc-pair';
 import type {
@@ -42,6 +45,7 @@ import type {
   GlazeDtcgResolverDocument,
   GlazeDtcgResolverOptions,
   GlazeDtcgResult,
+  GlazeHdrFormat,
   GlazeOutputModes,
   ResolvedColor,
   ResolvedColorVariant,
@@ -84,6 +88,26 @@ export function formatVariant(
   if (v.alpha >= 1) return base;
   const closing = base.lastIndexOf(')');
   return `${base.slice(0, closing)} / ${fmt(v.alpha, 4)})`;
+}
+
+/**
+ * Format a variant's HDR value (`variant.hdr`, set on a glow past white with
+ * `headroom`) as `color(srgb-linear R G B)`, or `undefined` when it has none.
+ * Always that form, whatever the SDR format: OKLCH lightness clamps at parse
+ * time and `rgb()` / `hsl()` cannot pass white. Emitted as a literal, never
+ * with a split hue.
+ */
+export function formatHdrVariant(
+  v: ResolvedColorVariant,
+  format: GlazeHdrFormat = 'srgb-linear',
+): string | undefined {
+  if (format !== 'srgb-linear') {
+    throw new Error(
+      `glaze: unknown HDR format ${JSON.stringify(format)}. Use 'srgb-linear'.`,
+    );
+  }
+  if (v.hdr === undefined) return undefined;
+  return formatSrgbLinear(hdrToLinearSrgb(v.hdr));
 }
 
 /**

@@ -11,21 +11,43 @@
  * it holds on chromatic surfaces too. An optional object (`fg`) scales the
  * step the way bounce light does. The resolver consumes this module per
  * scheme variant; `glaze.shadow()` / `glaze.glow()` call it directly.
+ *
+ * HDR glows: with `glowTuning.headroom` above 0, a glow whose target tone
+ * (surface tone + step) passes 100 also gets an HDR value, computed in closed
+ * form after the untouched SDR solve. SDR is pinned there (opacity 0 on white,
+ * 1 elsewhere), so the HDR value is an opaque exposure of what SDR paints —
+ * the SDR composite as the base, times `2^exposure` — with the gain that
+ * lands the exact step, capped per channel at `2^headroom`
+ * (`MAX_HEADROOM` stops at most). `hdrToLinearSrgb` turns a resolved HDR
+ * value back into linear sRGB for the writers.
  */
 
 import {
   compositeOverGamma,
   okhslToLinearSrgb,
+  okhslToOklab,
+  oklabToOkhsl,
   relativeLuminanceFromLinearRgb,
+  sRGBLinearToGamma,
+  srgbToOkhsl,
   toDisplayGamma,
 } from './okhsl-color-math';
 import { clamp } from './hc-pair';
-import { fromTone, toTone, toneFromY } from './okhst';
+import {
+  fromTone,
+  okhslToOkhst,
+  okhstToOkhsl,
+  toTone,
+  toneFromY,
+  yFromTone,
+} from './okhst';
 import type {
   ColorDef,
   GlowColorDef,
+  GlowTuning,
   LightingTuning,
   MixColorDef,
+  ResolvedHdr,
   ShadowColorDef,
 } from './types';
 
@@ -54,7 +76,40 @@ export interface LightingResult {
   step: number;
   /** Tone step the composite actually lands. Below `step` only when unreachable. */
   reached: number;
+  /**
+   * HDR value of a glow whose target tone passes 100 with `headroom` above 0;
+   * absent otherwise. The SDR fields above are unchanged by it.
+   */
+  hdr?: LightingHdr;
 }
+
+/** The HDR value in a {@link LightingResult}. */
+export interface LightingHdr {
+  /** Base hue (0–360): the SDR composite over the surface, opaque. */
+  h: number;
+  /** Base OKHSL saturation (0–1, always non-pastel). */
+  s: number;
+  /** Base OKHSL lightness (0–1). */
+  l: number;
+  /** Gain over the base in stops, above 0. */
+  exposure: number;
+  /**
+   * Tone step the exposed base lands above the surface: `step`, or less when
+   * the `headroom` cap binds.
+   */
+  reached: number;
+}
+
+/** Most stops of HDR headroom a glow may use; larger values clamp to it. */
+export const MAX_HEADROOM = 2;
+
+/**
+ * A merged tuning: every {@link LightingTuning} field, plus the glow-only
+ * `headroom` in stops (0 for a shadow, which never carries one).
+ */
+export type ResolvedLightingTuning = Required<LightingTuning> & {
+  headroom: number;
+};
 
 export function isShadowDef(def: ColorDef): def is ShadowColorDef {
   return (def as ShadowColorDef).type === 'shadow';
@@ -82,12 +137,23 @@ export const DEFAULT_LIGHTING_TUNING: Required<LightingTuning> = {
   hueBleed: 0,
 };
 
-/** Defaults ← global (`shadowTuning` / `glowTuning`) ← per-color, field by field. */
+/**
+ * Defaults ← global (`shadowTuning` / `glowTuning`) ← per-color, field by
+ * field. `headroom` defaults to 0 and clamps to `0–MAX_HEADROOM`; the config
+ * and def validators have already rejected a non-finite or negative value and
+ * warned about one above the maximum.
+ */
 export function resolveLightingTuning(
-  perColor?: LightingTuning,
-  globalTuning?: LightingTuning,
-): Required<LightingTuning> {
-  return { ...DEFAULT_LIGHTING_TUNING, ...globalTuning, ...perColor };
+  perColor?: GlowTuning,
+  globalTuning?: GlowTuning,
+): ResolvedLightingTuning {
+  const headroom = perColor?.headroom ?? globalTuning?.headroom ?? 0;
+  return {
+    ...DEFAULT_LIGHTING_TUNING,
+    ...globalTuning,
+    ...perColor,
+    headroom: clamp(headroom, 0, MAX_HEADROOM),
+  };
 }
 
 export function circularLerp(a: number, b: number, t: number): number {
@@ -100,6 +166,8 @@ export function circularLerp(a: number, b: number, t: number): number {
 const SAT_EPSILON = 1e-6;
 const BISECT_ITERATIONS = 40;
 const GOLDEN = (Math.sqrt(5) - 1) / 2;
+/** Float noise a target tone may sit above 100 without counting as HDR. */
+const HDR_TRIGGER_EPS = 1e-9;
 
 /**
  * Object factor `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`, with `d = +1`
@@ -152,13 +220,16 @@ function pigmentFor(
  * lands it exactly. When it doesn't, the step is out of reach — a glow on
  * white, a deep shadow on near-black — and the result pins to the pigment's
  * strongest composite, reporting what it reached in `reached`.
+ *
+ * A glow with `headroom` above 0 whose target tone passes 100 also gets
+ * `hdr` (see `exposeGlow`); the SDR fields are the same with or without it.
  */
 export function computeLighting(
   kind: LightingKind,
   bg: LightingColor,
   fg: LightingColor | undefined,
   intensity: number,
-  tuning: Required<LightingTuning>,
+  tuning: Required<LightingTuning> & GlowTuning,
   pastel: boolean,
 ): LightingResult {
   const bgTone = toTone(bg.l);
@@ -187,7 +258,33 @@ export function computeLighting(
   const d = kind === 'shadow' ? 1 : -1;
   const gain = (alpha: number): number => d * (surfaceTone - toneAt(alpha));
 
-  if (step <= 0) return { ...pigment, alpha: 0, step, reached: 0 };
+  const { alpha, reached } = solveOpacity(kind, gain, step);
+  const result: LightingResult = { ...pigment, alpha, step, reached };
+
+  const headroom = tuning.headroom ?? 0;
+  if (kind === 'glow' && headroom > 0 && step > 0) {
+    const base =
+      alpha === 1
+        ? standardOkhsl(pigment, pastel)
+        : alpha === 0
+          ? standardOkhsl(bg, bg.pastel ?? pastel)
+          : readBack(compositeOverGamma(bgGamma, pigmentGamma, alpha));
+    const hdr = exposeGlow(base, surfaceTone, step, headroom);
+    if (hdr !== undefined) result.hdr = hdr;
+  }
+  return result;
+}
+
+/**
+ * The SDR opacity solve: the smallest opacity whose composite reaches `step`,
+ * or — out of reach — the pigment's strongest composite.
+ */
+function solveOpacity(
+  kind: LightingKind,
+  gain: (alpha: number) => number,
+  step: number,
+): { alpha: number; reached: number } {
+  if (step <= 0) return { alpha: 0, reached: 0 };
 
   // The predicate is monotone on [0, hi] once `gain(hi)` reaches the step.
   let hi = 1;
@@ -196,9 +293,7 @@ export function computeLighting(
     const reached = gain(hi);
     if (reached < step) {
       // A pigment that cannot move the surface at all stays fully transparent.
-      return reached > 0
-        ? { ...pigment, alpha: hi, step, reached }
-        : { ...pigment, alpha: 0, step, reached: 0 };
+      return reached > 0 ? { alpha: hi, reached } : { alpha: 0, reached: 0 };
     }
   }
 
@@ -208,7 +303,88 @@ export function computeLighting(
     if (gain(mid) < step) lo = mid;
     else hi = mid;
   }
-  return { ...pigment, alpha: hi, step, reached: gain(hi) };
+  return { alpha: hi, reached: gain(hi) };
+}
+
+/** An OKHSL color in the standard (non-pastel) space the HDR base uses. */
+function standardOkhsl(
+  c: { h: number; s: number; l: number },
+  pastel: boolean,
+): { h: number; s: number; l: number } {
+  if (!pastel) return { h: c.h, s: c.s, l: c.l };
+  const [h, s, l] = oklabToOkhsl(okhslToOklab(c.h, c.s, c.l, true));
+  return { h, s, l };
+}
+
+/** A linear sRGB composite read back as standard OKHSL. */
+function readBack(linear: [number, number, number]): {
+  h: number;
+  s: number;
+  l: number;
+} {
+  const [h, s, l] = srgbToOkhsl([
+    sRGBLinearToGamma(linear[0]),
+    sRGBLinearToGamma(linear[1]),
+    sRGBLinearToGamma(linear[2]),
+  ]);
+  return { h, s, l };
+}
+
+/**
+ * HDR value of a glow past white: an opaque exposure of `base` — the SDR glow
+ * composited over its surface at the solved opacity, as standard OKHSL — by
+ * the gain that lands the target tone `surfaceTone + step`, capped so no
+ * channel passes `2^headroom` (displays clip per channel; for a neutral base
+ * that is a cap on luminance). `undefined` when the target stays at or below
+ * 100 — the trigger depends on the target alone, never on the SDR opacity —
+ * or when the base is black and has nothing to expose.
+ *
+ * Past white SDR is pinned: opacity 1 (the pigment itself) or 0 (a white
+ * surface the pigment cannot lift), so the base is taken from that color
+ * exactly; another opacity reads the composite back. Tone runs past 100
+ * unchanged (`toneFromY` / `yFromTone` are unclamped), so equal tone steps
+ * above white are still equal `Y + 0.05` ratios. The gain is measured on the
+ * base as stored, so base × `2^exposure` lands the step to float precision.
+ */
+function exposeGlow(
+  base: { h: number; s: number; l: number },
+  surfaceTone: number,
+  step: number,
+  headroom: number,
+): LightingHdr | undefined {
+  const target = surfaceTone + step;
+  if (!(target > 100 + HDR_TRIGGER_EPS)) return undefined;
+
+  const linear = okhslToLinearSrgb(base.h, base.s, base.l);
+  const yBase = relativeLuminanceFromLinearRgb(linear);
+  const peak = Math.max(linear[0], linear[1], linear[2]);
+  if (!(yBase > 0) || !(peak > 0)) return undefined;
+
+  const m = Math.min(yFromTone(target) / yBase, 2 ** headroom / peak);
+  if (!(m > 1)) return undefined;
+  return {
+    ...base,
+    exposure: Math.log2(m),
+    reached: toneFromY(yBase * m) - surfaceTone,
+  };
+}
+
+/** The solver's HDR value (OKHSL base) as a `ResolvedHdr` (OKHST base). */
+export function toResolvedHdr(hdr: LightingHdr): ResolvedHdr {
+  const { h, s, t } = okhslToOkhst(hdr);
+  return { h, s, t, exposure: hdr.exposure };
+}
+
+/**
+ * Linear sRGB of a resolved HDR value: the base's channels times
+ * `2^exposure`, unclamped (the brightest channel can reach `2^headroom`).
+ * The base is non-pastel OKHSL, so no `pastel` flag applies.
+ */
+export function hdrToLinearSrgb(hdr: ResolvedHdr): [number, number, number] {
+  const { h, s, l } = okhstToOkhsl(hdr);
+  const [r, g, b] = okhslToLinearSrgb(h, s, l);
+  const m = 2 ** hdr.exposure;
+  return [r * m, g * m, b * m];
 }
 
 /**

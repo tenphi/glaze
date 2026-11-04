@@ -5,7 +5,9 @@
  * for both contrast metrics (WCAG 2 relative luminance and APCA screen
  * luminance `Ys` — both the exact functions the contrast solver uses, and
  * both public), strict hex parsing (`parseHex` / `parseHexAlpha` check every
- * digit), and multi-format output (okhsl, rgb, hsl, oklch).
+ * digit), and multi-format output (okhsl, rgb, hsl, oklch, plus the
+ * `color(srgb-linear …)` writer for HDR glow values, whose channels may exceed
+ * 1).
  */
 
 type Vec3 = [number, number, number];
@@ -903,6 +905,17 @@ export function formatOklch(
 
   const [L, C, hh] = okhslToOklch(h, s, l, pastel);
   return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 2)})`;
+}
+
+/**
+ * Format linear sRGB channels as a CSS `color(srgb-linear R G B)` string with
+ * 4 decimals. Unlike the other writers it takes linear light, not OKHSL, and
+ * does not clamp: a channel may exceed 1, which is how an HDR glow value
+ * (`glaze.formatHdr()`) goes past SDR white — `1` is SDR white, `2` one stop
+ * above it. Opaque only; HDR values carry no alpha.
+ */
+export function formatSrgbLinear(rgb: [number, number, number]): string {
+  return `color(srgb-linear ${fmt(rgb[0], 4)} ${fmt(rgb[1], 4)} ${fmt(rgb[2], 4)})`;
 }
 
 /**

@@ -6,8 +6,9 @@
  * - `theme.ts` — single-theme factory
  * - `palette.ts` — multi-theme composition
  * - `color-token.ts` — standalone single-color tokens (`glaze.color`)
- * - `lighting.ts` — shadow / glow solver (`glaze.shadow`, `glaze.glow`)
- * - `formatters.ts` — variant → string (`glaze.format`)
+ * - `lighting.ts` — shadow / glow solver (`glaze.shadow`, `glaze.glow`,
+ *   including a glow's HDR value)
+ * - `formatters.ts` — variant → string (`glaze.format`, `glaze.formatHdr`)
  * - `config.ts` — global config singleton
  * - `serialize.ts` — authoring export type guards / version checks
  */
@@ -16,6 +17,7 @@ import { parseHex, srgbToOkhsl } from './okhsl-color-math';
 import {
   configure as configureImpl,
   getConfig,
+  normalizeLightingTuning,
   resetConfig as resetConfigImpl,
   snapshotConfig,
 } from './config';
@@ -25,11 +27,15 @@ import {
   createColorTokenFromValue,
 } from './color-token';
 import { extractOkhslFromValue } from './color-value';
-import { formatVariant } from './formatters';
-import { computeLighting, resolveLightingTuning } from './lighting';
+import { formatHdrVariant, formatVariant } from './formatters';
+import {
+  computeLighting,
+  resolveLightingTuning,
+  toResolvedHdr,
+} from './lighting';
 import type { LightingKind } from './lighting';
 import { okhslToOkhst } from './okhst';
-import { warnLightingUnreachable } from './warnings';
+import { warnLightingShortfall } from './warnings';
 import {
   createPalette,
   createPaletteFromExport,
@@ -52,6 +58,7 @@ import type {
   GlazeConfigResolved,
   GlazeFromInput,
   GlazeGlowInput,
+  GlazeHdrFormat,
   GlazeLightingInput,
   GlazePalette,
   GlazePaletteExport,
@@ -220,7 +227,7 @@ glaze.color = function color(
 /** Shared body of `glaze.shadow()` / `glaze.glow()`. */
 function standaloneLighting(
   kind: LightingKind,
-  input: GlazeLightingInput,
+  input: GlazeLightingInput | GlazeGlowInput,
 ): ResolvedColorVariant {
   const bg = extractOkhslFromValue(input.bg as GlazeColorValue);
   const fg = input.fg
@@ -228,23 +235,19 @@ function standaloneLighting(
     : undefined;
   const cfg = getConfig();
   const tuning = resolveLightingTuning(
-    input.tuning,
+    normalizeLightingTuning(kind, input.tuning, `glaze.${kind}() tuning`),
     kind === 'shadow' ? cfg.shadowTuning : cfg.glowTuning,
   );
   const result = computeLighting(kind, bg, fg, input.intensity, tuning, false);
-  warnLightingUnreachable(
-    kind,
-    undefined,
-    undefined,
-    result.step,
-    result.reached,
-  );
+  warnLightingShortfall(kind, undefined, undefined, result, tuning.headroom);
   const { h, s, t } = okhslToOkhst({
     h: result.h,
     s: result.s,
     l: result.l,
   });
-  return { h, s, t, alpha: result.alpha };
+  const variant: ResolvedColorVariant = { h, s, t, alpha: result.alpha };
+  if (result.hdr) variant.hdr = toResolvedHdr(result.hdr);
+  return variant;
 }
 
 /**
@@ -266,7 +269,10 @@ glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
 /**
  * Compute a glow over a surface — the mirror of `glaze.shadow()`: the
  * composite lands `bg` exactly `intensity` tones lighter, and a lighter
- * object `fg` glows stronger. Accepts the same inputs.
+ * object `fg` glows stronger. Accepts the same inputs, plus `tuning.headroom`
+ * (merged over the global `glowTuning`): when the step would pass SDR white,
+ * the result carries `hdr` — an opaque exposure of the SDR result, formatted
+ * by `glaze.formatHdr()`.
  */
 glaze.glow = function glow(input: GlazeGlowInput): ResolvedColorVariant {
   return standaloneLighting('glow', input);
@@ -279,6 +285,27 @@ glaze.format = function format(
   pastel?: boolean,
 ): string {
   return formatVariant(variant, colorFormat, pastel);
+};
+
+/**
+ * Format a variant's HDR value — set on a glow whose step crosses SDR white
+ * with `headroom` above 0 — as `color(srgb-linear R G B)`, with channels that
+ * may exceed 1. Returns `undefined` for a variant without one. Only
+ * `'srgb-linear'` is supported: OKLCH lightness clamps at parse time and
+ * `rgb()` / `hsl()` cannot go past white.
+ *
+ * @example
+ * ```ts
+ * const v = glaze.glow({ bg: '#ffffff', intensity: 12, tuning: { headroom: 1 } });
+ * glaze.format(v);    // SDR: 'oklch(1 0 0)'
+ * glaze.formatHdr(v); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
+ * ```
+ */
+glaze.formatHdr = function formatHdr(
+  variant: ResolvedColorVariant,
+  hdrFormat: GlazeHdrFormat = 'srgb-linear',
+): string | undefined {
+  return formatHdrVariant(variant, hdrFormat);
 };
 
 /**

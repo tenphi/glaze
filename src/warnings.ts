@@ -1,6 +1,8 @@
 /**
  * Resolve-time warning dispatcher: unmet contrast floors (regular colors and
- * mixes), chromatic contrast drift, and out-of-reach shadow / glow steps.
+ * mixes), chromatic contrast drift, out-of-reach shadow / glow steps (SDR, and
+ * HDR glows whose headroom cap falls short), and a glow `headroom` clamped to
+ * its 2-stop maximum.
  *
  * Tokens memoize their resolution, but a long-lived process (e.g. a dev
  * server with HMR) can re-resolve the same theme many times. The cache
@@ -10,6 +12,8 @@
 
 import { apcaContrast } from './contrast-solver';
 import type { ResolvedContrast } from './contrast-solver';
+import { MAX_HEADROOM } from './lighting';
+import type { LightingKind, LightingResult } from './lighting';
 import { contrastRatioFromLuminance } from './okhsl-color-math';
 
 const CONTRAST_WARN_CACHE_LIMIT = 256;
@@ -187,5 +191,83 @@ export function warnLightingUnreachable(
     `glaze: ${subject} cannot reach a ${step.toFixed(1)}-tone step${where} ` +
       `(reached ${reached.toFixed(1)} at full strength). Lower the intensity, ` +
       `move the surface away from ${extreme}, or raise a tuned-down \`reach\`.`,
+  );
+}
+
+/** `1 stop`, `2 stops`, `1.5 stops`. */
+function stopsLabel(stops: number): string {
+  const n = parseFloat(stops.toFixed(2));
+  return `${n} stop${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * Warn when an HDR glow's gain is capped by its `headroom` short of the step:
+ * the brightest channel sits at `2^headroom` and the composite lands
+ * `reached` tones above the surface instead of `step`. Replaces the SDR
+ * shortfall warning for that variant — when the cap does not bind, HDR covers
+ * the step and neither warning fires. `name` / `scheme` are omitted for the
+ * standalone `glaze.glow()`.
+ */
+export function warnHdrUnreachable(
+  name: string | undefined,
+  scheme: { isDark: boolean; isHighContrast: boolean } | undefined,
+  step: number,
+  reached: number,
+  headroom: number,
+): void {
+  if (reached >= step - LIGHTING_WARN_SLACK) return;
+
+  const label = scheme
+    ? schemeLabel(scheme.isDark, scheme.isHighContrast)
+    : undefined;
+  const key = `hdr|${name ?? ''}|${label ?? ''}|${step.toFixed(
+    2,
+  )}|${reached.toFixed(2)}|${headroom}`;
+  if (dedupe(key)) return;
+
+  const subject = name === undefined ? 'glaze.glow()' : `glow "${name}"`;
+  const where = label === undefined ? '' : ` in ${label} scheme`;
+  const advice =
+    headroom >= MAX_HEADROOM
+      ? `Lower the intensity; \`headroom\` is already at its ${MAX_HEADROOM}-stop maximum.`
+      : 'Lower the intensity or raise `headroom`.';
+  console.warn(
+    `glaze: ${subject} cannot reach a ${step.toFixed(1)}-tone step${where} ` +
+      `even with ${stopsLabel(headroom)} of headroom ` +
+      `(reached ${reached.toFixed(1)}). ${advice}`,
+  );
+}
+
+/**
+ * Report a shadow / glow solve that lands short. A glow with an HDR value
+ * (the author opted into headroom) warns only when the headroom cap leaves
+ * the step short (`warnHdrUnreachable`); everything else gets the SDR
+ * shortfall warning (`warnLightingUnreachable`), unchanged at headroom 0.
+ */
+export function warnLightingShortfall(
+  kind: LightingKind,
+  name: string | undefined,
+  scheme: { isDark: boolean; isHighContrast: boolean } | undefined,
+  result: LightingResult,
+  headroom: number,
+): void {
+  if (result.hdr) {
+    warnHdrUnreachable(name, scheme, result.step, result.hdr.reached, headroom);
+  } else {
+    warnLightingUnreachable(kind, name, scheme, result.step, result.reached);
+  }
+}
+
+/**
+ * Warn, once per field and value, that a glow `headroom` above the maximum was
+ * clamped. The likely cause is a ratio typed where stops were meant (`4` for
+ * "4× white", which is 2 stops), so the message spells out the unit.
+ */
+export function warnHeadroomClamped(where: string, value: number): void {
+  if (dedupe(`headroom|${where}|${value}`)) return;
+  console.warn(
+    `glaze: ${where}.headroom ${value} is above the ${MAX_HEADROOM}-stop ` +
+      `maximum; using ${MAX_HEADROOM}. Headroom counts stops (doublings of SDR white's ` +
+      `luminance), not a ratio: 1 stop is 2× white, 2 stops 4×.`,
   );
 }

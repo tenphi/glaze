@@ -3,12 +3,15 @@
  *
  * `validateColorDefs` rejects bad references (missing / shadow- or
  * glow-referencing / base/contrast/tone mismatches — a relative tone in either
- * entry of an HC pair needs a base) and detects cycles before the resolver
- * runs. `topoSort` orders defs so each color is processed after its base / bg /
- * fg / target dependencies.
+ * entry of an HC pair needs a base) and bad per-color lighting tuning (a
+ * `headroom` on a shadow; a glow `headroom` that is not a finite number ≥ 0,
+ * with one above the maximum warned about and clamped at resolve), and detects
+ * cycles before the resolver runs. `topoSort` orders defs so each color is
+ * processed after its base / bg / fg / target dependencies.
  */
 
 import { extractOkhslFromValue } from './color-value';
+import { normalizeLightingTuning } from './config';
 import { contrastMetricOf } from './contrast-solver';
 import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
 import { isLightingDef, isMixDef } from './lighting';
@@ -109,6 +112,9 @@ export function validateColorDefs(
           );
         }
       }
+      // Throws for a shadow `headroom` or a bad glow one; the resolver's
+      // tuning merge applies the clamp this warns about.
+      normalizeLightingTuning(kind, def.tuning, `${kind} "${name}" tuning`);
       continue;
     }
 
