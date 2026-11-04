@@ -239,7 +239,8 @@ Tone deltas (`'+N'` / `'-N'`) are measured from the base. Under `'fixed'` and `'
 
 | Base | Anchor |
 | --- | --- |
-| An `'auto'` base placed by a tone (absolute, `from`, `'max'` / `'min'` without a base), or by a chain of `'auto'` deltas | Its authored tone. |
+| An `'auto'` base placed by a tone (absolute, `from`, `'max'` / `'min'` without a base) | Its authored tone. |
+| An `'auto'` tone delta | Its base's anchor plus the delta. |
 | An `'auto'` base with no `tone` or `contrast` of its own | Its base's anchor. |
 | Any other base: `'fixed'` or `'static'`, or an `'auto'` base placed by a contrast floor, a mix, or a `'max'` / `'min'` on a base | Its own dark tone, read back through the dark window. |
 
@@ -381,7 +382,7 @@ Errors specific to the structured `glaze.color()` input, restoring snapshots, an
 | WCAG numeric target | At least 1 |
 | APCA numeric target | Its magnitude (`-60` → `60`) |
 
-A tone delta that overshoots `[0, 100]` mirrors to the other side of its base when `autoFlip` is on; if the mirror also overshoots, it clamps on the authored side. With `autoFlip: false` it clamps on the authored side. For example, a `'static'` color with `tone: '-20'` on a static base at tone 10 resolves to 30 with `autoFlip` and to 0 without, in every scheme; with `'-60'` on a base at 50 it resolves to 0 either way. An `'auto'` child gets the same results in light. In dark it mirrors around wherever the base sits, by the anchor rule in [Adaptation modes](#adaptation-modes): with `autoFlip`, the +20 it took in light turns into a step down from tone 10, runs off the scale, and stops at the dark window's edge, 9.25; without it, the `'-20'` becomes 17.3 tones up, 27.3. The flip is always decided in light, and dark mirrors whichever side light took, with two dark-only clamps (a step off the scale, a base past the dark window) listed under [Tone values](./color-definitions.md#tone-values).
+A tone delta that overshoots `[0, 100]` mirrors to the other side of its base when `autoFlip` is on; if the mirror also overshoots, it clamps on the authored side. With `autoFlip: false` it clamps on the authored side. For example, a `'static'` color with `tone: '-20'` on a static base at tone 10 resolves to 30 with `autoFlip` and to 0 without, in every scheme; with `'-60'` on a base at 50 it resolves to 0 either way. An `'auto'` child gets the same results in light. In dark it mirrors around wherever the base sits, by the anchor rule in [Adaptation modes](#adaptation-modes): with `autoFlip`, the +20 it took in light turns into a step down from tone 10, runs off the scale, and stops at the dark window's edge, 9.25; without it, the `'-20'` becomes 17.3 tones up, 27.3. The flip is always decided in light, and dark mirrors whichever side light took, with two dark-only clamps (a step off the scale, a base past the dark window) listed under [Tone values](./color-definitions.md#tone-values).
 
 ### Resolved with a warning
 

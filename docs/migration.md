@@ -264,34 +264,37 @@ What moves:
   from 31.5 to 26.0 tones below it in dark (34 to 30 in dark high contrast),
   and a `'-4'` hover on `{ base: 'surface', tone: '-10', mode: 'fixed' }`
   over a tone-97 surface goes from 22.0 to 3.5 tones above it.
-- **High-contrast variants**, only for deltas on contrast-solved, mixed, or
-  extreme bases, or under a custom light `eps`: at the default dark `eps`, a
-  high-contrast dark step is now exactly the delta, short of the limits below.
-  `contrastLevel: 100` still equals the high-contrast tier.
+- **High-contrast variants**, only for deltas on contrast-solved, mixed,
+  extreme, `fixed`, or `static` bases, or under a custom light `eps`: at the
+  default dark `eps`, a high-contrast dark step is now exactly the delta,
+  short of the limits below. `contrastLevel: 100` still equals the
+  high-contrast tier.
 - **`glaze.color()` links** whose base token has its own `darkTone`, is a
   value-form token with its own `lightTone`, or is contrast-solved or an
   `auto` `'max'` / `'min'` on a base. They now step like any other link in
   dark, and a `'+0'` link lands on its base there: in 2.x a `'+0'` link on an
   `'AAA'` token over `#f7f7fb` sat 8.95 tones below it in dark. Links on
-  other bases already stepped this way.
-- **Other light variants** only through a float-noise tie: a
-  contrast-solved color whose preferred tone lands within 1e-9 tones of its
-  base's (a `'+0'` / `'-0'` delta, or an absolute tone equal to the base's)
-  takes the solver's
-  own tie rule instead of a side picked by float noise, in every scheme, so it
-  can land on the other side of its base. Under a manual `contrastLevel`, a
-  level probe that lands on its base pins no side either.
+  other `auto` bases already stepped this way; links on a `fixed` or `static`
+  base move as described for those bases above.
+- **Other light variants** only through a float-noise tie: a contrast-solved
+  color whose preferred tone lands within 1e-9 tones of its base's (a `'+0'`
+  / `'-0'` delta, or an absolute tone equal to the base's) takes the solver's
+  own tie rule instead of a side picked by float noise, in every scheme, so
+  it can land on the other side of its base. Under a manual `contrastLevel`,
+  a level probe that lands on its base pins no side either.
 
 Two limits apply. The flip is still decided on the light tone, so a step
 that fits in light can run past 0 or 100 from the anchor and stop at the dark
-window's edge. On a base placed by a tone that happens at the bottom, where
-the light window lifts the light tone: `'-4'` on tone 2 steps about +1.7 in
-dark, and on tone 0 it doesn't move. On a base anchored at its own dark
-tone it can happen at either end, in high contrast too: in `glaze(280, 40)`,
-a `'-4'` hover on `contrast: 12` text over a tone-97 surface steps +2.3 in
-dark, not +3.5. A base that a contrast floor or an extreme pushed past the
-dark window is stepped from where it sits: a step back toward the window
-moves the full scaled delta, and one pointing further out stops at the base.
+window's edge. On an `auto` base placed by a tone that happens at the bottom,
+where the light window lifts the light tone: `'-4'` on tone 2 steps about
++1.7 in dark, and on tone 0 it doesn't move. On a base anchored at its own
+dark tone it can happen at either end, in high contrast too: in
+`glaze(280, 40)`, a `'-4'` hover on `contrast: 12` text over a tone-97
+surface steps +2.3 in dark, not +3.5. A base sitting past the dark window
+(pushed there by a contrast floor or an extreme, or placed there as a
+`fixed` or `static` color) is stepped from where it sits: a step back toward
+the window moves the full scaled delta, and one pointing further out stops
+at the base.
 Re-check dark values you have pinned in tests or snapshots.
 
 ### 3.0 — other changes to resolved colors
@@ -323,12 +326,15 @@ you have pinned:
   from the token's own color; 2.x read `'+20'` as tone 20.
 - **Value-form `glaze.color()` links on a structured base**
   (`glaze.color({ from, base })` with `base` made by
-  `glaze.color({ hue, saturation, tone })`), in light. 2.x read such a base at
-  its raw input tone in light, not at the tone it renders, so the link
-  measured against a color that is never painted: a `'+0'` link on
+  `glaze.color({ hue, saturation, tone })`), in light, and in dark where the
+  painted light tone changes which way `autoFlip` sends a step. 2.x read such
+  a base at its raw input tone in light, not at the tone it renders, so the
+  link measured against a color that is never painted: a `'+0'` link on
   `glaze.color({ hue: 280, saturation: 80, tone: 50 })` sat 2.5 tones below
-  it, and an `'AA'` link measured 4.16:1 against it, with no warning. Links
-  now resolve against what the base paints in every scheme.
+  it, and an `'AA'` link measured 4.16:1 against it, with no warning. A
+  `'+9.8'` link on a tone-90 structured base, which fit under 100 at the raw
+  tone, now flips in light, and so lands elsewhere in dark too. Links now
+  resolve against what the base paints in every scheme.
 - **Transparent mixes with `contrast`** solve against browser compositing
   (`source-over` on gamma-encoded sRGB) instead of linear light. A white
   `'AA'` overlay on a surface rendered at tone 12

@@ -24,9 +24,10 @@
  * flip is still decided on the base's light tone, so
  * dark mirrors the side light took, and a step that runs off the authored
  * scale from its anchor (past 0 or 100) stops at the dark window's edge — at
- * either end, for a base anchored at its own dark tone. A base a contrast floor
- * or an extreme pushed past the window is stepped from where it sits, and a
- * step pointing further out stops at the base (`stepFromAnchor`). External
+ * either end, for a base anchored at its own dark tone. A base sitting past the
+ * window (pushed by a contrast floor or an extreme, or placed there as a fixed
+ * / static color) is stepped from where it sits, and a step pointing further
+ * out stops at the base (`stepFromAnchor`). External
  * `glaze.color()` bases supply their own anchor (`darkAnchorOf`).
  *
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
@@ -126,7 +127,10 @@ import type {
 
 /** Where a color sits on the authored scale in one pass (see `darkAnchor`). */
 interface DarkAnchor {
-  /** The anchor tone (0–100; a solved color past the window can leave it). */
+  /**
+   * The anchor tone (0–100; a color sitting past the dark window — solved,
+   * replayed, or a fixed / static color — leaves it).
+   */
   tone: number;
   /**
    * The tone comes from the light side alone — an `auto` tone or a chain of
@@ -537,7 +541,8 @@ function readsStoredLightTone(
 /**
  * Where a step of `delta` from `anchor` lands on the authored scale: clamped to
  * `0–100`, widened to reach an anchor past the dark window (a base a contrast
- * floor or an extreme's replay pushed there). A step back toward the scale then
+ * floor, an extreme's replay, or its own fixed / static placement put there).
+ * A step back toward the scale then
  * moves by the full delta, and one that points further out stops at the anchor
  * — the base itself — instead of snapping back to the window's edge. Either
  * way a step stops at the window's edge or at its base, whichever is further

@@ -185,7 +185,7 @@ depends on the dependent's mode:
   sign preserved. A `'+30'` label stays 30 tones lighter than its fill in light
   and in dark. A label on a `fixed` fill should be `fixed` too: the inversion
   follows the label's own mode, so an `auto` label inverts in dark and lands on
-  the other side of its fill (30 tones above it in light, 26.0 below it in
+  the other side of its fill (30 tones above it in light, 26.0 below it in
   dark).
 - **`static`** — the delta is applied the same way as `fixed`, to the base's
   tone in each scheme, without inversion. A static dependent of an adaptive base
@@ -251,7 +251,7 @@ A `fixed` or `static` base doesn't invert: it keeps its side of the scale,
 or, as a `fixed` delta, rides its own base into dark with its sign kept. An
 `auto` dependent still inverts, so it mirrors to the other side of wherever
 the base sits. In `glaze(280, 30)`, an `auto` `'+30'` label on a `fixed` fill
-at tone 52 lands 26.0 below it in dark, and an `auto` `'-4'` hover on
+at tone 52 lands 26.0 below it in dark, and an `auto` `'-4'` hover on
 `{ base: 'surface', tone: '-10', mode: 'fixed' }` over a tone-97 surface steps
 +3.5. Make the dependent `fixed` too when it should keep its side with its
 base, as a label on a brand fill does.
@@ -278,7 +278,7 @@ limits of its own:
 
 - **A step that runs off the scale.** The flip is decided on the base's light
   tone, so a step that fits there can still run past 0 or 100 from the
-  anchor. In dark it then stops at the dark window's edge. A base
+  anchor. In dark it then stops at the dark window's edge. An `auto` base
   placed by a tone meets this at the bottom, because the light window lifts
   authored tone 0 to 4.95: `'-4'` on a tone-2 base steps about +1.7 in dark,
   and on a tone-0 base not at all. A base whose anchor is read back from its
@@ -291,18 +291,20 @@ limits of its own:
   the scale and stops at 9.25, next to the base. Add a contrast floor if the
   step has to survive, or make the dependent `fixed` or `static` too.
 - **A base past the dark window.** A contrast floor or an extreme on a base can
-  push a base past the dark window's edge. A step back toward the window moves
-  by the full scaled delta; a step further out stops at the window's edge or
-  at the base, whichever is further out, instead of snapping back to the edge.
+  push a base past the dark window's edge, and a `fixed` delta can ride its base
+  past it: a `fixed` `'-10'` chip on a tone-97 surface sits at 1.85 in dark,
+  below the window's 9.25. A step back toward the window moves by the full
+  scaled delta; a step further out stops at the window's edge or at the base,
+  whichever is further out, instead of snapping back to the edge.
   An `ink: { base: 'surface', tone: 'min' }` on a tone-97 surface sits at
   tone 100 in dark, past the window's 95.9: `'+4'` on it steps −3.5 there,
   and `'-4'` stays on `ink`.
 
 High contrast's windows are the full range. At the reference light `eps` the
-light one is the identity, so a base placed by a tone sits at its anchor
-there, light and dark agree on the flip, and the step fits. The first limit
-still applies under a custom light `eps`, and to a base read back from its
-dark tone: in `glaze(280, 40)`, a `'-8'` hover on
+light one is the identity, so an `auto` base placed by a tone sits at its
+anchor there, light and dark agree on the flip, and the step fits. The first
+limit still applies under a custom light `eps`, and to a base read back from
+its dark tone: in `glaze(280, 40)`, a `'-8'` hover on
 `{ base: 'surface', contrast: 3 }` over a tone-40 surface steps −8 in light
 high contrast and +4.0 in dark high contrast.
 

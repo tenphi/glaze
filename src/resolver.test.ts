@@ -556,6 +556,37 @@ describe('resolver: dark tone deltas', () => {
     }
   });
 
+  it.each(['fixed', 'static'] as const)(
+    'lands a link on a %s base with its own dark window',
+    (mode) => {
+      const base = glaze.color({ from: '#808080', mode }, { darkTone: false });
+      const child = glaze
+        .color({ from: '#808080', base, tone: '+0' })
+        .resolve();
+      expect(child.dark.t).toBeCloseTo(base.resolve().dark.t, 9);
+    },
+  );
+
+  it('steps a link on a fixed base without an anchor of its own the same', () => {
+    // A fixed base's anchor is its own dark tone read back, so a token-like
+    // base that supplies no hook is read back to the same place.
+    const real = glaze.color({ from: '#2f5bff', mode: 'fixed' });
+    const duck: GlazeColorToken = {
+      ...real,
+      resolve: () => real.resolve(),
+      export: () => real.export(),
+    };
+    const viaReal = glaze
+      .color({ from: '#2f5bff', base: real, tone: '+4' })
+      .resolve();
+    const viaDuck = glaze
+      .color({ from: '#2f5bff', base: duck, tone: '+4' })
+      .resolve();
+    for (const slot of ['dark', 'darkContrast'] as const) {
+      expect(viaDuck[slot].t).toBeCloseTo(viaReal[slot].t, 12);
+    }
+  });
+
   it("reads each linked token's anchor once per pass", () => {
     let token = glaze.color('#808080');
     const links = 40;

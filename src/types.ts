@@ -1030,11 +1030,10 @@ export interface GlazeColorOverrides {
    *   tone per-scheme (matches theme behavior for dependent colors).
    * - Relative `hue: '+N'` / `'-N'` still anchors to the seed (the
    *   value passed to `glaze.color()`), not the base.
-   * - When the base was created via the structured form (with explicit
-   *   `hue`/`saturation`/`tone`), it is resolved at full range
-   *   (`lightTone: false`) for the linking math — ensuring the
-   *   contrast/tone anchor matches the input tone, not the
-   *   windowed output. The base's own `.resolve()` output is unaffected.
+   * - The link resolves against the base token's own variants in every
+   *   scheme: what the base paints, under its own config, whatever form
+   *   the base was made in. A light `'+0'` lands on the base and a light
+   *   `contrast` floor is measured against it.
    *
    * The base token's `.resolve()` is called lazily on first resolve and
    * its result is captured by reference; later mutations to the base's

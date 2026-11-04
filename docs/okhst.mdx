@@ -413,23 +413,23 @@ both dark passes:
   window (the window remap run backwards, then un-inverted), so a dependent
   follows where the base lands in dark.
 
-On every base, the step is then the dark window's scale
-times the delta at the reference dark `eps`, 86.6% of the authored delta at
-the default windows. A tone-50 base steps `'+4'` to −3.5 and `'-4'` to +3.5,
-and a `'-4'` hover on an AAA-solved button steps +3.5 too. A custom dark `eps`
-bends the dark window's curve, so a dark delta lands where the same authored
-tone would instead of at a fixed scale. In dark high contrast the window is
-the full range, so at the reference dark `eps` the step is exact, only
-mirrored, wherever it fits on the scale (limits below). The anchor is the
-authored position, not the base's light high-contrast tone, so a custom light
-`eps`, which moves that tone (lighter above the reference 0.05, darker below),
-doesn't change the step away from the ends.
+On every base, the step is then the dark window's scale times the delta at the
+reference dark `eps`, 86.6% of the authored delta at the default windows. A
+tone-50 base steps `'+4'` to −3.5 and `'-4'` to +3.5, and a `'-4'` hover on an
+AAA-solved button steps +3.5 too. A custom dark `eps` bends the dark window's
+curve, so a dark delta lands where the same authored tone would instead of at a
+fixed scale. In dark high contrast the window is the full range, so at the
+reference dark `eps` the step is exact, only mirrored, wherever it fits on the
+scale (limits below). The anchor is the authored position, not the base's light
+high-contrast tone, so a custom light `eps`, which moves that tone (lighter
+above the reference 0.05, darker below), doesn't change the step away from the
+ends.
 
 Order carries over only when the base inverts too. An `auto` delta on a
 `fixed` or `static` base inverts on its own while the base does not (it keeps
 its side, or, as a `fixed` delta, rides its own base into dark), so it mirrors
 to the other side of the base in dark: a `'+30'` label on a `fixed` tone-52
-fill sits 30 tones above it in light and 26.0 below it in dark. Make such a
+fill sits 30 tones above it in light and 26.0 below it in dark. Make such a
 dependent `fixed` as well when it should keep its side.
 
 If `base + delta` overshoots `[0, 100]`, `autoFlip` (on by default) mirrors the
@@ -440,22 +440,23 @@ the authored scale, which adds two limits there:
 
 - A step that fits from the base's light tone can still run past 0 or 100
   from the anchor. In dark it then stops at the dark window's edge. The light
-  window lifts authored tone 0 to 4.95, so a base placed by a tone meets
-  this at the bottom: `'-4'` steps about +1.7 on a tone-2 base and not at all
-  on a tone-0 one. A base anchored at its own dark tone can meet it at either
-  end. In `glaze(280, 40)`, `contrast: 12` text on a tone-97 surface sits at
-  15.6 in light but anchors at 2.7, so a `'-4'` hover on it steps +2.3 in
-  dark, not +3.5.
+  window lifts authored tone 0 to 4.95, so an `auto` base placed by a tone
+  meets this at the bottom: `'-4'` steps about +1.7 on a tone-2 base and not
+  at all on a tone-0 one. A base anchored at its own dark tone can meet it at
+  either end. In `glaze(280, 40)`, `contrast: 12` text on a tone-97 surface
+  sits at 15.6 in light but anchors at 2.7, so a `'-4'` hover on it steps
+  +2.3 in dark, not +3.5.
 - An anchor past the dark window — a base a contrast floor or an extreme pushed
-  beyond its edge — is stepped from where it sits. A step back toward the
-  window moves by the full scaled delta; one further out stops at the window
-  edge or the base, whichever is further out.
+  beyond its edge, or a `fixed` delta riding its base there — is stepped from
+  where it sits. A step back toward the window moves by the full scaled delta;
+  one further out stops at the window edge or the base, whichever is further
+  out.
 
 High contrast's windows are the full range, and at the reference light `eps`
-the light one is the identity, so a base placed by a tone flips the same way
-in both high-contrast schemes and its step fits. The first limit still
-applies there under a custom light `eps`, and to a base anchored at its own
-dark tone.
+the light one is the identity, so an `auto` base placed by a tone flips the
+same way in both high-contrast schemes and its step fits. The first limit
+still applies there under a custom light `eps`, and to a base anchored at its
+own dark tone.
 
 ### Extremes: `'max'` and `'min'`
 
