@@ -4366,17 +4366,24 @@ describe('glaze', () => {
       });
 
       it('keeps root/dependent classification level-independent', () => {
-        // `isAbsoluteTone` inspects only the normal entry, so a pair whose HC
-        // entry is relative still resolves as a root at every level.
+        // A relative entry on either side of a pair needs a base, so a mixed
+        // pair is a dependent at every level. The level only picks which entry
+        // places it: the absolute one below level 50, the delta from 50 up.
         const at = (level: number) => {
           glaze.resetConfig();
           glaze.configure({ contrastLevel: level });
           const theme = glaze(0, 0);
-          theme.colors({ odd: { tone: [50, '+20'] } });
-          return theme.resolve().get('odd')!.light.t;
+          theme.colors({
+            bg: { tone: 90 },
+            odd: { base: 'bg', tone: [50, '-20'] },
+          });
+          const r = theme.resolve();
+          return { odd: r.get('odd')!.light.t, bg: r.get('bg')!.light.t };
         };
-        expect(at(0)).toBeGreaterThan(0);
-        expect(at(100)).toBeGreaterThan(0);
+        // Absolute tone 50 through the default light window.
+        expect(at(0).odd).toBeCloseTo(0.5247, 4);
+        const high = at(100);
+        expect(high.odd).toBeCloseTo(high.bg - 0.2, 10);
       });
     });
 

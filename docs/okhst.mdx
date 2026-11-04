@@ -202,6 +202,11 @@ A window takes three forms:
 | `{ lo, hi, eps }` | Boundaries plus a render curvature for this scheme. Advanced.                   |
 | `false`           | The full range `[0, 100]` at the reference `eps`: no boundaries, same tone curve. |
 
+Endpoints clamp to 0–100. A window with `lo` above `hi`, a non-finite endpoint,
+or an `eps` that isn't above 0 throws instead of quietly inverting or breaking
+the scale; the rules are in
+[Configuration](./reference/configuration.md#tone-windows).
+
 ### Calibrated defaults
 
 |            | `lightTone` | `darkTone` |

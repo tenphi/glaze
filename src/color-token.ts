@@ -28,8 +28,9 @@ import type { ChannelCtx } from './channels';
 import { extractOkhslFromValue } from './color-value';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
-import { isAbsoluteTone, pairNormal } from './hc-pair';
+import { pairNormal } from './hc-pair';
 import { resolveAllColors } from './resolver';
+import { hasRelativeTone } from './validation';
 import {
   buildCssMap,
   buildDtcgMap,
@@ -281,8 +282,7 @@ function buildStandaloneValueDefs(
   // the literal seed via the hidden `STANDALONE_SEED` def.
   const needsSeedAnchor =
     !hasExternalBase &&
-    (options?.contrast !== undefined ||
-      (toneOption !== undefined && !isAbsoluteTone(toneOption)));
+    (options?.contrast !== undefined || hasRelativeTone(toneOption));
 
   if (options?.opacity !== undefined)
     validateStandaloneOpacity(options.opacity);

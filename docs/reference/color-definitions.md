@@ -155,7 +155,7 @@ See [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts). If `bas
 - with `autoFlip` (the default), the delta is mirrored to the other side of the base;
 - if the mirrored target is also out of range, or `autoFlip` is off, the result is clamped on the authored side.
 
-A delta needs `base`. When the normal entry is a delta and there is no `base`, validation throws `glaze: color "<name>" has relative "tone" without "base".` Only the normal entry is checked: a delta in the high-contrast entry of a color without `base` (`tone: [50, '+20']`) doesn't throw and is read as an absolute tone (`20`).
+A delta needs `base`. When either entry of `tone` is a delta and there is no `base`, validation throws `glaze: color "<name>" has relative "tone" without "base".` That includes a delta only in the high-contrast entry (`tone: [50, '+20']`). With a `base`, the entries can mix forms: `tone: [50, '-20']` places the color at absolute tone 50 in the normal schemes and exactly 20 tones from its base in high contrast: below it in `lightContrast`, and above it in `darkContrast` under `mode: 'auto'`.
 
 **Extreme without a base.** Flows through the scheme mapping like an absolute tone. Under `mode: 'auto'` it inverts in dark: `'max'` is the lightest tone in light and the darkest in dark. Use `mode: 'static'` to keep the same extreme in every scheme, or `mode: 'fixed'` to keep the same end without inverting.
 

@@ -37,8 +37,8 @@ glaze.configure({
 
 - Omitted fields keep their current value. `configure()` never clears a field by omission, and passing `undefined` is the same as omitting it. Use `resetConfig()` to start over, or `contrastLevel: 'auto'` to leave manual contrast mode.
 - `states` and `modes` merge field by field: `configure({ modes: { highContrast: true } })` keeps `modes.dark`.
-- `lightTone`, `darkTone`, `shadowTuning`, and `glowTuning` are replaced as a whole. `configure({ shadowTuning: { tint: 0.3 } })` followed by `configure({ shadowTuning: { reach: 0.9 } })` leaves `{ reach: 0.9 }`.
-- `contrastLevel` is validated on the spot: numbers clamp to 0–100, and a non-finite number throws `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).`
+- `lightTone`, `darkTone`, `shadowTuning`, and `glowTuning` are replaced as a whole. `configure({ shadowTuning: { tint: 0.3 } })` followed by `configure({ shadowTuning: { reach: 0.9 } })` leaves `{ reach: 0.9 }`. They are copied, so changing the array or object you passed afterwards has no effect.
+- `contrastLevel`, `darkDesaturation`, and the tone windows are validated on the spot. `contrastLevel` clamps to 0–100 and `darkDesaturation` to 0–1; a non-finite number throws, for example `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).` Window rules are under [Tone windows](#tone-windows). A call that throws changes nothing, not even the fields that were valid.
 - Every call bumps an internal config version, so cached resolutions recompute on the next output call. Existing themes pick up the change for every field their own override doesn't set.
 
 ### `glaze.getConfig()`
@@ -63,9 +63,9 @@ glaze.getConfig();
 // }
 ```
 
-The default windows come back in the `{ lo, hi, eps }` form; a window you set comes back in the form you passed (`[12, 98]` stays `[12, 98]`). `shadowTuning` and `glowTuning` are absent until you set them. `pastel` is always `false` here because it is instance-only.
+The default windows come back in the `{ lo, hi, eps }` form; a window you set comes back in the form you passed (`[12, 98]` stays `[12, 98]`), with its endpoints clamped to 0–100. `shadowTuning` and `glowTuning` are absent until you set them. `pastel` is always `false` here because it is instance-only.
 
-The snapshot is a shallow copy. Reassigning a top-level field on it is harmless, but the nested objects (`states`, `modes`, object windows, tunings) are shared with the live config, so don't mutate them — use `configure()`.
+The snapshot is a deep copy: mutating it, nested `states`, `modes`, windows, and tunings included, changes nothing. Use `configure()` to change the config.
 
 For the config a particular theme resolves with (global merged with its override), use [`theme.getConfig()`](./theme.md#themegetconfig).
 
@@ -75,9 +75,9 @@ The input to `glaze.configure()`. Every field is optional.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `lightTone` | `ToneWindow` | `[10, 100]` | Light-scheme [tone window](#tone-windows). Bypassed by high-contrast variants and `mode: 'static'` colors; widened by `contrastLevel`. |
-| `darkTone` | `ToneWindow` | `[15, 95]` | Dark-scheme tone window. Same bypasses and widening. |
-| `darkDesaturation` | `number` | `0.1` | Fraction (0–1) of saturation removed in `dark` and `darkContrast`. See [Saturation](#saturation). |
+| `lightTone` | `ToneWindow` | `[10, 100]` | Light-scheme [tone window](#tone-windows). Bypassed by high-contrast variants and `mode: 'static'` colors; widened by `contrastLevel`. Endpoints clamp to 0–100; an inverted or non-finite window throws. |
+| `darkTone` | `ToneWindow` | `[15, 95]` | Dark-scheme tone window. Same bypasses, widening, and validation. |
+| `darkDesaturation` | `number` | `0.1` | Fraction (0–1) of saturation removed in `dark` and `darkContrast`. Clamps to 0–1; non-finite numbers throw. See [Saturation](#saturation). |
 | `states.dark` | `string` | `'@media(prefers-color-scheme: dark)'` | State key for dark variants in [`tasty()`](./output.md#state-aliases) output. |
 | `states.highContrast` | `string` | `'@media(prefers-contrast: more)'` | State key for high-contrast variants in `tasty()` output. |
 | `modes.dark` | `boolean` | `true` | Emit dark variants. See [Output modes](./output.md#output-modes). |
@@ -132,7 +132,8 @@ type ToneWindow =
 - **`contrastLevel`** moves each boundary toward `[0, 100]` (formula below). A `false` window is already the full range, so it doesn't change with the level.
 - **`mode: 'static'`** colors skip the window entirely.
 - **Colors seeded with `from`** skip the light window so the light variant reproduces the literal; dark and high contrast still adapt. See [`from`](./color-definitions.md#from).
-- Window endpoints aren't validated. Keep `0 ≤ lo < hi ≤ 100`.
+
+Windows are validated where they enter: by `configure()` on the spot, and for a per-instance override when the instance resolves. Endpoints must be finite numbers with `lo ≤ hi`, and an object window's `eps` must be a finite number above 0; anything else throws (messages under [Errors](#errors)). Endpoints outside 0–100 then clamp into it, keeping the form you wrote: `[-10, 120]` is stored as `[0, 100]`. `lo === hi` is allowed and renders every tone at that one lightness.
 
 ## Per-instance overrides
 
@@ -149,9 +150,9 @@ A `GlazeConfigOverride` overrides resolve-relevant fields for one theme or color
 
 | Field | Type | Falls back to | Description |
 | --- | --- | --- | --- |
-| `lightTone` | `ToneWindow` | global `lightTone` | Light tone window, or `false` for the full range. |
-| `darkTone` | `ToneWindow` | global `darkTone` | Dark tone window, or `false` for the full range. |
-| `darkDesaturation` | `number` | global `darkDesaturation` | Dark saturation reduction (0–1). |
+| `lightTone` | `ToneWindow` | global `lightTone` | Light tone window, or `false` for the full range. Validated and clamped like the global one when the instance resolves. |
+| `darkTone` | `ToneWindow` | global `darkTone` | Dark tone window, or `false` for the full range. Validated the same way. |
+| `darkDesaturation` | `number` | global `darkDesaturation` | Dark saturation reduction (0–1). Clamps to 0–1 when the instance resolves; non-finite numbers throw. |
 | `autoFlip` | `boolean` | global `autoFlip` | Default for each color's `autoFlip`. |
 | `inferRole` | `boolean` | global `inferRole` | Name-based role inference. |
 | `contrastLevel` | `number \| 'auto'` | global `contrastLevel` | Manual contrast level for this instance. `'auto'` opts out of a global level. A per-instance level never changes which modes are emitted. Validated when the instance resolves. |
@@ -273,7 +274,7 @@ S_dark = S_light × (1 − darkDesaturation)      // dark and darkContrast
 
 - Skipped for `mode: 'static'`.
 - Bypassed when the dark saturation is authored: always for a per-color `darkSaturation`, and for a theme `darkSaturation` seed on every color that reads the seed. A [`from`](./color-definitions.md#from) color without its own `saturation` or `darkSaturation` starts from the literal's saturation instead, so a seed `darkSaturation` doesn't bypass its reduction. See [Dark seed](../schemes.mdx#dark-seed).
-- `darkDesaturation` isn't range-checked; the result is clamped to 0–1, so values above 1 give 0 and negative values raise saturation.
+- `darkDesaturation` clamps to 0–1 where it is set, so it can remove at most all of a color's saturation and never adds any: `2` acts as `1` (dark variants go gray) and `-0.5` as `0`. A non-finite value throws.
 
 With seed saturation 80 and the default `0.1`, an `auto` color's saturation is `0.8` in `light` and `0.72` in `dark` and `darkContrast`; a `static` one stays `0.8`.
 
@@ -290,7 +291,7 @@ Glaze validates a theme's definitions when it resolves — on the first `resolve
 | Condition | Message |
 | --- | --- |
 | `contrast` without `base` (theme color) | `glaze: color "a" has "contrast" without "base".` |
-| Relative `tone` without `base` (theme color) | `glaze: color "a" has relative "tone" without "base".` |
+| Relative `tone` without `base` (theme color), in either entry of a pair (`[50, '+20']` included) | `glaze: color "a" has relative "tone" without "base".` |
 | No absolute `tone`, no `from`, and no `base` | `glaze: color "a" must have either absolute "tone" (root), "from" (a literal color), or "base" (dependent).` |
 | `from` can't be parsed | `glaze: color "a" has an invalid "from" value. glaze: invalid hex color "#zzz".` |
 | `contrast` pair switches metric (`[4.5, { apca: 75 }]`), regular or mix | `glaze: color "a" has a "contrast" pair that switches metric (wcag → apca). A WCAG ratio and an APCA Lc are different scales; use one metric for both entries, e.g. { wcag: [normal, highContrast] }.` |
@@ -303,6 +304,11 @@ Glaze validates a theme's definitions when it resolves — on the first `resolve
 | Mix `base` / `target` names a shadow or glow | `glaze: mix "a" target "sh" references a shadow color.` |
 | Circular reference through `base`, `bg`, `fg`, or a mix's `base` / `target` | `glaze: circular base reference detected involving "a".` |
 | Non-finite `contrastLevel` (thrown by `configure()`, or when an instance with such an override resolves) | `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).` |
+| Non-finite or non-number `darkDesaturation` (same two places) | `glaze: darkDesaturation must be a finite number 0–1 (got NaN).` |
+| Tone window with `lo` above `hi` (same two places, for `lightTone` or `darkTone`) | `glaze: lightTone lo (90) is above hi (20). A window runs from its dark end to its light end: [lo, hi] with lo ≤ hi, e.g. [20, 90].` |
+| Tone window endpoint that isn't a finite number | `glaze: lightTone lo must be a finite number (got NaN).` |
+| Object tone window whose `eps` isn't a finite number above 0 (missing included) | `glaze: lightTone eps must be a finite number above 0 (got 0).` |
+| Tone window that isn't `[lo, hi]`, `{ lo, hi, eps }`, or `false` | `glaze: lightTone must be [lo, hi], { lo, hi, eps }, or false (got [10]).` |
 
 ### Color value errors
 
@@ -330,7 +336,7 @@ Errors specific to the structured `glaze.color()` input, restoring snapshots, an
 | --- | --- |
 | `tone: 'max'` / `'min'` | A root color at the scheme's tone extreme. |
 | `contrast` without `base` in `glaze.color()` | Measured against the token's own input color. |
-| A tone delta (`tone: '+N'`) without `base` in `glaze.color()` | Measured from the token's own input color. |
+| A tone delta (`tone: '+N'`, or in either entry of a pair) without `base` in `glaze.color()` | Measured from the token's own input color. |
 
 ### Clamped silently
 
@@ -342,6 +348,8 @@ Errors specific to the structured `glaze.color()` input, restoring snapshots, an
 | Lighting `tint`, `reach`, `hueBleed` | 0–1. `objectInfluence` isn't clamped; the object factor `k` floors at 0. |
 | Mix `value` | 0–100 |
 | `contrastLevel` | 0–100 |
+| `darkDesaturation` | 0–1 |
+| Tone window `lo` / `hi` | 0–100 (after the `lo ≤ hi` check) |
 | WCAG numeric target | At least 1 |
 | APCA numeric target | Its magnitude (`-60` → `60`) |
 

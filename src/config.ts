@@ -9,12 +9,23 @@
  *
  * `pastel` is instance-only (theme / token override or per-color def),
  * never set via `configure()`.
+ *
+ * Numeric fields are validated where they enter — `configure()` for the
+ * global, `mergeConfig()` (i.e. at resolve) for per-instance overrides:
+ * `contrastLevel` clamps to 0–100, `darkDesaturation` to 0–1, and tone windows
+ * are checked and clamped by `normalizeToneWindow`; a non-finite value throws.
+ * The config never shares an object with a caller: `configure()` and
+ * `mergeConfig()` copy what they keep, and `snapshotConfig()` hands out a deep
+ * copy, so no outside mutation can change a resolve without bumping the version.
  */
 
+import { normalizeToneWindow } from './okhst';
 import type {
   GlazeConfig,
   GlazeConfigOverride,
   GlazeConfigResolved,
+  LightingTuning,
+  ToneWindow,
 } from './types';
 
 /**
@@ -61,6 +72,43 @@ export function normalizeContrastLevel(
   return Math.max(0, Math.min(100, value));
 }
 
+/**
+ * Validate an authored `darkDesaturation`, the way `normalizeContrastLevel`
+ * treats a level. Numbers clamp to 0–1 — above 1 would zero every dark
+ * saturation and a negative value would raise it — and a non-finite or
+ * non-number value throws instead of producing `NaN` saturations.
+ */
+export function normalizeDarkDesaturation(value: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(
+      `glaze: darkDesaturation must be a finite number 0–1 (got ${typeof value === 'string' ? JSON.stringify(value) : String(value)}).`,
+    );
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+/**
+ * Validate an authored tone window (see `normalizeToneWindow`) and return it in
+ * the form it was written — `false`, `[lo, hi]`, or `{ lo, hi, eps }` — with
+ * the endpoints clamped to 0–100. Always a fresh value, so mutating the
+ * caller's array or object later can't reach the config.
+ */
+export function normalizeToneWindowInput(
+  win: ToneWindow,
+  field: 'lightTone' | 'darkTone',
+): ToneWindow {
+  if (win === false) return false;
+  const { lo, hi, eps } = normalizeToneWindow(win, field);
+  return Array.isArray(win) ? [lo, hi] : { lo, hi, eps };
+}
+
+/** Detached copy of a (flat) lighting tuning, or `undefined`. */
+function copyTuning(
+  tuning: LightingTuning | undefined,
+): LightingTuning | undefined {
+  return tuning === undefined ? undefined : { ...tuning };
+}
+
 let globalConfig: GlazeConfigResolved = defaultConfig();
 
 /**
@@ -80,19 +128,33 @@ export function getConfigVersion(): number {
 }
 
 /**
- * Public-facing snapshot used by `glaze.getConfig()`. Returns a shallow
- * copy so callers can't mutate the live config.
+ * Public-facing snapshot used by `glaze.getConfig()`. A deep copy — nested
+ * `states`, `modes`, object windows, and tunings included — so mutating it
+ * can't change the live config behind `configure()`'s back (which would skip
+ * the version bump and leave every cache stale).
  */
 export function snapshotConfig(): GlazeConfigResolved {
-  return { ...globalConfig };
+  return structuredClone(globalConfig);
 }
 
+/**
+ * Merge a `GlazeConfig` into the global config. Fields are validated before
+ * anything changes, so a call that throws leaves the config (and its version)
+ * untouched.
+ */
 export function configure(config: GlazeConfig): void {
-  configVersion++;
-  globalConfig = {
-    lightTone: config.lightTone ?? globalConfig.lightTone,
-    darkTone: config.darkTone ?? globalConfig.darkTone,
-    darkDesaturation: config.darkDesaturation ?? globalConfig.darkDesaturation,
+  const next: GlazeConfigResolved = {
+    lightTone: normalizeToneWindowInput(
+      config.lightTone ?? globalConfig.lightTone,
+      'lightTone',
+    ),
+    darkTone: normalizeToneWindowInput(
+      config.darkTone ?? globalConfig.darkTone,
+      'darkTone',
+    ),
+    darkDesaturation: normalizeDarkDesaturation(
+      config.darkDesaturation ?? globalConfig.darkDesaturation,
+    ),
     states: {
       dark: config.states?.dark ?? globalConfig.states.dark,
       highContrast:
@@ -103,8 +165,8 @@ export function configure(config: GlazeConfig): void {
       highContrast:
         config.modes?.highContrast ?? globalConfig.modes.highContrast,
     },
-    shadowTuning: config.shadowTuning ?? globalConfig.shadowTuning,
-    glowTuning: config.glowTuning ?? globalConfig.glowTuning,
+    shadowTuning: copyTuning(config.shadowTuning ?? globalConfig.shadowTuning),
+    glowTuning: copyTuning(config.glowTuning ?? globalConfig.glowTuning),
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
     // Instance-only; never configurable globally.
     pastel: false,
@@ -113,6 +175,8 @@ export function configure(config: GlazeConfig): void {
       config.contrastLevel ?? globalConfig.contrastLevel,
     ),
   };
+  configVersion++;
+  globalConfig = next;
 }
 
 export function resetConfig(): void {
@@ -126,26 +190,34 @@ export function resetConfig(): void {
  * from `base`. `false` for tone windows passes through as-is
  * (treated as the full range by `activeWindow()` in okhst.ts).
  *
+ * This is where an instance's override is validated (at resolve), with the
+ * same rules `configure()` applies to the global. The result is always a fresh
+ * object that shares nothing with `base` or `override`, so the config a theme
+ * hands out from `theme.getConfig()` can't alias the live global.
+ *
  * `pastel` is instance-only: `override.pastel ?? false`, never inherited
  * from the global base.
  */
 export function mergeConfig(
   base: GlazeConfigResolved,
-  override?: GlazeConfigOverride,
+  override: GlazeConfigOverride = {},
 ): GlazeConfigResolved {
-  if (!override) {
-    return base.pastel === false ? base : { ...base, pastel: false };
-  }
   return {
-    lightTone:
+    lightTone: normalizeToneWindowInput(
       override.lightTone !== undefined ? override.lightTone : base.lightTone,
-    darkTone:
+      'lightTone',
+    ),
+    darkTone: normalizeToneWindowInput(
       override.darkTone !== undefined ? override.darkTone : base.darkTone,
-    darkDesaturation: override.darkDesaturation ?? base.darkDesaturation,
-    states: base.states,
-    modes: base.modes,
-    shadowTuning: override.shadowTuning ?? base.shadowTuning,
-    glowTuning: override.glowTuning ?? base.glowTuning,
+      'darkTone',
+    ),
+    darkDesaturation: normalizeDarkDesaturation(
+      override.darkDesaturation ?? base.darkDesaturation,
+    ),
+    states: { ...base.states },
+    modes: { ...base.modes },
+    shadowTuning: copyTuning(override.shadowTuning ?? base.shadowTuning),
+    glowTuning: copyTuning(override.glowTuning ?? base.glowTuning),
     autoFlip: override.autoFlip ?? base.autoFlip,
     pastel: override.pastel ?? false,
     inferRole: override.inferRole ?? base.inferRole,
@@ -158,9 +230,9 @@ export function mergeConfig(
 /**
  * Freeze `getConfig() ∪ instanceLocal ∪ exportArg` as a plain, resolve-relevant
  * override for authoring export, so restored snapshots pin these fields. Later
- * wins; nested objects (`shadowTuning` / `glowTuning`) replace wholesale. The
- * final `structuredClone` detaches tone-window / tuning objects that `mergeConfig`
- * may still share with the live global config.
+ * wins; nested objects (`shadowTuning` / `glowTuning`) replace wholesale.
+ * `mergeConfig` already validates and copies every field; the final
+ * `structuredClone` keeps the snapshot detached even if that ever changes.
  */
 export function freezeConfigForExport(
   instanceLocal?: GlazeConfigOverride,

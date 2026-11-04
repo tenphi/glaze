@@ -2,9 +2,10 @@
  * Color graph validation and topological sort.
  *
  * `validateColorDefs` rejects bad references (missing / shadow- or
- * glow-referencing / base/contrast/tone mismatches) and detects cycles before
- * the resolver runs. `topoSort` orders defs so each color is processed after
- * its base / bg / fg / target dependencies.
+ * glow-referencing / base/contrast/tone mismatches — a relative tone in either
+ * entry of an HC pair needs a base) and detects cycles before the resolver
+ * runs. `topoSort` orders defs so each color is processed after its base / bg /
+ * fg / target dependencies.
  */
 
 import { extractOkhslFromValue } from './color-value';
@@ -17,6 +18,7 @@ import type {
   HCPair,
   RegularColorDef,
   ResolvedColor,
+  ToneValue,
 } from './types';
 
 /**
@@ -28,6 +30,17 @@ import type {
 export function hasAbsoluteTone(def: RegularColorDef): boolean {
   if (def.tone === undefined) return def.from !== undefined;
   return isAbsoluteTone(def.tone);
+}
+
+/**
+ * Does either entry of a `tone` measure from a base? `isAbsoluteTone` reads
+ * only the normal entry — that is the root / dependent test — so the
+ * high-contrast entry of a pair is checked on its own here: `[50, '+20']`
+ * needs a base just as much as `'+20'` does.
+ */
+export function hasRelativeTone(tone: HCPair<ToneValue> | undefined): boolean {
+  if (tone === undefined) return false;
+  return !isAbsoluteTone(pairNormal(tone)) || !isAbsoluteTone(pairHC(tone));
 }
 
 /**
@@ -147,11 +160,9 @@ export function validateColorDefs(
       throw new Error(`glaze: color "${name}" has "contrast" without "base".`);
     }
 
-    if (
-      regDef.tone !== undefined &&
-      !isAbsoluteTone(regDef.tone) &&
-      !regDef.base
-    ) {
+    // Either entry of a pair: a relative high-contrast entry on a root would
+    // otherwise be read as an absolute tone (`'+20'` as tone 20).
+    if (hasRelativeTone(regDef.tone) && !regDef.base) {
       throw new Error(
         `glaze: color "${name}" has relative "tone" without "base".`,
       );

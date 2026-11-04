@@ -11,9 +11,11 @@
  * - the resolved-variant edge adapter (`variantToOkhsl`),
  * - the per-scheme tone mapping that replaced the Möbius dark curve
  *   (`mapToneForScheme`) and its light-window inverse (`unmapLightTone`), the
- *   dark desaturation reducer, and the solver's scheme tone range,
- * - the scheme tone window, including the high-contrast bypass and its
- *   continuous generalization under a manual contrast level.
+ *   dark desaturation reducer, and the scheme tone range that clamps a
+ *   contrast-solved color's preferred tone,
+ * - the scheme tone window — validated and clamped by `normalizeToneWindow` —
+ *   including the high-contrast bypass and its continuous generalization under
+ *   a manual contrast level.
  *
  * See `docs/okhst.mdx` for the full specification and the calibrated
  * default constants.
@@ -127,20 +129,69 @@ export function variantToOkhsl(v: { h: number; s: number; t: number }): {
 // ============================================================================
 
 /**
- * Normalize any {@link ToneWindow} form to `{ lo, hi, eps }`.
+ * Normalize any {@link ToneWindow} form to `{ lo, hi, eps }`, validated.
  * - `false`: full range `[0, 100]` at the reference eps (boundaries removed,
  *   curve preserved).
  * - `[lo, hi]`: endpoints at the reference eps (the common form).
- * - `{ lo, hi, eps }`: passed through (advanced eps tuning).
+ * - `{ lo, hi, eps }`: an explicit render eps (advanced eps tuning).
+ *
+ * A bad window never fails on its own — `[90, 20]` silently inverts the scale
+ * and an `eps` of 0 turns every tone into `NaN` — so this throws a `glaze:`
+ * error when the value is none of the three forms, an endpoint is not a finite
+ * number, `lo > hi`, or `eps` is not a finite number above 0. Endpoints then
+ * clamp into `[0, 100]`, the OKHSL lightness range. `lo === hi` is allowed: a
+ * zero-width window renders every tone at that one lightness.
+ *
+ * `field` names the window in the error message (`lightTone` / `darkTone`).
  */
-export function normalizeToneWindow(win: ToneWindow): {
-  lo: number;
-  hi: number;
-  eps: number;
-} {
+export function normalizeToneWindow(
+  win: ToneWindow,
+  field = 'tone window',
+): { lo: number; hi: number; eps: number } {
   if (win === false) return { lo: 0, hi: 100, eps: REF_EPS };
-  if (Array.isArray(win)) return { lo: win[0], hi: win[1], eps: REF_EPS };
-  return { lo: win.lo, hi: win.hi, eps: win.eps };
+  // Numbers via `String` (`JSON.stringify(NaN)` is "null"); anything else via
+  // JSON, so a string shows its quotes and an array its shape.
+  const show = (value: unknown): string =>
+    typeof value === 'number' || value === undefined
+      ? String(value)
+      : (JSON.stringify(value) ?? String(value));
+  const raw: unknown = win;
+  let lo: unknown;
+  let hi: unknown;
+  let eps: unknown = REF_EPS;
+  if (Array.isArray(raw) && raw.length === 2) {
+    [lo, hi] = raw;
+  } else if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    ({ lo, hi, eps } = raw as Record<string, unknown>);
+  } else {
+    throw new Error(
+      `glaze: ${field} must be [lo, hi], { lo, hi, eps }, or false (got ${show(raw)}).`,
+    );
+  }
+  for (const [name, value] of [
+    ['lo', lo],
+    ['hi', hi],
+  ] as const) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(
+        `glaze: ${field} ${name} must be a finite number (got ${show(value)}).`,
+      );
+    }
+  }
+  if (typeof eps !== 'number' || !Number.isFinite(eps) || eps <= 0) {
+    throw new Error(
+      `glaze: ${field} eps must be a finite number above 0 (got ${show(eps)}).`,
+    );
+  }
+  const from = lo as number;
+  const to = hi as number;
+  if (from > to) {
+    throw new Error(
+      `glaze: ${field} lo (${from}) is above hi (${to}). A window runs from ` +
+        `its dark end to its light end: [lo, hi] with lo ≤ hi, e.g. [${to}, ${from}].`,
+    );
+  }
+  return { lo: clamp(from, 0, 100), hi: clamp(to, 0, 100), eps };
 }
 
 /**
@@ -261,10 +312,14 @@ export function mapSaturationDark(
 // ============================================================================
 
 /**
- * Tone search range (0–1) for the contrast solver in a given scheme.
- * `static` searches the full range; otherwise the scheme window's tone
- * endpoints (HC bypasses to full range, a manual `contrastLevel` widens
- * toward it — see `activeWindow`).
+ * A scheme's window as canonical tone endpoints (0–1): `[0, 1]` for `static`,
+ * otherwise the active window's `lo` / `hi` (HC bypasses to the full range, a
+ * manual `contrastLevel` widens toward it — see `activeWindow`).
+ *
+ * The resolver uses it only to clamp a contrast-solved color's *preferred*
+ * tone into the window before the solve. It is not the solver's search range:
+ * the solver always searches the full `[0, 1]`, so a contrast floor can push a
+ * color outside the window when the window can't meet it.
  */
 export function schemeToneRange(
   isDark: boolean,
