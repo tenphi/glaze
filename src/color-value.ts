@@ -24,13 +24,13 @@ import type {
 } from './types';
 
 /**
- * Matches the CSS color functions Glaze itself emits (`rgb()`, `hsl()`,
- * `okhsl()`, `oklch()`) plus their legacy alpha aliases (`rgba()`, `hsla()`).
+ * Matches the color functions Glaze itself emits (`rgb()`, `hsl()`, `okhsl()`,
+ * `okhst()`, `oklch()`) plus their legacy alpha aliases (`rgba()`, `hsla()`).
  *
- * Only bare numeric components are supported. Named colors (`red`),
- * relative-color syntax (`from <color> ...`), and angle units other
- * than bare degrees (`deg` is the only suffix tolerated by `parseFloat`)
- * are out of scope.
+ * Only numeric components are supported; named colors (`red`) and
+ * relative-color syntax (`from <color> ...`) are out of scope. Hue is read with
+ * `parseFloat`, so a bare number or `deg` is degrees and any other angle unit
+ * (`turn`, `rad`, `grad`) is misread as degrees.
  */
 const COLOR_FN_RE = /^(rgba?|hsla?|okhsl|okhst|oklch)\(\s*([^)]*)\s*\)$/i;
 

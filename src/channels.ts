@@ -403,11 +403,12 @@ function claim(
  * survives — the theme's, after `collectHueDeclarations` dedupes — so the
  * color would silently render at the wrong hue.
  *
- * Exactly the declarations `collectHueDeclarations` emits are claimed, in both
- * schemes: a color's own var only when its light plan references it. A color
- * achromatic in light is inline in every scheme and declares nothing, so it
- * can share a name with the theme var — the theme's declaration is the only
- * one emitted.
+ * Every declaration a rendered plan references is claimed, in both schemes: a
+ * color's own var only when its light plan references it. That includes a
+ * declaration `collectHueDeclarations` would drop as a duplicate (a chromatic
+ * `brand` color under `name: 'brand'`), since the color would still read the
+ * survivor's hue. A color achromatic in light is inline in every scheme and
+ * declares nothing, so it can share a name with the theme var.
  */
 export function claimHueVars(
   resolved: Map<string, ResolvedColor>,
@@ -439,9 +440,10 @@ export function claimHueVars(
  *
  * Value properties share the custom-property namespace with the hue vars, so
  * `suffix: '-hue'` — or `suffix: ''` with a color named `*-hue` — can land a
- * color's value on a hue var: its own, which makes a `var()` cycle, or the
- * theme's, which hands every color reading it a color string where a hue
- * belongs. Either way the CSS is invalid at computed-value time.
+ * color's value on a hue var: its own, which makes a `var()` cycle, or one
+ * another color or theme declares (in a palette, another theme's), which
+ * hands every color reading it a color string where a hue belongs. Either way
+ * the CSS is invalid at computed-value time.
  *
  * Unlike `claimHueVars` this runs on every pass, including one that declares
  * no hue vars (a palette's primary aliases): its value properties are emitted

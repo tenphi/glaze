@@ -594,3 +594,48 @@ describe('unmapDarkTone', () => {
     expect(unmapDarkTone(0, 'auto', false, config)).toBeGreaterThan(100);
   });
 });
+
+describe('zero tone deltas', () => {
+  const SLOTS: Slot[] = ['light', 'dark', 'lightContrast', 'darkContrast'];
+
+  // A dark-anchored base is read back through the dark window and mapped in
+  // again, which lands a few ulps off its own dark tone. That noise must not
+  // pick the side a contrast-solved '+0' / '-0' child sits on.
+  it.each([
+    [297, 0, 35],
+    [297, 0, 20],
+    [120, 60, 50],
+    [30, 60, 80],
+  ])(
+    'solves a zero delta like no tone at all (hue %i, saturation %i, surface %i)',
+    (hue, saturation, surfaceTone) => {
+      for (const contrastLevel of [undefined, 30, 70]) {
+        const theme = glaze(
+          hue,
+          saturation,
+          contrastLevel === undefined ? undefined : { contrastLevel },
+        );
+        theme.colors({
+          surface: { tone: surfaceTone },
+          solved: { base: 'surface', contrast: 3 },
+          mixed: { type: 'mix', base: 'surface', target: 'solved', value: 40 },
+          'on-solved-0': { base: 'solved', tone: '+0', contrast: 2 },
+          'on-solved': { base: 'solved', contrast: 2 },
+          'on-mixed-0': { base: 'mixed', tone: '-0', contrast: 1.5 },
+          'on-mixed': { base: 'mixed', contrast: 1.5 },
+        });
+        const resolved = theme.resolve();
+        for (const slot of SLOTS) {
+          expect(resolved.get('on-solved-0')![slot].t).toBeCloseTo(
+            resolved.get('on-solved')![slot].t,
+            9,
+          );
+          expect(resolved.get('on-mixed-0')![slot].t).toBeCloseTo(
+            resolved.get('on-mixed')![slot].t,
+            9,
+          );
+        }
+      }
+    },
+  );
+});

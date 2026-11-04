@@ -662,6 +662,20 @@ export function darkAnchorOf(
   ).tone;
 }
 
+/**
+ * Which side of its base a tone sits on (both 0–100), or `undefined` when they
+ * coincide. A gap within float noise counts as coinciding: a `'+0'` on a base
+ * whose dark tone was read back through the dark window lands a few ulps off
+ * it, and a strict comparison would let that noise pick the color's side.
+ */
+function sideOfBase(
+  tone: number,
+  baseTone: number,
+): 'lighter' | 'darker' | undefined {
+  if (Math.abs(tone - baseTone) < 1e-9) return undefined;
+  return tone < baseTone ? 'darker' : 'lighter';
+}
+
 function resolveDependentColor(
   name: string,
   def: RegularColorDef,
@@ -775,12 +789,7 @@ function resolveDependentColor(
       ? ([0, 1] as const)
       : schemeToneRange(isDark, mode, isHighContrast, config);
 
-    let initialDirection: 'lighter' | 'darker' | undefined;
-    if (preferredTone < baseTone) {
-      initialDirection = 'darker';
-    } else if (preferredTone > baseTone) {
-      initialDirection = 'lighter';
-    }
+    let initialDirection = sideOfBase(preferredTone, baseTone);
 
     const solve = {
       hue: channels.hue,
@@ -827,7 +836,8 @@ function resolveDependentColor(
         ),
         initialDirection,
       });
-      initialDirection = probe.tone * 100 < baseTone ? 'darker' : 'lighter';
+      initialDirection =
+        sideOfBase(probe.tone * 100, baseTone) ?? initialDirection;
       preferInitial = true;
     }
 
