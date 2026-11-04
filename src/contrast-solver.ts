@@ -14,9 +14,11 @@
  * probe, never a bound, so a chromatic color still lands on its own crossing
  * nearest the preferred tone. When no searched side meets the floor but the
  * preferred position itself clears the bare target (it sits on a bound, or its
- * side was never searched), the preferred position is the answer, met. With no
- * direction given, a solver starts toward the end that scores higher, and a
- * float-noise gap between the two ends is a tie that starts darker / lower.
+ * side was never searched), the preferred position is the answer, met; the
+ * tone solver labels it `'preferred'`, as it does a met result from a starting
+ * side whose only position is the preferred tone. With no direction given, a
+ * solver starts toward the end that scores higher, and a float-noise gap
+ * between the two ends is a tie that starts darker / lower.
  *
  * Public API: `findToneForContrast`, `findValueForMixContrast`,
  * `resolveMinContrast`, `resolveApcaTarget`, `resolveContrastForMode`,
@@ -488,10 +490,13 @@ export interface FindToneForContrastResult {
   met: boolean;
   /**
    * The side the result was found on. The two sides meet at `preferredTone`,
-   * so a met result sits on that side of the base too. `'preferred'` when the
-   * result is `preferredTone` itself: it already cleared the overshooting
-   * search target, or no searched side met the floor while it clears the bare
-   * target (or there was no room to search).
+   * so a met result sits on that side of the base too. `'preferred'` whenever
+   * a met result is `preferredTone` itself: it already cleared the
+   * overshooting search target, or it clears the bare target and no search
+   * could improve on it — no searched side met the floor, or the starting
+   * side's only position was `preferredTone` (it sits on that side's bound).
+   * Also `'preferred'` when `toneRange` leaves no room to search, met or not.
+   * An unmet result otherwise reports the side whose extreme it pinned to.
    */
   branch: 'lighter' | 'darker' | 'preferred';
   /** Whether the result auto-flipped to the opposite direction. */
@@ -714,7 +719,9 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
  * staying as close to `preferredTone` as possible. A searched result keeps the
  * overshoot (1% for WCAG, 0.5 Lc for APCA). When no searched side reaches the
  * floor, the result pins to the initial direction's extreme, unmet — unless
- * `preferredTone` itself clears the bare target, which is then kept as met.
+ * `preferredTone` itself clears the bare target, which is then kept as met
+ * (`branch: 'preferred'`, the same label a met result gets when the starting
+ * side's only position is `preferredTone`).
  */
 export function findToneForContrast(
   options: FindToneForContrastOptions,
@@ -803,12 +810,19 @@ export function findToneForContrast(
     polarity,
   });
 
-  // No searched side met the floor, yet `preferredTone` clears the bare target
-  // (it missed only the overshoot). Its own side was never searched — it sits
-  // on a bound, or a forced direction pointed away with no flip — or that side
-  // would have met: a met side's extreme scores higher still. So it beats the
-  // unmet extreme, and can't mislabel a side.
-  if (!solved.met && scorePref >= target) {
+  // `preferredTone` is the answer, met, with no search reaching past it:
+  // - No searched side met the floor, yet it clears the bare target (it missed
+  //   only the overshoot). Its own side was never searched — it sits on a
+  //   bound, or a forced direction pointed away with no flip — or that side
+  //   would have met: a met side's extreme scores higher still. So it beats
+  //   the unmet extreme.
+  // - The starting side's only position was `preferredTone` itself (it sits on
+  //   that side's bound), which met. That side found nothing, and its name
+  //   need not match where `preferredTone` sits relative to the base, so the
+  //   result is labelled like any other kept preferred tone.
+  // A searched branch never returns its inner end, so `solved.pos` equals
+  // `preferredTone` only for that degenerate side.
+  if (solved.met ? solved.pos === preferredTone : scorePref >= target) {
     return {
       tone: preferredTone,
       contrast: scorePref,

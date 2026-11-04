@@ -968,6 +968,9 @@ describe('contrast-solver', () => {
     // searched; when no searched side reaches the floor it is the best answer.
     // Before, the only searched side ran across the base to the far extreme
     // and returned that (or tone 0 at 18.9 Lc for a white text that passes).
+    // Starting toward the bound it sits on, the only position that side has is
+    // the preferred tone itself: the same answer, so the same label — it used
+    // to be reported as that side ('lighter' for white at tone 1).
     const cases: {
       label: string;
       preferredTone: number;
@@ -978,13 +981,13 @@ describe('contrast-solver', () => {
         label: 'white on a dark base',
         preferredTone: 1,
         baseTone: 0.35,
-        directions: [undefined, 'darker'],
+        directions: [undefined, 'darker', 'lighter'],
       },
       {
         label: 'black on a light base',
         preferredTone: 0,
         baseTone: 0.8,
-        directions: [undefined, 'lighter'],
+        directions: [undefined, 'lighter', 'darker'],
       },
     ];
     const metrics: Omit<ResolvedContrast, 'target'>[] = [
@@ -1075,6 +1078,55 @@ describe('contrast-solver', () => {
       expect(result.met).toBe(false);
       expect(result.tone).toBe(0);
       expect(result.branch).toBe('darker');
+    });
+
+    it('labels a kept bound by no side, even across the base from it', () => {
+      // `toneRange` ends at the preferred tone, so starting lighter searches
+      // nothing: the kept tone sits *below* the base, and naming it 'lighter'
+      // broke "a met result sits on its branch's side of the base".
+      const baseTone = 0.9;
+      const baseLinearRgb = grayBase(baseTone);
+      const preferredTone = 0.5;
+      const score = scoreOf(wcag(0), grayBase(preferredTone), baseLinearRgb);
+      for (const flip of [false, true]) {
+        const result = findToneForContrast({
+          hue: 0,
+          saturation: 0,
+          preferredTone,
+          baseLinearRgb,
+          contrast: wcag(score / 1.005),
+          toneRange: [0, preferredTone],
+          initialDirection: 'lighter',
+          flip,
+        });
+        expect(result).toEqual({
+          tone: preferredTone,
+          contrast: score,
+          met: true,
+          branch: 'preferred',
+        });
+        expect(result.tone).toBeLessThan(baseTone);
+      }
+    });
+
+    it('still names the side of an unmet bound it pinned to', () => {
+      // Missing even the bare target, the bound is that side's extreme like
+      // any other: unmet, reported as the side that was searched.
+      const baseLinearRgb = grayBase(0.35);
+      const score = scoreOf(wcag(0), grayBase(1), baseLinearRgb);
+      for (const flip of [false, true]) {
+        expect(
+          findToneForContrast({
+            hue: 0,
+            saturation: 0,
+            preferredTone: 1,
+            baseLinearRgb,
+            contrast: wcag(score * 1.005),
+            initialDirection: 'lighter',
+            flip,
+          }),
+        ).toEqual({ tone: 1, contrast: score, met: false, branch: 'lighter' });
+      }
     });
 
     it('reports met when there is no room to search', () => {
