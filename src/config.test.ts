@@ -429,6 +429,25 @@ describe('darkDesaturation validation', () => {
     );
   });
 
+  it('shows a rejected value the way the other validators do', () => {
+    const cases: [unknown, string][] = [
+      [[1], '[1]'],
+      ['50', '"50"'],
+      [{}, '{}'],
+      [1n, '1n'],
+    ];
+    for (const [value, shown] of cases) {
+      expect(() =>
+        glaze.configure({ darkDesaturation: value as number }),
+      ).toThrow(
+        `glaze: darkDesaturation must be a finite number 0–1 (got ${shown}).`,
+      );
+      expect(() => glaze.configure({ contrastLevel: value as number })).toThrow(
+        `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got ${shown}).`,
+      );
+    }
+  });
+
   it('clamps a per-instance override', () => {
     const theme = glaze(0, 80, { darkDesaturation: 5 });
     theme.colors({ a: { tone: 50 } });

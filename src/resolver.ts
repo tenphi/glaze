@@ -21,10 +21,12 @@
  * contrast), along the dark window's own curve under a custom one. A `fixed` /
  * `static` base keeps its light-side position, so the inversion follows the
  * dependent's own mode. The flip is still decided on the base's light tone, so
- * dark mirrors the side light took and a base too low for the step on the
- * authored scale stops at the dark window's top; a base a contrast floor pushed
- * past the window is stepped from where it sits. External `glaze.color()`
- * bases supply their own anchor (`darkAnchorOf`).
+ * dark mirrors the side light took, and a step that runs off the authored
+ * scale from its anchor (past 0 or 100) stops at the dark window's edge — at
+ * either end, for a base anchored at its own dark tone. A base a contrast floor
+ * or an extreme pushed past the window is stepped from where it sits, and a
+ * step pointing further out stops at the base (`stepFromAnchor`). External
+ * `glaze.color()` bases supply their own anchor (`darkAnchorOf`).
  *
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
  * `t` is the canonical contrast-uniform tone (0–1, reference eps). The

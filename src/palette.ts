@@ -3,10 +3,11 @@
  *
  * Composes multiple themes into a single token namespace with optional
  * theme-name prefixes and a "primary theme" that also surfaces an
- * unprefixed copy of its tokens. All seven export methods (`tokens` /
- * `tasty` / `json` / `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a
- * `buildPaletteOutput` driver that handles validation, per-theme iteration,
- * prefix resolution, collision filtering, and primary duplication. The HDR
+ * unprefixed copy of its tokens. Six export methods (`tokens` / `tasty` /
+ * `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a `buildPaletteOutput`
+ * driver that handles validation, per-theme iteration, prefix resolution,
+ * collision filtering, and primary duplication; `json()` keys its output by
+ * theme name instead, with no prefixes or collisions to resolve. The HDR
  * tier of glows (with `modes.hdr`, or `css({ hdr })`) is built from the same
  * filtered maps, so prefixes, the primary alias and collisions apply to it the
  * same way.

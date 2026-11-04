@@ -86,7 +86,7 @@ export function normalizeContrastLevel(
   if (value === undefined || value === 'auto') return 'auto';
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(
-      `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got ${String(value)}).`,
+      `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got ${showValue(value)}).`,
     );
   }
   return Math.max(0, Math.min(100, value));
@@ -101,7 +101,7 @@ export function normalizeContrastLevel(
 export function normalizeDarkDesaturation(value: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(
-      `glaze: darkDesaturation must be a finite number 0–1 (got ${typeof value === 'string' ? JSON.stringify(value) : String(value)}).`,
+      `glaze: darkDesaturation must be a finite number 0–1 (got ${showValue(value)}).`,
     );
   }
   return Math.max(0, Math.min(1, value));
