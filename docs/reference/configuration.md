@@ -326,8 +326,6 @@ Every place that takes a `GlazeColorValue` — a theme color's `from`, `glaze.co
 | `{ l, c, h }` with a non-finite field, or `l` / `c` above 1.5 | `glaze.color: OklchColor l/c/h must be finite numbers.` / `glaze.color: OklchColor l/c must be in 0–1 range (matching oklch() strings).` |
 | An `[r, g, b]` array | `glaze.color: RGB tuple [r, g, b] is no longer supported — use { r, g, b } instead.` |
 
-The hex check is loose in the 6- and 8-digit forms: only the first digit of each pair is checked, so `#1z2z3z` reads as `#010203` instead of throwing.
-
 Errors specific to the structured `glaze.color()` input, restoring snapshots, and building palettes are listed on [Color tokens](./color-tokens.md), [Themes](./theme.md#glazethemefromdata--glazefromdata), and [Palettes](./palette.md).
 
 ### Allowed without `base`

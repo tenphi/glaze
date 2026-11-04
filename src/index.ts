@@ -156,6 +156,7 @@ export {
   relativeLuminanceFromLinearRgb,
   contrastRatioFromLuminance,
   gamutClampedLuminance,
+  apcaLuminanceFromLinearRgb,
   formatOkhsl,
   formatRgb,
   formatHsl,

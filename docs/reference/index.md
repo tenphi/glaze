@@ -74,7 +74,7 @@ Everything below is exported from `'@tenphi/glaze'` next to `glaze`. Apart from 
 | `APCA_PRESETS`, `APCA_HC_ENHANCEMENT`, `APCA_MAX_LC` | Contrast constants | [Utilities](./utilities.md#constants-and-types); presets in [Contrast and high contrast](./contrast.md#apca-presets) |
 | `normalizeRole`, `inferRoleFromName`, `roleToPolarity`, `oppositeRole` | Role helpers | [Utilities](./utilities.md#role-helpers) |
 | `toTone`, `fromTone`, `toneFromY`, `yFromTone`, `okhstToOkhsl`, `okhslToOkhst`, `variantToOkhsl`, `REF_EPS` | OKHST tone utilities | [Utilities](./utilities.md#okhst-tone-utilities); the model in [Tone and OKHST](../okhst.mdx) |
-| `okhslToLinearSrgb`, `okhslToSrgb`, `okhslToOklab`, `oklabToOkhsl`, `srgbToOkhsl`, `hslToSrgb`, `okhslToOklch`, `cuspLightness`, `parseHex`, `parseHexAlpha`, `srgbToHex`, `relativeLuminanceFromLinearRgb`, `contrastRatioFromLuminance`, `gamutClampedLuminance` | Color math | [Utilities](./utilities.md#color-math) |
+| `okhslToLinearSrgb`, `okhslToSrgb`, `okhslToOklab`, `oklabToOkhsl`, `srgbToOkhsl`, `hslToSrgb`, `okhslToOklch`, `cuspLightness`, `parseHex`, `parseHexAlpha`, `srgbToHex`, `relativeLuminanceFromLinearRgb`, `contrastRatioFromLuminance`, `gamutClampedLuminance`, `apcaLuminanceFromLinearRgb` | Color math | [Utilities](./utilities.md#color-math) |
 | `formatOkhsl`, `formatOkhst`, `formatRgb`, `formatHsl`, `formatOklch` | Format writers (0–1 scale) | [Utilities](./utilities.md#format-writers) |
 
 ## Types

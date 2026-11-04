@@ -521,7 +521,10 @@ Ys = 0.2126 * R^2.4 + 0.7152 * G^2.4 + 0.0722 * B^2.4
 ```
 
 The soft-clamp constants are calibrated against `Ys`, so the solver feeds APCA
-that basis. The implementation omits APCA's font-size lookup that maps an Lc to
+that basis. The function it uses is exported as
+[`apcaLuminanceFromLinearRgb`](./reference/utilities.md#luminance-and-contrast),
+so `apcaContrast` over its output reproduces the solver's own Lc. The
+implementation omits APCA's font-size lookup that maps an Lc to
 a usable text size.
 
 ### The drift check

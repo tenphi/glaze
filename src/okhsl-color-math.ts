@@ -3,7 +3,9 @@
  *
  * Provides bidirectional OKHSL ↔ sRGB conversion, luminance computation
  * for both contrast metrics (WCAG 2 relative luminance and APCA screen
- * luminance `Ys`), and multi-format output (okhsl, rgb, hsl, oklch).
+ * luminance `Ys` — both the exact functions the contrast solver uses, and
+ * both public), strict hex parsing (`parseHex` / `parseHexAlpha` check every
+ * digit), and multi-format output (okhsl, rgb, hsl, oklch).
  */
 
 type Vec3 = [number, number, number];
@@ -532,6 +534,11 @@ export function gamutClampedLuminance(
  * soft-clamp threshold in `apcaContrast` is calibrated against this basis,
  * so the solver must feed it `Ys`, not WCAG relative luminance. Channels
  * are gamut-clamped to [0, 1] first, matching `gamutClampedLuminance`.
+ *
+ * This is exactly the luminance Glaze's contrast solver (and its drift
+ * check) feeds `apcaContrast`, so
+ * `apcaContrast(apcaLuminanceFromLinearRgb(text), apcaLuminanceFromLinearRgb(bg))`
+ * reproduces the solver's Lc for a resolved pair.
  */
 export function apcaLuminanceFromLinearRgb(
   linearRgb: [number, number, number],
@@ -692,7 +699,9 @@ export function hslToSrgb(
 
 /**
  * Parse a hex color string (#rgb or #rrggbb) to sRGB [r, g, b] in 0–1 range.
- * Returns null if the string is not a valid hex color.
+ * The leading `#` is optional. Returns null if the string is not a valid hex
+ * color: a wrong length, any character outside `0-9a-f` (case-insensitive),
+ * or a form with alpha.
  *
  * For 8-digit hex (`#rrggbbaa`) and 4-digit hex (`#rgba`) with alpha,
  * use {@link parseHexAlpha}.
@@ -703,51 +712,36 @@ export function parseHex(hex: string): [number, number, number] | null {
   return result.rgb;
 }
 
+/** Hex digits only — no sign, whitespace, or `0x` prefix. */
+const HEX_DIGITS_RE = /^[0-9a-f]+$/i;
+
 /**
  * Parse a hex color string (#rgb, #rrggbb, #rgba, or #rrggbbaa) to
  * sRGB [r, g, b] in 0–1 range plus an optional alpha (0–1).
- * Returns null if the string is not a valid hex color.
+ * The leading `#` is optional. Returns null if the string is not a valid hex
+ * color: a wrong length or any character outside `0-9a-f`
+ * (case-insensitive).
+ *
+ * Every digit is checked up front: `parseInt` alone stops at the first bad
+ * character, so `'#1z2z3z'` would otherwise read as `#010203`.
  */
 export function parseHexAlpha(
   hex: string,
 ): { rgb: [number, number, number]; alpha?: number } | null {
   const h = hex.startsWith('#') ? hex.slice(1) : hex;
+  if (!HEX_DIGITS_RE.test(h)) return null;
 
-  if (h.length === 3) {
-    const r = parseInt(h[0] + h[0], 16);
-    const g = parseInt(h[1] + h[1], 16);
-    const b = parseInt(h[2] + h[2], 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
-    return { rgb: [r / 255, g / 255, b / 255] };
-  }
+  // Expand the short forms (#rgb / #rgba) to their long equivalents.
+  const full =
+    h.length === 3 || h.length === 4
+      ? Array.from(h, (digit) => digit + digit).join('')
+      : h;
+  if (full.length !== 6 && full.length !== 8) return null;
 
-  if (h.length === 4) {
-    const r = parseInt(h[0] + h[0], 16);
-    const g = parseInt(h[1] + h[1], 16);
-    const b = parseInt(h[2] + h[2], 16);
-    const a = parseInt(h[3] + h[3], 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b) || isNaN(a)) return null;
-    return { rgb: [r / 255, g / 255, b / 255], alpha: a / 255 };
-  }
-
-  if (h.length === 6) {
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
-    return { rgb: [r / 255, g / 255, b / 255] };
-  }
-
-  if (h.length === 8) {
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    const a = parseInt(h.slice(6, 8), 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b) || isNaN(a)) return null;
-    return { rgb: [r / 255, g / 255, b / 255], alpha: a / 255 };
-  }
-
-  return null;
+  const channel = (i: number): number =>
+    parseInt(full.slice(i, i + 2), 16) / 255;
+  const rgb: [number, number, number] = [channel(0), channel(2), channel(4)];
+  return full.length === 8 ? { rgb, alpha: channel(6) } : { rgb };
 }
 
 // ============================================================================

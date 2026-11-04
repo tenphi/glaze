@@ -102,7 +102,7 @@ Glaze's color science, exported as plain functions over tuples. `pastel` (defaul
 | `srgbToOkhsl([r, g, b], pastel?)` | `[h, s, l]` | Gamma-encoded sRGB (0–1) → OKHSL. |
 | `hslToSrgb(h, s, l)` | `[r, g, b]` | CSS HSL (`s`, `l` 0–1) → gamma-encoded sRGB. CSS HSL is not OKHSL; chain with `srgbToOkhsl`. |
 | `srgbToHex([r, g, b])` | `` `#${string}` `` | Gamma-encoded sRGB → `#rrggbb`. Channels are clamped and rounded to 8 bits; no alpha. |
-| `parseHex(hex)` | `[r, g, b] \| null` | `#rgb` / `#rrggbb` → sRGB 0–1. The `#` is optional. Returns `null` for a wrong length, a non-hex digit, and forms with alpha. In the 6-digit form only the first digit of each pair is checked: `'#1z2z3z'` reads as `#010203`. |
+| `parseHex(hex)` | `[r, g, b] \| null` | `#rgb` / `#rrggbb` → sRGB 0–1. The `#` is optional and digits are case-insensitive. Returns `null` for a wrong length, forms with alpha, and any character that isn't a hex digit — every digit is checked, so `'#1z2z3z'` and `'#-1-2-3'` are `null`. |
 | `parseHexAlpha(hex)` | `{ rgb, alpha? } \| null` | `#rgb`, `#rgba`, `#rrggbb`, or `#rrggbbaa`. `alpha` (0–1) is present only for the alpha forms. Same digit check as `parseHex`. |
 | `cuspLightness(h)` | `number` | OKHSL lightness (0.001–0.999) where the sRGB gamut's chroma peaks for hue `h`. Cached per hue. |
 
@@ -122,6 +122,7 @@ okhslToOklch(280, 0.6, 0.5); // [0.5688…, 0.1326…, 280]
 srgbToOkhsl(parseHex('#7a4dbf')!); // [298.5176…, 0.7040…, 0.4527…]
 srgbToHex([122 / 255, 77 / 255, 191 / 255]); // '#7a4dbf'
 parseHex('#7a4dbf80'); // null
+parseHex('#1z2z3z'); // null
 parseHexAlpha('#7a4dbf80');
 // → { rgb: [0.4784…, 0.3019…, 0.7490…], alpha: 0.5019… }
 cuspLightness(110); // 0.9619… (yellow peaks light)
@@ -135,10 +136,12 @@ cuspLightness(265); // 0.3688… (blue peaks dark)
 | `relativeLuminanceFromLinearRgb([r, g, b])` | `number` | WCAG relative luminance, `0.2126·R + 0.7152·G + 0.0722·B`, with no clamping. |
 | `gamutClampedLuminance([r, g, b])` | `number` | The same after gamma-encoding, clamping to 0–1, and linearizing again — the luminance a browser actually paints. Glaze's WCAG solver uses this one. |
 | `contrastRatioFromLuminance(yA, yB)` | `number` | WCAG ratio `(lighter + 0.05) / (darker + 0.05)`. Argument order doesn't matter. |
+| `apcaLuminanceFromLinearRgb([r, g, b])` | `number` | APCA screen luminance `Ys`: gamma-encode, clamp to 0–1, then `0.2126·R^2.4 + 0.7152·G^2.4 + 0.0722·B^2.4`. Glaze's APCA solver uses this one. |
 
 ```ts
 gamutClampedLuminance([1.2, 0.5, -0.1]); // 0.5702
 relativeLuminanceFromLinearRgb([1.2, 0.5, -0.1]); // 0.6054…
+apcaLuminanceFromLinearRgb([1.2, 0.5, -0.1]); // 0.5545…
 contrastRatioFromLuminance(1, 0); // 21
 ```
 
@@ -288,7 +291,37 @@ apcaContrast(0, 1); // 106.04… (black on white)
 apcaContrast(1, 0); // -107.88… (white on black)
 ```
 
-The inputs are APCA screen luminance `Ys`, not WCAG relative luminance: `Ys = 0.2126·R^2.4 + 0.7152·G^2.4 + 0.0722·B^2.4` over the gamma-encoded channels clamped to 0–1. Glaze's own solver computes `Ys` this way; the helper it uses isn't exported, so compute it yourself from `okhslToSrgb` output.
+The inputs are APCA screen luminance `Ys`, not WCAG relative luminance. Compute them with [`apcaLuminanceFromLinearRgb`](#luminance-and-contrast), the same function the solver and the drift check use, so the score you get is the solver's own. Re-scoring a resolved pair:
+
+```ts
+import {
+  glaze,
+  apcaContrast,
+  apcaLuminanceFromLinearRgb,
+  okhslToLinearSrgb,
+  variantToOkhsl,
+} from '@tenphi/glaze';
+import type { ResolvedColorVariant } from '@tenphi/glaze';
+
+const theme = glaze({ hue: 265, saturation: 70 });
+theme.colors({
+  surface: { tone: 97 },
+  text: { base: 'surface', tone: 60, contrast: { apca: 75 } },
+});
+const resolved = theme.resolve();
+
+const ys = (v: ResolvedColorVariant) => {
+  const { h, s, l } = variantToOkhsl(v);
+  return apcaLuminanceFromLinearRgb(okhslToLinearSrgb(h, s, l, v.pastel));
+};
+
+const text = resolved.get('text')!;
+const surface = resolved.get('surface')!;
+apcaContrast(ys(text.light), ys(surface.light)); // 75.5060…
+apcaContrast(ys(text.dark), ys(surface.dark)); // -75.5011…
+```
+
+Both land just past 75.5 rather than at 75: the search aims 0.5 Lc beyond the target (see [`findToneForContrast`](#findtoneforcontrastoptions)). The sign is the polarity — dark text on the light surface, light text on the dark one.
 
 ### `findToneForContrast(options)`
 
