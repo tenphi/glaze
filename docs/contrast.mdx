@@ -184,10 +184,9 @@ For each scheme, Glaze resolves the base first, then the dependent color:
    clamped into the scheme's [tone window](./schemes.mdx#tone-windows). An
    absolute tone is mapped through the scheme. A tone delta is applied to the
    base's tone in that scheme, except in dark under the default
-   `mode: 'auto'`: there it is applied to the base's light tone and the result
-   is inverted and remapped like an absolute tone, so the dark step is about
-   0.87× the delta on a light base and uneven on lower ones; high contrast
-   keeps it exact
+   `mode: 'auto'`: there it is applied to the base's light tone as authored
+   and the result is inverted and remapped like an absolute tone, so the dark
+   step is about 0.87× the delta on every base; high contrast keeps it exact
    ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). With
    no `tone`, the color starts at the base's own tone.
 2. **Keep it if it passes.** The pair is measured with the chosen metric. If
@@ -627,9 +626,9 @@ With a `base`:
 - A tone delta (`tone: '+N'` / `'-N'`) is measured from the base. Under the
   default `mode: 'auto'`, the dark variant is derived from the base's light
   tone, so the step flips direction and comes out about 0.87× the delta on
-  every base. A token's base has no light-window lift, so unlike a theme color
-  ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)) the dark
-  step is even. A relative `hue` still anchors to the token's own seed value.
+  every base, the same as a theme color
+  ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). A
+  relative `hue` still anchors to the token's own seed value.
 - Pairs chain: a paired token can be the base of the next one.
 
 ```ts

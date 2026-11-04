@@ -214,7 +214,7 @@ glaze.color(
 | `'fixed'` | No | Applied | Applied |
 | `'static'` | No | Skipped | Skipped |
 
-Tone deltas (`'+N'` / `'-N'`) are measured from the base. Under `'fixed'` and `'static'` the delta is applied to the base's tone in each scheme, sign kept. Under `'auto'`, dark applies it to the base's *light* tone, then inverts and remaps the result like an authored tone, so the dark step is up to about 0.87× the authored size on a light base (`'-20'` on tone 97 steps 17.2) and uneven on a mid-tone one. High-contrast steps stay exact. Details: [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts).
+Tone deltas (`'+N'` / `'-N'`) are measured from the base. Under `'fixed'` and `'static'` the delta is applied to the base's tone in each scheme, sign kept. Under `'auto'`, dark applies it to the base's *light* tone as authored (the light window's lift taken back out), then inverts and remaps the result like an authored tone, so the dark step is the dark window's scale times the delta, about 0.87× at the defaults, on every base (`'-20'` steps 17.3 on tone 97 and on tone 50 alike). The light window doesn't change dark steps; the dark window sets their size. High-contrast steps stay exact. Details: [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts).
 
 ## Scheme mapping
 

@@ -50,7 +50,7 @@ the authored spacing — exactly for neutrals, approximately for chromatic
 colors, whose luminance drifts a little with hue and saturation. The dark window
 then scales every step to its span, about 0.87× at the defaults, so order and
 direction carry over but steps come out a little smaller in dark. Tone deltas
-have one more wrinkle, covered in
+scale the same way on every base; see
 [How relative tone adapts](#how-relative-tone-adapts).
 
 A surface at tone 97 becomes a dark surface, and text 52 tones below it
@@ -171,21 +171,24 @@ and the base is resolved separately in each scheme. What happens to the delta
 depends on the dependent's mode:
 
 - **`auto`** — in light, the delta is applied to the base's light tone as
-  written. In dark, Glaze adds the delta to the base's _light_ tone, then
-  inverts and remaps that result through the dark window, exactly like an
-  authored tone. The step flips direction and keeps its place in the ladder.
-  On a base near the top of the scale, such as a light surface, it comes out
-  about 0.87× the authored size. The base's light tone already carries the
-  light window's lift (about 5 tones at the bottom of the scale, none at the
-  top), and that lift is carried into dark, so on a lower base the dark step is
-  uneven: on a tone-50 base, `'+4'` becomes −5.6 and `'-4'` becomes +1.3. In
-  high contrast the windows are the full range, so the step is exact in both
-  schemes.
+  written. In dark, Glaze adds the delta to the base's _light_ tone as authored
+  — before the light window lifted it — then inverts and remaps that result
+  through the dark window, exactly like an authored tone. The step flips
+  direction, keeps its place in the ladder, and comes out the dark window's
+  scale times the delta on every base, about 0.87× at the defaults: `'-4'`
+  becomes +3.5 in dark on a tone-97 surface and on a tone-50 base alike (and
+  `'+4'` on the tone-50 base becomes −3.5), and a chain of deltas steps the
+  same way at every link. In high contrast the windows are the full range, so
+  the step is exact in both schemes. A base whose tone a
+  [contrast floor](./contrast.mdx) chose has no authored tone, so its light
+  tone is taken back through the light window; its own dark tone is solved
+  separately, so the dependent follows where the base sits in light, not where
+  it lands in dark.
 - **`fixed`** — the delta is applied to the base's tone in each scheme with its
   sign preserved. A `'+30'` label stays 30 tones lighter than its fill in light
   and in dark. A label on a `fixed` fill should be `fixed` too: the inversion
   follows the label's own mode, so an `auto` label inverts in dark and lands on
-  the other side of its fill (30 tones above it in light, 31.5 below it in
+  the other side of its fill (30 tones above it in light, 29.5 below it in
   dark).
 - **`static`** — the delta is applied the same way as `fixed`, to the base's
   tone in each scheme, without inversion. A static dependent of an adaptive base
@@ -205,11 +208,11 @@ depends on the dependent's mode:
   schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
   delta
   ratio
-  caption="Each dependent is drawn over its base, with its tone step from the base (Δ) and the measured WCAG ratio. The auto ladder flips in dark with slightly smaller steps; the fixed pair keeps +30 everywhere; high contrast keeps every step exact."
+  caption="Each dependent is drawn over its base, with its tone step from the base (Δ) and the measured WCAG ratio. The auto ladder flips in dark with every step about 0.87× as large; the fixed pair keeps +30 everywhere; high contrast keeps every step exact."
 />
 
 The `text` row shows why legibility belongs to `contrast`, not to a delta: the
-same `'-52'` step measures 4.93:1 in light and 3.91:1 in dark. A delta is a
+same `'-52'` step measures 4.93:1 in light and 3.92:1 in dark. A delta is a
 visual relationship; a [contrast floor](./contrast.mdx) is a guarantee that is
 solved in every scheme.
 
@@ -220,7 +223,8 @@ side of the base — `'+10'` on a tone-97 surface resolves to 87.1 in light
 instead of clamping at 100. If the mirrored target is also out of range, the
 original delta is kept and clamped on the authored side. This is `autoFlip`,
 on by default; set `autoFlip: false` on the color (or globally) to always clamp
-on the authored side.
+on the authored side. Under `mode: 'auto'` the flip is decided on the light
+tones, and dark mirrors whichever side light took.
 
 ## Extremes in dark
 

@@ -361,20 +361,19 @@ How the delta travels depends on the dependent color's `mode`:
   preserved. It is an exact tone step, so for neutrals it is an exact contrast
   step.
 - **`auto` in the dark schemes:** the delta is applied to the base's *light*
-  tone (its light high-contrast tone in dark high contrast), and the result is
-  inverted and mapped through the dark window like an absolute tone. Order and
-  direction carry over — text that sits below its surface in light sits above
-  it in dark — but the step scales with the dark window's span: up to 86.6% of
-  the authored delta, on a light base at the default windows. On a mid or low
-  base it is also uneven, because the base's light tone carries the light
-  window's lift: on a tone-50 base, `'+4'` becomes −5.6 and `'-4'` becomes
-  +1.3. In dark high contrast the window is the full range, so the step is
-  exact, only mirrored.
+  tone as authored — with the light window's lift taken back out — and the
+  result is inverted and mapped through the dark window like an absolute tone.
+  In dark high contrast it is the base's light high-contrast tone, which has no
+  lift to remove. Order and direction carry over — text that sits below its
+  surface in light sits above it in dark — and the step scales with the dark
+  window's span: 86.6% of the authored delta at the default windows, on every
+  base (a tone-50 base steps `'+4'` to −3.5 and `'-4'` to +3.5). In dark high
+  contrast the window is the full range, so the step is exact, only mirrored.
 
 Order carries over only when the base inverts too. An `auto` delta on a
 `fixed` or `static` base inverts on its own while the base keeps its side, so
 it can cross to the other side of the base in dark: a `'+50'` label on a
-`fixed` tone-30 fill sits 50 tones above it in light and about 12 below it in
+`fixed` tone-30 fill sits 50 tones above it in light and about 9 below it in
 dark. Make such a dependent `fixed` as well.
 
 If `base + delta` overshoots `[0, 100]`, `autoFlip` (on by default) mirrors the
@@ -445,11 +444,11 @@ A root `tone: 'max'` in the same theme lands at the dark window's edge, tone
   }}
   base="surface"
   schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
-  caption="Each chip shows the stored tone, the tone difference from surface, and the measured WCAG ratio against it. In dark, the deltas shrink with the window (−8 becomes +6.8, −60 becomes +51.9), deep stops at the window edge, and ink replays its full light span past it, clamped at 100. In high contrast the window is the full range and the deltas are exact."
+  caption="Each chip shows the stored tone, the tone difference from surface, and the measured WCAG ratio against it. In dark, the deltas shrink with the window (−8 becomes +6.9, −60 becomes +52.0), deep stops at the window edge, and ink replays its full light span past it, clamped at 100. In high contrast the window is the full range and the deltas are exact."
 />
 
 The `text` color above has no contrast floor, so its ratio follows its tone
-step: 6.29:1 in light and 4.83:1 in dark. Add `contrast` when the measured
+step: 6.29:1 in light and 4.85:1 in dark. Add `contrast` when the measured
 ratio matters.
 
 ## Contrast floors and verification

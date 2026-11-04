@@ -47,9 +47,10 @@ The main simplification is OKHST tone. Dark mode is a single inversion
 light to dark. A relative **tone delta** such as `tone: '-4'` is placed against
 its base's light tone, then inverted and remapped like any authored tone: in
 dark it flips with its base and keeps its place in the ladder, slightly
-compressed by the dark window (about 0.87× at the defaults; high contrast keeps
-it exact). The step is exactly contrast-even for neutrals and approximate for
-chromatic colors; add a `contrast` floor when the measured result matters.
+compressed by the dark window (about 0.87× at the defaults, on every base; high
+contrast keeps it exact). The step is exactly contrast-even for neutrals and
+approximate for chromatic colors; add a `contrast` floor when the measured
+result matters.
 [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts) shows the
 mapping.
 

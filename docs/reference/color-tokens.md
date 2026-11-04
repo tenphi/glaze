@@ -279,7 +279,7 @@ const text2 = glaze.color({
 With `base`:
 
 - `contrast` is solved against the base's `light`, `dark`, `lightContrast`, and `darkContrast` variant in turn.
-- A tone delta (`'+N'` / `'-N'`) is measured from the base, as for a theme's [dependent colors](./color-definitions.md#tone-values). In light and high contrast the step is exact. Under `mode: 'auto'` the dark variant applies the delta to the base's light tone, then inverts and remaps the result through the dark window, so the step flips direction and shrinks: an `'auto'` version of `border` above is 6.93 tones darker than `bg` in dark. `'fixed'` and `'static'` apply it to the base's tone in each scheme, sign kept.
+- A tone delta (`'+N'` / `'-N'`) is measured from the base, as for a theme's [dependent colors](./color-definitions.md#tone-values). In light and high contrast the step is exact. Under `mode: 'auto'` the dark variant applies the delta to the base's light tone, then inverts and remaps the result through the dark window, so the step flips direction and shrinks to the dark window's scale (about 0.87×), exactly as in a theme: an `'auto'` version of `border` above is 6.93 tones darker than `bg` in dark. `'fixed'` and `'static'` apply it to the base's tone in each scheme, sign kept.
 - A relative `hue` still anchors to the token's own seed (the value passed to `glaze.color()`), not to the base.
 - `mode` applies to the pair: `'auto'` mirrors the relationship in dark, `'fixed'` keeps its sign.
 - The base is resolved lazily, when the dependent first resolves.

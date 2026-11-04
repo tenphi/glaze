@@ -209,6 +209,21 @@ Then:
 takes the same input. See
 [`glaze.shadow()` / `glaze.glow()`](./reference/utilities.md#glazeshadowinput--glazeglowinput).
 
+#### Even dark steps for tone deltas
+
+In 2.x an `auto` tone delta's dark variant stepped from the base's light tone,
+which already carries the light window's lift, so the lift landed in the dark
+step: on a tone-50 base, `'+4'` came out −5.6 in dark and `'-4'` +1.3. In 3.0
+it steps from the base's authored tone, so every dark step is the dark window's
+scale times the delta (about 0.87× at the defaults: `'+4'` steps −3.5 and
+`'-4'` +3.5) on every base, along chains of deltas, and for `from` colors. Dark
+variants of `auto` tone-delta colors shift as a result — by up to about 4 tones
+on the lowest bases, about 2 on a tone-50 base, a fraction of a tone on a light
+surface — and so does anything solved, mixed, or lit from them in dark. Light
+and high-contrast variants are unchanged, and `glaze.color()` tokens already
+stepped this way. Re-check dark values you have pinned in tests or snapshots;
+see [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts).
+
 ### 2.0 — `format*` takes 0–1
 
 The `format*` writers (`formatOkhsl`, `formatOkhst`, `formatRgb`, `formatHsl`,

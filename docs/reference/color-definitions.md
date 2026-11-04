@@ -147,7 +147,7 @@ type ToneValue = number | RelativeValue | ExtremeValue;
 
 **Delta.** Adds a signed tone delta to the base's resolved tone. In light and high contrast the step is exact, which gives an equal contrast step for neutrals and a stable visual progression for chromatic colors. Dark depends on the color's `mode`:
 
-- `'auto'` (default): the delta is applied to the base's **light** tone, and the result is inverted and remapped through the dark window, so dark text on a light surface becomes light text on a dark one. The dark step isn't the authored size. On a light surface it is up to about 0.87× as large: on a tone-97 surface, `'-10'` becomes +8.5 in dark and `'-52'` becomes +44.9. The base's light tone carries the light window's lift into dark, so on a mid or low base the step is uneven: on a tone-50 base, `'+4'` becomes −5.6 and `'-4'` becomes +1.3.
+- `'auto'` (default): the delta is applied to the base's **light** tone as authored (with the light window's lift taken back out), and the result is inverted and remapped through the dark window, so dark text on a light surface becomes light text on a dark one. The dark step is the dark window's scale times the delta, about 0.87× at the defaults, on every base: on a tone-97 surface, `'-10'` becomes +8.7 in dark and `'-52'` becomes +45.1; on a tone-50 base, `'+4'` becomes −3.5 and `'-4'` becomes +3.5. A base whose tone a contrast floor chose is read back through the light window, so the dependent follows where that base sits in light.
 - `'fixed'` and `'static'`: the delta is applied to the base's tone in each scheme, sign kept.
 
 See [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts). If `base + delta` falls outside `[0, 100]`:

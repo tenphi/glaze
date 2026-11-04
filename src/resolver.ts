@@ -68,6 +68,7 @@ import {
   okhslToOkhst,
   schemeToneRange,
   toTone,
+  unmapLightTone,
   variantToOkhsl,
 } from './okhst';
 import { extractOkhslFromValue } from './color-value';
@@ -443,6 +444,55 @@ function resolveChannels(
   };
 }
 
+/**
+ * Where a color sits on the authored `0–100` tone scale in the light scheme:
+ * its tone before the light window lifted it. In dark, an `auto` tone delta
+ * steps from its base's authored tone (the scale the base's own dark tone is
+ * mapped from), so every dark step is the dark window's scale times the delta.
+ *
+ * - A color placed by a tone (a root, an absolute or extreme tone, a `from`
+ *   value) returns that tone as authored.
+ * - A tone delta returns its base's authored tone plus the delta, flipped
+ *   exactly as the light pass flipped it, so a chain of deltas steps evenly.
+ * - A color with no tone of its own returns its base's.
+ * - A contrast-solved color or a mix has no authored tone, so its light tone is
+ *   taken back through the light window it was resolved under. An external
+ *   base (a `glaze.color()` link) is resolved without a light window, so its
+ *   light tone already is the authored one.
+ *
+ * Normal passes only. A high-contrast window is the full range, so there is
+ * no lift to undo there.
+ */
+function authoredLightTone(name: string, ctx: ResolveContext): number {
+  const lightTone = ctx.resolved.get(name)!.light.t * 100;
+  const def: ColorDef | undefined = ctx.defs[name];
+  if (def === undefined) return lightTone;
+  if (isMixDef(def) || isLightingDef(def)) {
+    return unmapLightTone(lightTone, 'auto', false, ctx.config);
+  }
+
+  const regDef = def as RegularColorDef;
+  const config = configForColor(regDef, ctx.config);
+  if (regDef.contrast !== undefined) {
+    return unmapLightTone(lightTone, regDef.mode ?? 'auto', false, config);
+  }
+
+  const rawTone = regDef.tone ?? fromSeed(regDef)?.tone;
+  if (rawTone === undefined) return authoredLightTone(regDef.base!, ctx);
+
+  const parsed = passTone(rawTone, false, config);
+  if (parsed.kind !== 'relative') return clamp(parsed.value, 0, 100);
+
+  const baseLightTone = ctx.resolved.get(regDef.base!)!.light.t * 100;
+  const flip = regDef.autoFlip ?? ctx.config.autoFlip;
+  return clamp(
+    authoredLightTone(regDef.base!, ctx) +
+      applyToneFlip(parsed.value, baseLightTone, flip),
+    0,
+    100,
+  );
+}
+
 function resolveDependentColor(
   name: string,
   def: RegularColorDef,
@@ -484,21 +534,25 @@ function resolveDependentColor(
 
     if (parsed.kind === 'relative') {
       if (isDark && mode === 'auto') {
-        const baseLightVariant = getSchemeVariant(
-          baseResolved,
-          false,
-          isHighContrast,
-        );
-        const baseLightTone = baseLightVariant.t * 100;
-        const absoluteLightTone = clamp(
-          baseLightTone + applyToneFlip(parsed.value, baseLightTone, flip),
-          0,
-          100,
-        );
-        // Invert + remap the base-anchored light tone into the dark window,
-        // exactly like an absolute author tone under `mode: 'auto'`.
+        const baseLightTone =
+          getSchemeVariant(baseResolved, false, isHighContrast).t * 100;
+        // Flip on the light scale, as the light pass did, so the dark step
+        // mirrors the light one instead of picking a side of its own.
+        const delta = applyToneFlip(parsed.value, baseLightTone, flip);
+        // Step from the base's authored tone, not its light tone. The base's
+        // own dark tone is mapped from its authored tone; its light tone also
+        // carries the light window's lift, which would land in the dark step
+        // and make it uneven across bases. High contrast (and a level at 100,
+        // which uses the same full-range window) has no lift to undo, so it
+        // reads the light tone directly and stays bit-identical.
+        const anchor =
+          isHighContrast || hcMirrorsNormal(config)
+            ? baseLightTone
+            : authoredLightTone(baseName, ctx);
+        // Invert + remap the stepped tone into the dark window, exactly like
+        // an absolute author tone under `mode: 'auto'`.
         preferredTone = mapToneForScheme(
-          absoluteLightTone,
+          clamp(anchor + delta, 0, 100),
           'auto',
           true,
           isHighContrast,
