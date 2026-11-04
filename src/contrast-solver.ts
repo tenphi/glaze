@@ -10,7 +10,13 @@
  * has already missed the overshooting search target and so sits between the
  * passing regions. Each branch therefore reaches only its own side: a result
  * sits where its `branch` / `flipped` say, and keeps the overshoot that absorbs
- * formatting rounding.
+ * formatting rounding. The WCAG gray seed is only the initial branch's first
+ * probe, never a bound, so a chromatic color still lands on its own crossing
+ * nearest the preferred tone. When no searched side meets the floor but the
+ * preferred position itself clears the bare target (it sits on a bound, or its
+ * side was never searched), the preferred position is the answer, met. With no
+ * direction given, a solver starts toward the end that scores higher, and a
+ * float-noise gap between the two ends is a tie that starts darker / lower.
  *
  * Public API: `findToneForContrast`, `findValueForMixContrast`,
  * `resolveMinContrast`, `resolveApcaTarget`, `resolveContrastForMode`,
@@ -406,6 +412,20 @@ function metricScore(
   return Math.abs(lc);
 }
 
+/**
+ * Relative gap under which two scores count as equal when a solver picks its
+ * starting side from the two ends of its range. Tone is WCAG-uniform, so a
+ * gray base at tone 50 sits exactly as far from black as from white: without
+ * a tolerance, float noise in the base (1e-16 is enough) decides which end
+ * scores higher, and with it the side a color lands on.
+ */
+const SCORE_TIE_TOLERANCE = 1e-9;
+
+/** `a >= b`, with a gap inside {@link SCORE_TIE_TOLERANCE} counted as a tie. */
+function scoreAtLeast(a: number, b: number): boolean {
+  return a >= b - SCORE_TIE_TOLERANCE * Math.max(1, Math.abs(b));
+}
+
 // ============================================================================
 // Solver
 // ============================================================================
@@ -430,12 +450,16 @@ export interface FindToneForContrastOptions {
   epsilon?: number;
   /** Maximum binary-search iterations per branch. Default: 18. */
   maxIterations?: number;
-  /** Preferred search direction before auto-flip is considered. */
+  /**
+   * Preferred search direction before auto-flip is considered. Default: the
+   * side whose bound scores higher (the only open side when `preferredTone`
+   * sits on a bound); a tie within float noise starts `'darker'`.
+   */
   initialDirection?: 'lighter' | 'darker';
   /**
    * Also search the opposite direction. Default: false. When both directions
-   * meet the target, the result nearer `preferredTone` wins; a gap within the
-   * search resolution is a tie and keeps `initialDirection`.
+   * meet the target, the result nearer `preferredTone` wins; a gap within
+   * twice the search resolution is a tie and keeps `initialDirection`.
    */
   flip?: boolean;
   /**
@@ -464,8 +488,10 @@ export interface FindToneForContrastResult {
   met: boolean;
   /**
    * The side the result was found on. The two sides meet at `preferredTone`,
-   * so a met result sits on that side of the base too. `'preferred'` when
-   * `preferredTone` already passed.
+   * so a met result sits on that side of the base too. `'preferred'` when the
+   * result is `preferredTone` itself: it already cleared the overshooting
+   * search target, or no searched side met the floor while it clears the bare
+   * target (or there was no room to search).
    */
   branch: 'lighter' | 'darker' | 'preferred';
   /** Whether the result auto-flipped to the opposite direction. */
@@ -493,6 +519,10 @@ interface BranchResult {
  * `inner`, which borders the opposite branch: a near-miss there may sit on the
  * other side of the base, and returning it as this branch's answer would
  * mislabel its side and drop the overshoot.
+ *
+ * `probe`, when it lies strictly between `inner` and `outer`, is measured
+ * before the bisection and only narrows the bracket — to its passing side or
+ * its failing side — so the result is still the crossing nearest `inner`.
  */
 function searchBranch(
   lum: (x: number) => number,
@@ -504,6 +534,7 @@ function searchBranch(
   epsilon: number,
   maxIter: number,
   polarity?: 'fg' | 'bg',
+  probe?: number,
 ): BranchResult {
   const scoreOuter = metricScore(metric, lum(outer), yBase, polarity);
   if (scoreOuter < target) return { pos: outer, contrast: scoreOuter };
@@ -514,6 +545,13 @@ function searchBranch(
   // Invariant: `pass` meets the target, `fail` does not.
   let fail = inner;
   let pass = outer;
+  if (probe !== undefined && (probe - inner) * (outer - probe) > 0) {
+    if (metricScore(metric, lum(probe), yBase, polarity) >= target) {
+      pass = probe;
+    } else {
+      fail = probe;
+    }
+  }
   for (let i = 0; i < maxIter; i++) {
     if (Math.abs(pass - fail) < epsilon) break;
     const mid = (fail + pass) / 2;
@@ -529,8 +567,9 @@ function searchBranch(
 
 /**
  * Closed-form WCAG tone seed: the gray tone whose luminance produces exactly
- * the target ratio against the base, on the requested side. Used to bias the
- * preferred tone before the search so chromatic refinement starts close.
+ * the target ratio against the base, on the requested side. The initial
+ * branch measures it first so chromatic refinement starts from a tight
+ * bracket; it is a probe, never a bound.
  */
 function wcagToneSeed(yBase: number, target: number, darker: boolean): number {
   const yTarget = darker
@@ -545,7 +584,8 @@ function wcagToneSeed(yBase: number, target: number, darker: boolean): number {
  * solvers. Both pick an initial direction within `[lo, hi]`, binary-search
  * that branch, optionally flip to the opposite branch, and pin to the
  * initial extreme on failure — they only differ in their domain and how the
- * search anchor / luminance closure are built.
+ * search anchor / luminance closure are built. On failure each caller still
+ * keeps `preferred` itself when it clears the bare target.
  *
  * The two branches meet at `preferred`. The core only runs once `preferred`
  * has missed `searchTarget`, so it sits strictly between the passing region on
@@ -555,12 +595,12 @@ function wcagToneSeed(yBase: number, target: number, darker: boolean): number {
  * and, away from the bounds, its contrast at `searchTarget` (overshoot
  * included).
  *
- * `searchAnchor` may bias the *initial* branch's inner bound — and with it the
- * in-branch tiebreak — outward from `preferred` (the WCAG seed for the tone
- * solver; `preferred` itself otherwise). It is clamped to the initial side, so
- * it can shrink that branch but never stretch it across `preferred` into the
- * opposite one. The opposite branch always starts at `preferred`, which is
- * also the position the flip step measures closeness against.
+ * Both branches start at `preferred`, which is also the position the flip step
+ * measures closeness against. `searchAnchor` (the WCAG seed for the tone
+ * solver) is only the *initial* branch's first probe: measured before the
+ * bisection, it narrows the bracket to whichever side of it the crossing lies
+ * on, and never bounds the branch — so a chromatic color whose crossing sits
+ * between `preferred` and the gray seed still reaches it.
  */
 interface SolveCoreOptions {
   lum: (x: number) => number;
@@ -570,8 +610,11 @@ interface SolveCoreOptions {
   searchTarget: number;
   lo: number;
   hi: number;
-  /** Inner bound + tiebreak anchor of the initial branch (outward bias). */
-  searchAnchor: number;
+  /**
+   * First probe of the initial branch, never a bound (the tone solver's WCAG
+   * seed). Ignored unless it lies strictly inside the initial branch.
+   */
+  searchAnchor?: number;
   /** Boundary between the branches; the flip step minimizes distance to it. */
   preferred: number;
   epsilon: number;
@@ -584,7 +627,7 @@ interface SolveCoreOptions {
   flip: boolean;
   /** Keep the initial branch when both meet, instead of taking the nearest. */
   preferInitial: boolean;
-  /** Force the first branch ('lower' searches `[lo, searchAnchor]`). */
+  /** Force the first branch ('lower' searches `[lo, preferred]`). */
   initialIsLower: boolean;
   /** APCA argument order; ignored for WCAG. Default `'fg'`. */
   polarity?: 'fg' | 'bg';
@@ -621,10 +664,10 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
 
   const boundary = clamp(preferred, lo, hi);
 
-  const runBranch = (lower: boolean, inner: number) => {
+  const runBranch = (lower: boolean, probe?: number) => {
     const result = searchBranch(
       lum,
-      inner,
+      boundary,
       lower ? lo : hi,
       yBase,
       metric,
@@ -632,19 +675,14 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
       epsilon,
       maxIterations,
       polarity,
+      probe,
     );
     return { ...result, met: result.contrast >= target, lower };
   };
 
-  // The seed bias may only pull the initial branch's inner bound outward.
-  const initialInner = clamp(
-    initialIsLower
-      ? Math.min(searchAnchor, boundary)
-      : Math.max(searchAnchor, boundary),
-    lo,
-    hi,
-  );
-  const initial = runBranch(initialIsLower, initialInner);
+  // The seed is probed first, so it can narrow the bracket from either side;
+  // `searchBranch` skips it unless it lies inside the initial branch.
+  const initial = runBranch(initialIsLower, searchAnchor);
 
   // A branch that misses the target reports its outer extreme, so an unmet
   // `initial` is already pinned to the initial direction's extreme — the
@@ -655,7 +693,7 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
   // that side (matches the legacy canDarker/canUpper guards).
   const canOpposite = initialIsLower ? preferred < hi : preferred > lo;
   if (!canOpposite) return initial;
-  const opposite = { ...runBranch(!initialIsLower, boundary), flipped: true };
+  const opposite = { ...runBranch(!initialIsLower), flipped: true };
 
   if (initial.met && opposite.met) {
     if (preferInitial) return initial;
@@ -673,7 +711,10 @@ function solveNearestContrast(opts: SolveCoreOptions): SolveCoreResult {
 
 /**
  * Find the tone that satisfies a contrast floor against a base color,
- * staying as close to `preferredTone` as possible.
+ * staying as close to `preferredTone` as possible. A searched result keeps the
+ * overshoot (1% for WCAG, 0.5 Lc for APCA). When no searched side reaches the
+ * floor, the result pins to the initial direction's extreme, unmet — unless
+ * `preferredTone` itself clears the bare target, which is then kept as met.
  */
 export function findToneForContrast(
   options: FindToneForContrastOptions,
@@ -725,23 +766,23 @@ export function findToneForContrast(
     return {
       tone: preferredTone,
       contrast: scorePref,
-      met: false,
+      met: scorePref >= target,
       branch: 'preferred',
     };
   } else {
     const scoreMin = metricScore(metric, lum(minT), yBase, polarity);
     const scoreMax = metricScore(metric, lum(maxT), yBase, polarity);
-    initialIsDarker = scoreMin >= scoreMax;
+    // A tie (gray base at tone 50) starts darker, whatever the float noise.
+    initialIsDarker = scoreAtLeast(scoreMin, scoreMax);
   }
 
-  // For WCAG, bias the initial branch's search start toward the closed-form
-  // seed (darker = the "lower" branch). The core only lets the seed shrink that
-  // branch outward from `preferredTone`; the opposite branch and the flip
-  // step's distance both stay anchored to `preferredTone` itself.
+  // For WCAG, the initial branch probes the closed-form gray seed first
+  // (darker = the "lower" branch). It only narrows that branch's bracket: both
+  // branches and the flip step's distance stay anchored to `preferredTone`.
   const searchAnchor =
     metric === 'wcag'
       ? wcagToneSeed(yBase, target, initialIsDarker)
-      : preferredTone;
+      : undefined;
 
   const solved = solveNearestContrast({
     lum,
@@ -761,6 +802,20 @@ export function findToneForContrast(
     initialIsLower: initialIsDarker,
     polarity,
   });
+
+  // No searched side met the floor, yet `preferredTone` clears the bare target
+  // (it missed only the overshoot). Its own side was never searched — it sits
+  // on a bound, or a forced direction pointed away with no flip — or that side
+  // would have met: a met side's extreme scores higher still. So it beats the
+  // unmet extreme, and can't mislabel a side.
+  if (!solved.met && scorePref >= target) {
+    return {
+      tone: preferredTone,
+      contrast: scorePref,
+      met: true,
+      branch: 'preferred',
+    };
+  }
 
   return {
     tone: solved.pos,
@@ -806,6 +861,9 @@ export interface FindValueForMixContrastResult {
 /**
  * Find the mix parameter (ratio or opacity) that satisfies a contrast floor
  * against a base color, staying as close to `preferredValue` as possible.
+ * Misses pin to the initial direction's end like the tone solver, and a
+ * `preferredValue` that clears the bare target is kept as met when no searched
+ * side reaches the floor (a value of 1 has no room toward the target).
  */
 export function findValueForMixContrast(
   options: FindValueForMixContrastOptions,
@@ -841,7 +899,11 @@ export function findValueForMixContrast(
   } else if (!canLower && canUpper) {
     initialIsLower = false;
   } else if (!canLower && !canUpper) {
-    return { value: preferredValue, contrast: scorePref, met: false };
+    return {
+      value: preferredValue,
+      contrast: scorePref,
+      met: scorePref >= target,
+    };
   } else {
     const scoreLower = metricScore(
       metric,
@@ -855,7 +917,7 @@ export function findValueForMixContrast(
       yBase,
       polarity,
     );
-    initialIsLower = scoreLower >= scoreUpper;
+    initialIsLower = scoreAtLeast(scoreLower, scoreUpper);
   }
 
   const solved = solveNearestContrast({
@@ -866,7 +928,6 @@ export function findValueForMixContrast(
     searchTarget,
     lo: 0,
     hi: 1,
-    searchAnchor: preferredValue,
     preferred: preferredValue,
     epsilon,
     resolution: epsilon,
@@ -878,6 +939,14 @@ export function findValueForMixContrast(
     initialIsLower,
     polarity,
   });
+
+  // `preferredValue` missed only the overshoot and no searched side met the
+  // floor: keep it, met. At a value of 1 the only open side runs back to the
+  // base, so without this a pure target that clears the floor would collapse
+  // to the base itself (or to alpha 0 for a transparent mix).
+  if (!solved.met && scorePref >= target) {
+    return { value: preferredValue, contrast: scorePref, met: true };
+  }
 
   return {
     value: solved.pos,
