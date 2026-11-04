@@ -5,6 +5,10 @@
  * once per call, so every name in a column is exactly what the exporter
  * returns (in its order), with a swatch of the color behind it. The swatches
  * follow the reader's Appearance menu.
+ *
+ * Each column spans three rows of the outer grid through `subgrid`, so the
+ * call, the token count, and the list start at the same height in every
+ * column however the call text wraps.
  */
 
 import type { ReactNode } from 'react';
@@ -30,7 +34,12 @@ const Count = tasty({
   styles: { preset: 'small', color: '#text-soft' },
 });
 
-const List = tasty({ styles: { display: 'grid', gap: '0.75x' } });
+const List = tasty({
+  styles: { display: 'grid', gap: '0.75x', alignContent: 'start' },
+});
+
+/** A `Panel` whose three rows (call, count, list) join the outer grid's. */
+const COLUMN = { gridRow: 'span 3', gridRows: 'subgrid', gap: '1x' };
 
 const Row = tasty({
   styles: {
@@ -66,7 +75,7 @@ export default function PrefixTable(props: PrefixTableProps) {
     const names = Object.keys(maps.light);
     const label = callText(call);
     return (
-      <Panel key={label}>
+      <Panel key={label} styles={COLUMN}>
         <Call>{label}</Call>
         <Count>
           {names.length} {names.length === 1 ? 'token' : 'tokens'}

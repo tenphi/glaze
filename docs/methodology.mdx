@@ -188,13 +188,13 @@ const defaultTheme = glaze({
   columns={[
     { label: 'Dark · seed only', scheme: 'dark' },
     {
-      label: 'Dark · darkHue + darkSaturation',
+      label: 'Dark · with the dark seed',
       scheme: 'dark',
       darkHue: PURPLE_HUE - 12,
       darkSaturation: 62,
     },
   ]}
-  caption="The finished palette in dark, without and with the dark seed above. The accent fill's dark saturation goes from 0.72 (the seed's 0.8 less the 10% haircut) to exactly 0.62."
+  caption="The finished palette in dark, without and with the dark seed above. The accent fill's dark saturation goes from 72 (the seed's 80 less the 10% haircut) to exactly 62."
 />
 
 An explicit `darkSaturation` replaces `darkDesaturation` rather than stacking
@@ -818,9 +818,9 @@ between is resolved at that level.
 
 <PalettePreview
   columns={[
-    { label: 'Light · contrastLevel 0', scheme: 'light', contrastLevel: 0 },
-    { label: 'Light · contrastLevel 50', scheme: 'light', contrastLevel: 50 },
-    { label: 'Light · contrastLevel 100', scheme: 'light', contrastLevel: 100 },
+    { label: 'Light · level 0', scheme: 'light', contrastLevel: 0 },
+    { label: 'Light · level 50', scheme: 'light', contrastLevel: 50 },
+    { label: 'Light · level 100', scheme: 'light', contrastLevel: 100 },
   ]}
   caption="The finished palette's light variant at three levels. No new fields: the slider ramps toward the high-contrast values, escalated floors and pairs alike."
 />

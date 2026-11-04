@@ -9,11 +9,7 @@
  */
 
 import { glaze, literal, themeSource } from '../glaze-docs';
-import type {
-  ColorMap,
-  GlazePalette,
-  GlazeTheme,
-} from '../../../src/index.ts';
+import type { ColorMap, GlazePalette, GlazeTheme } from '../../../src/index.ts';
 
 export interface PaletteThemeSpec {
   hue?: number;
@@ -57,7 +53,8 @@ export function buildPalette(props: PaletteDemoProps): GlazePalette {
   for (const [name, spec] of Object.entries(props.themes)) {
     if (spec.alias) {
       const target = built[spec.alias];
-      if (!target) throw new Error(`docs: unknown alias target "${spec.alias}".`);
+      if (!target)
+        throw new Error(`docs: unknown alias target "${spec.alias}".`);
       built[name] = target;
     } else if (spec.extends) {
       const parent = built[spec.extends];
@@ -133,6 +130,8 @@ export function paletteSource(props: PaletteDemoProps): string {
       .map((line) => `  ${line}`)
       .join('\n')}\n  }${options},\n);`,
   );
-  blocks.push(props.calls.map((call) => `palette.${callText(call)};`).join('\n'));
+  blocks.push(
+    props.calls.map((call) => `palette.${callText(call)};`).join('\n'),
+  );
   return blocks.join('\n\n');
 }

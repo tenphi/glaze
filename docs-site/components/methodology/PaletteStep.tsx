@@ -11,14 +11,7 @@
 
 import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
-import {
-  Chip,
-  ChipBlock,
-  Eyebrow,
-  Figure,
-  Grid,
-  Layer,
-} from '../primitives';
+import { Chip, ChipBlock, Eyebrow, Figure, Layer } from '../primitives';
 import SchemeValue from '../SchemeValue';
 import {
   SCHEMES,
@@ -62,7 +55,15 @@ import {
 import type { StepId } from './palette';
 
 /** How a token is drawn in its swatch. */
-type Kind = 'fill' | 'text' | 'label' | 'icon' | 'border' | 'ring' | 'layer' | 'cast';
+type Kind =
+  | 'fill'
+  | 'text'
+  | 'label'
+  | 'icon'
+  | 'border'
+  | 'ring'
+  | 'layer'
+  | 'cast';
 
 /** Foregrounds and other non-fill tokens, by name. Everything else is a fill. */
 const KIND: Record<string, Kind> = {
@@ -112,6 +113,44 @@ const Dot = tasty({
 
 const Frame = tasty({
   styles: { width: '70%', height: '4x', radius: '1r' },
+});
+
+/**
+ * A swatch. Across the content column it stacks the color over its label.
+ * On a phone, and in a side-by-side scheme column (`row`), it sets the
+ * color beside the label instead, so a long name and its value line each keep
+ * one line and neighboring swatches stay aligned.
+ */
+const SwatchChip = tasty(Chip, {
+  modProps: { row: Boolean },
+  styles: {
+    gridRows: { '': 'minmax(4.5rem, auto)', '@sm & !row': '4.5rem auto' },
+    gridColumns: {
+      '': '5rem minmax(0, 1fr)',
+      '@sm & !row': 'minmax(0, 1fr)',
+    },
+    Label: { alignContent: { '': 'center', '@sm & !row': 'start' } },
+  },
+});
+
+/**
+ * The swatches of one step: up to three across, one per line on a phone. A
+ * step with fewer tokens spreads them over the row, so a long name still fits.
+ */
+const Swatches = tasty({
+  styles: {
+    display: 'grid',
+    gap: '1.5x',
+    gridColumns: {
+      '': 'minmax(0, 1fr)',
+      '@sm': 'repeat(auto-fit, minmax(11rem, 1fr))',
+    },
+  },
+});
+
+/** The swatches inside one of several side-by-side scheme columns. */
+const CellSwatches = tasty({
+  styles: { display: 'grid', gap: '1x' },
 });
 
 const Columns = tasty({
@@ -183,6 +222,17 @@ function signed(n: number): string {
   return n > 0 ? `+${v}` : v.replace('-', '−');
 }
 
+/** Keeps a label and its number on one line. */
+const NBSP = '\u00a0';
+
+/**
+ * Joins measurements into one value line. Each label stays with its number,
+ * and a line that runs out of room breaks only after a separator.
+ */
+function line(...parts: string[]): string {
+  return parts.join(`${NBSP}· `);
+}
+
 /** The measured value line of one token in one scheme. */
 function valueLine(
   demo: ResolvedDemo,
@@ -196,26 +246,28 @@ function valueLine(
   const ground = groundName
     ? variantOf(demo.resolved, groundName, scheme)
     : undefined;
-  const tone = `tone ${fmt(toneOf(v), 1)}`;
+  const tone = `tone${NBSP}${fmt(toneOf(v), 1)}`;
+  const lc = (text: ResolvedColorVariant, bg: ResolvedColorVariant) =>
+    `Lc${NBSP}${fmt(apcaLc(text, bg), 1)}`;
   switch (kind) {
     case 'text':
     case 'icon':
     case 'border':
     case 'ring':
-      return ground ? `${tone} · Lc ${fmt(apcaLc(v, ground), 1)}` : tone;
+      return ground ? line(tone, lc(v, ground)) : tone;
     case 'label':
       // The base is the label here: measure it as text on this fill.
-      return ground ? `${tone} · Lc ${fmt(apcaLc(ground, v), 1)}` : tone;
+      return ground ? line(tone, lc(ground, v)) : tone;
     case 'cast':
     case 'layer': {
-      const alpha = `α ${fmt(v.alpha, 3)}`;
+      const alpha = `α${NBSP}${fmt(v.alpha, 3)}`;
       const isLighting =
         'type' in def && (def.type === 'shadow' || def.type === 'glow');
       if (isLighting && ground) {
         const step = compositeTone(v, ground) - luminanceTone(ground);
-        return `${alpha} · ${signed(step)} tones`;
+        return line(alpha, `${signed(step)}${NBSP}tones`);
       }
-      return 'type' in def ? alpha : `${tone} · ${alpha}`;
+      return 'type' in def ? alpha : line(tone, alpha);
     }
     default:
       return tone;
@@ -227,6 +279,8 @@ function Swatch(props: {
   name: string;
   def: ColorDef;
   scheme: SchemeChoice;
+  /** Color beside the label at every width (a side-by-side column). */
+  row: boolean;
 }) {
   const { demo, name, def, scheme } = props;
   const kind = kindOf(name, def);
@@ -303,15 +357,15 @@ function Swatch(props: {
   for (const s of SCHEMES) values[s] = valueLine(demo, name, def, kind, s);
 
   return (
-    <Chip>
+    <SwatchChip row={props.row}>
       {block}
-      <Chip.Label>
-        <Chip.Name>{name}</Chip.Name>
-        <Chip.Value>
+      <SwatchChip.Label>
+        <SwatchChip.Name>{name}</SwatchChip.Name>
+        <SwatchChip.Value>
           <SchemeValue values={values} scheme={scheme} />
-        </Chip.Value>
-      </Chip.Label>
-    </Chip>
+        </SwatchChip.Value>
+      </SwatchChip.Label>
+    </SwatchChip>
   );
 }
 
@@ -342,22 +396,27 @@ export default function PaletteStep(props: PaletteStepProps) {
   const names = props.show ?? Object.keys(STEPS[props.step]);
   const preview = props.preview ?? true;
 
-  const body = (scheme: SchemeChoice) => (
-    <>
-      <Grid>
-        {names.map((name) => (
-          <Swatch
-            key={name}
-            demo={demo}
-            name={name}
-            def={colors[name]}
-            scheme={scheme}
-          />
-        ))}
-      </Grid>
-      {preview ? <PreviewUi demo={demo} scheme={scheme} /> : null}
-    </>
-  );
+  const body = (scheme: SchemeChoice) => {
+    const row = scheme !== 'auto';
+    const SwatchGrid = row ? CellSwatches : Swatches;
+    return (
+      <>
+        <SwatchGrid>
+          {names.map((name) => (
+            <Swatch
+              key={name}
+              demo={demo}
+              name={name}
+              def={colors[name]}
+              scheme={scheme}
+              row={row}
+            />
+          ))}
+        </SwatchGrid>
+        {preview ? <PreviewUi demo={demo} scheme={scheme} /> : null}
+      </>
+    );
+  };
 
   return (
     <Figure caption={props.caption}>

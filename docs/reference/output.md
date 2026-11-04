@@ -20,15 +20,17 @@ theme.colors({
 
 ## Output methods at a glance
 
-| Method | Returns | Options type | Honors `modes` | `format` |
-| --- | --- | --- | --- | --- |
-| [`tokens()`](#tokensoptions) | `{ light: { name: value }, dark: {…}, … }` | `GlazeJsonOptions` | Yes | `oklch`, `rgb`, `hsl` |
-| [`tasty()`](#tastyoptions) | `{ '#name': { '': value, [state]: value } }` | `GlazeTokenOptions` | Yes | All five |
-| [`json()`](#jsonoptions) | `{ name: { light: value, dark: value, … } }` | `GlazeJsonOptions` | Yes | `oklch`, `rgb`, `hsl` |
-| [`css()`](#cssoptions) | `GlazeCssResult` (four strings) | `GlazeCssOptions` | No — always all four | `oklch`, `rgb`, `hsl` |
-| [`dtcg()`](#dtcgoptions) | `GlazeDtcgResult` (one document per variant) | `GlazeDtcgOptions` | Yes | Not used — `colorSpace` instead |
-| [`dtcgResolver()`](#dtcgresolveroptions) | `GlazeDtcgResolverDocument` | `GlazeDtcgResolverOptions` | Yes | Not used — `colorSpace` instead |
-| [`tailwind()`](#tailwindoptions) | `string` (CSS) | `GlazeTailwindOptions` | Yes | `oklch`, `rgb`, `hsl` |
+| Method | Returns | Options type | Honors `modes` |
+| --- | --- | --- | --- |
+| [`tokens()`](#tokensoptions) | `{ light: { name: value }, dark: {…}, … }` | `GlazeJsonOptions` | Yes |
+| [`tasty()`](#tastyoptions) | `{ '#name': { '': value, [state]: value } }` | `GlazeTokenOptions` | Yes |
+| [`json()`](#jsonoptions) | `{ name: { light: value, dark: value, … } }` | `GlazeJsonOptions` | Yes |
+| [`css()`](#cssoptions) | `GlazeCssResult` (four strings) | `GlazeCssOptions` | No: all four |
+| [`dtcg()`](#dtcgoptions) | `GlazeDtcgResult` (one document per variant) | `GlazeDtcgOptions` | Yes |
+| [`dtcgResolver()`](#dtcgresolveroptions) | `GlazeDtcgResolverDocument` | `GlazeDtcgResolverOptions` | Yes |
+| [`tailwind()`](#tailwindoptions) | `string` (CSS) | `GlazeTailwindOptions` | Yes |
+
+[`format`](#color-formats) applies to every method except `dtcg()` and `dtcgResolver()`: `'oklch'`, `'rgb'`, or `'hsl'`, and on `tasty()` also the Tasty-only `'okhsl'` and `'okhst'`. The two DTCG methods emit structured values and take `colorSpace` instead.
 
 Every method resolves the theme first (results are cached; see [`theme.resolve()`](./theme.md#themeresolve)). Tokens are emitted in dependency order.
 
@@ -94,17 +96,25 @@ The `format` option picks the color string syntax for `tokens()`, `tasty()`, `js
 All values use the modern space-separated syntax and strip trailing zeros (`95`, not `95.0`). Alpha is printed to at most 4 decimals.
 
 ```ts
-theme.tokens().light.surface; // 'oklch(0.97 0.0128 280)'
-theme.tokens({ format: 'rgb' }).light.surface; // 'rgb(243.08 244.36 253.89)'
-theme.tokens({ format: 'hsl' }).light.surface; // 'hsl(232.87 82.96% 97.45%)'
-theme.tasty({ format: 'okhsl' })['#surface']['']; // 'okhsl(280 80% 96.51%)'
-theme.tasty({ format: 'okhst' })['#surface']['']; // 'okhst(280 80% 97.15%)'
+theme.tokens().light.surface;
+// → 'oklch(0.97 0.0128 280)'
+theme.tokens({ format: 'rgb' }).light.surface;
+// → 'rgb(243.08 244.36 253.89)'
+theme.tokens({ format: 'hsl' }).light.surface;
+// → 'hsl(232.87 82.96% 97.45%)'
+theme.tasty({ format: 'okhsl' })['#surface'][''];
+// → 'okhsl(280 80% 96.51%)'
+theme.tasty({ format: 'okhst' })['#surface'][''];
+// → 'okhst(280 80% 97.15%)'
 ```
 
 **Native-format guard.** `okhsl` and `okhst` are not CSS color spaces. Only the methods that return Tasty state maps accept them — `tasty()` on themes and palettes, and `token()` / `tasty()` on color tokens. Every other method throws:
 
-```
-glaze: okhst output is only supported by tasty() (not a native CSS color space). Use tasty({ format: 'okhst' }) or pick a native format (oklch|hsl|rgb) for css().
+```text
+glaze: okhst output is only supported by tasty() (not a native CSS
+  color space).
+Use tasty({ format: 'okhst' }) or pick a native format (oklch|hsl|rgb)
+  for css().
 ```
 
 The guard is exported as [`assertNativeFormat`](./utilities.md#export-guards) for custom pipelines.
@@ -212,9 +222,18 @@ A per-color map of variant values.
 ```ts
 theme.json();
 // → {
-//   surface: { light: 'oklch(0.97 0.0128 280)', dark: 'oklch(0.279 0.1015 280)' },
-//   'surface-text': { light: 'oklch(0.5286 0.1912 280)', dark: 'oklch(0.6531 0.144 280)' },
-//   accent: { light: 'oklch(0.5961 0.181 280)', dark: 'oklch(0.5955 0.1601 280)' },
+//   surface: {
+//     light: 'oklch(0.97 0.0128 280)',
+//     dark: 'oklch(0.279 0.1015 280)',
+//   },
+//   'surface-text': {
+//     light: 'oklch(0.5286 0.1912 280)',
+//     dark: 'oklch(0.6531 0.144 280)',
+//   },
+//   accent: {
+//     light: 'oklch(0.5961 0.181 280)',
+//     dark: 'oklch(0.5955 0.1601 280)',
+//   },
 // }
 ```
 
@@ -261,14 +280,22 @@ theme.dtcg();
 //   light: {
 //     surface: {
 //       $type: 'color',
-//       $value: { colorSpace: 'srgb', components: [0.953256, 0.958291, 0.995646], hex: '#f3f4fe' },
+//       $value: {
+//         colorSpace: 'srgb',
+//         components: [0.953256, 0.958291, 0.995646],
+//         hex: '#f3f4fe',
+//       },
 //     },
 //     …
 //   },
 //   dark: {
 //     surface: {
 //       $type: 'color',
-//       $value: { colorSpace: 'srgb', components: [0.130873, 0.118318, 0.346863], hex: '#211e58' },
+//       $value: {
+//         colorSpace: 'srgb',
+//         components: [0.130873, 0.118318, 0.346863],
+//         hex: '#211e58',
+//       },
 //     },
 //     …
 //   },
@@ -300,7 +327,13 @@ Token shapes:
 
 ```ts
 theme.dtcg({ colorSpace: 'oklch' }).light.surface;
-// → { $type: 'color', $value: { colorSpace: 'oklch', components: [0.970004, 0.012759, 280] } }
+// → {
+//   $type: 'color',
+//   $value: {
+//     colorSpace: 'oklch',
+//     components: [0.970004, 0.012759, 280],
+//   },
+// }
 ```
 
 ## `dtcgResolver(options?)`
@@ -317,7 +350,11 @@ theme.dtcgResolver({ modes: { highContrast: true } });
 //         {
 //           surface: {
 //             $type: 'color',
-//             $value: { colorSpace: 'srgb', components: [0.953256, 0.958291, 0.995646], hex: '#f3f4fe' },
+//             $value: {
+//               colorSpace: 'srgb',
+//               components: [0.953256, 0.958291, 0.995646],
+//               hex: '#f3f4fe',
+//             },
 //           },
 //           …
 //         },
@@ -329,13 +366,16 @@ theme.dtcgResolver({ modes: { highContrast: true } });
 //       default: 'light',
 //       contexts: {
 //         light: [],
-//         dark: [{ surface: { $type: 'color', $value: { … hex: '#211e58' } }, … }],
-//         lightContrast: [{ surface: { $type: 'color', $value: { … hex: '#f2f4fe' } }, … }],
-//         darkContrast: [{ surface: { $type: 'color', $value: { … hex: '#0b0929' } }, … }],
+//         dark: [{ surface: { $type: 'color', $value: {…} }, … }],
+//         lightContrast: [{ surface: {…}, … }],
+//         darkContrast: [{ surface: {…}, … }],
 //       },
 //     },
 //   },
-//   resolutionOrder: [{ $ref: '#/sets/base' }, { $ref: '#/modifiers/scheme' }],
+//   resolutionOrder: [
+//     { $ref: '#/sets/base' },
+//     { $ref: '#/modifiers/scheme' },
+//   ],
 // }
 ```
 
@@ -409,8 +449,15 @@ How the override blocks are built:
 - An at-rule (any selector starting with `@`) wraps the block instead: Glaze nests the remaining selectors inside it, or `:root` when there are none.
 - A theme with no colors returns `''`.
 
+```ts
+theme.tailwind({
+  darkSelector: '@media (prefers-color-scheme: dark)',
+  modes: { highContrast: true },
+});
+```
+
 ```css
-/* theme.tailwind({ darkSelector: '@media (prefers-color-scheme: dark)', modes: { highContrast: true } }) — overrides only */
+/* The override blocks only; the @theme block is unchanged. */
 @media (prefers-color-scheme: dark) {
   :root {
     --color-surface: oklch(0.279 0.1015 280);
@@ -436,7 +483,10 @@ With `splitHue: true` and `format: 'oklch'`, Glaze emits hue as its own custom p
 Supported on `theme.css()`, `theme.tasty()`, `palette.css()`, `palette.tasty()`, and the standalone [`token.css()`](./color-tokens.md). Not supported on `token.token()` / `token.tasty()`, whose return shape can't carry the hue declaration, nor on `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, or `tailwind()`.
 
 ```ts
-const theme = glaze({ hue: 240, saturation: 18, darkHue: 200 }, { pastel: true });
+const theme = glaze(
+  { hue: 240, saturation: 18, darkHue: 200 },
+  { pastel: true },
+);
 theme.colors({
   surface: { tone: 97 },
   accent: { tone: 52, hue: '+20' },
@@ -464,8 +514,12 @@ theme.css({ splitHue: true, name: 'brand' });
 - **`format: 'oklch'`.** CSS `var()` can stand in for the hue slot of `oklch()` only. With any other format `splitHue` is ignored and colors are emitted inline, without an error.
 - **Every exported color is pastel.** Set `pastel: true` on the theme or token override, or per color. Pastel mode bounds chroma by the hue-independent safe chroma at each lightness, so the emitted `C` stays inside sRGB for any rotated hue. A non-pastel color in any emitted variant throws rather than emit values that would clip under rotation:
 
-  ```
-  glaze: splitHue requires every color to be pastel (hue rotation is only clip-free when chroma is bounded by the hue-independent safe chroma). Non-pastel: surface, accent. Set pastel: true (per-theme, per-token, or per-color) or drop splitHue.
+  ```text
+  glaze: splitHue requires every color to be pastel (hue rotation is
+    only clip-free when chroma is bounded by the hue-independent safe
+    chroma).
+  Non-pastel: surface, accent.
+  Set pastel: true (per-theme, per-token, or per-color) or drop splitHue.
   ```
 
   The check is exported as [`assertAllPastel`](./utilities.md#export-guards).
@@ -522,10 +576,19 @@ theme.colors({
 });
 
 theme.tokens({ format: 'rgb' }).light;
-// → { …, 'accent-pressed': 'rgb(0 0 0 / 0.1697)', scrim: 'rgb(0 0 0 / 0.5)' }
+// → {
+//   …,
+//   'accent-pressed': 'rgb(0 0 0 / 0.1697)',
+//   scrim: 'rgb(0 0 0 / 0.5)',
+// }
 
 theme.dtcg().light['accent-pressed'].$value;
-// → { colorSpace: 'srgb', components: [0, 0, 0], hex: '#000000', alpha: 0.16972 }
+// → {
+//   colorSpace: 'srgb',
+//   components: [0, 0, 0],
+//   hex: '#000000',
+//   alpha: 0.16972,
+// }
 ```
 
 A shadow's or glow's alpha is solved for its `bg` surface, and a transparent mix's alpha is its `value` (or the value solved for `contrast`) over its `base`; composite each over that color. An `opacity` color carries its authored alpha unchanged in every scheme. See [Shadows and glows](../shadows-and-glows.mdx) and [Mixes and transparency](../mixes.mdx).

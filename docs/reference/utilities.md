@@ -29,11 +29,16 @@ glaze.format(shade); // 'oklch(0 0 0 / 0.0814)'
 glaze.format(shade, 'rgb'); // 'rgb(0 0 0 / 0.0814)'
 glaze.format(shade, 'okhst'); // 'okhst(0 0% 0% / 0.0814)'
 
-const accent = glaze.color({ hue: 280, saturation: 80, tone: 60 }, { pastel: true });
+const accent = glaze.color(
+  { hue: 280, saturation: 80, tone: 60 },
+  { pastel: true },
+);
 const light = accent.resolve().light; // light.pastel === true
 
 glaze.format(light); // 'oklch(0.6542 0.089 280)'
-glaze.format({ ...light, pastel: undefined }); // 'oklch(0.6542 0.1604 280)' — read as non-pastel
+
+const plain = { ...light, pastel: undefined }; // read as non-pastel
+glaze.format(plain); // 'oklch(0.6542 0.1604 280)'
 ```
 
 ## `glaze.shadow(input)` / `glaze.glow(input)`
@@ -65,8 +70,10 @@ glaze.shadow({ bg: '#ffffff', intensity: 6 });
 // → { h: 0, s: 0, t: 0, alpha: 0.0814… }
 
 // The same 6-tone step needs more opacity on darker surfaces:
-glaze.shadow({ bg: { h: 0, s: 0, t: 0.5 }, intensity: 6 }).alpha; // 0.1066…
-glaze.shadow({ bg: { h: 0, s: 0, t: 0.1 }, intensity: 6 }).alpha; // 0.4769…
+const mid = { h: 0, s: 0, t: 0.5 };
+const deep = { h: 0, s: 0, t: 0.1 };
+glaze.shadow({ bg: mid, intensity: 6 }).alpha; // 0.1066…
+glaze.shadow({ bg: deep, intensity: 6 }).alpha; // 0.4769…
 
 const lift = glaze.glow({ bg: '#1e1e22', fg: '#3a3a44', intensity: 4 });
 glaze.format(lift); // 'oklch(1 0 0 / 0.0466)'
@@ -115,8 +122,10 @@ okhslToOklch(280, 0.6, 0.5); // [0.5688…, 0.1326…, 280]
 srgbToOkhsl(parseHex('#7a4dbf')!); // [298.5176…, 0.7040…, 0.4527…]
 srgbToHex([122 / 255, 77 / 255, 191 / 255]); // '#7a4dbf'
 parseHex('#7a4dbf80'); // null
-parseHexAlpha('#7a4dbf80'); // { rgb: [0.4784…, 0.3019…, 0.7490…], alpha: 0.5019… }
-cuspLightness(110); // 0.9619… (yellow peaks light; blue at 265 peaks at 0.3688…)
+parseHexAlpha('#7a4dbf80');
+// → { rgb: [0.4784…, 0.3019…, 0.7490…], alpha: 0.5019… }
+cuspLightness(110); // 0.9619… (yellow peaks light)
+cuspLightness(265); // 0.3688… (blue peaks dark)
 ```
 
 ### Luminance and contrast
@@ -148,7 +157,13 @@ Write one OKHSL (or OKHST) color as a string. Every writer takes `h` on 0–360 
 | `formatOklch(h, s, l, pastel?)` | `oklch(L C H)`, `L` / `C` to 4 decimals, `H` to 2 |
 
 ```ts
-import { formatOkhsl, formatOkhst, formatRgb, formatHsl, formatOklch } from '@tenphi/glaze';
+import {
+  formatOkhsl,
+  formatOkhst,
+  formatRgb,
+  formatHsl,
+  formatOklch,
+} from '@tenphi/glaze';
 
 formatOkhsl(280, 0.6, 0.95); // 'okhsl(280 60% 95%)'
 formatOkhst(280, 0.6, 0.95); // 'okhst(280 60% 95%)'
@@ -165,7 +180,13 @@ formatOklch(0, 0, 0.5); // 'oklch(0.5688 0 0)'
 A resolved variant composes with the writers directly; `variantToOkhsl` turns its tone into OKHSL lightness:
 
 ```ts
-import { glaze, variantToOkhsl, formatOkhst, formatOkhsl, formatRgb } from '@tenphi/glaze';
+import {
+  glaze,
+  variantToOkhsl,
+  formatOkhst,
+  formatOkhsl,
+  formatRgb,
+} from '@tenphi/glaze';
 
 const v = glaze.color('#7A4DBF').resolve().light;
 const { h, s, l } = variantToOkhsl(v);
@@ -193,13 +214,20 @@ The tone transfer behind OKHST. The model and why `eps` is `0.05`: [Tone and OKH
 `toTone` / `fromTone` measure luminance as a gray of that lightness, so they are exact for neutrals; a chromatic color's real luminance drifts slightly from its tone.
 
 ```ts
-import { toTone, fromTone, toneFromY, yFromTone, okhslToOkhst } from '@tenphi/glaze';
+import {
+  toTone,
+  fromTone,
+  toneFromY,
+  yFromTone,
+  okhslToOkhst,
+} from '@tenphi/glaze';
 
 toTone(0.5); // 50.6998…
 fromTone(50); // 0.4941…
 toneFromY(0.18); // 50.12…
 yFromTone(50); // 0.1791…
-okhslToOkhst({ h: 280, s: 0.6, l: 0.5 }); // { h: 280, s: 0.6, t: 0.5069… }
+okhslToOkhst({ h: 280, s: 0.6, l: 0.5 });
+// → { h: 280, s: 0.6, t: 0.5069… }
 ```
 
 ## Contrast solver
@@ -223,18 +251,30 @@ High-contrast escalation in `resolveContrastForMode`, applied only when `isHighC
 `polarity` (`'fg'` default, or `'bg'`) is copied onto APCA results; WCAG results have no `polarity`. `resolveContrastForLevel` returns the plain normal / high-contrast result at levels 0 and 100, and throws for any level in between when the two ends use different metrics (`glaze: a "contrast" pair cannot switch metric between its normal (wcag) and high-contrast (apca) entry — …`).
 
 ```ts
-import { resolveContrastForMode, resolveContrastForLevel } from '@tenphi/glaze';
+import {
+  resolveContrastForMode,
+  resolveContrastForLevel,
+} from '@tenphi/glaze';
 
-resolveContrastForMode('AA', false); // { metric: 'wcag', target: 4.5 }
-resolveContrastForMode('AA', true); // { metric: 'wcag', target: 7 }
-resolveContrastForMode('AA', true, undefined, true); // { metric: 'wcag', target: 4.5 }
-resolveContrastForMode({ wcag: ['AA', 'AA'] }, true); // { metric: 'wcag', target: 4.5 }
-resolveContrastForMode({ apca: 75 }, true); // { metric: 'apca', target: 90, polarity: 'fg' }
-resolveContrastForMode({ apca: 'preferred' }, true, 'bg'); // { metric: 'apca', target: 105, polarity: 'bg' }
-resolveContrastForMode({ apca: [60, 80] }, true); // { metric: 'apca', target: 80, polarity: 'fg' }
+resolveContrastForMode('AA', false);
+// → { metric: 'wcag', target: 4.5 }
+resolveContrastForMode('AA', true);
+// → { metric: 'wcag', target: 7 }
+resolveContrastForMode('AA', true, undefined, true);
+// → { metric: 'wcag', target: 4.5 }
+resolveContrastForMode({ wcag: ['AA', 'AA'] }, true);
+// → { metric: 'wcag', target: 4.5 }
+resolveContrastForMode({ apca: 75 }, true);
+// → { metric: 'apca', target: 90, polarity: 'fg' }
+resolveContrastForMode({ apca: 'preferred' }, true, 'bg');
+// → { metric: 'apca', target: 105, polarity: 'bg' }
+resolveContrastForMode({ apca: [60, 80] }, true);
+// → { metric: 'apca', target: 80, polarity: 'fg' }
 
-resolveContrastForLevel('AA', 50); // { metric: 'wcag', target: 5.75 }
-resolveContrastForLevel({ apca: 60 }, 50, 'bg'); // { metric: 'apca', target: 67.5, polarity: 'bg' }
+resolveContrastForLevel('AA', 50);
+// → { metric: 'wcag', target: 5.75 }
+resolveContrastForLevel({ apca: 60 }, 50, 'bg');
+// → { metric: 'apca', target: 67.5, polarity: 'bg' }
 ```
 
 ### `apcaContrast(yText, yBg)`
@@ -282,7 +322,11 @@ Searches tone for the value nearest `preferredTone` that meets a floor against a
 The search aims slightly past the target (WCAG ×1.01, APCA +0.5 Lc) to absorb rounding in the output formats; `met` is judged against the exact target. WCAG scores use `gamutClampedLuminance`, APCA scores use `Ys` with `polarity` deciding which side is the text.
 
 ```ts
-import { findToneForContrast, okhslToLinearSrgb, fromTone } from '@tenphi/glaze';
+import {
+  findToneForContrast,
+  okhslToLinearSrgb,
+  fromTone,
+} from '@tenphi/glaze';
 
 const surface = okhslToLinearSrgb(280, 0.1, fromTone(97));
 
@@ -306,7 +350,13 @@ findToneForContrast({
 // → { tone: 1, contrast: 1.09…, met: false, branch: 'lighter' }
 
 // …with flip: true
-// → { tone: 0.4846…, contrast: 4.54…, met: true, branch: 'darker', flipped: true }
+// → {
+//   tone: 0.4846…,
+//   contrast: 4.54…,
+//   met: true,
+//   branch: 'darker',
+//   flipped: true,
+// }
 ```
 
 ### `findValueForMixContrast(options)`
@@ -379,7 +429,12 @@ A color's role fixes its APCA polarity. How Glaze picks one: [Roles and APCA pol
 `Polarity` is `'fg' | 'bg'`.
 
 ```ts
-import { normalizeRole, inferRoleFromName, roleToPolarity, oppositeRole } from '@tenphi/glaze';
+import {
+  normalizeRole,
+  inferRoleFromName,
+  roleToPolarity,
+  oppositeRole,
+} from '@tenphi/glaze';
 
 normalizeRole('ink'); // 'text'
 normalizeRole('rule'); // 'border'
@@ -403,15 +458,29 @@ The checks the output methods run, exported for custom exporters.
 | `assertAllPastel(resolved, modes)` | Any variant included by `modes` is not pastel. `resolved` is a `Map<string, ResolvedColor>` (`theme.resolve()`); `modes` must have both `dark` and `highContrast` set. `light` is always checked, `dark` with `modes.dark`, `lightContrast` with `modes.highContrast`, `darkContrast` with both. |
 
 ```ts
-import { glaze, assertNativeFormat, assertAllPastel } from '@tenphi/glaze';
+import {
+  glaze,
+  assertNativeFormat,
+  assertAllPastel,
+} from '@tenphi/glaze';
 
 assertNativeFormat('okhst', 'css');
-// throws: glaze: okhst output is only supported by tasty() (not a native CSS color space). Use tasty({ format: 'okhst' }) or pick a native format (oklch|hsl|rgb) for css().
+// throws:
+// glaze: okhst output is only supported by tasty() (not a native CSS
+//   color space).
+// Use tasty({ format: 'okhst' }) or pick a native format (oklch|hsl|rgb)
+//   for css().
 
 const theme = glaze(280, 80);
-theme.colors({ surface: { tone: 97 }, accent: { tone: 50, pastel: true } });
+theme.colors({
+  surface: { tone: 97 },
+  accent: { tone: 50, pastel: true },
+});
 assertAllPastel(theme.resolve(), { dark: true, highContrast: false });
-// throws: glaze: splitHue requires every color to be pastel (…). Non-pastel: surface. Set pastel: true (per-theme, per-token, or per-color) or drop splitHue.
+// throws:
+// glaze: splitHue requires every color to be pastel (…).
+// Non-pastel: surface.
+// Set pastel: true (per-theme, per-token, or per-color) or drop splitHue.
 ```
 
 Where the output methods apply them: [Color formats](./output.md#color-formats) and [`splitHue` requirements](./output.md#requirements).

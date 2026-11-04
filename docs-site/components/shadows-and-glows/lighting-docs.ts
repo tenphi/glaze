@@ -27,6 +27,7 @@ import {
   DEFAULT_LIGHTING_TUNING,
   objectFactor,
 } from '../../../src/lighting.ts';
+import { inkForLuminance } from '../glaze-docs';
 import type { Scheme } from '../glaze-docs';
 
 export { DEFAULT_LIGHTING_TUNING, objectFactor };
@@ -71,6 +72,19 @@ export function compositeLinear(
     toDisplayGamma(linear(under)),
     toDisplayGamma(linear(over)),
     over.alpha,
+  );
+}
+
+/**
+ * Black or white text ink for `over` composited onto `under`: whichever has
+ * more WCAG contrast on what the browser actually paints.
+ */
+export function compositeInk(
+  over: ResolvedColorVariant,
+  under: ResolvedColorVariant,
+): string {
+  return inkForLuminance(
+    relativeLuminanceFromLinearRgb(compositeLinear(over, under)),
   );
 }
 

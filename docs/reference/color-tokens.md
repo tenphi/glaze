@@ -34,11 +34,16 @@ The first argument is the color, in one of four shapes told apart by structure. 
 | Structured | Has a `hue` key | `{ hue: 152, saturation: 95, tone: 74 }` | Structured |
 
 ```ts
-glaze.color('#26fcb2'); // bare string
-glaze.color({ h: 152, s: 0.95, l: 0.74 }); // OKHSL value object
-glaze.color({ h: 152, s: 0.95, t: 0.7 }); // OKHST value object (tone axis)
-glaze.color({ from: '#1a1a2e', hue: '+20', contrast: 'AA' }); // value + overrides
-glaze.color({ hue: 152, saturation: 95, tone: 74 }); // structured, 0–100 scales
+// bare string
+glaze.color('#26fcb2');
+// OKHSL value object
+glaze.color({ h: 152, s: 0.95, l: 0.74 });
+// OKHST value object (tone axis)
+glaze.color({ h: 152, s: 0.95, t: 0.7 });
+// value + overrides
+glaze.color({ from: '#1a1a2e', hue: '+20', contrast: 'AA' });
+// structured, 0–100 scales
+glaze.color({ hue: 152, saturation: 95, tone: 74 });
 ```
 
 The three **value** forms start from a literal color and take [`GlazeColorOverrides`](#glazecoloroverrides). The **structured** form is a theme-style definition on 0–100 scales; see [`GlazeColorInput`](#glazecolorinput).
@@ -46,8 +51,14 @@ The three **value** forms start from a literal color and take [`GlazeColorOverri
 ## `GlazeColorValue`
 
 ```ts
-type GlazeColorValue = string | OkhslColor | OkhstColor | RgbColor | OklchColor;
-type HexColor = `#${string}`; // editor hint; strings are validated at runtime
+type GlazeColorValue =
+  | string
+  | OkhslColor
+  | OkhstColor
+  | RgbColor
+  | OklchColor;
+// An editor hint; strings are validated at runtime.
+type HexColor = `#${string}`;
 
 interface OkhslColor { h: number; s: number; l: number }
 interface OkhstColor { h: number; s: number; t: number }
@@ -98,7 +109,7 @@ The fields a value form can carry next to its color. `GlazeFromInput` is `GlazeC
 | `tone` | `HCPair<ToneValue>` | The value's tone | Absolute (0–100), a tone delta (`'+N'` / `'-N'`), or `'max'` / `'min'`. A delta is measured from the value's own tone, or, with `base`, from the base. Under `mode: 'auto'` the dark variants mirror it; see [Pairing colors](#pairing-colors). |
 | `darkHue` | `number \| RelativeValue` | `hue` | Hue for the dark variants. Absolute, or relative to the seed hue (the value's hue, or an absolute `hue` override). |
 | `darkSaturation` | `number` | `saturation` | Dark saturation seed, 0–100. When set, `darkDesaturation` is not applied on top. |
-| `darkSaturationFactor` | `number` | `saturationFactor` | Dark multiplier (0–1) on the dark seed. When set, `darkDesaturation` is not applied on top. |
+| `darkSaturationFactor` | `number` | The light factor | Dark multiplier (0–1) on the dark seed. When set, `darkDesaturation` is not applied on top. |
 | `mode` | `AdaptationMode` | `'auto'` | `'fixed'` maps without inverting; `'static'` keeps the same tone in every variant. See [`mode`](./color-definitions.md#mode). |
 | `autoFlip` | `boolean` | The config's `autoFlip` | Mirror out-of-range results instead of clamping. See [`autoFlip`](./color-definitions.md#autoflip). |
 | `contrast` | `HCPair<ContrastSpec>` | — | Contrast floor. Without `base`, measured against the input value itself; with `base`, against the base in each scheme. See [Contrast and high contrast](./contrast.md#contrastspec). |
@@ -109,9 +120,12 @@ The fields a value form can carry next to its color. `GlazeFromInput` is `GlazeC
 | `name` | `string` | — | Debug label. See [`name`](#name). |
 
 ```ts
-glaze.color({ from: '#1a1a2e', hue: '+20' }); // hue 282.9 → 302.9
-glaze.color({ from: '#1a1a2e', saturation: 50 }); // saturation 0.375 → 0.5
-glaze.color({ from: '#1a1a2e', saturationFactor: 0.5 }); // saturation 0.375 → 0.187
+// hue 282.9 → 302.9
+glaze.color({ from: '#1a1a2e', hue: '+20' });
+// saturation 0.375 → 0.5
+glaze.color({ from: '#1a1a2e', saturation: 50 });
+// saturation 0.375 → 0.187
+glaze.color({ from: '#1a1a2e', saturationFactor: 0.5 });
 ```
 
 ## `GlazeColorInput`
@@ -126,7 +140,7 @@ The structured form: the same definition a theme color would have, with its own 
 | `saturationFactor` | `number` | `1` | Multiplier (0–1) on the seed. |
 | `darkHue` | `number \| RelativeValue` | `hue` | Dark hue: absolute, or relative to `hue`. |
 | `darkSaturation` | `number` | `saturation` | Dark saturation seed, 0–100. |
-| `darkSaturationFactor` | `number` | `saturationFactor` | Dark multiplier (0–1) on the dark seed. |
+| `darkSaturationFactor` | `number` | The light factor | Dark multiplier (0–1) on the dark seed. |
 | `mode` | `AdaptationMode` | `'auto'` | Adaptation mode. |
 | `autoFlip` | `boolean` | The config's `autoFlip` | Mirror out-of-range results instead of clamping. |
 | `opacity` | `number` | `1` | Fixed alpha, 0–1. |
@@ -148,7 +162,11 @@ Out-of-range numbers throw before anything resolves, for example `glaze.color: s
 ```ts
 const brand = glaze.color('#26fcb2');
 brand.resolve().light; // renders exactly #26fcb2
-brand.json(); // → { light: 'oklch(0.8789 0.1857 162.47)', dark: 'oklch(0.3446 0.066 162.47)' }
+brand.json();
+// → {
+//   light: 'oklch(0.8789 0.1857 162.47)',
+//   dark: 'oklch(0.3446 0.066 162.47)',
+// }
 ```
 
 ## Token methods
@@ -178,7 +196,11 @@ brand.css({ name: 'brand' }).light;
 // → '--brand-color: oklch(0.8789 0.1857 162.47);'
 
 brand.tailwind({ name: 'brand' });
-// → '@theme {\n  --color-brand: oklch(0.8789 0.1857 162.47);\n}\n\n.dark {\n  --color-brand: oklch(0.3446 0.066 162.47);\n}'
+// → '@theme {\n' +
+//   '  --color-brand: oklch(0.8789 0.1857 162.47);\n' +
+//   '}\n\n.dark {\n' +
+//   '  --color-brand: oklch(0.3446 0.066 162.47);\n' +
+//   '}'
 ```
 
 - Every output that takes `format` defaults to `'oklch'`; `dtcg()` and `dtcgResolver()` take a `colorSpace` instead (`'srgb'` by default). `json()`, `css()`, and `tailwind()` accept only the native CSS formats (`'oklch'`, `'rgb'`, `'hsl'`) and throw on `'okhsl'` / `'okhst'`; `token()` and `tasty()` accept all five. See [Color formats](./output.md#color-formats).
@@ -195,8 +217,10 @@ brand.tailwind({ name: 'brand' });
 | `splitHue` | `boolean` | `false` | Emit the hue as a separate `--<name>-hue` property referenced with `var()`. Applies only with `format: 'oklch'`; other formats ignore it and emit the color inline. Throws when the token isn't pastel. See [`splitHue`](./output.md#hue-channel-splitting-splithue). |
 
 ```ts
-glaze.color('#26fcb2', { pastel: true }).css({ name: 'brand', splitHue: true }).light;
-// → '--brand-hue: 162.4653546883244;\n--brand-color: oklch(0.8789 0.0572 var(--brand-hue));'
+const brand = glaze.color('#26fcb2', { pastel: true });
+brand.css({ name: 'brand', splitHue: true }).light;
+// → '--brand-hue: 162.4653546883244;\n' +
+//   '--brand-color: oklch(0.8789 0.0572 var(--brand-hue));'
 ```
 
 `GlazeColorTailwindOptions` is `GlazeTailwindOptions` plus a required `name`; `GlazeColorDtcgResolverOptions` is `GlazeDtcgResolverOptions` plus a required `name`.
@@ -218,7 +242,10 @@ glaze.color('#000000', { lightTone: false, darkTone: [15, 100] });
 // dark: #ffffff (with the default darkTone, #f1f1f1)
 
 // The structured form takes an override too.
-glaze.color({ hue: 152, saturation: 95, tone: 74 }, { darkTone: false, pastel: true });
+glaze.color(
+  { hue: 152, saturation: 95, tone: 74 },
+  { darkTone: false, pastel: true },
+);
 ```
 
 ## Pairing colors
@@ -232,12 +259,21 @@ const bg = glaze.color('#1a1a2e');
 const text = glaze.color({ from: '#ffffff', base: bg, contrast: 'AA' });
 // light: #ffffff on #1a1a2e (17.06:1); dark: #222222 on #dadbec (11.58:1)
 
-// 8 tones lighter than bg, except in darkContrast: bg sits at tone 93 there,
-// so autoFlip mirrors the step to 8 tones darker.
-const border = glaze.color({ from: '#000000', base: bg, tone: '+8', mode: 'fixed' });
+// 8 tones lighter than bg, except in darkContrast: bg sits at tone 93
+// there, so autoFlip mirrors the step to 8 tones darker.
+const border = glaze.color({
+  from: '#000000',
+  base: bg,
+  tone: '+8',
+  mode: 'fixed',
+});
 
 // A raw value is wrapped with glaze.color(value), so this equals `text`.
-const text2 = glaze.color({ from: '#ffffff', base: '#1a1a2e', contrast: 'AA' });
+const text2 = glaze.color({
+  from: '#ffffff',
+  base: '#1a1a2e',
+  contrast: 'AA',
+});
 ```
 
 With `base`:
@@ -254,8 +290,16 @@ Chains compose:
 
 ```ts
 const page = glaze.color('#000000');
-const surface = glaze.color({ from: '#222222', base: page, contrast: 'AAA' });
-const label = glaze.color({ from: '#ffffff', base: surface, contrast: 'AA' });
+const surface = glaze.color({
+  from: '#222222',
+  base: page,
+  contrast: 'AAA',
+});
+const label = glaze.color({
+  from: '#ffffff',
+  base: surface,
+  contrast: 'AA',
+});
 ```
 
 ### Roles on tokens
@@ -294,7 +338,13 @@ const data = text.export();
 //     input: '#ffffff',
 //     overrides: {
 //       contrast: 'AA',
-//       base: { kind: 'color', version: 2, form: 'value', input: '#1a1a2e', config: { … } },
+//       base: {
+//         kind: 'color',
+//         version: 2,
+//         form: 'value',
+//         input: '#1a1a2e',
+//         config: { … },
+//       },
 //     },
 //     config: {
 //       lightTone: false,

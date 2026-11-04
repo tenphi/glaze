@@ -66,7 +66,11 @@ export default function ObjectInfluence(props: ObjectInfluenceProps) {
   const intensity = props.intensity ?? 8;
   const colors: ColorMap = {};
   props.scenes.forEach((scene, i) => {
-    colors[`surface-${i}`] = { tone: scene.tone, saturation: 0, mode: 'static' };
+    colors[`surface-${i}`] = {
+      tone: scene.tone,
+      saturation: 0,
+      mode: 'static',
+    };
     scene.objects.forEach((obj, j) => {
       const name = `object-${i}-${j}`;
       colors[name] = {
@@ -86,10 +90,10 @@ export default function ObjectInfluence(props: ObjectInfluenceProps) {
   });
 
   const demo = resolveDemo({
-      hue: props.hue ?? 280,
-      saturation: props.saturation ?? 80,
-      colors,
-    });
+    hue: props.hue ?? 280,
+    saturation: props.saturation ?? 80,
+    colors,
+  });
   const v = (name: string) => variantOf(demo.resolved, name, 'light');
   const css = (name: string) => demo.colors[name].light;
 

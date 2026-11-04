@@ -78,13 +78,11 @@ export default function CardShadows(props: CardShadowsProps) {
           const alphas = {} as Record<Scheme, string>;
           for (const s of SCHEMES) {
             shadow[s] = `${card.geometry} ${demo.colors[card.shadow][s]}`;
-            const asked = askedStep(
-              def,
-              s,
-              v(props.page, s),
-              v(props.card, s),
+            const asked = askedStep(def, s, v(props.page, s), v(props.card, s));
+            steps[s] = stepLabel(
+              stepOf(v(card.shadow, s), v(props.page, s)),
+              asked,
             );
-            steps[s] = stepLabel(stepOf(v(card.shadow, s), v(props.page, s)), asked);
             alphas[s] = fmt(v(card.shadow, s).alpha, 3);
           }
           return (

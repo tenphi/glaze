@@ -10,7 +10,7 @@ import { Figure } from '../primitives';
 import { fmt, inkFor, resolveDemo, variantOf } from '../glaze-docs';
 import type { ColorMap } from '../../../src/index.ts';
 import { Big, Cells, Head, Note, Patch, Tile } from './parts';
-import { quietly, signed, stepOf } from './lighting-docs';
+import { compositeInk, quietly, signed, stepOf } from './lighting-docs';
 
 export interface UnreachableProps {
   cases: { kind: 'shadow' | 'glow'; tone: number; intensity: number }[];
@@ -40,12 +40,20 @@ export default function Unreachable(props: UnreachableProps) {
           return (
             <Tile
               key={i}
-              styles={{ fill: demo.colors[`surface-${i}`].light, color: inkFor(bg) }}
+              styles={{
+                fill: demo.colors[`surface-${i}`].light,
+                color: inkFor(bg),
+              }}
             >
               <Head>
                 {c.kind} {c.intensity} on tone {c.tone}
               </Head>
-              <Patch styles={{ fill: demo.colors[`overlay-${i}`].light }}>
+              <Patch
+                styles={{
+                  fill: demo.colors[`overlay-${i}`].light,
+                  color: compositeInk(over, bg),
+                }}
+              >
                 <Big>{signed(stepOf(over, bg))}</Big>
                 <Note>asked {signed(sign * c.intensity)}</Note>
                 <Note>α {fmt(over.alpha, 3)}</Note>

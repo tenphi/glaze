@@ -1,8 +1,9 @@
 /**
  * Building blocks for the shadow, glow, and mix figures: a surface tile, a
  * patch painted with a translucent color on top of it, and the measurement
- * labels. Every color arrives at render time through Tasty `styles`; text
- * inherits the tile's ink.
+ * labels. Every color arrives at render time through Tasty `styles`. Text
+ * takes the ink of what it sits on: a tile's from `inkFor`, a patch's from
+ * `compositeInk` (what the browser paints there).
  */
 
 import { tasty } from '@tenphi/cookbook/styling';
@@ -30,7 +31,10 @@ export const Stage = tasty({
   },
 });
 
-/** A box painted with a translucent color over whatever is under it. */
+/**
+ * A box painted with a translucent color over whatever is under it. Pass
+ * `styles={{ fill, color }}`, with `color` from `compositeInk`.
+ */
 export const Patch = tasty({
   styles: {
     display: 'grid',
@@ -73,12 +77,15 @@ export const Head = tasty({
   styles: { preset: 'small', fontWeight: 600 },
 });
 
-/** A responsive grid with wider cells than the shared `Grid`. */
+/**
+ * A responsive grid with wider cells than the shared `Grid`. Cells stretch
+ * to fill the row, so a few tiles never bunch up on one side.
+ */
 export const Cells = tasty({
   styles: {
     display: 'grid',
     gap: '1.5x',
-    gridColumns: 'repeat(auto-fill, minmax(8.5rem, 1fr))',
+    gridColumns: 'repeat(auto-fit, minmax(8.5rem, 1fr))',
   },
 });
 

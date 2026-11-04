@@ -10,7 +10,11 @@ import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Figure } from '../primitives';
 import { fmt } from '../glaze-docs';
-import { glaze, okhslToLinearSrgb, variantToOkhsl } from '../../../src/index.ts';
+import {
+  glaze,
+  okhslToLinearSrgb,
+  variantToOkhsl,
+} from '../../../src/index.ts';
 import {
   compositeOverGamma,
   relativeLuminanceFromLinearRgb,

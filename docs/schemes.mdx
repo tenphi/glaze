@@ -19,12 +19,12 @@ small dark desaturation, unless you give dark a seed of its own.
 
 Every color resolves to four variants:
 
-| Variant         | Scheme                    | Window                                                                                  |
-| --------------- | ------------------------- | --------------------------------------------------------------------------------------- |
-| `light`         | Light                     | `lightTone`, default `[10, 100]` in OKHSL lightness (tone 4.9–100)                      |
-| `dark`          | Dark                      | `darkTone`, default `[15, 95]` in OKHSL lightness (tone 9.3–95.9), inverted for `auto` |
-| `lightContrast` | Light, high contrast      | The full range, tone 0–100                                                              |
-| `darkContrast`  | Dark, high contrast       | The full range, inverted for `auto`                                                     |
+| Variant         | Scheme               | Window                                                                                  |
+| --------------- | -------------------- | --------------------------------------------------------------------------------------- |
+| `light`         | Light                | `lightTone`, default `[10, 100]` in OKHSL lightness (tone 4.95–100)                     |
+| `dark`          | Dark                 | `darkTone`, default `[15, 95]` in OKHSL lightness (tone 9.25–95.9), inverted for `auto` |
+| `lightContrast` | Light, high contrast | The full range, tone 0–100                                                              |
+| `darkContrast`  | Dark, high contrast  | The full range, inverted for `auto`                                                     |
 
 `theme.resolve()` always returns all four. Exports include `light` and `dark`
 by default; [output modes](#output-modes) choose which variants they emit.
@@ -69,9 +69,9 @@ glaze.configure({
 ```
 
 The bounds are OKHSL lightness values. Glaze converts them to tone — the light
-window spans tone 4.9 to 100, the dark window 9.3 to 95.9 — and spreads the
+window spans tone 4.95 to 100, the dark window 9.25 to 95.9 — and spreads the
 whole authored `0–100` scale across that interval. The window is a remap, not a
-clamp: an authored tone of 0 renders at tone 4.9 in light, and every other tone
+clamp: an authored tone of 0 renders at tone 4.95 in light, and every other tone
 moves proportionally. Per scheme and mode:
 
 ```text
@@ -116,13 +116,19 @@ Some colors skip a window:
 
 ## Adaptation modes
 
-A color's `mode` decides how its tone moves between schemes:
+A color's `mode` decides how its tone moves between schemes. In light, `auto`
+and `fixed` both remap the authored tone into the light window, and `static`
+keeps it as authored. They differ in dark:
 
-| Mode               | Light                         | Dark                                       | Use it for                                                                                      |
-| ------------------ | ----------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `'auto'` (default) | Remap into the light window   | Invert, then remap into the dark window    | Surfaces, text, borders, icons — anything that should trade places with its background in dark. |
-| `'fixed'`          | Remap into the light window   | Remap into the dark window, no inversion   | Brand fills, CTAs, status banners, inverse surfaces — colors that stay on their side of the scale. |
-| `'static'`         | The authored tone, unchanged  | The authored tone, unchanged               | Colors that must render the exact authored tone and saturation in every scheme.                  |
+| Mode               | In dark                                      | Use it for                        |
+| ------------------ | -------------------------------------------- | --------------------------------- |
+| `'auto'` (default) | Inverted, then remapped into the dark window | Surfaces, text, borders, icons    |
+| `'fixed'`          | Remapped into the dark window, not inverted  | Brand fills, CTAs, status banners |
+| `'static'`         | The authored tone, as in light               | Logos and other exact colors      |
+
+`auto` suits anything that should trade places with its background in dark;
+`fixed` keeps a color on its side of the scale, as brand fills and inverse
+surfaces need.
 
 <SchemeExample
   hue={280}
@@ -223,7 +229,7 @@ scale without a magic number. `'max'` is authored tone 100 and `'min'` is 0, so
 without a `base` they go through the ordinary scheme mapping:
 
 - Under `auto`, they invert: `'max'` is the lightest color in light (tone 100)
-  and the darkest in dark (tone 9.3, the bottom of the dark window).
+  and the darkest in dark (tone 9.25, the bottom of the dark window).
 - Under `fixed`, they keep their end: `'max'` stays the lightest (tone 95.9 in
   dark).
 - Under `static`, they're pinned to the absolute end in every scheme.
@@ -249,7 +255,7 @@ and extreme, then replays it against the base's dark tone — mirrored under
 />
 
 The replayed tone is clamped to `[0, 100]` only, so it can cross the `darkTone`
-boundary — `fg` above lands at tone 5.9, below the dark window's 9.3. That is
+boundary — `fg` above lands at tone 5.9, below the dark window's 9.25. That is
 intended: you asked for the extreme. When the shift doesn't fit above or below
 the dark base, the color pins at tone 100 or 0. `static` extremes are
 unaffected. High-contrast variants follow the same rule, but their window is
@@ -263,15 +269,16 @@ it as authored, with two adjustments for the dark schemes.
 
 ### Dark desaturation
 
-Dark variants get a flat saturation reduction:
+Dark variants get a flat saturation reduction, set by `darkDesaturation`
+(default `0.1`):
 
 ```text
-S_dark = S_light × (1 − darkDesaturation)    darkDesaturation defaults to 0.1
+S_dark = S_light × (1 − darkDesaturation)
 ```
 
 It applies to `dark` and `darkContrast`, skips `static` colors, and is bypassed
-entirely for a color that has an explicit dark saturation (below). Set it
-globally or per instance with `darkDesaturation`.
+entirely for a color that has an explicit dark saturation (below). Set
+`darkDesaturation` globally or per instance.
 
 <SchemeExample
   hue={280}
@@ -456,8 +463,11 @@ glaze.color('#26fcb2', { contrastLevel: 60 });
       mode: 'fixed',
     },
   }}
-  after="// Each column: the same theme with { contrastLevel: 0 | 25 | 50 | 75 | 100 }"
-  caption="The normal light and dark variants at five levels, with the measured WCAG ratio of text and border against the surface. Level 0 is the authored palette, level 100 equals the theme's high-contrast tier (last column)."
+  after={
+    '// Each column is this theme with a config override:\n' +
+    '// { contrastLevel: 0 | 25 | 50 | 75 | 100 }'
+  }
+  caption="The normal light and dark variants at five levels. Under each: the measured WCAG ratio of text and border against the surface, and the APCA Lc of the accent label on its fill, whose floor ramps from 'content' (Lc 60) to 'body' (Lc 75). Level 0 is the authored palette; level 100 equals the theme's high-contrast tier (last column)."
 />
 
 What the level moves:

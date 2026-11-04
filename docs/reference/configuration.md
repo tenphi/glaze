@@ -125,8 +125,8 @@ type ToneWindow =
 
 | Window | Default | Stored tone range |
 | --- | --- | --- |
-| `lightTone` | `[10, 100]` | 4.95 – 100 |
-| `darkTone` | `[15, 95]` | 9.25 – 95.9 |
+| `lightTone` | `[10, 100]` | 4.95–100 |
+| `darkTone` | `[15, 95]` | 9.25–95.9 |
 
 - **High contrast** replaces both windows with `[0, 100]`, keeping the window's `eps`.
 - **`contrastLevel`** moves each boundary toward `[0, 100]` (formula below). A `false` window is already the full range, so it doesn't change with the level.
@@ -175,11 +175,14 @@ import { glaze } from '@tenphi/glaze';
 const t = glaze(280, 80, { lightTone: [0, 50] });
 t.colors({ text: { tone: 50, saturation: 1 } });
 
-t.resolve().get('text')!.light.t; // → 0.2534… — inside [0, 50], whatever the global lightTone
-t.resolve().get('text')!.dark.s; // → 0.72 (darkDesaturation 0.1, not overridden)
+t.resolve().get('text')!.light.t;
+// → 0.2534… — inside [0, 50], whatever the global lightTone
+t.resolve().get('text')!.dark.s;
+// → 0.72 (darkDesaturation 0.1, not overridden)
 
 glaze.configure({ darkDesaturation: 0.5 });
-t.resolve().get('text')!.dark.s; // → 0.4 — follows the global change
+t.resolve().get('text')!.dark.s;
+// → 0.4 — follows the global change
 
 const child = t.extend({ config: { darkTone: false } });
 child.getConfig().lightTone; // → [0, 50] (inherited)
@@ -195,7 +198,10 @@ glaze.color('#26fcb2', { darkTone: false });
 glaze.color('#000000', { lightTone: false, darkTone: [15, 100] });
 
 // Structured token with an override
-glaze.color({ hue: 152, saturation: 95, tone: 74 }, { darkTone: false, pastel: true });
+glaze.color(
+  { hue: 152, saturation: 95, tone: 74 },
+  { darkTone: false, pastel: true },
+);
 ```
 
 ## Adaptation modes
@@ -371,7 +377,10 @@ The first three share one session cache of 256 keys, which starts over when full
 ### Contrast unmet
 
 ```text
-glaze: color "badge-text" cannot meet WCAG 7.00 in light scheme (got 4.94). Try widening the tone window, lowering the contrast target, or picking a base color further from this color's tone.
+glaze: color "badge-text" cannot meet WCAG 7.00 in light scheme
+  (got 4.94).
+Try widening the tone window, lowering the contrast target, or picking
+  a base color further from this color's tone.
 ```
 
 Fires when the result is more than 2% under a WCAG target, or more than 1.5 Lc under an APCA target (the solver aims slightly past the target, so smaller shortfalls are rounding). The scheme is `light`, `dark`, `lightContrast`, or `darkContrast`; APCA targets print as `APCA Lc 75.0`. Standalone tokens print their `name` option, or `"value"` when it isn't set. Fixes: [When a floor can't be met](../contrast.mdx#when-a-floor-cant-be-met).
@@ -379,7 +388,10 @@ Fires when the result is more than 2% under a WCAG target, or more than 1.5 Lc u
 ### Contrast drift
 
 ```text
-glaze: color "badge-text" drifts below WCAG 7.00 in light scheme (measured 4.94). Chromatic luminance differs from the gray tone; nudge the tone or saturation if the floor matters.
+glaze: color "badge-text" drifts below WCAG 7.00 in light scheme
+  (measured 4.94).
+Chromatic luminance differs from the gray tone; nudge the tone or
+  saturation if the floor matters.
 ```
 
 After all schemes resolve, Glaze re-measures every regular color with `contrast` and `base` against its base, in the floor's metric and the color's role polarity, with the same margins. An unmet floor triggers this advisory as well, for the same scheme. Mixes are not re-measured. At an effective `contrastLevel` of 100, global or per instance, the high-contrast slots are skipped because they mirror the normal ones. Background: [Chromatic drift advisory](../contrast.mdx#chromatic-drift-advisory).
@@ -387,7 +399,10 @@ After all schemes resolve, Glaze re-measures every regular color with `contrast`
 ### Shadow or glow out of reach
 
 ```text
-glaze: glow "g" cannot reach a 5.0-tone step in light scheme (reached 0.0 at full strength). Lower the intensity, move the surface away from white, or raise a tuned-down `reach`.
+glaze: glow "g" cannot reach a 5.0-tone step in light scheme
+  (reached 0.0 at full strength).
+Lower the intensity, move the surface away from white, or raise a
+  tuned-down `reach`.
 ```
 
 Fires when the composite lands more than 0.05 tones short of `intensity × k`. The standalone functions name themselves instead of a color and omit the scheme: `glaze: glaze.glow() cannot reach a 5.0-tone step (reached 0.0 at full strength). …`. A shadow's message suggests moving the surface away from black. See [Unreachable steps](../shadows-and-glows.mdx#unreachable-steps).
@@ -395,7 +410,8 @@ Fires when the composite lands more than 0.05 tones short of `intensity × k`. T
 ### Contrast and opacity
 
 ```text
-glaze: color "text" has both "contrast" and "opacity". Opacity makes perceived tone unpredictable.
+glaze: color "text" has both "contrast" and "opacity".
+Opacity makes perceived tone unpredictable.
 ```
 
 Emitted during validation. For a translucent color with a floor, use a [transparent mix](../mixes.mdx).
@@ -403,7 +419,8 @@ Emitted during validation. For a translucent color with a floor, use a [transpar
 ### Alpha dropped
 
 ```text
-glaze: alpha component dropped from "#ffffff80" (standalone color has no opacity field).
+glaze: alpha component dropped from "#ffffff80"
+  (standalone color has no opacity field).
 ```
 
 Any color string Glaze parses — a `from` value, a `glaze.color()` value, or a `glaze.shadow()` / `glaze.glow()` input — keeps only its color. Use `opacity` on a regular color, or a transparent mix, for translucency.
@@ -411,7 +428,10 @@ Any color string Glaze parses — a `from` value, a `glaze.color()` value, or a 
 ### Percentage scale
 
 ```text
-glaze: formatRgb() got a value above 1 — it takes the 0-1 factors every Glaze producer returns (resolve(), variantToOkhsl, srgbToOkhsl), not 0-100 percentages. Divide by 100, or drop the "* 100" left over from the pre-2.0 signature.
+glaze: formatRgb() got a value above 1 — it takes the 0-1 factors every
+  Glaze producer returns (resolve(), variantToOkhsl, srgbToOkhsl), not
+  0-100 percentages.
+Divide by 100, or drop the "* 100" left over from the pre-2.0 signature.
 ```
 
 The [format writers](./utilities.md#format-writers) take `s` / `l` / `t` on 0–1. A value above 1 can only be pre-2.0 percentage input, so each writer warns the first time it sees one in the process (and still formats the value). Upgrade notes: [2.0 — `format*` takes 0–1](../migration.md#20--format-takes-01).

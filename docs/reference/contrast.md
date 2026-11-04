@@ -36,8 +36,8 @@ The first entry drives the `light` and `dark` variants, the second `lightContras
 ```ts
 tone: '-8'; // -8 in normal and high contrast
 tone: ['-8', '-16']; // -8 normal, -16 high contrast
-contrast: { apca: 'content' }; // preset, escalated automatically in high contrast
-contrast: { apca: ['content', 'body'] }; // explicit normal / high-contrast targets
+contrast: { apca: 'content' }; // preset, auto-escalated in high contrast
+contrast: { apca: ['content', 'body'] }; // explicit normal / HC targets
 ```
 
 For `contrast`, the pair can wrap the whole spec or sit inside the metric (see [`ContrastSpec`](#contrastspec)). An explicit high-contrast value in either position turns off the automatic [escalation](#high-contrast-escalation) for that color.
@@ -50,7 +50,13 @@ A contrast floor with a choice of metric:
 
 ```ts
 type ContrastPreset = 'AA' | 'AAA' | 'AA-large' | 'AAA-large';
-type ApcaPreset = 'preferred' | 'body' | 'content' | 'large' | 'non-text' | 'min';
+type ApcaPreset =
+  | 'preferred'
+  | 'body'
+  | 'content'
+  | 'large'
+  | 'non-text'
+  | 'min';
 
 type MinContrast = number | ContrastPreset; // a bare WCAG target
 
@@ -135,8 +141,11 @@ Without an explicit high-contrast entry, the `lightContrast` / `darkContrast` va
 
 A `contrast` pair can't switch metric between its entries. A WCAG ratio and an APCA Lc are different scales, so `[4.5, { apca: 75 }]` has no target between its ends, and even without a manual level the two variants would be judged incomparably. Validation throws:
 
-```
-glaze: color "text" has a "contrast" pair that switches metric (wcag → apca). A WCAG ratio and an APCA Lc are different scales; use one metric for both entries, e.g. { wcag: [normal, highContrast] }.
+```text
+glaze: color "text" has a "contrast" pair that switches metric
+  (wcag → apca).
+A WCAG ratio and an APCA Lc are different scales; use one metric for
+  both entries, e.g. { wcag: [normal, highContrast] }.
 ```
 
 Pair values inside one metric instead: `{ wcag: [4.5, 7] }` or `{ apca: [60, 90] }`.
@@ -242,7 +251,9 @@ theme.colors({
   'surface-text': { base: 'surface', tone: '-52', contrast: 'AA' },
 });
 
-const slider = document.querySelector<HTMLInputElement>('#contrast-level')!;
+const slider = document.querySelector<HTMLInputElement>(
+  '#contrast-level',
+)!;
 const style = document.head.appendChild(document.createElement('style'));
 
 slider.oninput = () => {

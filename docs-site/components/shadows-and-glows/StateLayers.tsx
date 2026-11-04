@@ -10,17 +10,22 @@ import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Figure } from '../primitives';
 import SchemeValue from '../SchemeValue';
-import {
-  SCHEMES,
-  inkMap,
-  paint,
-  resolveDemo,
-  variantOf,
+import { SCHEMES, inkMap, paint, resolveDemo, variantOf } from '../glaze-docs';
+import type {
+  DemoTheme,
+  Scheme,
+  SchemeChoice,
+  SchemeColors,
 } from '../glaze-docs';
-import type { DemoTheme, Scheme, SchemeChoice } from '../glaze-docs';
 import { Head, Note } from './parts';
 import type { GlowColorDef, ShadowColorDef } from '../../../src/index.ts';
-import { askedStep, quietly, stepLabel, stepOf } from './lighting-docs';
+import {
+  askedStep,
+  compositeInk,
+  quietly,
+  stepLabel,
+  stepOf,
+} from './lighting-docs';
 
 export interface StateRow {
   /** The fill the layers sit on. */
@@ -84,7 +89,7 @@ export default function StateLayers(props: StateLayersProps) {
     <Figure caption={props.caption}>
       <Rows>
         {props.rows.map((row) => {
-          const ink = paint(inkMap(demo.resolved, row.fill), scheme);
+          const fillInk = inkMap(demo.resolved, row.fill);
           const chips = [{ name: undefined, label: 'Rest' }, ...row.layers];
           return (
             <Group key={row.fill}>
@@ -92,16 +97,20 @@ export default function StateLayers(props: StateLayersProps) {
               <Line>
                 {chips.map((chip) => {
                   const steps = {} as Record<Scheme, string>;
+                  // Ink for what the layer paints over the fill.
+                  const ink = { ...fillInk } as SchemeColors;
                   if (chip.name) {
                     const def = props.colors[chip.name] as
                       | ShadowColorDef
                       | GlowColorDef;
                     for (const s of SCHEMES) {
                       const bg = variantOf(demo.resolved, row.fill, s);
+                      const over = variantOf(demo.resolved, chip.name, s);
                       steps[s] = stepLabel(
-                        stepOf(variantOf(demo.resolved, chip.name, s), bg),
+                        stepOf(over, bg),
                         askedStep(def, s, bg),
                       );
+                      ink[s] = compositeInk(over, bg);
                     }
                   }
                   return (
@@ -114,7 +123,7 @@ export default function StateLayers(props: StateLayersProps) {
                           fill: chip.name
                             ? paint(demo.colors[chip.name], scheme)
                             : 'transparent',
-                          color: ink,
+                          color: paint(ink, scheme),
                         }}
                       >
                         <Head>{chip.label}</Head>

@@ -10,8 +10,8 @@ import { tasty } from '@tenphi/cookbook/styling';
 import { Figure } from '../primitives';
 import { fmt, inkFor, resolveDemo, toneOf, variantOf } from '../glaze-docs';
 import type { ColorMap, LightingTuning } from '../../../src/index.ts';
-import { Big, Cells, Dot, Head, Legend, Note, Patch, Tile } from './parts';
-import { opaqueCss, signed, stepOf } from './lighting-docs';
+import { Big, Dot, Head, Legend, Note, Patch, Tile } from './parts';
+import { compositeInk, opaqueCss, signed, stepOf } from './lighting-docs';
 
 export interface TintedPigmentProps {
   /** Seed hue and saturation (0–100) the surfaces are tinted with. */
@@ -29,6 +29,15 @@ export interface TintedPigmentProps {
 
 const Rows = tasty({ styles: { display: 'grid', gap: '2x' } });
 const Group = tasty({ styles: { display: 'grid', gap: '1x' } });
+
+/** One column per tuning, stretched across the figure; stacked on mobile. */
+const Columns = tasty({
+  styles: {
+    display: 'grid',
+    gap: '1.5x',
+    gridColumns: 'repeat(auto-fit, minmax(11rem, 1fr))',
+  },
+});
 
 export default function TintedPigment(props: TintedPigmentProps) {
   const intensity = props.intensity ?? 8;
@@ -58,7 +67,11 @@ export default function TintedPigment(props: TintedPigmentProps) {
     });
   });
 
-  const demo = resolveDemo({ hue: props.hue, saturation: props.saturation, colors });
+  const demo = resolveDemo({
+    hue: props.hue,
+    saturation: props.saturation,
+    colors,
+  });
   const v = (name: string) => variantOf(demo.resolved, name, 'light');
 
   return (
@@ -69,7 +82,7 @@ export default function TintedPigment(props: TintedPigmentProps) {
           return (
             <Group key={tone}>
               <Legend>surface · tone {tone}</Legend>
-              <Cells>
+              <Columns>
                 {props.columns.map((col, j) => {
                   const over = v(`shadow-${tone}-${j}`);
                   return (
@@ -82,20 +95,27 @@ export default function TintedPigment(props: TintedPigmentProps) {
                     >
                       <Head>{col.label}</Head>
                       <Patch
-                        styles={{ fill: demo.colors[`shadow-${tone}-${j}`].light }}
+                        styles={{
+                          fill: demo.colors[`shadow-${tone}-${j}`].light,
+                          color: compositeInk(over, bg),
+                        }}
                       >
                         <Big>{signed(stepOf(over, bg))}</Big>
                         <Note>α {fmt(over.alpha, 3)}</Note>
                       </Patch>
                       <Note>
                         <Dot styles={{ fill: opaqueCss(over) }} /> pigment
-                        tone {fmt(toneOf(over), 1)}
-                        {over.s > 0 ? ` · h ${fmt(over.h, 0)}` : ''}
+                        <br />
+                        {/* Non-breaking: the line never starts with "·". */}
+                        {`tone\u00a0${fmt(toneOf(over), 1)}`}
+                        {over.s > 0
+                          ? `\u00a0·\u00a0h\u00a0${fmt(over.h, 0)}`
+                          : ''}
                       </Note>
                     </Tile>
                   );
                 })}
-              </Cells>
+              </Columns>
             </Group>
           );
         })}

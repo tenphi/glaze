@@ -19,7 +19,11 @@ import type {
 ## `ColorDef`
 
 ```ts
-type ColorDef = RegularColorDef | ShadowColorDef | GlowColorDef | MixColorDef;
+type ColorDef =
+  | RegularColorDef
+  | ShadowColorDef
+  | GlowColorDef
+  | MixColorDef;
 type ColorMap = Record<string, ColorDef>;
 ```
 
@@ -68,11 +72,16 @@ import { glaze } from '@tenphi/glaze';
 const theme = glaze(280, 80);
 
 theme.colors({
-  surface: { tone: 97, saturation: 0.1 }, // root
-  'surface-text': { base: 'surface', tone: '-52', contrast: 'AA' }, // dependent
-  border: { base: 'surface', tone: ['-8', '-16'] }, // HC pair
-  accent: { tone: 52, mode: 'fixed' }, // root that keeps its tone in dark
-  brand: { from: '#2f5bff', base: 'surface', contrast: 3 }, // literal value
+  // root
+  surface: { tone: 97, saturation: 0.1 },
+  // dependent
+  'surface-text': { base: 'surface', tone: '-52', contrast: 'AA' },
+  // HC pair
+  border: { base: 'surface', tone: ['-8', '-16'] },
+  // root that keeps its tone in dark
+  accent: { tone: 52, mode: 'fixed' },
+  // literal value
+  brand: { from: '#2f5bff', base: 'surface', contrast: 3 },
 });
 ```
 
@@ -163,7 +172,7 @@ theme.colors({
   surface: { tone: 97 },
   'gradient-end': { tone: 90, hue: '+20' }, // 280 + 20 = 300
   warning: { tone: 60, hue: 40 }, // absolute
-  'muted-fill': { tone: 90, saturation: 0.3 }, // 30% of the seed saturation
+  'muted-fill': { tone: 90, saturation: 0.3 }, // 30% of seed saturation
 });
 ```
 
@@ -212,7 +221,11 @@ With [`splitHue`](./output.md#dark-hues), a dark seed makes the hue custom prope
 theme.colors({
   surface: { tone: 97 },
   'surface-text': { base: 'surface', tone: '-52', contrast: 'AA' },
-  'muted-text': { base: 'surface', tone: '-40', contrast: { apca: 'content' } },
+  'muted-text': {
+    base: 'surface',
+    tone: '-40',
+    contrast: { apca: 'content' },
+  },
   'accent-text': { base: 'surface', contrast: { wcag: [4.5, 7] } },
 });
 ```
@@ -269,7 +282,8 @@ theme.colors({
 
 theme.resolve().get('soft')!.light.pastel; // → true
 theme.css({ format: 'rgb' }).light;
-// → '--plain-color: rgb(105.64 102.82 227.87);\n--soft-color: rgb(113.43 117.68 169.27);'
+// → '--plain-color: rgb(105.64 102.82 227.87);\n' +
+//   '--soft-color: rgb(113.43 117.68 169.27);'
 ```
 
 Omit it to use the theme's `pastel` (from its [config override](./theme.md#per-theme-config-override), default `false`). `pastel` can't be set with `glaze.configure()`.
@@ -329,7 +343,8 @@ Turn name inference off with `glaze.configure({ inferRole: false })` or a per-th
 const primary = glaze(280, 80);
 primary.colors({
   surface: { tone: 97 },
-  'brand-mark': { from: '#2f5bff', inherit: false }, // stays on primary only
+  // stays on primary only
+  'brand-mark': { from: '#2f5bff', inherit: false },
 });
 
 const danger = primary.extend({ hue: 23 }); // has surface, not brand-mark
@@ -359,7 +374,12 @@ theme.colors({
   card: { tone: 100 },
   accent: { tone: 45 },
 
-  'card-shadow': { type: 'shadow', bg: 'surface', fg: 'card', intensity: 8 },
+  'card-shadow': {
+    type: 'shadow',
+    bg: 'surface',
+    fg: 'card',
+    intensity: 8,
+  },
   'surface-hover': { type: 'shadow', bg: 'surface', intensity: 5 },
   'accent-pressed': { type: 'shadow', bg: 'accent', intensity: [8, 14] },
   'accent-hover': { type: 'glow', bg: 'accent', intensity: 6 },
@@ -442,9 +462,15 @@ A blend of two colors: an opaque interpolation, or the target laid over the base
 theme.colors({
   surface: { tone: 95 },
   accent: { tone: 30 },
-  black: { tone: 0, saturation: 0, mode: 'static' }, // black in every scheme
+  // black in every scheme
+  black: { tone: 0, saturation: 0, mode: 'static' },
 
-  'accent-tint': { type: 'mix', base: 'surface', target: 'accent', value: 30 },
+  'accent-tint': {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: 30,
+  },
   'surface-hover': {
     type: 'mix',
     base: 'surface',

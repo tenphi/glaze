@@ -4,6 +4,10 @@
  * scheme. Each cell is labelled with the canonical tone Glaze stores for that
  * scheme, so the dark inversion, the tone windows, and the high-contrast
  * bypass are all visible at once. Every strip is a static rendering.
+ *
+ * Interior labels use one decimal. The two end cells sit on the window edges,
+ * so they print the edge the way the prose quotes it (4.95–100, 9.25–95.9):
+ * two decimals, trailing zeros dropped.
  */
 
 import type { ReactNode } from 'react';
@@ -79,6 +83,11 @@ export interface SchemeRampProps {
   caption?: ReactNode;
 }
 
+/** A window edge: two decimals without trailing zeros (4.95, 95.9, 100). */
+function edgeLabel(tone: number): string {
+  return String(Number(fmt(tone, 2)));
+}
+
 export default function SchemeRamp(props: SchemeRampProps) {
   const steps = props.steps ?? 11;
   const schemes = props.schemes ?? SCHEMES;
@@ -114,8 +123,9 @@ export default function SchemeRamp(props: SchemeRampProps) {
           <Row key={scheme}>
             <Eyebrow>{SCHEME_LABELS[scheme]} · stored tone</Eyebrow>
             <Strip>
-              {names.map((name) => {
+              {names.map((name, i) => {
                 const v = variantOf(demo.resolved, name, scheme);
+                const edge = i === 0 || i === names.length - 1;
                 return (
                   <Cell
                     key={name}
@@ -124,7 +134,7 @@ export default function SchemeRamp(props: SchemeRampProps) {
                       color: inkFor(v),
                     }}
                   >
-                    {fmt(toneOf(v), 1)}
+                    {edge ? edgeLabel(toneOf(v)) : fmt(toneOf(v), 1)}
                   </Cell>
                 );
               })}

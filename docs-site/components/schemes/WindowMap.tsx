@@ -4,6 +4,9 @@
  * adaptation mode, and labels each cell with the tone Glaze stores — so the
  * tone window's squeeze and the dark inversion are visible column by column.
  * Each row is pinned to its scheme.
+ *
+ * Labels carry three significant digits, so the window edges read as the
+ * exact values the prose quotes (4.95, 9.25, 95.9); whole tones print bare.
  */
 
 import type { ReactNode } from 'react';
@@ -11,7 +14,6 @@ import { tasty } from '@tenphi/cookbook/styling';
 import { Figure, Strip } from '../primitives';
 import {
   SCHEME_LABELS,
-  fmt,
   inkFor,
   resolveDemo,
   toneOf,
@@ -88,6 +90,13 @@ export interface WindowMapProps {
   caption?: ReactNode;
 }
 
+/** A tone label: a whole tone bare (`0`, `100`), anything else to 3 digits. */
+function toneLabel(t: number): string {
+  const whole = Math.round(t);
+  if (Math.abs(t - whole) < 0.005) return String(whole);
+  return t.toPrecision(3);
+}
+
 const DEFAULT_ROWS: WindowMapRow[] = [
   { scheme: 'light', mode: 'static', label: 'Authored tone', note: '' },
   { scheme: 'light' },
@@ -97,7 +106,10 @@ const DEFAULT_ROWS: WindowMapRow[] = [
 export default function WindowMap(props: WindowMapProps) {
   const rows = props.rows ?? DEFAULT_ROWS;
   const steps = props.steps ?? 11;
-  const tones = Array.from({ length: steps }, (_, i) => (i * 100) / (steps - 1));
+  const tones = Array.from(
+    { length: steps },
+    (_, i) => (i * 100) / (steps - 1),
+  );
   const modes = [...new Set(rows.map((r) => r.mode ?? 'auto'))];
 
   const colors: ColorMap = {};
@@ -138,7 +150,7 @@ export default function WindowMap(props: WindowMapProps) {
                         color: inkFor(v),
                       }}
                     >
-                      <Value>{fmt(toneOf(v), 1)}</Value>
+                      <Value>{toneLabel(toneOf(v))}</Value>
                     </Step>
                   );
                 })}

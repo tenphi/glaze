@@ -110,8 +110,8 @@ export default function UiPreview(props: UiPreviewProps) {
         <Small styles={{ color: c(roles.textSoft) }}>Quarterly report</Small>
         <Title styles={{ color: c(roles.text) }}>Revenue is up 12%</Title>
         <Text styles={{ color: c(roles.textSoft) }}>
-          Every color on this card was resolved by Glaze for the scheme you
-          are viewing.
+          Every color on this card was resolved by Glaze for the scheme you are
+          viewing.
         </Text>
         <Row>
           <Button

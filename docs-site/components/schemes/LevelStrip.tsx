@@ -5,15 +5,17 @@
  *
  * Each tile is a small surface with a text sample, a border, and an accent
  * pill, and is captioned with the measured WCAG ratios of the text and the
- * border against the surface. Rows are pinned to the normal schemes (light,
- * dark): the level moves only those variants.
+ * border against the surface and the APCA Lc of the pill's label on its fill.
+ * Rows are pinned to the normal schemes (light, dark): the level moves only
+ * those variants.
  */
 
 import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
-import { Eyebrow, Figure, Mono } from '../primitives';
+import { Eyebrow, Figure } from '../primitives';
 import {
   SCHEME_LABELS,
+  apcaLc,
   fmt,
   resolveDemo,
   variantOf,
@@ -67,11 +69,22 @@ const Pill = tasty({
 });
 
 const Caption = tasty({
+  styles: { display: 'grid', gap: '0.25x', color: '#text-soft' },
+});
+
+/**
+ * Name / value pairs, one per line. Nothing wraps, so every column keeps
+ * its metrics on the same lines.
+ */
+const Metrics = tasty({
   styles: {
     display: 'grid',
-    gap: '0.25x',
-    color: '#text-soft',
-    fontSize: '0.72rem',
+    gridColumns: 'max-content max-content',
+    gap: '0 0.75x',
+    preset: 'code',
+    fontSize: { '': '0.66rem', '@sm': '0.7rem' },
+    lineHeight: '1.45',
+    whiteSpace: 'nowrap',
   },
 });
 
@@ -155,6 +168,7 @@ export default function LevelStrip(props: LevelStripProps) {
                   v(roles.border),
                   v(roles.surface),
                 );
+                const labelLc = apcaLc(v(roles.accentLabel), v(roles.accent));
                 return (
                   <Column key={col.key}>
                     <Tile
@@ -176,8 +190,14 @@ export default function LevelStrip(props: LevelStripProps) {
                     </Tile>
                     <Caption>
                       <Head>{col.title}</Head>
-                      <Mono>text {fmt(textRatio, 2)}:1</Mono>
-                      <Mono>border {fmt(borderRatio, 2)}:1</Mono>
+                      <Metrics>
+                        <span>text</span>
+                        <span>{fmt(textRatio, 2)}:1</span>
+                        <span>border</span>
+                        <span>{fmt(borderRatio, 2)}:1</span>
+                        <span>label</span>
+                        <span>Lc {fmt(labelLc, 1)}</span>
+                      </Metrics>
                     </Caption>
                   </Column>
                 );

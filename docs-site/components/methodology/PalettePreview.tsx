@@ -207,7 +207,9 @@ export function PreviewUi({ demo, scheme }: PreviewUiProps) {
     ) : null;
 
   const report = (
-    <Card styles={{ fill: c('surface'), ...border, ...cardShadow('shadow-md') }}>
+    <Card
+      styles={{ fill: c('surface'), ...border, ...cardShadow('shadow-md') }}
+    >
       {text ? (
         <Stack>
           {has('surface-text-soft-2') ? (
@@ -215,9 +217,7 @@ export function PreviewUi({ demo, scheme }: PreviewUiProps) {
               Quarterly report
             </Meta>
           ) : null}
-          <Title styles={{ color: c('surface-text') }}>
-            Revenue is up 12%
-          </Title>
+          <Title styles={{ color: c('surface-text') }}>Revenue is up 12%</Title>
           {has('surface-text-soft') ? (
             <Body styles={{ color: c('surface-text-soft') }}>
               Every color here was resolved by Glaze for the scheme you are
@@ -282,13 +282,17 @@ export function PreviewUi({ demo, scheme }: PreviewUiProps) {
   );
 
   const search = has('placeholder') ? (
-    <Card styles={{ fill: c('surface'), ...border, ...cardShadow('shadow-sm') }}>
+    <Card
+      styles={{ fill: c('surface'), ...border, ...cardShadow('shadow-sm') }}
+    >
       <Field
         styles={{
           fill: c('surface'),
           ...border,
           ...(has('focus')
-            ? { shadow: paint(shadowOf(demo.colors.focus, '0 0 0 2px'), scheme) }
+            ? {
+                shadow: paint(shadowOf(demo.colors.focus, '0 0 0 2px'), scheme),
+              }
             : {}),
         }}
       >

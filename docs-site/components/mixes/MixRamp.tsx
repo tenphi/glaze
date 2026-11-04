@@ -86,7 +86,10 @@ export default function MixRamp(props: MixRampProps) {
                 return (
                   <Step
                     key={value}
-                    styles={{ fill: demo.colors[name][scheme], color: inkFor(v) }}
+                    styles={{
+                      fill: demo.colors[name][scheme],
+                      color: inkFor(v),
+                    }}
                   >
                     <Value>{fmt(value, 0)}</Value>
                     <Tone>{fmt(toneOf(v), 0)}</Tone>

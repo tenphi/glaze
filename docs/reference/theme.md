@@ -21,7 +21,12 @@ import { glaze } from '@tenphi/glaze';
 
 const a = glaze(280, 80);
 const b = glaze({ hue: 280, saturation: 80 });
-const c = glaze({ hue: 280, saturation: 80, darkHue: 268, darkSaturation: 65 });
+const c = glaze({
+  hue: 280,
+  saturation: 80,
+  darkHue: 268,
+  darkSaturation: 65,
+});
 const d = glaze.fromHex('#7a4dbf');
 const e = glaze.fromRgb(122, 77, 191);
 const f = glaze.themeFrom(a.export());
@@ -129,7 +134,9 @@ Takes a `ColorMap` (`Record<string, ColorDef>`). The definition shapes are in [C
 
 ```ts
 theme.colors({ surface: { tone: 97 } });
-theme.colors({ 'surface-text': { base: 'surface', tone: '-52', contrast: 'AA' } });
+theme.colors({
+  'surface-text': { base: 'surface', tone: '-52', contrast: 'AA' },
+});
 // Both 'surface' and 'surface-text' are now defined.
 ```
 
@@ -137,7 +144,7 @@ theme.colors({ 'surface-text': { base: 'surface', tone: '-52', contrast: 'AA' } 
 
 ```ts
 theme.color('surface', { tone: 97, saturation: 0.75 }); // set
-const def = theme.color('surface'); // get → { tone: 97, saturation: 0.75 }
+theme.color('surface'); // get → { tone: 97, saturation: 0.75 }
 theme.color('missing'); // → undefined
 ```
 
@@ -199,7 +206,8 @@ Resolves the dependency graph and returns `Map<string, ResolvedColor>`, keyed by
 ```ts
 const resolved = theme.resolve();
 const surface = resolved.get('surface');
-// surface.light → { h: 280, s: 0.8, t: 0.97148…, alpha: 1, pastel: false }
+// surface.light
+// → { h: 280, s: 0.8, t: 0.97148…, alpha: 1, pastel: false }
 // t is canonical tone on 0–1.
 ```
 
@@ -285,8 +293,10 @@ A restored theme pins the frozen fields as its override, so later `glaze.configu
 
 ```ts
 glaze.configure({ contrastLevel: 40 });
-theme.export().config?.contrastLevel; // → undefined (global level not frozen)
-theme.export({ contrastLevel: 70 }).config?.contrastLevel; // → 70
+theme.export().config?.contrastLevel;
+// → undefined (a global level is not frozen)
+theme.export({ contrastLevel: 70 }).config?.contrastLevel;
+// → 70
 ```
 
 ### `theme.getConfig()`

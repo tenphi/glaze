@@ -20,7 +20,10 @@ const danger = primary.extend({ hue: 23 });
 const success = primary.extend({ hue: 145 });
 
 const palette = glaze.palette({ primary, danger, success });
-const withAlias = glaze.palette({ primary, danger, success }, { primary: 'primary' });
+const withAlias = glaze.palette(
+  { primary, danger, success },
+  { primary: 'primary' },
+);
 ```
 
 | Parameter | Type | Description |
@@ -63,7 +66,14 @@ const snapshot = withAlias.export();
 //     kind: 'palette',
 //     version: 2,
 //     themes: {
-//       primary: { kind: 'theme', version: 2, hue: 280, saturation: 80, colors: {…}, config: {…} },
+//       primary: {
+//         kind: 'theme',
+//         version: 2,
+//         hue: 280,
+//         saturation: 80,
+//         colors: {…},
+//         config: {…},
+//       },
 //       danger: { kind: 'theme', version: 2, hue: 23, … },
 //       success: { kind: 'theme', version: 2, hue: 145, … },
 //     },
@@ -154,8 +164,9 @@ With `prefix: false`, themes that share color names collide; see the next sectio
 
 When two themes produce the same output key — through `prefix: false`, a custom prefix map, or the primary's unprefixed aliases — the **first-written value wins** and Glaze logs a `console.warn` for every skipped token:
 
-```
-glaze: token "surface" from theme "danger" collides with theme "primary" — skipping.
+```text
+glaze: token "surface" from theme "danger" collides with theme
+  "primary" — skipping.
 ```
 
 Write order is theme insertion order. For each theme, its prefixed tokens are written first and, if it is the primary, its unprefixed aliases immediately after (labeled `"<name> (primary)"` in the warning). So a primary alias wins over a later theme that emits the same unprefixed name.
@@ -168,7 +179,10 @@ Write order is theme insertion order. For each theme, its prefixed tokens are wr
 The primary theme's tokens are duplicated without a prefix:
 
 ```ts
-const palette = glaze.palette({ primary, danger, success }, { primary: 'primary' });
+const palette = glaze.palette(
+  { primary, danger, success },
+  { primary: 'primary' },
+);
 
 palette.tokens();
 // → {
@@ -188,8 +202,10 @@ palette.tokens();
 Override the primary per export:
 
 ```ts
-palette.tokens({ primary: 'danger' }); // danger's tokens get the unprefixed aliases
-palette.tokens({ primary: false }); // no aliases
+// danger's tokens get the unprefixed aliases
+palette.tokens({ primary: 'danger' });
+// no aliases
+palette.tokens({ primary: false });
 ```
 
 The alias works with any prefix mode. With a custom map, the primary's tokens are still duplicated without a prefix:
@@ -219,11 +235,17 @@ Groups by theme name instead of prefixing, so there is nothing to collide:
 palette.json();
 // → {
 //   primary: {
-//     surface: { light: 'oklch(0.97 0.0128 280)', dark: 'oklch(0.279 0.1015 280)' },
+//     surface: {
+//       light: 'oklch(0.97 0.0128 280)',
+//       dark: 'oklch(0.279 0.1015 280)',
+//     },
 //     …
 //   },
 //   danger: {
-//     surface: { light: 'oklch(0.97 0.0129 23)', dark: 'oklch(0.279 0.0791 23)' },
+//     surface: {
+//       light: 'oklch(0.97 0.0129 23)',
+//       dark: 'oklch(0.279 0.0791 23)',
+//     },
 //     …
 //   },
 //   success: { … },
@@ -254,9 +276,18 @@ Accepts `GlazeDtcgOptions` plus `GlazePaletteExportOptions`. Prefix defaults to 
 palette.dtcg();
 // → {
 //   light: {
-//     'primary-surface': { $type: 'color', $value: { colorSpace: 'srgb', components: […], hex: '#f3f4fe' } },
-//     surface: { $type: 'color', $value: { … hex: '#f3f4fe' } }, // unprefixed alias
-//     'danger-surface': { $type: 'color', $value: { … hex: '#fef2f1' } },
+//     'primary-surface': {
+//       $type: 'color',
+//       $value: {
+//         colorSpace: 'srgb',
+//         components: […],
+//         hex: '#f3f4fe',
+//       },
+//     },
+//     …
+//     surface: { …, $value: { …, hex: '#f3f4fe' } }, // unprefixed alias
+//     …
+//     'danger-surface': { …, $value: { …, hex: '#fef2f1' } },
 //     …
 //   },
 //   dark: { … },
@@ -271,9 +302,30 @@ Same document as [`theme.dtcgResolver()`](./output.md#dtcgresolveroptions), with
 palette.dtcgResolver();
 // → {
 //   version: '2025.10',
-//   sets: { base: { sources: [{ 'primary-surface': {…}, surface: {…}, 'danger-surface': {…}, … }] } },
-//   modifiers: { scheme: { default: 'light', contexts: { light: [], dark: [{ … }] } } },
-//   resolutionOrder: [{ $ref: '#/sets/base' }, { $ref: '#/modifiers/scheme' }],
+//   sets: {
+//     base: {
+//       sources: [
+//         {
+//           'primary-surface': {…},
+//           …
+//           surface: {…},
+//           …
+//           'danger-surface': {…},
+//           …
+//         },
+//       ],
+//     },
+//   },
+//   modifiers: {
+//     scheme: {
+//       default: 'light',
+//       contexts: { light: [], dark: [{ … }] },
+//     },
+//   },
+//   resolutionOrder: [
+//     { $ref: '#/sets/base' },
+//     { $ref: '#/modifiers/scheme' },
+//   ],
 // }
 ```
 
@@ -305,7 +357,8 @@ All themes merge into one `@theme` block plus one block per override, so every c
 - Per-color hue vars use the theme's prefix (`--primary-accent-hue`). The primary's unprefixed aliases reference those same vars instead of declaring their own, so they never collide with another theme's hue vars.
 
 ```css
-/* palette.css({ splitHue: true }).light, primary: 'primary', every theme pastel */
+/* palette.css({ splitHue: true }).light
+   primary: 'primary', every theme pastel */
 --primary-hue: 280;
 --primary-accent-hue: calc(var(--primary-hue) + 20);
 --primary-surface-color: oklch(0.97 0.0084 var(--primary-hue));
@@ -322,8 +375,13 @@ That output comes from two pastel themes:
 
 ```ts
 const primary = glaze(280, 60, { pastel: true });
-primary.colors({ surface: { tone: 97 }, accent: { tone: 52, hue: '+20' } });
+primary.colors({
+  surface: { tone: 97 },
+  accent: { tone: 52, hue: '+20' },
+});
 const danger = primary.extend({ hue: 23 });
 
-glaze.palette({ primary, danger }, { primary: 'primary' }).css({ splitHue: true });
+glaze
+  .palette({ primary, danger }, { primary: 'primary' })
+  .css({ splitHue: true });
 ```

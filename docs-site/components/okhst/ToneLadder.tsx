@@ -4,6 +4,10 @@
  * measured WCAG ratio against it. Used to compare how absolute tones, tone
  * deltas, and `'max'` / `'min'` extremes travel from light to dark. Every
  * scheme is a static rendering.
+ *
+ * The chip's label area follows the page, not the panel's scheme, so a
+ * hairline divides it from the swatch: a tone-0 swatch on a dark page (or a
+ * tone-97 one on a light page) would otherwise run into it.
  */
 
 import type { ReactNode } from 'react';
@@ -32,6 +36,21 @@ const Chips = tasty({
   },
 });
 
+/**
+ * A chip value line (`Chip.Value`'s look). It never wraps, so `tone` stays
+ * with its number; on a phone, where three chips share a row, the text is
+ * smaller so `tone 100.00` still fits.
+ */
+const Value = tasty({
+  as: 'span',
+  styles: {
+    preset: 'code',
+    fontSize: { '': '0.7rem', '@sm': '$code-font-size' },
+    color: '#text-soft',
+    whiteSpace: 'nowrap',
+  },
+});
+
 export interface ToneLadderProps extends DemoTheme {
   /** The color every other chip is measured against (also the panel fill). */
   base: string;
@@ -44,7 +63,7 @@ export interface ToneLadderProps extends DemoTheme {
 
 function signed(n: number): string {
   const v = fmt(n, 1);
-  if (v === '0') return '0';
+  if (Number(v) === 0) return v;
   return n > 0 ? `+${v}` : `−${fmt(-n, 1)}`;
 }
 
@@ -74,20 +93,21 @@ export default function ToneLadder(props: ToneLadderProps) {
                     return (
                       <Chip key={name}>
                         <ChipBlock
-                          styles={{ fill: fixed(demo.colors[name], scheme) }}
+                          styles={{
+                            fill: fixed(demo.colors[name], scheme),
+                            border: '1bw solid #border bottom',
+                          }}
                         />
                         <Chip.Label>
                           <Chip.Name>{name}</Chip.Name>
-                          <Chip.Value>tone {fmt(toneOf(v), 2)}</Chip.Value>
-                          <Chip.Value>
+                          <Value>tone {fmt(toneOf(v), 2)}</Value>
+                          <Value>
                             {isBase
                               ? 'base'
                               : `Δ ${signed(toneOf(v) - toneOf(base))}`}
-                          </Chip.Value>
+                          </Value>
                           {isBase ? null : (
-                            <Chip.Value>
-                              {fmt(wcagContrast(v, base), 2)}:1
-                            </Chip.Value>
+                            <Value>{fmt(wcagContrast(v, base), 2)}:1</Value>
                           )}
                         </Chip.Label>
                       </Chip>

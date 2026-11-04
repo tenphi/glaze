@@ -7,6 +7,10 @@
  * inset over that base, and can be annotated with its tone step from the base
  * (`delta`) and its measured WCAG ratio against it (`ratio`). `value="channels"`
  * prints hue and saturation instead of tone, for dark-seed demos.
+ *
+ * Tones print to one decimal, except a tone that sits on its scheme's window
+ * edge, which prints to two (4.95, 9.25) so it reads as the edge the prose
+ * quotes.
  */
 
 import type { ReactNode } from 'react';
@@ -121,9 +125,36 @@ function baseOf(def: ColorDef | undefined): string | undefined {
   return def.base;
 }
 
+/**
+ * The tone-window edges of each scheme: where authored tones 0 and 100 land
+ * for a `fixed` color (remapped, never inverted) under the same seed and
+ * config.
+ */
+function windowEdges(theme: DemoTheme, schemes: Scheme[]) {
+  const probe = resolveDemo({
+    ...theme,
+    colors: {
+      lo: { tone: 0, mode: 'fixed' },
+      hi: { tone: 100, mode: 'fixed' },
+    },
+  });
+  const edges = {} as Record<Scheme, number[]>;
+  for (const s of schemes) {
+    edges[s] = ['lo', 'hi'].map((n) => toneOf(variantOf(probe.resolved, n, s)));
+  }
+  return edges;
+}
+
+/** A tone label: one decimal, or two on a window edge (`9.25`, `95.9`). */
+function toneText(t: number, edges: number[]): string {
+  if (!edges.some((e) => Math.abs(t - e) < 1e-6)) return fmt(t, 1);
+  const s = fmt(t, 2);
+  return s.endsWith('0') ? s.slice(0, -1) : s;
+}
+
 function signed(n: number): string {
   const v = fmt(Math.abs(n), 1);
-  if (v === '0') return '0';
+  if (Number(v) === 0) return v;
   return `${n < 0 ? '-' : '+'}${v}`;
 }
 
@@ -137,13 +168,14 @@ export default function SchemeTable(props: SchemeTableProps) {
     }));
   const valueMode = props.value ?? 'tone';
   const n = schemes.length;
+  const edges = windowEdges(props, schemes);
 
   function lines(name: string, scheme: Scheme): string[] {
     const v = variantOf(demo.resolved, name, scheme);
     if (valueMode === 'channels') {
       return [`h ${fmt(v.h, 1)}`, `s ${fmt(v.s, 2)}`];
     }
-    const out = [`tone ${fmt(toneOf(v), 1)}`];
+    const out = [`tone ${toneText(toneOf(v), edges[scheme])}`];
     const base = baseOf(props.colors[name]);
     if (base) {
       const b = variantOf(demo.resolved, base, scheme);

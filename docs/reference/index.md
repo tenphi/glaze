@@ -113,7 +113,7 @@ Glaze mixes a few numeric scales. Which one applies depends on where a value is 
 | Seed saturation | 0–100 | `glaze(hue, saturation)`, `GlazeThemeSeed.saturation` / `darkSaturation`, `theme.saturation`, the structured `glaze.color({ saturation })`, `GlazeColorOverrides.saturation`. |
 | Per-color saturation | 0–1, a factor of the seed | `RegularColorDef.saturation` / `darkSaturation`; `saturationFactor` / `darkSaturationFactor` on color tokens. With `from`, an explicit `saturation` is still a factor of the seed. |
 | Tone | 0–100 | Authored `tone`, tone deltas (`'+20'`). Shadow and glow `intensity` is a step in tones (0–100). |
-| Tone window endpoints | 0–100 OKHSL lightness, not tone | `lightTone` / `darkTone` `lo` and `hi`. The default `darkTone: [15, 95]` holds tones 9.25–95.9, so a tone-100 `auto` surface lands near tone 9.3 in dark. See [Tone windows](./configuration.md#tone-windows). |
+| Tone window endpoints | 0–100 OKHSL lightness, not tone | `lightTone` / `darkTone` `lo` and `hi`. The default `darkTone: [15, 95]` holds tones 9.25–95.9, so a tone-100 `auto` surface lands at tone 9.25 in dark. See [Tone windows](./configuration.md#tone-windows). |
 | Mix `value` | 0–100 | `MixColorDef.value` (0 = base, 100 = target). |
 | Resolved variant | `h` 0–360; `s`, `t`, `alpha` 0–1 | `ResolvedColorVariant`, the input to `glaze.format()`. |
 | Value objects | `{ h, s, l }` and `{ h, s, t }`: `s`, `l`, `t` 0–1. `{ r, g, b }`: 0–255. `{ l, c, h }`: `L` and `C` 0–1, `H` degrees. | `from`, `glaze.color()`, `glaze.shadow()` / `glaze.glow()` inputs. |

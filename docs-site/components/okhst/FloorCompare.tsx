@@ -53,9 +53,22 @@ const Glyph = tasty({
   styles: { fontSize: '1.5rem', fontWeight: 700, lineHeight: '1.2' },
 });
 
+/**
+ * Ratio and tone. On a phone the two stack on purpose, so a label never
+ * splits from its number; wider, they share a line with a dot between.
+ */
 const Measure = tasty({
   as: 'span',
-  styles: { preset: 'code', fontSize: '0.75rem' },
+  styles: {
+    display: { '': 'grid', '@sm': 'flex' },
+    flexWrap: 'wrap',
+    gap: '0 1ch',
+    preset: 'code',
+    fontSize: '0.75rem',
+    Part: { whiteSpace: 'nowrap' },
+    Dot: { hide: { '': true, '@sm': false } },
+  },
+  elements: { Part: 'span', Dot: 'span' },
 });
 
 export interface FloorCompareProps {
@@ -112,7 +125,9 @@ export default function FloorCompare(props: FloorCompareProps) {
       <Sample>
         <Glyph styles={{ color: fixed(demo.colors[name], scheme) }}>Aa</Glyph>
         <Measure styles={{ color: ink }}>
-          {fmt(wcagContrast(v, surface), 2)}:1 · tone {fmt(toneOf(v), 1)}
+          <Measure.Part>{fmt(wcagContrast(v, surface), 2)}:1</Measure.Part>{' '}
+          <Measure.Dot>·</Measure.Dot>{' '}
+          <Measure.Part>tone {fmt(toneOf(v), 1)}</Measure.Part>
         </Measure>
       </Sample>
     );

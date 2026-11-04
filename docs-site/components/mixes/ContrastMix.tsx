@@ -12,6 +12,7 @@
  */
 
 import type { ReactNode } from 'react';
+import { tasty } from '@tenphi/cookbook/styling';
 import { Figure } from '../primitives';
 import SchemeValue from '../SchemeValue';
 import {
@@ -42,10 +43,10 @@ import type {
   MixColorDef,
   ResolvedColorVariant,
 } from '../../../src/index.ts';
-import { Big, Cells, Head, Note, Patch, Tile } from '../shadows-and-glows/parts';
+import { Big, Head, Note, Patch, Tile } from '../shadows-and-glows/parts';
 import {
+  compositeInk,
   compositeLinear,
-  compositeTone,
 } from '../shadows-and-glows/lighting-docs';
 
 export interface ContrastMixProps extends DemoTheme {
@@ -96,6 +97,15 @@ function ratioOf(
 
 const AUTHORED = '--as-authored';
 
+/** One tile per mix, stretched so each label fits on one line. */
+const Cells = tasty({
+  styles: {
+    display: 'grid',
+    gap: '1.5x',
+    gridColumns: 'repeat(auto-fit, minmax(15rem, 1fr))',
+  },
+});
+
 export default function ContrastMix(props: ContrastMixProps) {
   const scheme = props.scheme ?? 'auto';
   // Each mix again without its floor, to show what the solver changed.
@@ -139,8 +149,7 @@ export default function ContrastMix(props: ContrastMixProps) {
                     solvedValue(def, mix, base, v(def.target, s)),
                     1,
                   );
-                  const t = transparent ? compositeTone(mix, base) / 100 : mix.t;
-                  ink[s] = inkFor({ ...mix, t });
+                  ink[s] = transparent ? compositeInk(mix, base) : inkFor(mix);
                 }
                 return (
                   <Patch
@@ -151,10 +160,12 @@ export default function ContrastMix(props: ContrastMixProps) {
                     }}
                   >
                     <Big>
-                      <SchemeValue values={ratio} scheme={scheme} />:1
+                      <SchemeValue values={ratio} scheme={scheme} />
+                      :1
                     </Big>
                     <Note>
-                      {patch.label} · {unit}{' '}
+                      {/* Non-breaking around "·": no dangling separator. */}
+                      {`${patch.label}\u00a0·\u00a0${unit}\u00a0`}
                       <SchemeValue values={value} scheme={scheme} />
                     </Note>
                   </Patch>

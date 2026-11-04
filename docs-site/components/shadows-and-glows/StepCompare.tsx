@@ -13,7 +13,7 @@ import { Figure } from '../primitives';
 import { fmt, inkFor, resolveDemo, variantOf } from '../glaze-docs';
 import type { ColorMap } from '../../../src/index.ts';
 import { Big, Head, NarrowCells, Note, Patch, Tile } from './parts';
-import { signed, stepOf } from './lighting-docs';
+import { compositeInk, signed, stepOf } from './lighting-docs';
 
 export interface StepCompareProps {
   kind?: 'shadow' | 'glow';
@@ -63,10 +63,10 @@ export default function StepCompare(props: StepCompareProps) {
   }
 
   const demo = resolveDemo({
-      hue: props.hue ?? 280,
-      saturation: props.saturation ?? 80,
-      colors,
-    });
+    hue: props.hue ?? 280,
+    saturation: props.saturation ?? 80,
+    colors,
+  });
   const fixed = variantOf(demo.resolved, 'fixed', 'light');
 
   return (
@@ -81,14 +81,24 @@ export default function StepCompare(props: StepCompareProps) {
               styles={{ fill: demo.colors[s.name].light, color: inkFor(bg) }}
             >
               <Head>{s.label}</Head>
-              <Patch styles={{ fill: demo.colors[`${kind}-${s.name}`].light }}>
+              <Patch
+                styles={{
+                  fill: demo.colors[`${kind}-${s.name}`].light,
+                  color: compositeInk(over, bg),
+                }}
+              >
                 <Big>{signed(stepOf(over, bg))}</Big>
                 <Note>
                   {kind} {intensity}
                   <br />α {fmt(over.alpha, 3)}
                 </Note>
               </Patch>
-              <Patch styles={{ fill: demo.colors.fixed.light }}>
+              <Patch
+                styles={{
+                  fill: demo.colors.fixed.light,
+                  color: compositeInk(fixed, bg),
+                }}
+              >
                 <Big>{signed(stepOf(fixed, bg))}</Big>
                 <Note>
                   {pigment} {fmt(fixedAlpha * 100, 1)}%

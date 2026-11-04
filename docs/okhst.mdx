@@ -198,16 +198,18 @@ A window takes three forms:
 
 | Form              | Meaning                                                                         |
 | ----------------- | ------------------------------------------------------------------------------- |
-| `[lo, hi]`        | Boundaries at the reference `eps`. The common form.                             |
-| `{ lo, hi, eps }` | Boundaries plus a render curvature for this scheme. Advanced.                   |
-| `false`           | The full range `[0, 100]` at the reference `eps`: no boundaries, same tone curve. |
+| `[lo, hi]`        | Boundaries at the reference `eps`. The common form.                             |
+| `{ lo, hi, eps }` | Boundaries plus a render curvature for this scheme. Advanced.                   |
+| `false`           | The full range `[0, 100]` at the reference `eps`: no boundaries, same tone curve. |
 
 ### Calibrated defaults
 
-| Config      | `lo` | `hi` | `eps` | Tone range  |
-| ----------- | ---: | ---: | ----: | ----------- |
-| `lightTone` |   10 |  100 |  0.05 | 4.95 – 100  |
-| `darkTone`  |   15 |   95 |  0.05 | 9.25 – 95.9 |
+|            | `lightTone` | `darkTone` |
+| ---------- | ----------: | ---------: |
+| `lo`       |          10 |         15 |
+| `hi`       |         100 |         95 |
+| `eps`      |        0.05 |       0.05 |
+| Tone range |    4.95–100 |  9.25–95.9 |
 
 The floors keep mapped tones off pure black in both schemes (OKHSL lightness 10
 in light, 15 in dark), and the dark ceiling keeps them short of white at
@@ -278,8 +280,10 @@ authored tone T (0–100)
        static         identity; skip the window
   -> remap into the scheme's tone window (full range for high contrast)
   -> render curvature (window eps) -> OKHSL lightness l
-  -> store canonical tone t = toTone(l, REF_EPS) / 100   // variant { h, s, t, alpha }, t on 0–1
-  -> at the rendering edge only: fromTone(100 * t) -> l -> sRGB / luminance
+  -> store canonical tone t = toTone(l, REF_EPS) / 100
+       // variant { h, s, t, alpha }, t on 0–1
+  -> at the rendering edge only:
+       fromTone(100 * t) -> l -> sRGB / luminance
 optional: a contrast floor searches tone and overrides t
 ```
 
@@ -412,7 +416,7 @@ neutral.colors({
 ```
 
 A root `tone: 'max'` in the same theme lands at the dark window's edge, tone
-9.3, and drops to 2.87:1 against `bg` in dark.
+9.25, and drops to 2.87:1 against `bg` in dark.
 
 ### All three, light to dark
 

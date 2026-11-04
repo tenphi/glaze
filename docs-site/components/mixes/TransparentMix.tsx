@@ -11,7 +11,6 @@ import SchemeValue from '../SchemeValue';
 import {
   SCHEMES,
   fmt,
-  inkFor,
   inkMap,
   paint,
   resolveDemo,
@@ -23,9 +22,16 @@ import type {
   SchemeChoice,
   SchemeColors,
 } from '../glaze-docs';
-import { Big, Cells, Head, Note, Patch, Stage } from '../shadows-and-glows/parts';
 import {
-  compositeTone,
+  Big,
+  Cells,
+  Head,
+  Note,
+  Patch,
+  Stage,
+} from '../shadows-and-glows/parts';
+import {
+  compositeInk,
   signed,
   stepOf,
 } from '../shadows-and-glows/lighting-docs';
@@ -62,22 +68,22 @@ export default function TransparentMix(props: TransparentMixProps) {
           {props.show.map((name) => {
             const ink = {} as SchemeColors;
             for (const s of SCHEMES) {
-              // Ink for the composite: `inkFor` reads only the tone.
-              const t = compositeTone(v(name, s), v(props.base, s)) / 100;
-              ink[s] = inkFor({ ...v(props.base, s), t });
+              ink[s] = compositeInk(v(name, s), v(props.base, s));
             }
             return (
-            <Patch
-              key={name}
-              styles={{
-                fill: paint(demo.colors[name], scheme),
-                color: paint(ink, scheme),
-              }}
-            >
-              <Big>{per((s) => signed(stepOf(v(name, s), v(props.base, s))))}</Big>
-              <Note>{name}</Note>
-              <Note>α {per((s) => fmt(v(name, s).alpha, 3))}</Note>
-            </Patch>
+              <Patch
+                key={name}
+                styles={{
+                  fill: paint(demo.colors[name], scheme),
+                  color: paint(ink, scheme),
+                }}
+              >
+                <Big>
+                  {per((s) => signed(stepOf(v(name, s), v(props.base, s))))}
+                </Big>
+                <Note>{name}</Note>
+                <Note>α {per((s) => fmt(v(name, s).alpha, 3))}</Note>
+              </Patch>
             );
           })}
         </Cells>

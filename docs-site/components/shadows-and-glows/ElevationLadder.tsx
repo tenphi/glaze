@@ -84,7 +84,10 @@ export default function ElevationLadder(props: ElevationLadderProps) {
                   >
                     <Head>{name}</Head>
                     <Note>
-                      step {signed(stepOf(v(name, scheme), v(props.surface, scheme)))}
+                      step{' '}
+                      {signed(
+                        stepOf(v(name, scheme), v(props.surface, scheme)),
+                      )}
                     </Note>
                     <Note>α {fmt(v(name, scheme).alpha, 3)}</Note>
                   </Level>

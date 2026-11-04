@@ -154,7 +154,7 @@ contrast: [4.5, 7]; // WCAG 4.5 normal / 7 high contrast
 contrast: { wcag: [4.5, 7] }; // the same pair, inside the metric
 contrast: { apca: 60 }; // Lc 60 normal / 75 high contrast (automatic)
 contrast: { apca: 'content' }; // the same, by preset
-contrast: { apca: [45, 60] }; // Lc 45 normal / 60 high contrast (explicit)
+contrast: { apca: [45, 60] }; // Lc 45 / 60 high contrast (explicit)
 contrast: { apca: ['content', 'body'] }; // Lc 60 / 75 (explicit)
 ```
 
@@ -517,7 +517,8 @@ stronger side; a color with an authored direction keeps that direction.
 The warning names the color, the scheme, the target, and what was reached:
 
 ```text
-glaze: color "badge-text" cannot meet WCAG 7.00 in light scheme (got 4.94).
+glaze: color "badge-text" cannot meet WCAG 7.00 in light scheme
+  (got 4.94).
 Try widening the tone window, lowering the contrast target, or picking a
   base color further from this color's tone.
 ```

@@ -24,7 +24,9 @@ const Columns = tasty({
   },
 });
 
-const Cell = tasty({ styles: { display: 'grid', gap: '1x', alignContent: 'start' } });
+const Cell = tasty({
+  styles: { display: 'grid', gap: '1x', alignContent: 'start' },
+});
 
 export interface SchemeGridProps extends Partial<DemoTheme> {
   kind?: 'ui' | 'swatches';

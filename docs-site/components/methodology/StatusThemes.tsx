@@ -39,6 +39,11 @@ const Dot = tasty({
   as: 'span',
   styles: { width: '1.75x', height: '1.75x', radius: 'round' },
 });
+/** A token prefix in the uppercase label, kept in the case it is written in. */
+const Prefix = tasty({
+  as: 'span',
+  styles: { preset: 'code', textTransform: 'none', letterSpacing: '0' },
+});
 const Strong = tasty({
   as: 'span',
   styles: { preset: 'body', fontWeight: 600 },
@@ -57,7 +62,14 @@ const Button = tasty({
     fontWeight: 600,
   },
 });
-const Spacer = tasty({ as: 'span', styles: { flexGrow: 1 } });
+/**
+ * The notice's buttons. They wrap as one group, so a narrow notice moves both
+ * to the next line together, still at the right edge.
+ */
+const Actions = tasty({
+  as: 'span',
+  styles: { display: 'flex', gap: '1x', marginLeft: 'auto' },
+});
 
 const Columns = tasty({
   styles: {
@@ -109,8 +121,8 @@ function Notices(props: { entries: Entry[]; scheme: SchemeChoice }) {
         return (
           <Item key={e.name}>
             <Eyebrow>
-              {e.name} · {e.count} tokens
-              {e.prefix ? ` · ${e.prefix}*` : ' · unprefixed'}
+              {e.name} · {e.count} tokens ·{' '}
+              {e.prefix ? <Prefix>{e.prefix}*</Prefix> : 'unprefixed'}
             </Eyebrow>
             <Notice styles={{ fill: c('surface') }}>
               <Dot styles={{ fill: c('accent-icon') }} />
@@ -118,23 +130,24 @@ function Notices(props: { entries: Entry[]; scheme: SchemeChoice }) {
                 Deploy finished
               </Strong>
               <Link styles={{ color: c('accent-text') }}>View logs</Link>
-              <Spacer />
-              <Button
-                styles={{
-                  fill: c('accent-disabled-surface'),
-                  color: c('accent-disabled-surface-text'),
-                }}
-              >
-                Undo
-              </Button>
-              <Button
-                styles={{
-                  fill: c('accent-surface'),
-                  color: c('accent-surface-text'),
-                }}
-              >
-                Retry
-              </Button>
+              <Actions>
+                <Button
+                  styles={{
+                    fill: c('accent-disabled-surface'),
+                    color: c('accent-disabled-surface-text'),
+                  }}
+                >
+                  Undo
+                </Button>
+                <Button
+                  styles={{
+                    fill: c('accent-surface'),
+                    color: c('accent-surface-text'),
+                  }}
+                >
+                  Retry
+                </Button>
+              </Actions>
             </Notice>
           </Item>
         );
