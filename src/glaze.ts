@@ -257,7 +257,7 @@ function standaloneLighting(
  * `#rgba` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` /
  * `okhst()` / `oklch()` strings, or `{ r, g, b }` / `{ h, s, l }` /
  * `{ h, s, t }` / `{ l, c, h }` objects. Alpha components are dropped with
- * a warning.
+ * a warning. `GlazeColorValue` gives each form's component scales.
  */
 glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
   return standaloneLighting('shadow', input);

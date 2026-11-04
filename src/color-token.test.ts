@@ -10,6 +10,7 @@ import type {
   GlazeColorInputExport,
   GlazeColorToken,
   GlazeColorTokenExport,
+  GlazeColorValue,
   GlazeFromInput,
   ResolvedColor,
   ResolvedColorVariant,
@@ -295,5 +296,76 @@ describe('glaze.color role', () => {
         expect(variants(restored.resolve())).toEqual(original);
       },
     );
+  });
+});
+
+// Pins the component scales the `GlazeColorValue` JSDoc documents.
+describe('glaze.color value strings', () => {
+  /** The token's four variants as `rgb()` strings. */
+  const rgbOf = (value: GlazeColorValue) =>
+    glaze.color(value).json({ format: 'rgb' });
+
+  it.each<{ title: string; forms: GlazeColorValue[] }>([
+    {
+      title: 'rgb() channels as 0–255 or percentages',
+      forms: ['rgb(255 0 0)', 'rgb(100% 0% 0%)', { r: 255, g: 0, b: 0 }],
+    },
+    {
+      title: 'hsl() saturation and lightness as percentages or fractions',
+      forms: [
+        'hsl(120 50% 50%)',
+        'hsl(120, 0.5, 0.5)',
+        { r: 63.75, g: 191.25, b: 63.75 },
+      ],
+    },
+    {
+      title: 'okhsl() saturation and lightness as percentages or fractions',
+      forms: [
+        'okhsl(120 50% 50%)',
+        'okhsl(120 0.5 0.5)',
+        { h: 120, s: 0.5, l: 0.5 },
+      ],
+    },
+    {
+      title: 'okhst() saturation and tone as percentages or fractions',
+      forms: [
+        'okhst(120 50% 50%)',
+        'okhst(120 0.5 0.5)',
+        { h: 120, s: 0.5, t: 0.5 },
+      ],
+    },
+    {
+      title: 'oklch() L as 0–1 or a percentage, and C with 100% as 0.4',
+      forms: [
+        'oklch(0.5 0.1 120)',
+        'oklch(50% 25% 120)',
+        { l: 0.5, c: 0.1, h: 120 },
+      ],
+    },
+    {
+      title: 'hue as bare degrees or deg',
+      forms: ['hsl(180 50% 50%)', 'hsl(180deg 50% 50%)'],
+    },
+  ])('reads $title', ({ forms }) => {
+    const [first, ...rest] = forms.map(rgbOf);
+    for (const other of rest) expect(other).toEqual(first);
+  });
+
+  it.each([
+    '#26fcb2cc',
+    'rgb(38 252 178 / 0.8)',
+    'rgba(38, 252, 178, 0.8)',
+    'rgb(38 252 178 0.8)',
+  ])('drops the alpha component of %s with a warning', (value) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      expect(rgbOf(value)).toEqual(rgbOf('rgb(38 252 178)'));
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain(
+        `alpha component dropped from "${value}"`,
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

@@ -824,9 +824,20 @@ export interface GlazeColorInput {
  * `#rrggbbaa`) and the five color functions Glaze itself emits: `rgb()`,
  * `hsl()`, `okhsl()`, `okhst()`, `oklch()`, plus the `rgba()` / `hsla()`
  * aliases. Function names are case-insensitive; components are numbers or
- * percentages, separated by spaces or commas. An alpha component (hex
- * alpha, `/ A`, or a fourth comma value) is dropped with a warning. Named
- * colors, other color functions, and relative color syntax throw.
+ * percentages, separated by spaces or commas. Their scales:
+ * - `rgb()` — channels 0–255, or percentages (`100%` is 255).
+ * - `hsl()` / `okhsl()` / `okhst()` — saturation, lightness and tone are
+ *   percentages or bare 0–1 fractions: `hsl(120 50% 50%)` or
+ *   `hsl(120 0.5 0.5)`. Unlike CSS, a bare `hsl(120 50 50)` does not mean
+ *   50%; it is out of range and resolves to white without a warning.
+ * - `oklch()` — L 0–1 or a percentage; C bare, or a percentage where
+ *   `100%` is 0.4.
+ * - Hue is in degrees, bare or with `deg`. Other angle units (`turn`,
+ *   `rad`, `grad`) are misread as degrees rather than rejected.
+ *
+ * An alpha component (hex alpha, `/ A`, or any fourth component) is
+ * dropped with a warning. Named colors, other color functions, and
+ * relative color syntax throw.
  *
  * Literal object forms, told apart by their keys:
  * - `{ r, g, b }` — sRGB 0–255.
@@ -836,7 +847,8 @@ export interface GlazeColorInput {
  * - `{ h, s, l }` — OKHSL (h: 0–360, s/l: 0–1).
  *
  * An object `s`, `l`, `t` or `c` above 1.5 throws, which catches 0–100
- * input; the OKHSL / OKHST errors point to the structured form.
+ * input; the OKHSL / OKHST errors point to the structured form. String
+ * components have no such check.
  */
 export type GlazeColorValue =
   | string
