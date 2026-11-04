@@ -329,12 +329,14 @@ function standardOkhsl(
  * solved opacity is 0 or 1 there: at 1 that is the pigment itself; at 0 it is
  * the surface, which counts only when it is white (no pigment can lift white,
  * and SDR shows white). A pigment that cannot lift a non-white surface at all
- * — `reach: 0`, say, or a `tint` that only darkens — paints nothing in SDR, so
- * there is nothing to expose: an exposure of the bare surface would be an
- * opaque, brighter copy of it where SDR leaves the surface showing, and a
- * neutral one clips to opaque white wherever HDR is clamped. `undefined` then
- * (and for any opacity between, which only float noise at the trigger
- * reaches).
+ * — `reach: 0` on a gray surface, say, or a `tint` that only darkens — paints
+ * nothing in SDR, so there is nothing to expose. (On a chromatic surface a
+ * `reach: 0` pigment, a gray at the surface's tone, can measure slightly
+ * brighter; it then pins at 1 like any pigment.) An exposure of the bare
+ * surface would be an opaque, brighter copy of it where SDR leaves the surface
+ * showing, and a neutral one clips to opaque white wherever HDR is clamped.
+ * `undefined` then (and for any opacity between, which only float noise at the
+ * trigger reaches).
  */
 function pinnedBase(
   alpha: number,

@@ -351,8 +351,10 @@ export interface GlowTuning extends LightingTuning {
    * gets an HDR value: the variant's `hdr`, an opaque exposure of what SDR
    * paints at its brightest — the pigment at full opacity, or a white surface
    * no pigment can lift — plus a gain in stops. A pigment that cannot lift a
-   * non-white surface at all (`reach: 0`, say) paints nothing in SDR, so it
-   * gets no HDR value either and keeps the SDR "cannot reach" warning.
+   * non-white surface at all (`reach: 0` on a gray surface, say) paints
+   * nothing in SDR, so it gets no HDR value either and keeps the SDR "cannot
+   * reach" warning. On a chromatic surface a `reach: 0` gray can measure
+   * slightly brighter than the surface and pins at full opacity instead.
    * Nothing about the SDR variant changes. The gain lands the exact step when
    * the headroom allows it; the brightest channel caps at `2^headroom`.
    * High-contrast schemes use the same headroom.
