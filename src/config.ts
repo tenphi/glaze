@@ -19,10 +19,12 @@
  *
  * No config object is shared with a caller, in either direction. Going in,
  * `configure()` copies what it keeps and a theme or token copies its override
- * once where it stores it (`copyConfigOverride`). Coming out, `snapshotConfig()`
- * (`glaze.getConfig()`) and `theme.getConfig()` hand out deep copies, and
- * `mergeConfig()` / `freezeConfigForExport()` build fresh objects. So mutating
- * a value passed in or handed out can't change a resolve or an export.
+ * once where it stores it (`copyConfigOverride`, which reads each known field
+ * by property access, so getters and proxies work). Coming out,
+ * `snapshotConfig()` (`glaze.getConfig()`) and `theme.getConfig()`
+ * (`copyResolvedConfig`) hand out deep copies, and `mergeConfig()` /
+ * `freezeConfigForExport()` build fresh objects. So mutating a value passed in
+ * or handed out can't change a resolve or an export.
  */
 
 import { normalizeToneWindow } from './okhst';
@@ -116,15 +118,72 @@ function copyTuning(
 }
 
 /**
- * Detached copy of a nested override field — a window array or object, or a
- * tuning — without validating it; anything else (`false`, `undefined`, a bad
- * scalar) passes through for `mergeConfig()` to judge at resolve.
+ * Detached copy of a resolved config: windows, `states`, `modes` and tunings
+ * included, with the same keys present. Hand-written rather than
+ * `structuredClone` because `theme.getConfig()` uses it, and palettes call
+ * that once per theme on every output; this is ~30× cheaper.
  */
-function copyNested<T>(value: T): T {
-  if (Array.isArray(value)) return [...(value as unknown[])] as T;
-  if (typeof value === 'object' && value !== null) return { ...value };
-  return value;
+export function copyResolvedConfig(
+  config: GlazeConfigResolved,
+): GlazeConfigResolved {
+  const copyWindow = (win: ToneWindow): ToneWindow =>
+    win === false ? false : Array.isArray(win) ? [win[0], win[1]] : { ...win };
+  const out: GlazeConfigResolved = {
+    ...config,
+    lightTone: copyWindow(config.lightTone),
+    darkTone: copyWindow(config.darkTone),
+    states: { ...config.states },
+    modes: { ...config.modes },
+  };
+  if (config.shadowTuning) out.shadowTuning = { ...config.shadowTuning };
+  if (config.glowTuning) out.glowTuning = { ...config.glowTuning };
+  return out;
 }
+
+/**
+ * Override window copy, unvalidated: an array is spread, an object is rebuilt
+ * from `lo` / `hi` / `eps` read by property access (as `normalizeToneWindow`
+ * reads it, so a getter-backed window still works), and anything else
+ * (`false`, `null`, a bad scalar) passes through for `mergeConfig()` to judge.
+ */
+function copyWindowField(win: unknown): unknown {
+  if (Array.isArray(win)) return [...(win as unknown[])];
+  if (typeof win === 'object' && win !== null) {
+    const { lo, hi, eps } = win as Record<string, unknown>;
+    return { lo, hi, eps };
+  }
+  return win;
+}
+
+/**
+ * Override tuning copy, unvalidated: an object is spread (as `mergeConfig()`
+ * copies it); anything else passes through.
+ */
+function copyTuningField(tuning: unknown): unknown {
+  return typeof tuning === 'object' && tuning !== null ? { ...tuning } : tuning;
+}
+
+const keepField = (value: unknown): unknown => value;
+
+/**
+ * How `copyConfigOverride` copies each field. A record over every
+ * `GlazeConfigOverride` key, so a field added to the type doesn't compile
+ * until it's listed here.
+ */
+const OVERRIDE_FIELD_COPY: Record<
+  keyof GlazeConfigOverride,
+  (value: unknown) => unknown
+> = {
+  lightTone: copyWindowField,
+  darkTone: copyWindowField,
+  darkDesaturation: keepField,
+  autoFlip: keepField,
+  contrastLevel: keepField,
+  pastel: keepField,
+  inferRole: keepField,
+  shadowTuning: copyTuningField,
+  glowTuning: copyTuningField,
+};
 
 /**
  * Detached copy of a per-instance override, taken once where a theme or token
@@ -132,26 +191,24 @@ function copyNested<T>(value: T): T {
  * one object the caller can no longer reach. Every nested field
  * (`lightTone` / `darkTone` / `shadowTuning` / `glowTuning`) is copied one
  * level deep, which is all the nesting the type has. Nothing is validated
- * here — that still happens in `mergeConfig()` at resolve, as documented. A
- * field-by-field spread rather than `structuredClone`, so a reactive proxy or
- * other non-cloneable wrapper still works as an override.
+ * here — that still happens in `mergeConfig()` at resolve, as documented.
+ *
+ * Each known field is read by property access (`key in override`, then
+ * `override[key]`) rather than spread, so a field `mergeConfig()` would see —
+ * a class getter, an inherited field, a reactive proxy's trap — is copied too,
+ * and a non-cloneable wrapper still works as an override. A non-object passes
+ * through unchanged.
  */
 export function copyConfigOverride(
   override: GlazeConfigOverride | undefined,
 ): GlazeConfigOverride | undefined {
-  if (override === undefined || override === null) return override;
-  const out: GlazeConfigOverride = { ...override };
-  for (const key of [
-    'lightTone',
-    'darkTone',
-    'shadowTuning',
-    'glowTuning',
-  ] as const) {
-    if (key in out) {
-      (out as Record<string, unknown>)[key] = copyNested(out[key]);
-    }
+  if (typeof override !== 'object' || override === null) return override;
+  const source = override as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, copy] of Object.entries(OVERRIDE_FIELD_COPY)) {
+    if (key in source) out[key] = copy(source[key]);
   }
-  return out;
+  return out as GlazeConfigOverride;
 }
 
 let globalConfig: GlazeConfigResolved = defaultConfig();
@@ -280,8 +337,10 @@ export function mergeConfig(
  * Freeze `getConfig() ∪ instanceLocal ∪ exportArg` as a plain, resolve-relevant
  * override for authoring export, so restored snapshots pin these fields. Later
  * wins; nested objects (`shadowTuning` / `glowTuning`) replace wholesale.
- * `mergeConfig` already validates and copies every field; the final
- * `structuredClone` keeps the snapshot detached even if that ever changes.
+ * `exportArg` is read through `copyConfigOverride`, like a stored override, so
+ * its getters count too. `mergeConfig` already validates and copies every
+ * field; the final `structuredClone` keeps the snapshot detached even if that
+ * ever changes.
  */
 export function freezeConfigForExport(
   instanceLocal?: GlazeConfigOverride,
@@ -289,7 +348,7 @@ export function freezeConfigForExport(
 ): GlazeConfigOverride {
   const effective = mergeConfig(getConfig(), {
     ...instanceLocal,
-    ...exportArg,
+    ...copyConfigOverride(exportArg),
   });
   const out: GlazeConfigOverride = {
     lightTone: effective.lightTone,

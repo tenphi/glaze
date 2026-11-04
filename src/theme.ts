@@ -25,6 +25,7 @@ import {
 } from './channels';
 import {
   copyConfigOverride,
+  copyResolvedConfig,
   freezeConfigForExport,
   getConfig,
   getConfigVersion,
@@ -151,7 +152,7 @@ export function createTheme(
     getConfig(): GlazeConfigResolved {
       // A deep copy: the cached config feeds every resolve, so a caller's
       // mutation must not reach it (or skip `mergeConfig()`'s validation).
-      return structuredClone(getEffectiveConfig());
+      return copyResolvedConfig(getEffectiveConfig());
     },
 
     colors(defs: ColorMap): void {
@@ -220,10 +221,14 @@ export function createTheme(
         ? { ...inheritedColors, ...options.colors }
         : { ...inheritedColors };
 
-      // Child inherits the parent override then merges in the per-extend override.
+      // Child inherits the parent override then merges in the per-extend
+      // override, read like a stored one so its getters count too.
       const mergedConfigOverride: GlazeConfigOverride | undefined =
         configOverride || options.config
-          ? { ...(configOverride ?? {}), ...(options.config ?? {}) }
+          ? {
+              ...(configOverride ?? {}),
+              ...(copyConfigOverride(options.config) ?? {}),
+            }
           : undefined;
 
       return createTheme(childSeed, mergedColors, mergedConfigOverride);

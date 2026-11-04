@@ -1,7 +1,18 @@
-import { getConfigVersion, normalizeToneWindowInput } from './config';
+import {
+  copyResolvedConfig,
+  defaultConfig,
+  getConfigVersion,
+  mergeConfig,
+  normalizeToneWindowInput,
+} from './config';
 import { glaze } from './glaze';
 import { normalizeToneWindow, REF_EPS } from './okhst';
-import type { GlazeConfig, GlazeConfigOverride, ToneWindow } from './types';
+import type {
+  GlazeConfig,
+  GlazeConfigOverride,
+  GlazeConfigResolved,
+  ToneWindow,
+} from './types';
 
 afterEach(() => {
   glaze.resetConfig();
@@ -104,6 +115,77 @@ describe('glaze.getConfig() snapshot', () => {
     expect(theme.getConfig()).toEqual(referenceConfig);
     expect(theme.getConfig().darkDesaturation).toBe(0.1);
   });
+
+  it('theme.getConfig() copies every nested field', () => {
+    const make = () => {
+      const theme = sampleTheme({
+        darkTone: [15, 95],
+        shadowTuning: { reach: 0.9 },
+        glowTuning: { tint: 0.2 },
+      });
+      theme.colors({ halo: { type: 'glow', bg: 'text', intensity: 8 } });
+      return theme;
+    };
+    const untouched = make();
+    const reference = [...untouched.resolve()];
+    const referenceConfig = untouched.getConfig();
+
+    const theme = make();
+    const mutate = () => {
+      const cfg = theme.getConfig();
+      (cfg.lightTone as { lo: number }).lo = 60;
+      (cfg.darkTone as [number, number])[0] = 60;
+      cfg.states.dark = '@dark';
+      cfg.states.highContrast = '@hc';
+      cfg.modes.dark = false;
+      cfg.modes.highContrast = true;
+      cfg.shadowTuning!.reach = 0.1;
+      cfg.glowTuning!.tint = 1;
+    };
+    mutate();
+    expect([...theme.resolve()]).toEqual(reference);
+    expect(theme.tasty()).toEqual(untouched.tasty());
+    expect(theme.getConfig()).toEqual(referenceConfig);
+
+    // Two calls share no nested object either.
+    const a = theme.getConfig();
+    const b = theme.getConfig();
+    for (const key of Object.keys(a) as (keyof GlazeConfigResolved)[]) {
+      if (typeof a[key] === 'object') expect(b[key]).not.toBe(a[key]);
+    }
+  });
+
+  it.each<[string, () => GlazeConfigResolved]>([
+    ['the defaults', defaultConfig],
+    [
+      'a merged config with tunings and every window form',
+      () =>
+        mergeConfig(defaultConfig(), {
+          lightTone: [12, 98],
+          darkTone: false,
+          shadowTuning: { reach: 0.9 },
+          glowTuning: { tint: 0.2 },
+          pastel: true,
+        }),
+    ],
+    [
+      'an object window',
+      () =>
+        mergeConfig(defaultConfig(), {
+          darkTone: { lo: 20, hi: 90, eps: 0.2 },
+        }),
+    ],
+  ])('copyResolvedConfig() matches structuredClone for %s', (_label, make) => {
+    const config = make();
+    const copy = copyResolvedConfig(config);
+    expect(copy).toStrictEqual(structuredClone(config));
+    expect(Object.keys(copy)).toEqual(Object.keys(config));
+    for (const key of Object.keys(config) as (keyof GlazeConfigResolved)[]) {
+      if (typeof config[key] === 'object') {
+        expect(copy[key]).not.toBe(config[key]);
+      }
+    }
+  });
 });
 
 describe('per-instance overrides are copied where they are stored', () => {
@@ -112,6 +194,7 @@ describe('per-instance overrides are copied where they are stored', () => {
       lightTone: [10, 100],
       darkTone: { lo: 15, hi: 95, eps: 0.05 },
       shadowTuning: { reach: 0.9 },
+      glowTuning: { tint: 0.2 },
     };
   }
 
@@ -120,6 +203,7 @@ describe('per-instance overrides are copied where they are stored', () => {
     (override.lightTone as [number, number])[0] = 60;
     (override.darkTone as { hi: number }).hi = 30;
     override.shadowTuning!.reach = 0.1;
+    override.glowTuning!.tint = 1;
     override.darkDesaturation = 0.9;
   }
 
@@ -189,6 +273,109 @@ describe('per-instance overrides are copied where they are stored', () => {
     expect(token.resolve()).toEqual(resolved);
     expect(token.export()).toEqual(exported);
     expect(token.export().config?.lightTone).toEqual([10, 100]);
+  });
+
+  describe('reads fields by property access, like mergeConfig()', () => {
+    const plain = (): GlazeConfigOverride => ({
+      lightTone: [0, 50],
+      darkTone: { lo: 20, hi: 80, eps: 0.1 },
+      pastel: true,
+      glowTuning: { tint: 0.4 },
+    });
+    // Getter-backed: none of these fields is an own enumerable property, so a
+    // spread would drop every one of them.
+    class GetterWindow {
+      readonly #win = { lo: 20, hi: 80, eps: 0.1 };
+      get lo() {
+        return this.#win.lo;
+      }
+      get hi() {
+        return this.#win.hi;
+      }
+      get eps() {
+        return this.#win.eps;
+      }
+    }
+    class Settings {
+      readonly #own = plain();
+      get lightTone() {
+        return this.#own.lightTone;
+      }
+      get darkTone(): ToneWindow {
+        return new GetterWindow();
+      }
+      get pastel() {
+        return this.#own.pastel;
+      }
+      get glowTuning() {
+        return this.#own.glowTuning;
+      }
+    }
+    const colors = {
+      a: { tone: 100 },
+      b: { tone: 30 },
+      g: { type: 'glow', bg: 'b', intensity: 10 },
+    } as const;
+    const theme = (config?: GlazeConfigOverride) => {
+      const t = glaze(0, 80, config);
+      t.colors(colors);
+      return t;
+    };
+    const getterOverrides: [string, () => GlazeConfigOverride][] = [
+      ['class getters', () => new Settings() as GlazeConfigOverride],
+      [
+        'inherited fields',
+        () => Object.create(plain() as object) as GlazeConfigOverride,
+      ],
+      [
+        'a proxy',
+        () =>
+          new Proxy({} as GlazeConfigOverride, {
+            has: (_t, key) => key in plain(),
+            get: (_t, key) => plain()[key as keyof GlazeConfigOverride],
+          }),
+      ],
+    ];
+
+    it.each(getterOverrides)(
+      'glaze(seed, %s): resolve(), getConfig(), export()',
+      (_label, make) => {
+        const ref = theme(plain());
+        const t = theme(make());
+        expect([...t.resolve()]).toEqual([...ref.resolve()]);
+        expect(t.getConfig()).toEqual(ref.getConfig());
+        expect(t.export()).toEqual(ref.export());
+        expect(t.resolve().get('a')!.light.t).toBeCloseTo(0.507, 3);
+      },
+    );
+
+    it.each(getterOverrides)(
+      'glaze.color(input, %s): resolve() and export()',
+      (_label, make) => {
+        const input = { hue: 0, saturation: 0, tone: 100 };
+        const ref = glaze.color(input, plain());
+        const token = glaze.color(input, make());
+        expect(token.resolve()).toEqual(ref.resolve());
+        expect(token.export()).toEqual(ref.export());
+
+        const value = glaze.color('#336699', make());
+        expect(value.resolve()).toEqual(
+          glaze.color('#336699', plain()).resolve(),
+        );
+      },
+    );
+
+    it.each(getterOverrides)(
+      'extend({ config }) and export(override) with %s',
+      (_label, make) => {
+        const parent = theme();
+        const ref = parent.extend({ config: plain() });
+        const child = parent.extend({ config: make() });
+        expect([...child.resolve()]).toEqual([...ref.resolve()]);
+        expect(child.export()).toEqual(ref.export());
+        expect(parent.export(make())).toEqual(parent.export(plain()));
+      },
+    );
   });
 
   it("still validates the override at resolve, not when it's copied", () => {
