@@ -1,7 +1,7 @@
 import { getConfigVersion, normalizeToneWindowInput } from './config';
 import { glaze } from './glaze';
 import { normalizeToneWindow, REF_EPS } from './okhst';
-import type { ToneWindow } from './types';
+import type { GlazeConfig, GlazeConfigOverride, ToneWindow } from './types';
 
 afterEach(() => {
   glaze.resetConfig();
@@ -76,6 +76,127 @@ describe('glaze.getConfig() snapshot', () => {
         '@media(prefers-contrast: more)',
       );
     }
+  });
+
+  it("mutating theme.getConfig() doesn't reach the theme's own resolve", () => {
+    const untouched = sampleTheme();
+    const reference = [...untouched.resolve()];
+    const referenceConfig = untouched.getConfig();
+
+    const theme = sampleTheme();
+    const mutate = () => {
+      const cfg = theme.getConfig();
+      // Out of range on purpose: a value written here would skip the 0–1 clamp.
+      cfg.darkDesaturation = 5;
+      (cfg.lightTone as { lo: number }).lo = 60;
+      cfg.pastel = true;
+    };
+
+    // Before the first resolve, the mutated object would be the one it uses.
+    mutate();
+    expect([...theme.resolve()]).toEqual(reference);
+    expect(theme.getConfig()).toEqual(referenceConfig);
+
+    // And after an unrelated edit drops the cache.
+    mutate();
+    theme.colors({});
+    expect([...theme.resolve()]).toEqual(reference);
+    expect(theme.getConfig()).toEqual(referenceConfig);
+    expect(theme.getConfig().darkDesaturation).toBe(0.1);
+  });
+});
+
+describe('per-instance overrides are copied where they are stored', () => {
+  function makeOverride(): GlazeConfigOverride {
+    return {
+      lightTone: [10, 100],
+      darkTone: { lo: 15, hi: 95, eps: 0.05 },
+      shadowTuning: { reach: 0.9 },
+    };
+  }
+
+  /** Mutate every nested field and replace a top-level one. */
+  function mutate(override: GlazeConfigOverride): void {
+    (override.lightTone as [number, number])[0] = 60;
+    (override.darkTone as { hi: number }).hi = 30;
+    override.shadowTuning!.reach = 0.1;
+    override.darkDesaturation = 0.9;
+  }
+
+  /** An unrelated global bump that drops every instance cache. */
+  function invalidate(): void {
+    glaze.configure({});
+  }
+
+  it('glaze(seed, config): resolve(), getConfig(), export() and extend()', () => {
+    const override = makeOverride();
+    const theme = sampleTheme(override);
+    theme.colors({ low: { tone: 0 } });
+    const resolved = [...theme.resolve()];
+    const config = theme.getConfig();
+    const exported = theme.export();
+    const child = theme.extend({});
+    const childResolved = [...child.resolve()];
+
+    mutate(override);
+    invalidate();
+    theme.colors({});
+
+    expect([...theme.resolve()]).toEqual(resolved);
+    expect(theme.getConfig()).toEqual(config);
+    expect(theme.export()).toEqual(exported);
+    expect(theme.export().config?.lightTone).toEqual([10, 100]);
+    expect([...child.resolve()]).toEqual(childResolved);
+  });
+
+  it('extend({ config }) copies the per-extend override', () => {
+    const override = makeOverride();
+    const child = glaze(0, 80).extend({ config: override });
+    child.colors({ a: { tone: 0 }, b: { tone: 100 } });
+    const resolved = [...child.resolve()];
+    const exported = child.export();
+
+    mutate(override);
+    invalidate();
+
+    expect([...child.resolve()]).toEqual(resolved);
+    expect(child.export()).toEqual(exported);
+  });
+
+  it('glaze.color() structured form: resolve() and export()', () => {
+    const override = makeOverride();
+    const token = glaze.color({ hue: 0, saturation: 80, tone: 0 }, override);
+    const resolved = token.resolve();
+    const exported = token.export();
+
+    mutate(override);
+    invalidate();
+
+    expect(token.resolve()).toEqual(resolved);
+    expect(token.export()).toEqual(exported);
+    expect(token.export().config?.lightTone).toEqual([10, 100]);
+  });
+
+  it('glaze.color() value form: resolve() and export()', () => {
+    const override = makeOverride();
+    const token = glaze.color('#336699', override);
+    const resolved = token.resolve();
+    const exported = token.export();
+
+    mutate(override);
+    invalidate();
+
+    expect(token.resolve()).toEqual(resolved);
+    expect(token.export()).toEqual(exported);
+    expect(token.export().config?.lightTone).toEqual([10, 100]);
+  });
+
+  it("still validates the override at resolve, not when it's copied", () => {
+    const theme = glaze(0, 0, { lightTone: [90, 20] });
+    theme.colors({ a: { tone: 50 } });
+    expect(() => theme.resolve()).toThrow(
+      'glaze: lightTone lo (90) is above hi (20).',
+    );
   });
 });
 
@@ -222,17 +343,32 @@ describe('tone window validation', () => {
     [
       'eps of 0',
       { lo: 10, hi: 100, eps: 0 },
-      'glaze: lightTone eps must be a finite number above 0 (got 0).',
+      'glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got 0).',
     ],
     [
       'negative eps',
       { lo: 10, hi: 100, eps: -0.05 },
-      'glaze: lightTone eps must be a finite number above 0 (got -0.05).',
+      'glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got -0.05).',
     ],
     [
       'missing eps',
       { lo: 10, hi: 100 },
-      'glaze: lightTone eps must be a finite number above 0 (got undefined).',
+      'glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got undefined).',
+    ],
+    [
+      'eps above 1e6',
+      { lo: 10, hi: 100, eps: 1e15 },
+      'glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got 1000000000000000).',
+    ],
+    [
+      'infinite eps',
+      { lo: 10, hi: 100, eps: Infinity },
+      'glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got Infinity).',
+    ],
+    [
+      'null',
+      null,
+      'glaze: lightTone must be [lo, hi], { lo, hi, eps }, or false (got null).',
     ],
     [
       'one-element array',
@@ -262,6 +398,84 @@ describe('tone window validation', () => {
     expect(getConfigVersion()).toBe(version);
   });
 
+  it.each<[string, GlazeConfig]>([
+    [
+      'an invalid darkDesaturation',
+      {
+        lightTone: [20, 90],
+        states: { dark: '@x' },
+        darkDesaturation: Number.NaN,
+      },
+    ],
+    [
+      'an inverted darkTone',
+      {
+        lightTone: [20, 90],
+        modes: { highContrast: true },
+        darkTone: [95, 15],
+      },
+    ],
+    [
+      'a non-finite contrastLevel',
+      { lightTone: [20, 90], autoFlip: false, contrastLevel: Number.NaN },
+    ],
+    [
+      'a null darkTone',
+      {
+        lightTone: [20, 90],
+        shadowTuning: { reach: 0.5 },
+        darkTone: null as unknown as ToneWindow,
+      },
+    ],
+  ])('configure() with valid fields plus %s changes nothing', (_label, cfg) => {
+    const before = structuredClone(glaze.getConfig());
+    const version = getConfigVersion();
+    expect(() => glaze.configure(cfg)).toThrow(/^glaze: /);
+    expect(glaze.getConfig()).toEqual(before);
+    expect(getConfigVersion()).toBe(version);
+  });
+
+  it('treats a null window the same in configure() and in an override', () => {
+    const message =
+      'glaze: darkTone must be [lo, hi], { lo, hi, eps }, or false (got null).';
+    const version = getConfigVersion();
+    expect(() =>
+      glaze.configure({ darkTone: null as unknown as ToneWindow }),
+    ).toThrow(message);
+    expect(glaze.getConfig().darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
+    expect(getConfigVersion()).toBe(version);
+
+    const theme = glaze(0, 0, { darkTone: null as unknown as ToneWindow });
+    theme.colors({ a: { tone: 50 } });
+    expect(() => theme.resolve()).toThrow(message);
+  });
+
+  it('accepts an eps of exactly 1e6 and resolves to finite tones', () => {
+    glaze.configure({ lightTone: { lo: 10, hi: 100, eps: 1e6 } });
+    expect(glaze.getConfig().lightTone).toEqual({ lo: 10, hi: 100, eps: 1e6 });
+    const theme = glaze(0, 0);
+    theme.colors({ a: { tone: 50 } });
+    const a = theme.resolve().get('a')!;
+    expect(Number.isFinite(a.light.t)).toBe(true);
+    expect(Number.isFinite(a.lightContrast.t)).toBe(true);
+  });
+
+  it('caps eps in a per-instance override when it resolves', () => {
+    const token = glaze.color(
+      { hue: 0, saturation: 0, tone: 50 },
+      { lightTone: { lo: 10, hi: 100, eps: 1e15 } },
+    );
+    expect(() => token.resolve()).toThrow(
+      'glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got 1000000000000000).',
+    );
+
+    const theme = glaze(0, 0, { darkTone: { lo: 15, hi: 95, eps: 1e7 } });
+    theme.colors({ a: { tone: 50 } });
+    expect(() => theme.resolve()).toThrow(
+      'glaze: darkTone eps must be a finite number above 0 and at most 1e6 (got 10000000).',
+    );
+  });
+
   it('names darkTone in its errors', () => {
     expect(() => glaze.configure({ darkTone: [95, 15] })).toThrow(
       'glaze: darkTone lo (95) is above hi (15).',
@@ -279,7 +493,7 @@ describe('tone window validation', () => {
       lightTone: { lo: 0, hi: 100, eps: 0 },
     });
     expect(() => token.resolve()).toThrow(
-      'glaze: lightTone eps must be a finite number above 0 (got 0).',
+      'glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got 0).',
     );
 
     const clamped = glaze(0, 0, { lightTone: [-10, 110] });

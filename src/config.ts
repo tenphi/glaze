@@ -14,9 +14,15 @@
  * global, `mergeConfig()` (i.e. at resolve) for per-instance overrides:
  * `contrastLevel` clamps to 0–100, `darkDesaturation` to 0–1, and tone windows
  * are checked and clamped by `normalizeToneWindow`; a non-finite value throws.
- * The config never shares an object with a caller: `configure()` and
- * `mergeConfig()` copy what they keep, and `snapshotConfig()` hands out a deep
- * copy, so no outside mutation can change a resolve without bumping the version.
+ * Both entry points treat only `undefined` as "keep" for a tone window, so a
+ * `null` throws in either.
+ *
+ * No config object is shared with a caller, in either direction. Going in,
+ * `configure()` copies what it keeps and a theme or token copies its override
+ * once where it stores it (`copyConfigOverride`). Coming out, `snapshotConfig()`
+ * (`glaze.getConfig()`) and `theme.getConfig()` hand out deep copies, and
+ * `mergeConfig()` / `freezeConfigForExport()` build fresh objects. So mutating
+ * a value passed in or handed out can't change a resolve or an export.
  */
 
 import { normalizeToneWindow } from './okhst';
@@ -109,6 +115,45 @@ function copyTuning(
   return tuning === undefined ? undefined : { ...tuning };
 }
 
+/**
+ * Detached copy of a nested override field — a window array or object, or a
+ * tuning — without validating it; anything else (`false`, `undefined`, a bad
+ * scalar) passes through for `mergeConfig()` to judge at resolve.
+ */
+function copyNested<T>(value: T): T {
+  if (Array.isArray(value)) return [...(value as unknown[])] as T;
+  if (typeof value === 'object' && value !== null) return { ...value };
+  return value;
+}
+
+/**
+ * Detached copy of a per-instance override, taken once where a theme or token
+ * stores it so that resolve, `getConfig()`, `export()` and `extend()` all read
+ * one object the caller can no longer reach. Every nested field
+ * (`lightTone` / `darkTone` / `shadowTuning` / `glowTuning`) is copied one
+ * level deep, which is all the nesting the type has. Nothing is validated
+ * here — that still happens in `mergeConfig()` at resolve, as documented. A
+ * field-by-field spread rather than `structuredClone`, so a reactive proxy or
+ * other non-cloneable wrapper still works as an override.
+ */
+export function copyConfigOverride(
+  override: GlazeConfigOverride | undefined,
+): GlazeConfigOverride | undefined {
+  if (override === undefined || override === null) return override;
+  const out: GlazeConfigOverride = { ...override };
+  for (const key of [
+    'lightTone',
+    'darkTone',
+    'shadowTuning',
+    'glowTuning',
+  ] as const) {
+    if (key in out) {
+      (out as Record<string, unknown>)[key] = copyNested(out[key]);
+    }
+  }
+  return out;
+}
+
 let globalConfig: GlazeConfigResolved = defaultConfig();
 
 /**
@@ -140,16 +185,20 @@ export function snapshotConfig(): GlazeConfigResolved {
 /**
  * Merge a `GlazeConfig` into the global config. Fields are validated before
  * anything changes, so a call that throws leaves the config (and its version)
- * untouched.
+ * untouched. A tone window is kept only when it's `undefined`, as in
+ * `mergeConfig()`: a `null` (say, from a JSON config) throws the same error an
+ * instance override with it does.
  */
 export function configure(config: GlazeConfig): void {
   const next: GlazeConfigResolved = {
     lightTone: normalizeToneWindowInput(
-      config.lightTone ?? globalConfig.lightTone,
+      config.lightTone !== undefined
+        ? config.lightTone
+        : globalConfig.lightTone,
       'lightTone',
     ),
     darkTone: normalizeToneWindowInput(
-      config.darkTone ?? globalConfig.darkTone,
+      config.darkTone !== undefined ? config.darkTone : globalConfig.darkTone,
       'darkTone',
     ),
     darkDesaturation: normalizeDarkDesaturation(
@@ -192,8 +241,8 @@ export function resetConfig(): void {
  *
  * This is where an instance's override is validated (at resolve), with the
  * same rules `configure()` applies to the global. The result is always a fresh
- * object that shares nothing with `base` or `override`, so the config a theme
- * hands out from `theme.getConfig()` can't alias the live global.
+ * object that shares nothing with `base` or `override`, so an instance's
+ * cached config can't alias the live global.
  *
  * `pastel` is instance-only: `override.pastel ?? false`, never inherited
  * from the global base.

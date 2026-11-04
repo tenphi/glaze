@@ -9,7 +9,9 @@
  * The per-theme config override is **merged over the live global config at
  * resolve time** so the theme still reacts to later `configure()` calls
  * for fields it didn't override. The merged config is memoized by
- * `configVersion` to avoid rebuilding it on every export call.
+ * `configVersion` to avoid rebuilding it on every export call. The override is
+ * copied once when the theme is created and `getConfig()` hands out a deep copy
+ * of the merged config, so mutating either object can't reach a resolve.
  *
  * `tasty()` / `css()` with `splitHue` run its guards before emitting: format
  * `'oklch'`, every color pastel, and no color whose own hue var would take the
@@ -22,6 +24,7 @@ import {
   type ChannelCtx,
 } from './channels';
 import {
+  copyConfigOverride,
   freezeConfigForExport,
   getConfig,
   getConfigVersion,
@@ -66,8 +69,11 @@ import type {
 export function createTheme(
   seed: GlazeThemeSeed,
   initialColors?: ColorMap,
-  configOverride?: GlazeConfigOverride,
+  callerOverride?: GlazeConfigOverride,
 ): GlazeTheme {
+  // Copied once here, so resolve, `getConfig()`, `export()` and `extend()`
+  // read one object the caller can no longer mutate.
+  const configOverride = copyConfigOverride(callerOverride);
   const { hue, saturation, darkHue, darkSaturation } = seed;
   let colorDefs: ColorMap = initialColors ? { ...initialColors } : {};
 
@@ -143,7 +149,9 @@ export function createTheme(
       return darkSaturation;
     },
     getConfig(): GlazeConfigResolved {
-      return getEffectiveConfig();
+      // A deep copy: the cached config feeds every resolve, so a caller's
+      // mutation must not reach it (or skip `mergeConfig()`'s validation).
+      return structuredClone(getEffectiveConfig());
     },
 
     colors(defs: ColorMap): void {

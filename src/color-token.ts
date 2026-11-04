@@ -11,13 +11,14 @@
  * anchor — its `base`, or the hidden seed holding its own input color — and
  * the user-supplied `name` is a debug label that never drives role inference.
  *
- * Tokens store a sparse local config override only. Resolve merges the
- * live global config with that local override (invalidated on
- * `configure()`). Authoring `.export(override?)` freezes
- * `getConfig() ∪ local ∪ override` at call time.
+ * Tokens store a sparse local config override only, copied once at creation so
+ * the caller's object can't reach it later. Resolve merges the live global
+ * config with that local override (invalidated on `configure()`). Authoring
+ * `.export(override?)` freezes `getConfig() ∪ local ∪ override` at call time.
  */
 
 import {
+  copyConfigOverride,
   freezeConfigForExport,
   getConfig,
   getConfigVersion,
@@ -101,15 +102,15 @@ const RESERVED_STANDALONE_NAMES = new Set([
 
 /**
  * Value-form local override: `lightTone` defaults to `false` (preserve
- * input tone). User override fields win.
+ * input tone). User override fields win. Returns a detached copy.
  */
 function sparseValueFormLocal(
   userOverride?: GlazeConfigOverride,
 ): GlazeConfigOverride {
+  const own = copyConfigOverride(userOverride);
   return {
-    ...userOverride,
-    lightTone:
-      userOverride?.lightTone !== undefined ? userOverride.lightTone : false,
+    ...own,
+    lightTone: own?.lightTone !== undefined ? own.lightTone : false,
   };
 }
 
@@ -634,7 +635,8 @@ export function createColorToken(
     };
   }
 
-  const localOverride = configOverride;
+  // Copied once, so resolve and `export()` read the same detached object.
+  const localOverride = copyConfigOverride(configOverride);
 
   return createColorTokenFromDefs(
     {

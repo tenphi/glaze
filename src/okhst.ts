@@ -129,6 +129,15 @@ export function variantToOkhsl(v: { h: number; s: number; t: number }): {
 // ============================================================================
 
 /**
+ * Largest render eps a tone window accepts. The transfers divide by
+ * `log(1 + eps) - log(eps)`, which loses precision as eps grows (colors are
+ * visibly wrong by ~1e14) and cancels to 0 — `NaN` tones — from ~1e15. At 1e6
+ * the tone ↔ luminance round trip still holds to ~1e-9, and past ~1e3 the
+ * curve is already linear in luminance, so the cap costs nothing usable.
+ */
+const MAX_WINDOW_EPS = 1e6;
+
+/**
  * Normalize any {@link ToneWindow} form to `{ lo, hi, eps }`, validated.
  * - `false`: full range `[0, 100]` at the reference eps (boundaries removed,
  *   curve preserved).
@@ -138,9 +147,9 @@ export function variantToOkhsl(v: { h: number; s: number; t: number }): {
  * A bad window never fails on its own — `[90, 20]` silently inverts the scale
  * and an `eps` of 0 turns every tone into `NaN` — so this throws a `glaze:`
  * error when the value is none of the three forms, an endpoint is not a finite
- * number, `lo > hi`, or `eps` is not a finite number above 0. Endpoints then
- * clamp into `[0, 100]`, the OKHSL lightness range. `lo === hi` is allowed: a
- * zero-width window renders every tone at that one lightness.
+ * number, `lo > hi`, or `eps` is not a finite number in `(0, MAX_WINDOW_EPS]`.
+ * Endpoints then clamp into `[0, 100]`, the OKHSL lightness range. `lo === hi`
+ * is allowed: a zero-width window renders every tone at that one lightness.
  *
  * `field` names the window in the error message (`lightTone` / `darkTone`).
  */
@@ -178,9 +187,14 @@ export function normalizeToneWindow(
       );
     }
   }
-  if (typeof eps !== 'number' || !Number.isFinite(eps) || eps <= 0) {
+  if (
+    typeof eps !== 'number' ||
+    !Number.isFinite(eps) ||
+    eps <= 0 ||
+    eps > MAX_WINDOW_EPS
+  ) {
     throw new Error(
-      `glaze: ${field} eps must be a finite number above 0 (got ${show(eps)}).`,
+      `glaze: ${field} eps must be a finite number above 0 and at most 1e6 (got ${show(eps)}).`,
     );
   }
   const from = lo as number;
