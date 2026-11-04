@@ -275,7 +275,14 @@ theme.colors({
 // scrim: oklch(0 0 0 / 0.5) in every scheme
 ```
 
-Opacity doesn't take part in contrast solving: a translucent color has no fixed perceived tone. Combining it with `contrast` emits `glaze: color "<name>" has both "contrast" and "opacity". Opacity makes perceived tone unpredictable.` For an alpha that is solved against what it covers, use a [shadow or glow](#shadowcolordef--glowcolordef) or a [transparent mix](#mixcolordef).
+Opacity doesn't take part in contrast solving: a translucent color has no fixed perceived tone. Combining it with `contrast` emits a [contrast and opacity](./configuration.md#contrast-and-opacity) warning:
+
+```text
+glaze: color "<name>" has both "contrast" and "opacity".
+Opacity makes perceived tone unpredictable.
+```
+
+For an alpha that is solved against what it covers, use a [shadow or glow](#shadowcolordef--glowcolordef) or a [transparent mix](#mixcolordef).
 
 ### Per-color `pastel`
 
@@ -400,7 +407,7 @@ theme.colors({
 - **Object factor.** With `fg`, the step is `intensity × k`, where `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`, `d = +1` for a shadow and `−1` for a glow, and `β` is `tuning.objectInfluence`. An object at the surface's own tone gives exactly `intensity`, as does omitting `fg`.
 - **Per scheme.** `bg` and `fg` are read in each scheme, so the step and `k` adapt in dark and high contrast on their own.
 - **HC pairs and the level.** `intensity` accepts `[normal, highContrast]` and is interpolated by a manual [`contrastLevel`](./contrast.md#manual-contrast-level).
-- **Output.** Shadows and glows appear in every output method next to regular colors, with an alpha component. They have no `role` (always `'surface'`), no `mode`, and no channels of their own; `ResolvedColor.mode` is omitted for them.
+- **Output.** Shadows and glows appear in every output method next to regular colors, with an alpha component. They have no `role` (always `'surface'`), no `mode`, and no channels of their own; `ResolvedColor.mode` is `undefined` for them.
 - **Unreachable steps.** A glow on white or a deep shadow on near-black can't reach the step. The result pins to the pigment's strongest composite (full opacity, or transparent when the pigment can't move the surface at all) and emits a deduped `console.warn`. This includes the common case of a shadow on an `auto` light surface: a tone-97 surface sits at tone 3 in `darkContrast`, so `card-shadow` and `surface-hover` above pin to opaque black and warn there (`accent-pressed`, on a mid-tone accent, is unaffected). Use a glow for elevation in dark. A glow with a `headroom` can go past white instead; see [HDR values](#hdr-values-resolvedhdr).
 - **Errors.** `glaze: shadow "<name>" references non-existent bg "<ref>".` and `glaze: glow "<name>" fg "<ref>" references a shadow color.` (and the same for the other combinations).
 
@@ -455,7 +462,7 @@ There is no opacity cap: when the step is reachable, it is exact. For a lighter 
 
 ### HDR values (`ResolvedHdr`)
 
-With a `headroom` above 0, a glow whose target tone (surface tone + `intensity × k`) passes 100 gets an HDR value on its resolved variant, next to the unchanged SDR one:
+With a `headroom` above 0, a glow whose target tone (the surface's luminance tone + `intensity × k`) passes 100 gets an HDR value on its resolved variant, next to the unchanged SDR one:
 
 ```ts
 interface ResolvedHdr {
@@ -470,7 +477,7 @@ interface ResolvedHdr {
 - **Base.** What SDR paints at its brightest, taken opaque: the pigment at full opacity, or a white surface (tone 100) that no pigment can lift. The HDR color is the base's linear sRGB times `2^exposure`. `variant.t` stays at most 1.
 - **Exposure.** `log2(min(Y(T*) / Y(base), 2^headroom / max channel))`, with `T*` the target tone: the exact step when the headroom allows it, otherwise capped so no channel passes `2^headroom`, with a [warning](./configuration.md#shadow-or-glow-out-of-reach). A step the HDR value covers doesn't warn.
 - **`s` is never pastel.** The base can be any in-gamut composite, so `s` is standard OKHSL saturation even on a `pastel` variant.
-- **Absent elsewhere.** The `hdr` key is missing (not `undefined`) on regular colors, shadows, mixes, glows that stay below white, a glow whose pigment can't lift a non-white surface at all (`reach: 0`, say: SDR paints nothing, so there is nothing to expose), and every glow at `headroom: 0`.
+- **Absent elsewhere.** The `hdr` key is missing (not `undefined`) on regular colors, shadows, mixes, glows that stay below white, a glow whose pigment can't lift a non-white surface at all (`reach: 0` on a gray surface, say: SDR paints nothing, so there is nothing to expose; on a chromatic surface the `reach: 0` gray can be slightly brighter than the surface, pin at full opacity, and get an HDR value), and every glow at `headroom: 0`.
 - **Continuity.** A full-reach glow (the default `reach: 1`) is pinned at white, so its HDR value starts at white (`exposure` → 0) as the target passes 100. A glow with `reach` below 1 is pinned at its pigment, below white: just under 100 it stays short there and warns, and just past 100 it jumps to the exact step.
 
 ```ts
@@ -541,7 +548,7 @@ theme.colors({
 - **Achromatic colors.** In `'okhsl'`, a side with a saturation of exactly zero (a color defined with `saturation: 0`) has no hue, so the mix takes the other side's hue, matching CSS `color-mix()` "missing component" behavior. A white or black that keeps any saturation still carries its hue. A mix of two zero-saturation colors stays gray in either space. See [Achromatic colors](../mixes.mdx#achromatic-colors).
 - **Chaining.** A mix can use another mix as its `base` or `target`. A transparent mix or an `opacity` color is accepted as a mix's `base` / `target` or a shadow's or glow's `bg` / `fg`, but its alpha is ignored: its opaque color is used.
 - **`autoFlip`.** Mixes have no per-color `autoFlip`; the contrast solve uses the theme's.
-- **Adaptation.** A mix reads its base and target in each scheme, so it adapts to dark and high contrast with them. `ResolvedColor.mode` is omitted for mixes.
+- **Adaptation.** A mix reads its base and target in each scheme, so it adapts to dark and high contrast with them. `ResolvedColor.mode` is `undefined` for mixes.
 - **Errors.** `glaze: mix "<name>" references non-existent base "<ref>".` (or `target`), and `glaze: mix "<name>" base "<ref>" references a shadow color.` (or `glow`, or `target`).
 
 Ramps of [opaque](../mixes.mdx#opaque-mix) and [transparent](../mixes.mdx#transparent-mix) mixes, [contrast on mixes](../mixes.mdx#contrast-on-mixes), and [when to use a mix](../mixes.mdx#mix-shadow-glow-or-opacity) instead of a shadow, glow, or `opacity` are in [Mixes and transparency](../mixes.mdx).

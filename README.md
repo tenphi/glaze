@@ -124,8 +124,9 @@ darkens until the pair meets `'AA'`, or `'AAA'` in high contrast, where a bare
    are exact WCAG steps for neutrals. Chromatic colors can drift in rendered
    luminance, so Glaze measures contrast floors against the resolved colors.
 4. **`contrast` is a floor.** A bare number or preset means WCAG;
-   `{ wcag }` and `{ apca }` select the metric explicitly. The solver preserves
-   the requested tone whenever it already passes.
+   `{ wcag }` and `{ apca }` select the metric explicitly. The solver keeps
+   the requested tone whenever it already clears the floor with a small
+   margin (1% over a WCAG ratio, 0.5 Lc over an APCA target).
 5. **Each color chooses its dark adaptation.** `mode: 'auto'` uses dark tone
    inversion (`100 - t`), `fixed` keeps the authored side of the tone scale,
    and `static` skips scheme adaptation.

@@ -84,7 +84,7 @@ Every `contrast` field takes `HCPair<ContrastSpec>`: [`RegularColorDef`](./color
 
 - A bare number or preset means **WCAG**. Use `{ wcag }` / `{ apca }` to name the metric.
 - A WCAG number below `1` is treated as `1`. A negative APCA number uses its magnitude.
-- The floor is measured against the color's `base`, in each scheme separately. It is a floor, not a target: a color whose preferred tone already passes keeps it, and one that misses moves only as far as the floor requires. How the search works, `autoFlip`, and unreachable targets are covered in [Contrast solving](../contrast.mdx#how-the-solver-finds-a-tone).
+- The floor is measured against the color's `base`, in each scheme separately. It is a floor, not a target: a color whose preferred tone already clears it with the solver's small margin (×1.01 for WCAG, +0.5 Lc for APCA) keeps it, and one that misses moves only as far as the floor requires. How the search works, `autoFlip`, and unreachable targets are covered in [Contrast solving](../contrast.mdx#how-the-solver-finds-a-tone).
 - WCAG is symmetric. APCA is not, so a color's [role](./color-definitions.md#roles) decides which side of the pair is measured as text.
 - On a theme color, `contrast` requires `base`. Without one, validation throws `glaze: color "<name>" has "contrast" without "base".` On a [color token](./color-tokens.md#pairing-colors) without a `base`, the floor is measured against the token's own input color.
 - `contrast` together with `opacity` emits a `console.warn`: a translucent color has no fixed perceived tone.
@@ -172,7 +172,7 @@ The level moves the **normal** variants, `light` and `dark`. It says nothing abo
 | `1`–`99` (any number between) | The normal variants are resolved at that level. |
 
 - Levels `0` and `100` reproduce the classic `light` / `dark` and `lightContrast` / `darkContrast` output bit for bit.
-- Numbers are clamped to `0–100`. A non-finite number throws `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).`
+- Numbers are clamped to `0–100`. A non-finite number, or any value other than a number or `'auto'` (such as the string `'50'`), throws: `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).`
 - The field is listed with the rest of the config in [`GlazeConfig`](./configuration.md#glazeconfig) and [`GlazeConfigOverride`](./configuration.md#glazeconfigoverride).
 
 ### What the level interpolates

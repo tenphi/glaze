@@ -415,7 +415,7 @@ Searches tone for the value nearest `preferredTone` that meets a floor against a
 | --- | --- | --- | --- |
 | `hue` | `number` | — | Candidate hue, 0–360. |
 | `saturation` | `number` | — | Candidate OKHSL saturation, 0–1. |
-| `preferredTone` | `number` | — | Starting tone. Returned as is if it already passes, and kept when nothing searched does better (see `branch`). |
+| `preferredTone` | `number` | — | Starting tone. Returned as is if it already clears the overshoot (see below), and kept when it clears the bare target and nothing searched does better (see `branch`). |
 | `baseLinearRgb` | `[r, g, b]` | — | The base color, linear sRGB. |
 | `contrast` | `ResolvedContrast` | — | `{ metric, target, polarity? }`, e.g. from `resolveContrastForMode`. |
 | `toneRange` | `[number, number]` | `[0, 1]` | Search bounds. Glaze itself searches the full `[0, 1]` and only clamps `preferredTone` into the scheme's tone window (`'max'` / `'min'` excepted), so a floor can push a color past the window. |
@@ -433,7 +433,7 @@ Searches tone for the value nearest `preferredTone` that meets a floor against a
 | `tone` | `number` | The chosen tone, 0–1. |
 | `contrast` | `number` | The achieved score: WCAG ratio or APCA Lc magnitude. |
 | `met` | `boolean` | Whether `contrast` reaches the target. |
-| `branch` | `'lighter' \| 'darker' \| 'preferred'` | The side the result was found on; a met result sits on that side of the base. `'preferred'` whenever a met result is `preferredTone` itself: it already cleared the overshoot, or it clears the bare target and no search could improve on it (no searched side met the floor, or the starting side's only position was `preferredTone`, on that side's bound). Also `'preferred'` when `toneRange` leaves no room to search, met or not. An unmet result otherwise names the side whose bound it pinned to. |
+| `branch` | `'lighter' \| 'darker' \| 'preferred'` | The side the result was found on; a met result sits on that side of the base. `'preferred'` whenever a met result is `preferredTone` itself: it already cleared the overshoot, or it clears the bare target and no search could improve on it (no searched side met the floor, or the starting side's only position was `preferredTone`, on that side's bound). Also `'preferred'` when `toneRange` leaves no room to search and no `initialDirection` is given, met or not (with one, an unmet result names that direction). An unmet result otherwise names the side whose bound it pinned to. |
 | `flipped` | `true` (optional) | Present when the result is on the side opposite `initialDirection`. |
 
 The search aims slightly past the target (WCAG ×1.01, APCA +0.5 Lc) to absorb rounding in the output formats; `met` is judged against the exact target. WCAG scores use `gamutClampedLuminance`, APCA scores use `Ys` with `polarity` deciding which side is the text.
@@ -486,7 +486,7 @@ The same search over a mix parameter (0–1) between a base and a target — wha
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `preferredValue` | `number` | — | Starting mix value, 0–1. Returned as-is if it already passes. |
+| `preferredValue` | `number` | — | Starting mix value, 0–1. Returned as-is if it already clears the overshoot (WCAG ×1.01, APCA +0.5 Lc). |
 | `baseLinearRgb` | `[r, g, b]` | — | The base color, linear sRGB. Contrast is measured against it. |
 | `contrast` | `ResolvedContrast` | — | The floor. |
 | `luminanceAtValue` | `(t: number) => number` | — | Luminance of the mixed color at `t`, in the metric's basis (WCAG Y or APCA `Ys`). The solver sees the mix's target color, blend, and color space only through this function. |

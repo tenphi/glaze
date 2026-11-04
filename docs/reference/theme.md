@@ -327,6 +327,6 @@ Each method resolves the theme (cached) and formats the result. Full options and
 | [`theme.dtcgResolver(options?)`](./output.md#dtcgresolveroptions) | One DTCG Resolver-Module document holding every scheme variant, with the same `$extensions`. |
 | [`theme.tailwind(options?)`](./output.md#tailwindoptions) | A Tailwind CSS v4 `@theme` block plus dark / high-contrast overrides, as one CSS string. With HDR on, HDR blocks follow under `hdrSelector`. |
 
-HDR is on with `modes.hdr` (for `css()`, its own `hdr` option, which defaults to `modes.hdr`). It only adds entries for glows that carry an HDR value ([`glowTuning.headroom`](./configuration.md#glow-headroom)), always written as `color(srgb-linear R G B)`; off, every method's output is the same as with no headroom set. Shapes and wiring: [HDR output](./output.md#hdr-output).
+HDR is on with `modes.hdr` (for `css()`, its own `hdr` option, which defaults to `modes.hdr`). It only adds entries for glows that carry an HDR value ([`glowTuning.headroom`](./configuration.md#glow-headroom)). The HDR value itself is always written as `color(srgb-linear R G B)`, and the dense `tokens()`, `css()`, and `tailwind()` blocks repeat such a glow's SDR value in a scheme where it has none. Off, every method's output is the same as with no headroom set. Shapes and wiring: [HDR output](./output.md#hdr-output).
 
 To combine several themes into one token namespace, use a [palette](./palette.md).

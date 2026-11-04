@@ -274,7 +274,7 @@ hi(f) = hi + (100 - hi) * f
 ```
 
 The light default walks `[10, 100] → [0, 100]` and the dark default
-`[15, 95] → [0, 100]`; at level 50 they are `[5, 100]` (tone 1.63–100) and
+`[15, 95] → [0, 100]`; at level 50 they are `[5, 100]` (tone 1.63–100) and
 `[7.5, 97.5]` (tone 3.15–97.97). The render `eps` is not interpolated, and a
 `false` window is already the full range, so it is level-invariant.
 
@@ -424,10 +424,12 @@ tone would instead of at a fixed scale. In dark high contrast the window is
 the full range, so at the reference dark `eps` the step is exact, only
 mirrored, wherever it fits on the scale (limits below). The anchor is the
 authored position, not the base's light high-contrast tone, so a custom light
-`eps`, which lifts that tone, doesn't change the step away from the ends.
+`eps`, which moves that tone (lighter above the reference 0.05, darker below),
+doesn't change the step away from the ends.
 
 Order carries over only when the base inverts too. An `auto` delta on a
-`fixed` or `static` base inverts on its own while the base keeps its side, so
+`fixed` or `static` base inverts on its own while the base does not (it keeps
+its side, or, as a `fixed` delta, follows its own base without inverting), so
 it can cross to the other side of the base in dark: a `'+50'` label on a
 `fixed` tone-30 fill sits 50 tones above it in light and about 9 below it in
 dark. Make such a dependent `fixed` as well.
@@ -491,8 +493,8 @@ neutral.colors({
 // dark:  bg 43.9, fg 5.9   (shift -38.0, 3.18:1)
 ```
 
-A root `tone: 'max'` in the same theme lands at the dark window's edge, tone
-9.25, and drops to 2.87:1 against `bg` in dark.
+A root `tone: 'max'` in the same theme lands at the dark window's edge,
+tone 9.25, and drops to 2.87:1 against `bg` in dark.
 
 ### All three, light to dark
 
@@ -551,7 +553,9 @@ For a color with `base` and `contrast`, in each scheme Glaze:
    color's real hue and saturation — if it already clears the floor with a
    small margin (×1.01 for a WCAG ratio, +0.5 Lc for APCA, to absorb rounding
    in the output formats), the tone is kept (`contrast` is a floor, not a
-   target);
+   target); a preferred tone that clears the floor but not the margin is also
+   kept, and counts as met, when no searched side meets the floor (white text
+   at tone 100 has nowhere further to go);
 3. otherwise searches tone. For WCAG the search first measures the gray tone
    whose luminance hits the ratio exactly — `Y = R * (Y_base + 0.05) - 0.05`
    on the lighter side, `(Y_base + 0.05) / R - 0.05` on the darker — which

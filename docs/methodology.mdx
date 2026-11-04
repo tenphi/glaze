@@ -88,8 +88,8 @@ Use this order when defining a token:
    **tone delta** (`'+N'` / `'-N'`) for distance from a base: surface ladders,
    soft chips, disabled states, and similar relationships. Under `auto`, the
    dark step mirrors the light one on a base placed by tone, solved by a
-   contrast floor, or mixed, but a `fixed` base keeps its side while the delta
-   inverts: make a delta off a `fixed` base `fixed` too. A delta has no floor
+   contrast floor, or mixed, but a `fixed` base doesn't invert while the delta
+   does: make a delta off a `fixed` base `fixed` too. A delta has no floor
    of its own, so give a hover that must stay readable its own `contrast`, or
    use a [state layer](#state-layers) on fills.
 3. Add `contrast` only when readability or recognizability needs a measured
@@ -748,7 +748,7 @@ defaultTheme.colors({
 />
 
 `mode: 'static'` keeps the scrim pure black. Under the default `auto`, tone 0
-would be remapped to about 5 in light and inverted to about 96 in dark, turning
+would be remapped to tone 4.95 in light and inverted to 95.9 in dark, turning
 the scrim into a light 50% wash there.
 
 Use mixes when one color should tint through another:

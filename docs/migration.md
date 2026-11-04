@@ -139,11 +139,12 @@ See [Shadows and glows](./shadows-and-glows.mdx).
 What changed:
 
 - **`intensity` is a tone step.** In 2.x it went through a `tanh` curve in
-  OKHSL lightness, so the same number darkened white by 9 tones, a tone-35
-  surface by 13.9, and a tone-6 surface by 4.4. Now `intensity: 10` is 10 tones
-  on every surface with 10 tones of room. A step past black (or white, for a
-  glow) is pinned to the strongest composite the pigment reaches, and Glaze
-  warns; see [Unreachable steps](./shadows-and-glows.mdx#unreachable-steps).
+  OKHSL lightness, so the same number darkened white by 9 tones, a surface
+  rendered at tone 35 by 13.9, and one rendered at tone 6 by 4.4. Now
+  `intensity: 10` is 10 tones on every surface with 10 tones of room. A
+  step past black (or white, for a glow) is pinned to the strongest composite
+  the pigment reaches, and Glaze warns; see
+  [Unreachable steps](./shadows-and-glows.mdx#unreachable-steps).
 - **`fg` is the object, not a contrast reference.** In 2.x, strength scaled
   with `|l_bg − l_fg|` and the docs pointed `fg` at `text`, which ran opposite
   to the physics: a white card on a light surface got almost no shadow. Now
@@ -166,14 +167,16 @@ What changed:
 - **`ColorDef` has a fourth member, `GlowColorDef`.** Exhaustive `switch`es
   over `def.type` need a `'glow'` branch.
 
-How 2.x shadows map onto 3.0 (2.x steps measured with browser compositing):
+How 2.x shadows map onto 3.0 (2.x steps measured with browser compositing;
+tones are where the surface renders, so under the default light window a
+`tone: 10` surface, rendered at 14.5, stepped 10.0):
 
 | 2.x definition | 2.x step for `intensity: 10` | 3.0 equivalent |
 | --- | --- | --- |
 | No `fg`, light surface (tone 97–100) | ≈ 9 tones | `intensity: 9`, or keep `10` (a tone stronger) |
 | No `fg`, mid surface (tone 50) | ≈ 13.6 tones | `intensity: 13.6`, or settle on one value for all surfaces |
 | No `fg`, dark surface (tone 10) | ≈ 7.6 tones, and saturating | `intensity: 7.6`; dark shadows were weaker than authored and now aren't |
-| `fg: 'text'` on a light surface | ≈ 7 tones | Drop `fg` and use `intensity: 7`, or point `fg` at the element and re-tune |
+| `fg: 'text'` on a light surface | ≈ 5.5–8 tones, by the text's tone (7.8 for near-black text, 5.6 for `'AAA'` text on a tone-95 surface) | Drop `fg` and use the step your text gave (`intensity: 8` for near-black text), or point `fg` at the element and re-tune |
 | `fg` = a near-white card on light | ≈ 0.3 tones (barely visible) | `fg: 'card'`, then pick `intensity` for the look you want |
 
 Then:
@@ -215,9 +218,10 @@ takes the same input. See
 [`glaze.shadow()` / `glaze.glow()`](./reference/utilities.md#glazeshadowinput--glazeglowinput).
 
 HDR glows are new in 3.0 and opt-in, so they need no migration. A glow
-variant gets an `hdr` value only with `glowTuning.headroom` above 0 (the
-default is 0), and exports carry it only with `modes.hdr` (default `false`).
-At the defaults nothing changes. See
+variant gets an `hdr` value only with a `headroom` above 0
+(`glowTuning.headroom`, or a glow's own `tuning.headroom`; the default is 0),
+and exports carry it only with `modes.hdr` (default `false`), or for `css()`
+its `hdr` option. At the defaults nothing changes. See
 [HDR glows](./shadows-and-glows.mdx#hdr-glows) and
 [HDR output](./exporting.mdx#hdr-output).
 
@@ -247,15 +251,22 @@ What moves:
   2 on a tone-50 base, and a fraction of a tone on a light surface. Deltas on
   a contrast-solved, mixed, or extreme base move more (the `'AAA'` hover
   above moves 9 tones), and so do deltas on a base past the dark window or
-  under a custom light `eps`.
+  under a custom light `eps`. A contrast-solved delta whose 2.x dark step
+  crossed its base now lands on the side that mirrors light, which can move
+  it most of the scale: in `glaze(0, 0)`,
+  `{ base: 'fill', tone: '-1', contrast: 3 }` on a tone-50 fill goes from
+  16.2 to 89.0 in dark.
 - **High-contrast variants**, only for deltas on contrast-solved, mixed, or
   extreme bases, or under a custom light `eps`: at the default dark `eps`, a
   high-contrast dark step is now exactly the delta, short of the limits below.
   `contrastLevel: 100` still equals the high-contrast tier.
-- **`glaze.color()` links** whose base token has its own `lightTone` or
-  `darkTone`. They now step like any other link in dark, and a `'+0'` link
-  lands on its base there. Other links already stepped this way. Light is
-  unchanged: a structured base is still linked at its raw input tone.
+- **`glaze.color()` links** whose base token has its own `darkTone`, is a
+  value-form token with its own `lightTone`, or is contrast-solved or an
+  `auto` `'max'` / `'min'` on a base. They now step like any other link in
+  dark, and a `'+0'` link lands on its base there: in 2.x a `'+0'` link on an
+  `'AAA'` token over `#f7f7fb` sat 8.95 tones below it in dark. Links on
+  other bases already stepped this way. Light is unchanged: a structured base
+  is still linked at its raw input tone.
 - **Light variants** only through a float-noise tie: a contrast-solved color
   whose preferred tone lands within 1e-9 tones of its base's (a `'+0'` /
   `'-0'` delta, or an absolute tone equal to the base's) takes the solver's
@@ -285,9 +296,15 @@ you have pinned:
   than their gray tone (blues, violets, reds, oranges) land on their own
   crossing instead of stopping at the gray seed: an `'AA'` text at hue 280 and
   saturation 100 on a light gray surface goes from 5.03:1 to 4.55:1, 2.8 tones
-  nearer its authored tone. Most colors move less than half a tone, a few
-  saturated ones up to about 5. A contrast-solved color with no tone of its own
-  on a gray base at tone 50 now always starts darker.
+  nearer its authored tone. A contrast-solved color with no tone of its own
+  on a mid-tone base, where both sides meet the floor at the same distance,
+  now keeps the side it searches first instead of a side picked by search
+  noise. It starts toward the extreme that scores higher, and darker on a
+  gray base at tone 50, so it can land on the other side of its base: in
+  `glaze(0, 0)`, `{ base: 'b', contrast: 3 }` goes from 11.3 to 84.1 on a
+  tone-45 base and from 93.6 to 20.8 on a tone-55 one. Apart from those side
+  changes, most colors move less than half a tone, a few saturated ones up to
+  about 5.
 - **Standalone `glaze.color()` tokens** default to the `'text'` role; 2.x
   resolved a token without a `base` as a surface. `name` no longer drives role
   inference. An APCA floor on a token without `role` can land elsewhere:
@@ -298,7 +315,8 @@ you have pinned:
   from the token's own color; 2.x read `'+20'` as tone 20.
 - **Transparent mixes with `contrast`** solve against browser compositing
   (`source-over` on gamma-encoded sRGB) instead of linear light. A white
-  `'AA'` overlay on a tone-12 surface goes from alpha 0.26, which rendered at
+  `'AA'` overlay on a surface rendered at tone 12
+  (`{ tone: 12, mode: 'static' }`) goes from alpha 0.26, which rendered at
   2.3:1, to 0.48; a black overlay with a 1.2:1 floor on a tone-97 surface goes
   from 0.18 to 0.09.
 - **`glaze(seed, config)`** applies the config. 2.x read the object form's
@@ -310,15 +328,15 @@ you have pinned:
 3.0 throws a `glaze:` error for input that 2.x resolved, usually into wrong or
 `NaN` colors:
 
-| Input | 2.x | 3.0 |
-| --- | --- | --- |
-| A tone window with `lo > hi` (`lightTone: [90, 20]`) | Inverted the scale | Throws |
-| A window endpoint that isn't a finite number (`NaN`, `Infinity`, `'10'`) | `NaN` colors, or a string read as a number | Throws |
-| An object window whose `eps` is missing, not above 0, or above `1e6` | The default `eps` when missing; `NaN` colors at 0 or below and from about `1e15` | Throws |
-| A window that isn't `[lo, hi]`, `{ lo, hi, eps }`, or `false` (`50`, `[10]`, `true`, `null`) | `NaN` colors; `configure()` ignored `null` | Throws |
-| A non-finite `darkDesaturation` | `NaN` dark colors (`NaN`), or fully gray ones (`Infinity`) | Throws |
-| A relative tone in the high-contrast entry of a root color (`tone: [50, '+20']`, no `base`) | Read `'+20'` as tone 20 | Throws. Add a `base`, or write the tone you got (`[50, 20]`) |
-| A hex color with a non-hex digit (`'#1z2z3z'`) in `glaze.color()`, `glaze.fromHex()`, a color's `from`, or the `bg` / `fg` of `glaze.shadow()` | Read only the first digit of each pair (`#010203`) | Throws |
+| Input | 2.x |
+| --- | --- |
+| A tone window with `lo > hi` (`lightTone: [90, 20]`) | Inverted the scale |
+| A window endpoint that isn't a finite number (`NaN`, `Infinity`, `'10'`) | `NaN` colors, or a string read as a number |
+| An object window whose `eps` is missing, not above 0, or above `1e6` | The default `eps` when missing; `NaN` colors at 0 or below and from about `1e15` |
+| A window that isn't `[lo, hi]`, `{ lo, hi, eps }`, or `false` (`50`, `[10]`, `true`, `null`) | `NaN` colors; `configure()` ignored `null`, and a theme or token override with `null` threw a `TypeError` when it resolved |
+| A `darkDesaturation` that isn't a finite number (`NaN`, `Infinity`, `'0.5'`, `true`) | `NaN` dark colors (`NaN`), fully gray ones (`Infinity`, `true`), or a string read as a number |
+| A relative tone in the high-contrast entry of a root color (`tone: [50, '+20']`, no `base`) | Read `'+20'` as tone 20. Now throws: add a `base`, or write the tone you got (`[50, 20]`) |
+| A hex color with a non-hex digit (`'#1z2z3z'`) in `glaze.color()`, `glaze.fromHex()`, a color's `from`, or the `bg` / `fg` of `glaze.shadow()` | Read only the first digit of each pair (`#010203`) |
 
 ```text
 glaze: lightTone lo (90) is above hi (20).

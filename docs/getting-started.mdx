@@ -102,9 +102,10 @@ theme.colors({
 so a theme can grow over several calls.
 
 The delta follows its base into every scheme. In dark mode the scale inverts, so
-one tone darker becomes one tone lighter and the text turns light. In high
-contrast, `'AA'` rises to `'AAA'`, so both colors meet 7:1. For APCA instead of
-WCAG, write the floor as `{ apca: 'body' }` — see
+one tone darker becomes about 0.87 tones lighter (the dark window is a little
+narrower than the full scale) and the text turns light. In high contrast,
+`'AA'` rises to `'AAA'`, so both colors meet 7:1. For APCA instead of WCAG,
+write the floor as `{ apca: 'body' }` — see
 [Contrast solving](./contrast.mdx).
 
 ### 3. An accent that keeps its contrast
@@ -449,7 +450,8 @@ in each of them. See [Color tokens](./reference/color-tokens.md).
    See [Tone and OKHST](./okhst.mdx).
 4. **`contrast` is a floor.** A bare number or preset means WCAG; `{ wcag }`
    and `{ apca }` pick the metric explicitly. The solver keeps the requested
-   tone whenever it already passes. See [Contrast solving](./contrast.mdx).
+   tone whenever it already passes with a small margin (1% over a WCAG ratio,
+   0.5 Lc over an APCA target). See [Contrast solving](./contrast.mdx).
 5. **Each color chooses its dark adaptation.** `mode: 'auto'` inverts tone
    (`100 − t`), `'fixed'` keeps the authored side of the scale, and `'static'`
    skips scheme adaptation. See

@@ -152,8 +152,8 @@ models exactly that. The composite's luminance changes monotonically with
 opacity, so a bisection finds the opacity that lands the step, on chromatic
 surfaces too.
 
-The required opacity depends heavily on the surface. A 6-tone shadow needs α
-0.081 on white, 0.107 on a tone-50 surface, and 0.477 on a tone-10 surface.
+The required opacity depends heavily on the surface. A 6-tone shadow needs
+α 0.081 on white, 0.107 on a tone-50 surface, and 0.477 on a tone-10 surface.
 
 There is no opacity cap: when the step is reachable, it is exact. For a
 lighter overlay, lower `intensity`.
@@ -297,13 +297,13 @@ The accent fill uses `mode: 'fixed'`, so it stays a mid tone in every scheme
 and its layers land the same steps everywhere. The dark fill uses glows, so
 its states lighten it. The neutral `surface` follows the scheme: in dark high
 contrast it becomes black, and a shadow has nothing left to darken, so
-`surface-hover` and `surface-pressed` pin to black and warn (the figure shows
-what they reached; see [Unreachable steps](#unreachable-steps)). A glow on this
-surface fails the other way: it warns in the light schemes, where the surface
-is white. No overlay fits a surface that spans the whole tone range. For a
-state that darkens in light schemes and lightens in dark ones, use a regular
-color relative to the surface, such as `{ base: 'surface', tone: '-4' }`,
-which flips with the scheme.
+`surface-hover` and `surface-pressed` stay fully transparent and warn (the
+figure shows what they reached; see [Unreachable steps](#unreachable-steps)).
+A glow on this surface fails the other way: it warns in the light schemes,
+where the surface is white. No overlay fits a surface that spans the whole
+tone range. For a state that darkens in light schemes and lightens in dark
+ones, use a regular color relative to the surface, such as
+`{ base: 'surface', tone: '-4' }`, which flips with the scheme.
 
 ## Card drop shadows
 
@@ -329,9 +329,9 @@ deepen in high contrast.
 A blurred `box-shadow` fades out from the token's color, so the step is the
 darkest the shadow gets, right at the card's edge. In dark schemes the page
 sits near black and a dark card shadow has little room: the solved opacity
-climbs, and in dark high contrast the page is black, so all three shadows pin
-to black and warn. For elevation in dark schemes, use glows on a surface with
-room in every scheme, as in the next section.
+climbs, and in dark high contrast the page is black, so all three shadows
+stay fully transparent and warn. For elevation in dark schemes, use glows on a
+surface with room in every scheme, as in the next section.
 
 ## Dark-mode elevation
 
@@ -351,9 +351,12 @@ in the light scheme.
   caption="The same three glows in the dark and light schemes. On the dark surface a few percent of white lifts it 3, 5, and 7 tones; on the light surface the same steps take far more opacity."
 />
 
-A glow on a white light-mode surface has nothing to lighten in SDR: Glaze
-leaves it transparent and warns, even if you only use the token in dark mode.
-Give glows a surface with room in every scheme, like the tone-92 surface here.
+A glow on a white light-mode surface has nothing to lighten in SDR, so Glaze
+warns, even if you only use the token in dark mode. On a tone-100 surface it
+leaves the glow transparent. A white written as `'#ffffff'` parses a hair
+below tone 100, so its glow pins to opaque white instead, which paints the
+same over it. Give glows a surface with room in every scheme, like the
+tone-92 surface here.
 
 [HDR headroom](#hdr-glows) changes nothing below white. This ladder tops out
 at tone 99.4 (light), so it resolves the same with or without it. Only a glow
@@ -419,9 +422,9 @@ field. Both take these `LightingTuning` fields, and `glowTuning` adds
 
 The step is exact in every column. On light and mid surfaces a tint barely
 changes the composite; on dark surfaces it costs reach and opacity. On the
-figure's tone-12 surface, black reaches about 12 tones and needs α 0.545 for
+figure's tone-12 surface, black reaches about 12 tones and needs α 0.545 for
 the 8-tone shadow; the `tint: 0.3, reach: 0.85` pigment reaches about 10 tones
-and needs α 0.706.
+and needs α 0.706.
 
 ## Unreachable steps
 
@@ -493,12 +496,15 @@ anywhere. WCAG and APCA end at white, so Glaze makes no contrast claim above
 reaches the contrast solver.
 
 A glow gets an HDR value when three things hold: its `headroom` is above 0,
-its target tone (`surface tone + intensity × k`) passes 100, and SDR is pinned
-at its brightest. That means the pigment at full opacity, or a white surface
-(tone 100) at opacity 0, since no pigment can lift it. Below white nothing
-changes, dark-scheme glows included. A pigment that can't lift a non-white
-surface at all (`reach: 0`, say) paints nothing in SDR, gets no HDR value, and
-keeps the SDR warning.
+its target tone (the surface's luminance tone plus `intensity × k`) passes
+100, and SDR is pinned at its brightest. That means the pigment at full
+opacity, or a white surface (tone 100) at opacity 0, since no pigment can lift
+it. Below white nothing changes, dark-scheme glows included. A pigment that
+can't lift a non-white surface at all (`reach: 0` on a gray surface, say)
+paints nothing in SDR, gets no HDR value, and keeps the SDR warning. On a
+chromatic surface a `reach: 0` pigment, a gray at the surface's tone, can be
+slightly brighter than the surface: it then pins at full opacity and, past
+white, gets an HDR value like any pinned pigment.
 
 The resolved variant gains `hdr: { h, s, t, exposure }`. The base (`h`, `s`,
 `t`) is the opaque color SDR paints, with a standard (never pastel) OKHSL
@@ -513,8 +519,10 @@ maps one to one onto native exposure APIs.
 defaults to 0 (no HDR anywhere) and must be a finite number ≥ 0, or Glaze
 throws. Set it globally (`glaze.configure({ glowTuning: { headroom: 1 } })`),
 in a theme's config override, on one glow's `tuning`, or on
-`glaze.glow()`. A glow's `tuning` merges over `glowTuning` field by field; a
-theme's own `glowTuning` replaces the global one whole, as with `reach`. A
+`glaze.glow()`. A glow's `tuning` merges over `glowTuning` field by field. A
+theme's own `glowTuning` replaces the global one whole, and so does a later
+`glaze.configure({ glowTuning })`, so pass every field you want kept:
+`glaze.configure({ glowTuning: { objectInfluence: 0.6, headroom: 1 } })`. A
 `headroom` on a shadow throws: nothing goes below black.
 
 Values above 2 clamp to 2. The warning fires once per field and value, and
@@ -560,16 +568,17 @@ one on a dark gray.
 
 The same numbers in every scheme:
 
-| Glow | Schemes | SDR | HDR |
-| --- | --- | --- | --- |
-| `surface-glow` | light, light HC | `oklch(1 0 0 / 0)` | `color(srgb-linear 1.4631 1.4631 1.4631)`, 0.549 stops, tone 112 |
-| `surface-glow` | dark, dark HC | `oklch(1 0 0 / 0.1237)`; α 0.1603 in dark HC | None: the dark surface has room |
-| `near-glow` | all four | `oklch(1 0 0)`, 5 of 12 tones | `color(srgb-linear 1.2494 1.2494 1.2494)`, 0.321 stops, tone 107 |
-| `inverse-glow` | all four | `oklch(1 0 0 / 0.1155)` | None: the target is tone 24 |
+| Glow | SDR | HDR |
+| --- | --- | --- |
+| `surface-glow`, light and light HC | White at α 0 | Linear 1.4631 per channel, 0.549 stops, tone 112 |
+| `surface-glow`, dark and dark HC | White at α 0.1237 (α 0.1603 in dark HC) | None: the dark surface has room |
+| `near-glow`, all four | Opaque white, 5 of 12 tones | Linear 1.2494 per channel, 0.321 stops, tone 107 |
+| `inverse-glow`, all four | White at α 0.1155 | None: the target is tone 24 |
 
 `near-glow` shows the split: SDR pins it to opaque white 7 tones short, and
-its HDR value lands those 7. In dark, `surface` sits at tone 9.25, so
-`surface-glow` is an ordinary translucent glow there.
+its HDR value lands those 7. In dark, `surface` sits at tone 9.25 (luminance
+tone 8.5, so the glow's target is tone 20.5), and `surface-glow` is an
+ordinary translucent glow there.
 
 ### Crossing white
 
@@ -628,8 +637,9 @@ linear channels as a `LINEAR_EXTENDED_SRGB` color in an HDR window.
 
 Where the HDR value clamps, which today is most places, it paints an opaque
 color: white, for a neutral glow. That matches SDR wherever SDR is already
-opaque (`near-glow`). On a white surface it doesn't: SDR is transparent there,
-and the clamped value covers anything drawn between the surface and the glow.
+opaque (`near-glow`). On a tone-100 surface it doesn't: SDR is transparent
+there, and the clamped value covers anything drawn between the surface and the
+glow.
 Use HDR glows for fills (a card's or button's own background), edge
 highlights, and `box-shadow` colors, never for a state layer drawn over a
 label.

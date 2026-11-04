@@ -23,11 +23,11 @@ theme.colors({
 });
 ```
 
-The floor is a minimum, not a target: a color that already clears it keeps its
-authored tone. Use tone for the relationship you want and `contrast` as the
-safety net under it. The tone can be a delta from the base or an absolute tone:
-a `base` with an absolute `tone` is a valid way to get a contrast guarantee
-without a tone relationship.
+The floor is a minimum, not a target: a color that already clears it, with a
+small margin, keeps its authored tone. Use tone for the relationship you want
+and `contrast` as the safety net under it. The tone can be a delta from the
+base or an absolute tone: a `base` with an absolute `tone` is a valid way to
+get a contrast guarantee without a tone relationship.
 
 ## Floors at a glance
 
@@ -171,7 +171,7 @@ Two definitions are rejected before anything resolves:
   The error starts with
   `glaze: color "text" has a "contrast" pair that switches metric (wcag → apca).`
   and suggests the fix: use one metric for both entries, e.g.
-  `{ wcag: [4.5, 7] }`.
+  `{ wcag: [normal, highContrast] }` (here `{ wcag: [4.5, 7] }`).
 
 Every form, preset, and escalation rule is listed in the API reference under
 [Contrast and high contrast](./reference/contrast.md).
@@ -329,8 +329,11 @@ work; `autoFlip` only reverses a delta or a contrast search around the base.
 
 When both sides pass, "nearest wins" can pick a different side as the target
 grows. Under a [manual contrast level](#manual-contrast-level), Glaze therefore
-decides the side once per half of the slider, so a color changes side at most
-once, at level 50, instead of jumping back and forth.
+decides the preferred side once per half of the slider and switches it only at
+level 50. A preferred side that stops reaching the floor partway along still
+falls back to the other side, at whatever level that happens: in
+`glaze(280, 80)`, a `'-5'` label with `contrast: 'AA-large'` on a tone-40
+button crosses to the lighter side at level 23 in light.
 
 ## Roles and APCA polarity
 
@@ -496,10 +499,11 @@ variants solve for a target between the normal and high-contrast floors. Both
 ends are resolved with the rules above first, so `'AA'` ramps from 4.5 at
 level `0` to 7 at level `100`, and an explicit pair ramps between its two
 entries. A pair that switches metric has no midpoint, which is one reason
-validation rejects it. Under a level, the side of the base a color sits on is
-decided once per half of the ramp, so it changes side at most once — at
-level 50 — instead of jumping back and forth. The high-contrast variants are
-not affected by the level. The concept is covered in
+validation rejects it. Under a level, the side of the base a color prefers is
+decided once per half of the ramp and switches only at level 50, so
+nearest-wins can't swap it back and forth. A preferred side that can no longer
+reach the floor still falls back to the other side, at any level. The
+high-contrast variants are not affected by the level. The concept is covered in
 [Light, dark, and high contrast](./schemes.mdx#manual-contrast-level); the full
 rules are in
 [Contrast and high contrast](./reference/contrast.md#manual-contrast-level).
@@ -641,16 +645,24 @@ variant in every scheme.
 With a `base`:
 
 - `contrast` is solved per scheme against the base's `light`, `dark`,
-  `lightContrast`, and `darkContrast` variants.
+  `lightContrast`, and `darkContrast` variants, with one exception: in light,
+  a structured base (`glaze.color({ hue, saturation, tone })`) is linked at
+  its raw input tone, not its windowed light variant. An `'AA'` token on
+  `glaze.color({ hue: 280, saturation: 80, tone: 50 })` therefore measures
+  4.20:1 against the base's rendered light color, and no warning fires. When
+  the light pair must hold, give such a base `{ lightTone: false }` or use a
+  value-form base.
 - A tone delta (`tone: '+N'` / `'-N'`) is measured from the base. Under the
   default `mode: 'auto'`, the dark variant steps from where the base token
-  sits on its own authored scale, read under its own `lightTone`. The step
-  flips direction and comes out about 0.87× the delta at the default dark
-  window, the same as a theme color
-  ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). A
-  base whose dark window differs from the token's (its own `darkTone`, or
-  another `contrastLevel`) is read back through the token's dark window, so a
-  `'+0'` lands on it in dark. A relative `hue` still anchors to the token's
+  sits on its own authored scale, read under its own `lightTone`; for an
+  `auto` base placed by a contrast floor or an extreme, that is its own dark
+  tone read back through the dark window, as in a theme. The step flips
+  direction and comes out about 0.87× the delta at the default dark window,
+  the same as a theme color
+  ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). An
+  `auto` base whose dark window differs from the token's (its own `darkTone`,
+  or another `contrastLevel`) is read back through the token's dark window, so
+  a `'+0'` lands on it in dark. A relative `hue` still anchors to the token's
   own seed value.
 - Pairs chain: a paired token can be the base of the next one.
 

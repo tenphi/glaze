@@ -6,7 +6,7 @@
 
 Breaking changes:
 
-- **`shadow` `intensity` is a tone step.** In 2.x the same intensity darkened white by 9 tones, a tone-35 surface by 13.9 and a tone-6 surface by 4.4. Shadows on light surfaces keep roughly their look (old `10` ≈ 9 tones on white). Shadows on dark surfaces get stronger.
+- **`shadow` `intensity` is a tone step.** In 2.x the same intensity darkened white by 9 tones, a surface rendered at tone 35 by 13.9 and one rendered at tone 6 by 4.4. Shadows on light surfaces keep roughly their look (old `10` ≈ 9 tones on white). Shadows on dark surfaces get stronger.
 - **`fg` is the object casting the shadow, not a contrast reference.** The step is scaled by `k = max(0, 1 + β·d·(t_bg − t_fg)/100)` (`β = tuning.objectInfluence`, default `0.5`), so a darker object casts a deeper shadow and an object at the surface's tone, or no `fg`, gives exactly `intensity`. Drop `fg: 'text'`, or point `fg` at the element.
 - **The pigment is pure black (`shadow`) / white (`glow`)** by default, so the surface keeps its hue.
 - **`ShadowTuning` is replaced** by the shared `LightingTuning` (`objectInfluence`, `tint`, `reach`, `hueBleed`), also exported as `ShadowTuning`. The new `GlowTuning` extends it with HDR `headroom`. The old knobs (`saturationFactor`, `maxSaturation`, `lightnessFactor`, `lightnessBounds`, `minGapTarget`, `alphaMax`, `bgHueBlend`) are gone. Global config gains `glowTuning`.

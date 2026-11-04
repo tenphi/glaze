@@ -219,8 +219,8 @@ your `value` as it can.
 An unmet floor warns once per scheme, like it does for a regular color. Below,
 `accent-fill` meets AA in light at about 4.55:1. In dark the pure target
 reaches only 4.24:1, so the mix settles there. High contrast escalates the
-floor to 7:1, which the pure target misses (5.72:1 in light high contrast), so
-the high-contrast entry of 100 falls back to the surface itself:
+floor to 7:1, which the pure target misses (5.72:1 in light high contrast,
+5.20:1 in dark), so the high-contrast entry of 100 falls back to the surface:
 
 ```ts
 const theme = glaze(280, 80);
@@ -245,10 +245,12 @@ Even the pure target falls short; try lowering the contrast target or
   mixing toward a color further from the base.
 ```
 
-The dark-scheme warning names `WCAG 4.50` and `(got 4.24)` instead. The fix is
-a target further from the base or a lower floor. Here `contrast: ['AA', 'AA']`
-holds high contrast at 4.5:1, which the pure target clears, so its entry of
-100 is kept. See [Warnings](./reference/configuration.md#mix-contrast-unmet).
+The `darkContrast` warning is the same with its scheme name, and the
+dark-scheme one names `WCAG 4.50` and `(got 4.24)` instead. The fix is a
+target further from the base or a lower floor. Here
+`contrast: ['AA', 'AA']` holds high contrast at 4.5:1, which the pure target
+clears, so its entry of 100 is kept. See
+[Warnings](./reference/configuration.md#mix-contrast-unmet).
 
 ## Mix chaining
 

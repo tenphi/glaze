@@ -85,8 +85,8 @@ The literal color forms. They are accepted by `glaze.color()`, by [`from`](./col
 - An alpha component (`#rrggbbaa`, `#rgba`, `/ 0.8`, or any fourth component, comma- or space-separated) is dropped with a `console.warn`. Use [`opacity`](#glazecoloroverrides) instead:
 
   ```text
-  glaze: alpha component dropped from "rgb(1 2 3 4)" (standalone color has
-    no opacity field).
+  glaze: alpha component dropped from "rgb(1 2 3 4)" (standalone
+    color has no opacity field).
   ```
 - Value objects are recognized by their keys: `r`, `g`, `b` → RGB; `l`, `c`, `h` → OKLCh; `h`, `s`, `t` → OKHST; otherwise OKHSL.
 - Hue is read in degrees, bare or with `deg`. Other angle units (`turn`, `rad`, `grad`) are not rejected but misread as degrees: `hsl(0.5turn 50% 50%)` gets hue 0.5°, not 180°.
@@ -296,13 +296,13 @@ const text2 = glaze.color({
 
 With `base`:
 
-- `contrast` is solved against the base's `light`, `dark`, `lightContrast`, and `darkContrast` variant in turn.
-- A tone delta (`'+N'` / `'-N'`) is measured from the base, as for a theme's [dependent colors](./color-definitions.md#tone-values). In high contrast the step is exact, and in light too unless the base is a structured token, whose raw input tone is the light anchor (see below). Under `mode: 'auto'` the dark variant steps from where the base sits on its own authored scale — its authored tone, read under the base's own `lightTone` — then inverts and maps the result through the dark window, so the step flips direction and shrinks to the dark window's scale (about 0.87×), as in a theme: an `'auto'` version of `border` above is 6.93 tones darker than `bg` in dark. `'fixed'` and `'static'` apply it to the base's tone in each scheme, sign kept.
+- `contrast` is solved against the base's `light`, `dark`, `lightContrast`, and `darkContrast` variant in turn, except in light on a structured base (see below).
+- A tone delta (`'+N'` / `'-N'`) is measured from the base, as for a theme's [dependent colors](./color-definitions.md#tone-values). In high contrast the step is exact, and in light too unless the base is a structured token, whose raw input tone is the light anchor (see below). Under `mode: 'auto'` the dark variant steps from where the base sits on its own authored scale — its authored tone, read under the base's own `lightTone`, or, for an `'auto'` base placed by a contrast floor or an extreme, its own dark tone read back through the dark window, as in a theme — then inverts and maps the result through the dark window, so the step flips direction and shrinks to the dark window's scale (about 0.87×), as in a theme: an `'auto'` version of `border` above is 6.93 tones darker than `bg` in dark. `'fixed'` and `'static'` apply it to the base's tone in each scheme, sign kept.
 - An `'auto'` base whose active dark window differs from the dependent's — its own `darkTone`, or another `contrastLevel` — is read back through the dependent's dark window instead, so a `'+0'` dependent lands on it and steps mirror at the dependent's scale. On `glaze.color('#808080', { darkTone: false })`, `'+6'` steps 5.2 tones darker in dark and `'-6'` 5.2 lighter.
 - A relative `hue` still anchors to the token's own seed (the value passed to `glaze.color()`), not to the base.
 - `mode` applies to the pair: `'auto'` mirrors the relationship in dark, `'fixed'` keeps its sign.
 - The base is resolved lazily, when the dependent first resolves.
-- **A structured base is linked at full range.** When a value-form token uses a structured token as its base, the anchor is the base's raw input tone, not its windowed output: a structured base at tone 5 renders at tone 9.7 in light, but a `tone: '+10'` dependent lands at 15. The base's own `resolve()` output is unchanged.
+- **A structured base is linked at full range.** When a value-form token uses a structured token as its base, the light anchor is the base's raw input tone, not its windowed output: a structured base at tone 5 renders at tone 9.7 in light, but a `tone: '+10'` dependent lands at 15. A light `contrast` floor is measured against that raw tone too, so an `'AA'` token on `glaze.color({ hue: 280, saturation: 80, tone: 50 })` measures 4.20:1 against the base's rendered light color, with no warning. Give such a base `{ lightTone: false }`, or use a value-form base, when the light pair must hold. The base's own `resolve()` output is unchanged.
 - An unreachable floor pins the token to the extreme of the side the solver searched first and emits a `console.warn`, such as `glaze: color "value" cannot meet WCAG 4.50 in dark scheme (got <ratio>). …`, deduplicated by color, scheme, target, and measured value. Set [`name`](#name) to make the warning identifiable.
 
 Chains compose:
@@ -329,8 +329,8 @@ A token's [role](./color-definitions.md#roles) is its explicit `role`, or `'text
 - Without a `base`, a `contrast` floor or tone delta is measured against a hidden copy of the token's own input color, and that copy is the background.
 
 ```ts
-// Text on white: light is rgb(141 141 141), Lc 60.5. Identical to the same
-// token with base: glaze.color({ from: '#ffffff', mode: 'static' }).
+// Text on white: light is rgb(141 141 141), Lc 60.5. Identical to the
+// same token with base: glaze.color({ from: '#ffffff', mode: 'static' }).
 glaze.color({ from: '#ffffff', contrast: { apca: 60 } });
 
 // A fill with white on top: light is rgb(152 152 152), Lc 60.5 the

@@ -743,16 +743,16 @@ glowing.tokens({ modes: { hdr: true } });
 const css = glowing.css({ hdr: true });
 css.hdr;
 // → {
-//   light:
-//     '--surface-glow-color: color(srgb-linear 1.4631 1.4631 1.4631);\n' +
-//     '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
-//   dark:
-//     '--surface-glow-color: oklch(1 0 0 / 0.1237);\n' +
-//     '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
-//   lightContrast: '…', // the same as light
-//   darkContrast:
-//     '--surface-glow-color: oklch(1 0 0 / 0.1603);\n' +
-//     '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
+// light:
+//   '--surface-glow-color: color(srgb-linear 1.4631 1.4631 1.4631);\n' +
+//   '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
+// dark:
+//   '--surface-glow-color: oklch(1 0 0 / 0.1237);\n' +
+//   '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
+// lightContrast: '…', // the same as light
+// darkContrast:
+//   '--surface-glow-color: oklch(1 0 0 / 0.1603);\n' +
+//   '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
 // }
 ```
 

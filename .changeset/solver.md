@@ -10,4 +10,4 @@ The WCAG gray seed is now only the search's first probe, not a bound. Saturated 
 
 A contrast-solved color with no tone of its own on a gray base at tone 50 now always starts darker: black and white score the same against that base, and float noise used to pick the side.
 
-Contrast-solved colors can therefore resolve to different tones than in 2.x, most by less than half a tone; re-check pinned values (see "3.0 — other changes to resolved colors" in `docs/migration.md`).
+Contrast-solved colors can therefore resolve to different tones than in 2.x: apart from the side changes above, most by less than half a tone; re-check pinned values (see "3.0 — other changes to resolved colors" in `docs/migration.md`).

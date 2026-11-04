@@ -21,9 +21,9 @@ Every color resolves to four variants:
 
 | Variant         | Scheme               | Window                                                                                  |
 | --------------- | -------------------- | --------------------------------------------------------------------------------------- |
-| `light`         | Light                | `lightTone`, default `[10, 100]` in OKHSL lightness (tone 4.95–100)                     |
-| `dark`          | Dark                 | `darkTone`, default `[15, 95]` in OKHSL lightness (tone 9.25–95.9), inverted for `auto` |
-| `lightContrast` | Light, high contrast | The full range, tone 0–100                                                              |
+| `light`         | Light                | `lightTone`, default `[10, 100]` in OKHSL lightness (tone 4.95–100)                     |
+| `dark`          | Dark                 | `darkTone`, default `[15, 95]` in OKHSL lightness (tone 9.25–95.9), inverted for `auto` |
+| `lightContrast` | Light, high contrast | The full range, tone 0–100                                                              |
 | `darkContrast`  | Dark, high contrast  | The full range, inverted for `auto`                                                     |
 
 `theme.resolve()` always returns all four. Exports include `light` and `dark`
@@ -215,9 +215,10 @@ solved in every scheme.
 
 ### Where a dark step starts
 
-An `auto` dependent steps in dark from its base's **anchor**: the tone on the
-authored `0–100` scale that the base's own dark variant is the inversion of.
-Glaze finds it from how the base got its tone:
+An `auto` dependent steps in dark from its base's **anchor**: where the base
+sits on the authored scale, from 0 to 100. A base that inverts in dark has
+that tone, inverted, as its dark variant. Glaze finds the anchor from how the
+base got its tone:
 
 | Base                                                                                                           | Anchor                                               |
 | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
@@ -247,9 +248,13 @@ own, and a mix blends two dark variants, yet the steps off them stay even:
   caption="Hovers on a contrast-solved button and on a mix. The button's own step from surface differs between light and dark, because the floor is solved per scheme, yet button-hover steps +3.5 in dark and wash-hover +5.2, both 0.87× their delta; high contrast keeps them exact."
 />
 
-A `fixed` or `static` base keeps its side in dark, so its anchor stays on the
-light side and the dependent's own mode decides whether it inverts (see the
-`fixed` bullet above).
+A `fixed` or `static` base doesn't invert, so its anchor stays on the light
+side and the dependent's own mode decides whether it inverts (see the `fixed`
+bullet above). A `fixed` delta on an `auto` base still follows that base into
+dark, so an `auto` dependent can land far from it there: in `glaze(280, 30)`,
+an `auto` `'-4'` on `{ base: 'surface', tone: '-10', mode: 'fixed' }` over a
+tone-97 surface sits 22.1 tones above it in dark. Make such a dependent
+`fixed` too.
 
 The 0.87× scale holds at the reference dark `eps`. A custom dark `eps` bends
 the dark window's curve, so a dark delta lands where the same authored tone
@@ -552,7 +557,7 @@ What the level moves:
 - **The tone windows** — each endpoint walks toward the full range: light
   `10 → 0`, dark `15 → 0` and `95 → 100`.
 - **Contrast escalation** — the normal and escalated targets are interpolated,
-  so `AA` at level 50 solves for 5.75:1.
+  so `AA` at level 50 solves for 5.75:1.
 
 The interpolated values go through the ordinary resolve, so a contrast floor is
 **solved** at every level, not approximated. Hue, saturation,
@@ -566,12 +571,12 @@ level. At a global level of `100` the tier would duplicate the normal set, so
 it is dropped.
 
 A pair with no midpoint switches from its normal entry to its high-contrast one
-at level 50: one that mixes kinds (`[50, 'max']`, `[50, '+20']`), or any pair
+at level 50: one that mixes kinds (`[50, 'max']`, `[50, '+20']`), or any pair
 of extremes (`['max', 'min']`), which have no magnitude to blend. A
-contrast-solved color is pinned to the side of its base that the nearer
-endpoint (level 0 or 100) resolves to, so it normally changes side at most
-once, at level 50. Where the pinned side can't reach the target, it falls back
-to the other side at that level. The full rules are in
+contrast-solved color prefers the side of its base that the nearer endpoint
+(level 0 or 100) resolves to, so its preferred side switches only at
+level 50. At any level where the preferred side can't reach the target, the
+color falls back to the other side. The full rules are in
 [Manual contrast level](./reference/contrast.md#manual-contrast-level).
 
 Because `configure()` invalidates every theme cache, a runtime slider only needs
