@@ -6,11 +6,14 @@
  * `{ l, c, h }`), the structured-input validator, the two factory paths
  * (value vs structured), and the JSON-safe export / rehydration round-trip.
  *
- * Every token also registers an internal dark-delta anchor hook: a token that
- * links to it as `base` passes the hook to the resolver, so a `'+N'` link steps
- * in dark from where the base sits under the base's own windows (the resolver
- * reads an `auto` base under another dark window back through the link's own).
- * The hook's result is cached per pass with the token's resolve.
+ * A token that links to another as `base` resolves against the base token's
+ * own variants — what the base actually paints, under its own config — in
+ * every scheme, so a light `'+0'` lands on it and a light `contrast` floor is
+ * measured against it. Every token also registers an internal dark-delta
+ * anchor hook: a linking token passes it to the resolver, so a `'+N'` link
+ * steps in dark from where the base sits under the base's own windows (the
+ * resolver reads a base under another dark window back through the link's
+ * own). The hook's result is cached per pass with the token's resolve.
  *
  * A token's role is pinned here rather than left to the resolver's chain: an
  * explicit `role`, else `'text'`. The token is the foreground against its
@@ -626,26 +629,6 @@ function createColorTokenFromDefs(
 }
 
 /**
- * When a value/`from` color links to a base that was created via the
- * structured form (with explicit `hue`/`saturation`/`tone`), resolve
- * that base with `lightTone: false` for the linking math so the
- * contrast/tone anchor matches the input tone — not the
- * windowed output. The original base token's `.resolve()` is unaffected.
- */
-function toLinkingBase(
-  base: GlazeColorToken | undefined,
-): GlazeColorToken | undefined {
-  if (!base) return undefined;
-  const exp = base.export();
-  if (exp.form !== 'structured') return base;
-  const linkingConfig: GlazeConfigOverride = {
-    ...(exp.config ?? {}),
-    lightTone: false,
-  };
-  return colorFromExport({ ...exp, config: linkingConfig });
-}
-
-/**
  * Resolve `base` (which may be a token reference or a raw color value)
  * into a `GlazeColorToken`. Raw values are auto-wrapped via
  * `createColorTokenFromValue` so they pick up the same auto-invert
@@ -757,11 +740,7 @@ export function createColorTokenFromValue(
   configOverride: GlazeConfigOverride | undefined,
 ): GlazeColorToken {
   const main = extractOkhslFromValue(value);
-  const rawBaseToken = resolveBaseToken(options?.base);
-  // For linking math, structured bases are re-resolved at full range
-  // (lightTone: false) so contrast/tone anchors use the
-  // input tone, not the windowed output.
-  const linkingBase = toLinkingBase(rawBaseToken);
+  const baseToken = resolveBaseToken(options?.base);
   const { seed, defs, primary } = buildStandaloneValueDefs(main, options);
 
   const localOverride = sparseValueFormLocal(configOverride);
@@ -771,7 +750,7 @@ export function createColorTokenFromValue(
     defs,
     primary,
     localOverride,
-    linkingBase,
+    baseToken,
     (exportArg) => ({
       kind: 'color',
       version: GLAZE_EXPORT_VERSION,

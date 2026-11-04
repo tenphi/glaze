@@ -13,14 +13,15 @@
  *
  * In dark, an `auto` tone delta (`'+N'` / `'-N'`) steps from where its base
  * sits on the authored scale in that pass (`darkAnchor`, memoized per pass):
- * the authored tone for a base placed by a tone or a chain of deltas, or — for
- * a base whose dark tone is solved, mixed, or replayed (an `auto` extreme) —
- * its own dark tone taken back through the dark window. So a dark delta lands
- * where the same authored tone would, on every base that inverts in dark: the
- * dark window's scale times the delta at the reference dark eps (exact in high
- * contrast), along the dark window's own curve under a custom one. A `fixed` /
- * `static` base keeps its light-side position, so the inversion follows the
- * dependent's own mode. The flip is still decided on the base's light tone, so
+ * the authored tone for an `auto` base placed by a tone or a chain of `auto`
+ * deltas, or — for a base whose dark tone is not an inverted authored one: a
+ * `fixed` / `static` color, or one solved, mixed, or replayed (an `auto`
+ * extreme) — its own dark tone taken back through the dark window. So a dark
+ * delta lands where the same authored tone would, on every base: the dark
+ * window's scale times the delta at the reference dark eps (exact in high
+ * contrast), along the dark window's own curve under a custom one, mirrored
+ * around wherever the base sits even when the base itself doesn't invert. The
+ * flip is still decided on the base's light tone, so
  * dark mirrors the side light took, and a step that runs off the authored
  * scale from its anchor (past 0 or 100) stops at the dark window's edge — at
  * either end, for a base anchored at its own dark tone. A base a contrast floor
@@ -95,7 +96,6 @@ import {
   schemeToneRange,
   toTone,
   unmapDarkTone,
-  unmapLightTone,
   variantToOkhsl,
 } from './okhst';
 import { extractOkhslFromValue } from './color-value';
@@ -129,9 +129,9 @@ interface DarkAnchor {
   /** The anchor tone (0–100; a solved color past the window can leave it). */
   tone: number;
   /**
-   * The tone comes from the light side alone — a tone, a chain of deltas on
-   * one, or a `fixed` / `static` color — so it equals the light tone wherever
-   * the light window is the identity.
+   * The tone comes from the light side alone — an `auto` tone or a chain of
+   * `auto` deltas on one — so it equals the light tone wherever the light
+   * window is the identity.
    */
   lightSide: boolean;
 }
@@ -549,34 +549,31 @@ function stepFromAnchor(anchor: number, delta: number): number {
 
 /**
  * Where a color sits on the authored `0–100` tone scale in one pass: the tone
- * its own dark variant is the inversion of. In dark, an `auto` tone delta steps
- * from its base's anchor, so the dark step is the dark window's scale times the
- * delta on every base that inverts in dark.
+ * an `auto` color would be authored at to land where this one sits in dark. In
+ * dark, an `auto` tone delta steps from its base's anchor, so the dark step is
+ * the dark window's scale times the delta on every base.
  *
- * - A color placed by a tone (a root, an absolute tone, a `from` value, an
- *   extreme with no base or in `fixed` / `static` mode) returns that tone as
- *   authored for the pass.
- * - A tone delta returns its base's anchor plus the delta (`stepFromAnchor`),
- *   flipped exactly as the light pass flipped it on the base's light tone, so a
- *   chain of deltas steps evenly. A color with no tone of its own returns its
- *   base's.
- * - A color whose dark tone is not the inversion of an authored tone — an
- *   `auto` contrast-solved color, an `auto` extreme on a base (which replays its
- *   light shift), a mix — returns its own dark tone taken back through the dark
- *   window (`unmapDarkTone`). That falls outside `0–100` when a solve pushed the
- *   color past the window; a step from it stays off the scale until it comes
- *   back (`stepFromAnchor`, `mapDarkToneUnclamped`), so it does not snap to the
+ * - An `auto` color placed by a tone (a root, an absolute tone, a `from` value,
+ *   an extreme with no base) returns that tone as authored for the pass.
+ * - An `auto` tone delta returns its base's anchor plus the delta
+ *   (`stepFromAnchor`), flipped exactly as the light pass flipped it on the
+ *   base's light tone, so a chain of deltas steps evenly. An `auto` color with
+ *   no tone of its own returns its base's.
+ * - Any other color — one whose dark tone is not the inversion of an authored
+ *   tone: a `fixed` / `static` color (which keeps its side, or rides its base
+ *   with its delta's sign kept), an `auto` contrast-solved color, an `auto`
+ *   extreme on a base (which replays its light shift), a mix — returns its own
+ *   dark tone taken back through the dark window (`unmapDarkTone`). So an
+ *   `auto` dependent mirrors around wherever its base sits in dark, inverting
+ *   per its own mode. That falls outside `0–100` when the color sits past the
+ *   window; a step from it stays off the scale until it comes back
+ *   (`stepFromAnchor`, `mapDarkToneUnclamped`), so it does not snap to the
  *   window's edge.
- * - A `fixed` / `static` contrast-solved color does not invert, so it keeps its
- *   light-side answer: its light tone taken back through the light window. A
- *   delta on it (or on any `fixed` / `static` tone) inverts per its own mode.
  * - An external base (a `glaze.color()` link) supplies its own anchor, read in
- *   its own resolve context (`ctx.externalAnchors`), when the anchor means the
- *   same thing here: the base is `fixed` / `static`, or its active dark window
- *   is this pass's. An `auto` base under another dark window — or one with no
- *   hook — is read back through this pass's dark window, so a `'+0'` lands on
- *   it and the step is this window's scale times the delta. Any other base
- *   without a hook keeps its light tone.
+ *   its own resolve context (`ctx.externalAnchors`), when its active dark window
+ *   is this pass's. A base under another dark window — or one with no hook — is
+ *   read back through this pass's dark window, so a `'+0'` lands on it and the
+ *   step is this window's scale times the delta.
  *
  * In high contrast and at `contrastLevel: 100` at the reference light eps
  * (`readsStoredLightTone`), a light-side color's light tone *is* its authored
@@ -613,15 +610,11 @@ function darkAnchor(
   const def: ColorDef | undefined = ctx.defs[name];
   if (def === undefined) {
     const external = ctx.externalAnchors?.get(name)?.(isHighContrast);
-    if (
-      color.mode === 'auto' &&
-      (external === undefined ||
-        !sameDarkWindow(isHighContrast, external.config, ctx.config))
-    ) {
-      anchor = fromDark(ctx.config);
-    } else {
-      anchor = { tone: external?.tone ?? lightTone, lightSide: false };
-    }
+    anchor =
+      external === undefined ||
+      !sameDarkWindow(isHighContrast, external.config, ctx.config)
+        ? fromDark(ctx.config)
+        : { tone: external.tone, lightSide: false };
   } else if (isMixDef(def) || isLightingDef(def)) {
     anchor = fromDark(ctx.config);
   } else {
@@ -634,14 +627,8 @@ function darkAnchor(
         ? undefined
         : passTone(rawTone, isHighContrast, config);
 
-    if (regDef.contrast !== undefined) {
-      anchor =
-        mode === 'auto'
-          ? fromDark(config)
-          : {
-              tone: unmapLightTone(lightTone, mode, isHighContrast, config),
-              lightSide: true,
-            };
+    if (mode !== 'auto' || regDef.contrast !== undefined) {
+      anchor = fromDark(config);
     } else if (parsed === undefined) {
       anchor = darkAnchor(regDef.base!, ctx, isHighContrast);
     } else if (parsed.kind === 'relative') {
@@ -657,11 +644,7 @@ function darkAnchor(
         ),
         lightSide: base.lightSide,
       };
-    } else if (
-      parsed.kind === 'extreme' &&
-      regDef.base !== undefined &&
-      mode === 'auto'
-    ) {
+    } else if (parsed.kind === 'extreme' && regDef.base !== undefined) {
       anchor = fromDark(config);
     } else {
       anchor = { tone: clamp(parsed.value, 0, 100), lightSide: true };

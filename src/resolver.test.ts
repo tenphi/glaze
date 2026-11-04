@@ -5,7 +5,6 @@ import {
   mapToneForScheme,
   toTone,
   unmapDarkTone,
-  unmapLightTone,
 } from './okhst';
 import { darkAnchorOf } from './resolver';
 import type * as Resolver from './resolver';
@@ -64,8 +63,10 @@ function ladder(baseTone: number): ColorMap {
 
 /**
  * Bases whose dark tone is not the inversion of an authored tone — a
- * contrast-solved color, a mix, and both extremes on a base — each with a
- * delta child whose step stays inside the window (and doesn't flip).
+ * contrast-solved color, a mix, both extremes on a base, and `fixed` /
+ * `static` colors (roots, deltas riding an `auto` base or a `fixed` one, a
+ * contrast floor) — each with a delta child that doesn't flip and doesn't run
+ * off the scale (`chip` itself sits past the dark window).
  */
 const DARK_ANCHORED: ColorMap = {
   surface: { tone: 97 },
@@ -85,6 +86,21 @@ const DARK_ANCHORED: ColorMap = {
   low: { tone: 30 },
   min: { base: 'low', tone: 'min' },
   'min-up': { base: 'min', tone: '+6' },
+  // A `fixed` / `static` delta rides its base into dark with its sign kept, so
+  // its dark tone is neither its light tone nor an inverted authored one.
+  chip: { base: 'surface', tone: '-10', mode: 'fixed' },
+  'chip-down': { base: 'chip', tone: '-4' },
+  'chip-down2': { base: 'chip-down', tone: '-4' },
+  'static-chip': { base: 'surface', tone: '-10', mode: 'static' },
+  'static-chip-down': { base: 'static-chip', tone: '-4' },
+  fill: { tone: 52, mode: 'fixed' },
+  'fill-up': { base: 'fill', tone: '+30' },
+  'fill-chip': { base: 'fill', tone: '-10', mode: 'fixed' },
+  'fill-chip-down': { base: 'fill-chip', tone: '-4' },
+  'static-fill': { tone: 40, mode: 'static' },
+  'static-fill-up': { base: 'static-fill', tone: '+20' },
+  'fixed-text': { base: 'surface', contrast: 'AA', mode: 'fixed' },
+  'fixed-text-down': { base: 'fixed-text', tone: '-4' },
 };
 
 const DARK_ANCHORED_STEPS = [
@@ -95,6 +111,13 @@ const DARK_ANCHORED_STEPS = [
   ['mixed-down', 'mixed', -6],
   ['max-down', 'max', -6],
   ['min-up', 'min', 6],
+  ['chip-down', 'chip', -4],
+  ['chip-down2', 'chip-down', -4],
+  ['static-chip-down', 'static-chip', -4],
+  ['fill-up', 'fill', 30],
+  ['fill-chip-down', 'fill-chip', -4],
+  ['static-fill-up', 'static-fill', 20],
+  ['fixed-text-down', 'fixed-text', -4],
 ] as const;
 
 describe('resolver: dark tone deltas', () => {
@@ -405,24 +428,26 @@ describe('resolver: dark tone deltas', () => {
     }
   });
 
-  it('steps from where a solved, mixed, or extreme base sits in dark', () => {
+  it('steps from where a solved, mixed, extreme, or fixed base sits in dark', () => {
     // These bases' dark tones are not the inversion of an authored tone, so
     // the anchor is their own dark tone taken back through the dark window.
+    // An `auto` dependent then mirrors around wherever the base sits, inverting
+    // per its own mode even when the base keeps its side or rides its base.
     const map = resolve(DARK_ANCHORED);
     const config = glaze.getConfig();
     for (const [name, base, delta] of DARK_ANCHORED_STEPS) {
       for (const isHighContrast of [false, true]) {
         const slot = isHighContrast ? 'darkContrast' : 'dark';
         const baseDark = map.get(base)![slot].t * 100;
-        const expected = mapToneForScheme(
+        // Unclamped: `chip` rides its base past the dark window, and a step
+        // back toward it moves the full delta.
+        const expected = mapDarkToneUnclamped(
           unmapDarkTone(baseDark, 'auto', isHighContrast, config) + delta,
-          'auto',
-          true,
           isHighContrast,
           config,
         );
         expect(map.get(name)![slot].t * 100).toBeCloseTo(expected, 9);
-        // Inside the window: the dark window's scale × the delta, mirrored
+        // The dark window's scale × the delta, mirrored
         // (exact in high contrast, whose window is the full range).
         expect(step(map, name, base, slot)).toBeCloseTo(
           -delta * (isHighContrast ? 1 : DEFAULT_DARK_SCALE),
@@ -490,8 +515,8 @@ describe('resolver: dark tone deltas', () => {
   });
 
   it('steps a link on a fixed base like the same base in a theme', () => {
-    // A `fixed` base does not invert, so its anchor is its authored tone, which
-    // only the base token knows: its light tone carries its own window's lift.
+    // A `fixed` base does not invert, so a link reads its dark tone back
+    // through the dark window, as a theme does, whatever its light window.
     const lightTone: ToneWindow = [10, 100];
     for (const hex of ['#808080', '#2f5bff']) {
       const base = glaze.color({ from: hex, mode: 'fixed' }, { lightTone });
@@ -662,34 +687,6 @@ describe('resolver: dark tone deltas', () => {
         9,
       );
     }
-  });
-});
-
-describe('unmapLightTone', () => {
-  beforeEach(() => {
-    glaze.resetConfig();
-  });
-
-  it('inverts the light window, including a custom eps', () => {
-    for (const lightTone of [
-      [10, 100],
-      [20, 95],
-      { lo: 8, hi: 98, eps: 0.1 },
-      false,
-    ] as GlazeConfigOverride['lightTone'][]) {
-      const config = { ...glaze.getConfig(), lightTone: lightTone! };
-      for (const authored of [0, 3, 50, 97, 100]) {
-        const stored = mapToneForScheme(authored, 'auto', false, false, config);
-        expect(unmapLightTone(stored, 'auto', false, config)).toBeCloseTo(
-          authored,
-          9,
-        );
-      }
-    }
-  });
-
-  it('is the identity for static colors', () => {
-    expect(unmapLightTone(42.5, 'static', false, glaze.getConfig())).toBe(42.5);
   });
 });
 

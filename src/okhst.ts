@@ -10,9 +10,9 @@
  * - the `{ h, s, t }` <-> `{ h, s, l }` color-space converters,
  * - the resolved-variant edge adapter (`variantToOkhsl`),
  * - the per-scheme tone mapping that replaced the Möbius dark curve
- *   (`mapToneForScheme`) and its per-scheme inverses (`unmapLightTone` /
- *   `unmapDarkTone`, which the resolver uses to find where a base sits on the
- *   authored scale), the dark map off that scale (`mapDarkToneUnclamped`, for a
+ *   (`mapToneForScheme`) and its dark inverse (`unmapDarkTone`, which the
+ *   resolver uses to find where a base sits on the authored scale), the dark
+ *   map off that scale (`mapDarkToneUnclamped`, for a
  *   step from a base pushed past the dark window) and the dark-window
  *   comparison across configs (`sameDarkWindow`), the dark desaturation
  *   reducer, and the scheme tone range that clamps a contrast-solved color's
@@ -330,23 +330,6 @@ function unmapWindow(
 
   const winTone = toTone(fromTone(tone), win.eps);
   return ((winTone - loT) / (hiT - loT)) * 100;
-}
-
-/**
- * Inverse of the light branch of {@link mapToneForScheme}: the authored tone
- * (0–100) that the active light window places at a stored canonical tone.
- * `static` is the identity, like the forward map. A tone outside the window
- * comes back outside `0–100` (callers clamp); a zero-width window has no
- * inverse, so the tone is returned unchanged.
- */
-export function unmapLightTone(
-  tone: number,
-  mode: AdaptationMode,
-  isHighContrast: boolean,
-  config: GlazeConfigResolved,
-): number {
-  if (mode === 'static') return tone;
-  return unmapWindow(tone, activeWindow(isHighContrast, 'light', config));
 }
 
 /**

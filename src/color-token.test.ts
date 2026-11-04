@@ -2,7 +2,9 @@ import { glaze } from './glaze';
 import { apcaContrast } from './contrast-solver';
 import {
   apcaLuminanceFromLinearRgb,
+  contrastRatioFromLuminance,
   okhslToLinearSrgb,
+  relativeLuminanceFromLinearRgb,
 } from './okhsl-color-math';
 import { variantToOkhsl } from './okhst';
 import type {
@@ -28,6 +30,17 @@ function lc(text: ResolvedColorVariant, bg: ResolvedColorVariant): number {
     );
   };
   return apcaContrast(y(text), y(bg));
+}
+
+/** WCAG ratio between two resolved variants. */
+function wcag(a: ResolvedColorVariant, b: ResolvedColorVariant): number {
+  const y = (v: ResolvedColorVariant): number => {
+    const c = variantToOkhsl(v);
+    return relativeLuminanceFromLinearRgb(
+      okhslToLinearSrgb(c.h, c.s, c.l, v.pastel),
+    );
+  };
+  return contrastRatioFromLuminance(y(a), y(b));
 }
 
 /** The four variants without `name`, for comparing tokens across labels. */
@@ -296,6 +309,42 @@ describe('glaze.color role', () => {
         expect(variants(restored.resolve())).toEqual(original);
       },
     );
+  });
+});
+
+describe('glaze.color links', () => {
+  beforeEach(() => {
+    glaze.resetConfig();
+  });
+
+  // A structured base renders through its own windows; a link resolves against
+  // what it paints, in light too, whatever config the base carries.
+  it.each([
+    ['no config', undefined],
+    ['its own lightTone', { lightTone: [20, 100] as [number, number] }],
+    ['its own darkTone', { darkTone: [20, 80] as [number, number] }],
+    ['its own contrastLevel', { contrastLevel: 60 }],
+  ])('lands on a structured base with %s', (_title, config) => {
+    const base = glaze.color({ hue: 280, saturation: 40, tone: 50 }, config);
+    const painted = base.resolve();
+
+    const same = glaze.color({ from: '#808080', base, tone: '+0' }).resolve();
+    const up = glaze.color({ from: '#808080', base, tone: '+4' }).resolve();
+    for (const scheme of SCHEMES) {
+      expect(same[scheme].t).toBeCloseTo(painted[scheme].t, 9);
+    }
+    expect((up.light.t - painted.light.t) * 100).toBeCloseTo(4, 9);
+    expect((up.lightContrast.t - painted.lightContrast.t) * 100).toBeCloseTo(
+      4,
+      9,
+    );
+
+    const text = glaze
+      .color({ from: '#808080', base, contrast: 'AA' })
+      .resolve();
+    for (const scheme of SCHEMES) {
+      expect(wcag(text[scheme], painted[scheme])).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
 
