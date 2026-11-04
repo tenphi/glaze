@@ -146,6 +146,16 @@ describe('glaze', () => {
       const theme = glaze(280);
       expect(theme.saturation).toBe(100);
     });
+
+    it('takes the config override second in the object form', () => {
+      const theme = glaze({ hue: 280, saturation: 80 }, { pastel: true });
+      expect(theme.getConfig().pastel).toBe(true);
+
+      const legacy = glaze({ hue: 280, saturation: 80 }, undefined, {
+        pastel: true,
+      });
+      expect(legacy.getConfig().pastel).toBe(true);
+    });
   });
 
   describe('color definitions', () => {
@@ -557,7 +567,8 @@ describe('glaze', () => {
       const fg = r.get('fg')!;
       const lightShift = (fg.light.t - bg.light.t) * 100;
       const darkShift = (fg.dark.t - bg.dark.t) * 100;
-      // Documented in docs/api.md — keep the two in sync.
+      // Documented in docs/okhst.mdx and docs/reference/color-definitions.md
+      // — keep them in sync.
       expect(bg.light.t * 100).toBeCloseTo(62.0, 1);
       expect(fg.light.t * 100).toBeCloseTo(100.0, 1);
       expect(bg.dark.t * 100).toBeCloseTo(43.9, 1);
@@ -3909,7 +3920,7 @@ describe('glaze', () => {
     });
   });
 
-  describe('verification (§10) drift warning', () => {
+  describe('verification drift warning', () => {
     it('does not warn for an achromatic contrast pair', () => {
       const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       try {

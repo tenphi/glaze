@@ -88,21 +88,43 @@ type PaletteInput = Record<string, GlazeTheme>;
  * const primary = glaze({ hue: 280, saturation: 80, darkHue: 268, darkSaturation: 65 });
  * // with config override:
  * const raw = glaze(280, 80, { lightTone: false });
+ * const rawSeed = glaze({ hue: 280, saturation: 80 }, { lightTone: false });
  * ```
  */
 export function glaze(
-  hueOrOptions: number | GlazeThemeSeed,
+  hue: number,
   saturation?: number,
+  config?: GlazeConfigOverride,
+): GlazeTheme;
+export function glaze(
+  seed: GlazeThemeSeed,
+  config?: GlazeConfigOverride,
+): GlazeTheme;
+/** @deprecated Pass the config second: `glaze(seed, config)`. */
+export function glaze(
+  seed: GlazeThemeSeed,
+  saturation: undefined,
+  config?: GlazeConfigOverride,
+): GlazeTheme;
+export function glaze(
+  hueOrOptions: number | GlazeThemeSeed,
+  saturationOrConfig?: number | GlazeConfigOverride,
   config?: GlazeConfigOverride,
 ): GlazeTheme {
   if (typeof hueOrOptions === 'number') {
+    const saturation =
+      typeof saturationOrConfig === 'number' ? saturationOrConfig : undefined;
     return createTheme(
       { hue: hueOrOptions, saturation: saturation ?? 100 },
       undefined,
       config,
     );
   }
-  return createTheme(hueOrOptions, undefined, config);
+  // The object form takes its override second; the older
+  // `glaze(seed, undefined, config)` spelling still works.
+  const override =
+    typeof saturationOrConfig === 'object' ? saturationOrConfig : config;
+  return createTheme(hueOrOptions, undefined, override);
 }
 
 /** Configure global glaze settings. */
