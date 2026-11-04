@@ -5,7 +5,16 @@ import {
   okhslToLinearSrgb,
 } from './okhsl-color-math';
 import { variantToOkhsl } from './okhst';
-import type { ResolvedColor, ResolvedColorVariant } from './types';
+import type {
+  GlazeColorInput,
+  GlazeColorInputExport,
+  GlazeColorToken,
+  GlazeColorTokenExport,
+  GlazeFromInput,
+  ResolvedColor,
+  ResolvedColorVariant,
+  RoleInput,
+} from './types';
 
 const SCHEMES = ['light', 'dark', 'lightContrast', 'darkContrast'] as const;
 
@@ -28,6 +37,13 @@ function variants(color: ResolvedColor) {
 /** A static copy of `value`: the explicit form of the hidden seed anchor. */
 function staticAnchor(value: string) {
   return glaze.color({ from: value, mode: 'static' });
+}
+
+/** Rehydrate `token` from its export after a trip through JSON. */
+function roundTrip(token: GlazeColorToken): GlazeColorToken {
+  return glaze.colorFrom(
+    JSON.parse(JSON.stringify(token.export())) as GlazeColorTokenExport,
+  );
 }
 
 describe('glaze.color role', () => {
@@ -198,11 +214,86 @@ describe('glaze.color role', () => {
     });
   });
 
-  it('round-trips the default role through export / colorFrom', () => {
-    const token = glaze.color({ from: '#3a3a8a', contrast: { apca: 60 } });
-    const restored = glaze.colorFrom(
-      JSON.parse(JSON.stringify(token.export())),
+  describe('export / colorFrom', () => {
+    it("round-trips a token without a role, which resolves as 'text'", () => {
+      const input = { from: '#ffffff', contrast: { apca: 60 } } as const;
+      const token = glaze.color(input);
+      const original = variants(token.resolve());
+      expect(original).toEqual(
+        variants(glaze.color({ ...input, role: 'text' }).resolve()),
+      );
+      expect(original).not.toEqual(
+        variants(glaze.color({ ...input, role: 'surface' }).resolve()),
+      );
+      expect(variants(roundTrip(token).resolve())).toEqual(original);
+    });
+
+    const white = glaze.color('#ffffff');
+    const valueRole = (data: GlazeColorTokenExport) => data.overrides?.role;
+    const structuredRole = (data: GlazeColorTokenExport) =>
+      (data.input as GlazeColorInputExport).role;
+
+    it.each<{
+      title: string;
+      input: GlazeFromInput | GlazeColorInput;
+      role: RoleInput;
+      /** Reads the role back out of the export. */
+      exported: (data: GlazeColorTokenExport) => RoleInput | undefined;
+    }>([
+      {
+        title: 'value form',
+        input: { from: '#ffffff', contrast: { apca: 60 } },
+        role: 'surface',
+        exported: valueRole,
+      },
+      {
+        title: 'value form, alias',
+        input: { from: '#ffffff', contrast: { apca: 60 } },
+        role: 'bg',
+        exported: valueRole,
+      },
+      {
+        title: 'value form with a base',
+        input: { from: '#b3b3b3', base: white, contrast: { apca: 60 } },
+        role: 'surface',
+        exported: valueRole,
+      },
+      {
+        title: 'structured form',
+        input: {
+          hue: 280,
+          saturation: 60,
+          tone: 30,
+          contrast: { apca: 'content' },
+        },
+        role: 'surface',
+        exported: structuredRole,
+      },
+      {
+        title: 'structured form with a base',
+        input: {
+          hue: 280,
+          saturation: 60,
+          tone: 30,
+          base: white,
+          contrast: { apca: 'content' },
+        },
+        role: 'surface',
+        exported: structuredRole,
+      },
+    ])(
+      'round-trips an explicit role $role in the $title',
+      ({ input, role, exported }) => {
+        const token = glaze.color({ ...input, role });
+        const original = variants(token.resolve());
+        // The role changes this token, so dropping it cannot go unnoticed.
+        expect(original).not.toEqual(variants(glaze.color(input).resolve()));
+
+        expect(exported(token.export())).toBe(role);
+        const restored = roundTrip(token);
+        expect(exported(restored.export())).toBe(role);
+        expect(variants(restored.resolve())).toEqual(original);
+      },
     );
-    expect(variants(restored.resolve())).toEqual(variants(token.resolve()));
   });
 });
