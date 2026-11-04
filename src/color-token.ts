@@ -8,7 +8,9 @@
  *
  * Every token also registers an internal dark-delta anchor hook: a token that
  * links to it as `base` passes the hook to the resolver, so a `'+N'` link steps
- * in dark from where the base sits under the base's own windows.
+ * in dark from where the base sits under the base's own windows (the resolver
+ * reads an `auto` base under another dark window back through the link's own).
+ * The hook's result is cached per pass with the token's resolve.
  *
  * A token's role is pinned here rather than left to the resolver's chain: an
  * explicit `role`, else `'text'`. The token is the foreground against its
@@ -52,7 +54,7 @@ import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
 import { pairNormal } from './hc-pair';
 import { darkAnchorOf, resolveAllColors } from './resolver';
-import type { DarkAnchorHook } from './resolver';
+import type { DarkAnchorHook, ExternalDarkAnchor } from './resolver';
 import { normalizeRole } from './roles';
 import { hasRelativeTone } from './validation';
 import {
@@ -384,7 +386,9 @@ function buildStandaloneValueDefs(
  * Each token's dark-delta anchor (internal, not public API). A token linking to
  * another as its `base` hands the resolver the base's hook, so a `'+N'` link
  * steps in dark from where the base sits on its own authored scale — read in the
- * base's own resolve context, under its windows and defs.
+ * base's own resolve context, under its windows and defs, and returned with the
+ * base's config so the resolver can tell whether the link's dark window is the
+ * same one.
  */
 const darkAnchorHooks = new WeakMap<GlazeColorToken, DarkAnchorHook>();
 
@@ -404,8 +408,6 @@ function createColorTokenFromDefs(
   baseToken: GlazeColorToken | undefined,
   buildExport: (override?: GlazeConfigOverride) => GlazeColorTokenExport,
 ): GlazeColorToken {
-  const externalBases = (): Map<string, ResolvedColor> | undefined =>
-    baseToken ? new Map([[STANDALONE_BASE, baseToken.resolve()]]) : undefined;
   const baseHook = baseToken && darkAnchorHooks.get(baseToken);
   const externalAnchors = baseHook
     ? new Map([[STANDALONE_BASE, baseHook]])
@@ -415,13 +417,21 @@ function createColorTokenFromDefs(
     map: Map<string, ResolvedColor> | null;
     version: number;
     effectiveConfig: GlazeConfigResolved;
+    /** The resolved `base` token the map was resolved against. */
+    externalBases?: Map<string, ResolvedColor>;
+    /**
+     * This token's dark-delta anchor per pass (normal, high contrast). Cached
+     * with the resolve, so a token linking to it reads it in O(1): a chain of
+     * links walks itself once, not once per link, and adds no stack depth.
+     */
+    anchors: [ExternalDarkAnchor?, ExternalDarkAnchor?];
   } | null = null;
 
   function getEffectiveConfig(): GlazeConfigResolved {
     const version = getConfigVersion();
     if (cache && cache.version === version) return cache.effectiveConfig;
     const effectiveConfig = mergeConfig(getConfig(), configOverride);
-    cache = { map: null, version, effectiveConfig };
+    cache = { map: null, version, effectiveConfig, anchors: [] };
     return effectiveConfig;
   }
 
@@ -429,25 +439,36 @@ function createColorTokenFromDefs(
     const version = getConfigVersion();
     if (cache && cache.version === version && cache.map) return cache.map;
     const effectiveConfig = getEffectiveConfig();
+    // Resolved here, not through a helper: a chain of linked tokens recurses
+    // through this line once per link, so an extra frame shortens the chain
+    // that fits on the stack.
+    const externalBases = baseToken
+      ? new Map([[STANDALONE_BASE, baseToken.resolve()]])
+      : undefined;
     const map = resolveAllColors(
       seed,
       defs,
       effectiveConfig,
-      externalBases(),
+      externalBases,
       externalAnchors,
     );
-    cache = { map, version, effectiveConfig };
+    cache = { map, version, effectiveConfig, externalBases, anchors: [] };
     return map;
   };
 
   const darkAnchor: DarkAnchorHook = (isHighContrast) => {
     const resolved = resolveOnce();
-    return darkAnchorOf(primary, isHighContrast, {
-      defs,
-      config: getEffectiveConfig(),
-      resolved,
-      externalBases: externalBases(),
-      externalAnchors,
+    const { anchors, effectiveConfig, externalBases } = cache!;
+    const pass = isHighContrast ? 1 : 0;
+    return (anchors[pass] ??= {
+      tone: darkAnchorOf(primary, isHighContrast, {
+        defs,
+        config: effectiveConfig,
+        resolved,
+        externalBases,
+        externalAnchors,
+      }),
+      config: effectiveConfig,
     });
   };
 

@@ -12,8 +12,11 @@
  * - the per-scheme tone mapping that replaced the Möbius dark curve
  *   (`mapToneForScheme`) and its per-scheme inverses (`unmapLightTone` /
  *   `unmapDarkTone`, which the resolver uses to find where a base sits on the
- *   authored scale), the dark desaturation reducer, and the scheme tone range
- *   that clamps a contrast-solved color's preferred tone,
+ *   authored scale), the dark map off that scale (`mapDarkToneUnclamped`, for a
+ *   step from a base pushed past the dark window) and the dark-window
+ *   comparison across configs (`sameDarkWindow`), the dark desaturation
+ *   reducer, and the scheme tone range that clamps a contrast-solved color's
+ *   preferred tone,
  * - the scheme tone window — validated and clamped by `normalizeToneWindow` —
  *   including the high-contrast bypass and its continuous generalization under
  *   a manual contrast level.
@@ -282,6 +285,39 @@ export function mapToneForScheme(
   const inverted = isDark && mode === 'auto' ? 100 - authorTone : authorTone;
   const finalL = remapToneToLightness(clamp(inverted, 0, 100), win);
   return clamp(toTone(finalL / 100), 0, 100);
+}
+
+/**
+ * The dark `auto` branch of {@link mapToneForScheme} without its clamp to the
+ * authored `0–100` scale: a tone below 0 lands past the dark window's top, one
+ * above 100 past its bottom, and only the stored tone is clamped (to the full
+ * range). That makes it the inverse of `unmapDarkTone(…, 'auto', …)` off the
+ * scale too, so a step can start from a base a contrast floor pushed past the
+ * window. Inside `0–100` it is `mapToneForScheme` bit for bit.
+ */
+export function mapDarkToneUnclamped(
+  authorTone: number,
+  isHighContrast: boolean,
+  config: GlazeConfigResolved,
+): number {
+  const win = activeWindow(isHighContrast, 'dark', config);
+  const finalL = remapToneToLightness(100 - authorTone, win);
+  return clamp(toTone(finalL / 100), 0, 100);
+}
+
+/**
+ * Whether two configs give one pass the same active dark window — endpoints and
+ * render eps, after the high-contrast bypass and a manual level's widening. An
+ * authored tone only means the same dark tone under both when they do.
+ */
+export function sameDarkWindow(
+  isHighContrast: boolean,
+  a: GlazeConfigResolved,
+  b: GlazeConfigResolved,
+): boolean {
+  const wa = activeWindow(isHighContrast, 'dark', a);
+  const wb = activeWindow(isHighContrast, 'dark', b);
+  return wa.lo === wb.lo && wa.hi === wb.hi && wa.eps === wb.eps;
 }
 
 /**

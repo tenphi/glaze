@@ -1,10 +1,14 @@
 import { glaze } from './glaze';
+import { extractOkhslFromValue } from './color-value';
 import {
+  mapDarkToneUnclamped,
   mapToneForScheme,
   toTone,
   unmapDarkTone,
   unmapLightTone,
 } from './okhst';
+import { darkAnchorOf } from './resolver';
+import type * as Resolver from './resolver';
 import type {
   ColorMap,
   GlazeColorToken,
@@ -13,6 +17,12 @@ import type {
   ResolvedColorVariant,
   ToneWindow,
 } from './types';
+
+// Pass-through spy: counts how often a linked token's anchor is read.
+vi.mock('./resolver', async (importOriginal) => {
+  const actual = await importOriginal<typeof Resolver>();
+  return { ...actual, darkAnchorOf: vi.fn(actual.darkAnchorOf) };
+});
 
 type Slot = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
 
@@ -62,6 +72,8 @@ const DARK_ANCHORED: ColorMap = {
   text: { base: 'surface', tone: '-52', contrast: 'AA' },
   'text-up': { base: 'text', tone: '+6' },
   'text-down': { base: 'text', tone: '-6' },
+  // A chain on a dark-anchored base stays dark-anchored.
+  'text-down2': { base: 'text-down', tone: '-6' },
   a: { tone: 90 },
   b: { tone: 20 },
   mixed: { type: 'mix', base: 'a', target: 'b', value: 40 },
@@ -78,6 +90,7 @@ const DARK_ANCHORED: ColorMap = {
 const DARK_ANCHORED_STEPS = [
   ['text-up', 'text', 6],
   ['text-down', 'text', -6],
+  ['text-down2', 'text-down', -6],
   ['mixed-up', 'mixed', 6],
   ['mixed-down', 'mixed', -6],
   ['max-down', 'max', -6],
@@ -147,6 +160,26 @@ describe('resolver: dark tone deltas', () => {
         unwindowed.get(name)!.dark.t,
         12,
       );
+    }
+  });
+
+  it('keeps the authored tone in a normal pass under an identity light window', () => {
+    // `false` / `[0, 100]` make the light window the identity, but a normal
+    // pass still steps from the authored tone itself, not from the light tone
+    // (the same tone plus round-trip noise): bit-identical to the absolute tone.
+    for (const lightTone of [false, [0, 100]] as ToneWindow[]) {
+      const map = resolve(
+        {
+          base: { tone: 50 },
+          up: { base: 'base', tone: '+4' },
+          'up-down': { base: 'up', tone: '-10' },
+          at54: { tone: 54 },
+          at44: { tone: 44 },
+        },
+        { lightTone },
+      );
+      expect(map.get('up')!.dark.t).toBe(map.get('at54')!.dark.t);
+      expect(map.get('up-down')!.dark.t).toBe(map.get('at44')!.dark.t);
     }
   });
 
@@ -456,6 +489,65 @@ describe('resolver: dark tone deltas', () => {
     );
   });
 
+  it('steps a link on a fixed base like the same base in a theme', () => {
+    // A `fixed` base does not invert, so its anchor is its authored tone, which
+    // only the base token knows: its light tone carries its own window's lift.
+    const lightTone: ToneWindow = [10, 100];
+    for (const hex of ['#808080', '#2f5bff']) {
+      const base = glaze.color({ from: hex, mode: 'fixed' }, { lightTone });
+      const { h, s, l } = extractOkhslFromValue(hex);
+      const colors: ColorMap = { base: { tone: toTone(l), mode: 'fixed' } };
+      for (const d of DELTAS) {
+        colors[`c${d}`] = { base: 'base', from: hex, tone: d };
+      }
+      const theme = glaze(h, s * 100, { lightTone });
+      theme.colors(colors);
+      const map = theme.resolve();
+      for (const d of DELTAS) {
+        const child = glaze.color({ from: hex, base, tone: d }).resolve();
+        for (const slot of ['dark', 'darkContrast'] as const) {
+          expect(child[slot].t).toBeCloseTo(map.get(`c${d}`)![slot].t, 12);
+        }
+      }
+    }
+  });
+
+  it("steps a link on a base with its own dark window by the link's", () => {
+    // The base's authored tone means another dark tone under the link's dark
+    // window, so the link reads the base's dark tone back through its own: a
+    // '+0' lands on the base, and each step is mirrored and even.
+    const base = glaze.color('#808080', { darkTone: false });
+    const baseColor = base.resolve();
+    for (const delta of [6, 0, -6, -12]) {
+      const tone = `${delta < 0 ? '-' : '+'}${Math.abs(delta)}` as const;
+      const child = glaze.color({ from: '#808080', base, tone }).resolve();
+      expect((child.dark.t - baseColor.dark.t) * 100).toBeCloseTo(
+        -delta * DEFAULT_DARK_SCALE,
+        9,
+      );
+      expect(
+        (child.darkContrast.t - baseColor.darkContrast.t) * 100,
+      ).toBeCloseTo(-delta, 9);
+    }
+  });
+
+  it("reads each linked token's anchor once per pass", () => {
+    let token = glaze.color('#808080');
+    const links = 40;
+    for (let i = 1; i <= links; i++) {
+      token = glaze.color({
+        from: '#808080',
+        base: token,
+        tone: i % 2 ? '+1' : '-1',
+      });
+    }
+    vi.mocked(darkAnchorOf).mockClear();
+    token.resolve();
+    // Once per link and pass. Uncached, each link would walk the whole chain
+    // below it again: quadratic, and as deep as the chain on the stack.
+    expect(vi.mocked(darkAnchorOf).mock.calls.length).toBe(2 * links);
+  });
+
   it('clamps a low base at the dark window top (flip decided on light)', () => {
     // The light window lifts tone 0 to 4.95, so a negative delta that fits in
     // light can overshoot 0 on the authored scale: dark mirrors light's side
@@ -484,6 +576,59 @@ describe('resolver: dark tone deltas', () => {
     // A tone-0 base doesn't move in dark at all; about +1.7 on tone 2.
     expect(step(map, 'b0-down', 'b0', 'dark')).toBeCloseTo(0, 9);
     expect(step(map, 'b2-down', 'b2', 'dark')).toBeCloseTo(1.73, 2);
+  });
+
+  it('steps from a base past the dark window instead of its edge', () => {
+    // `ink` replays its light shift to white in dark, and a contrast floor
+    // pushes `text` past the window's top too: both anchors sit below 0 on the
+    // authored scale. A step back toward the window moves by the full scaled
+    // delta; one that points further out stops at the base.
+    const map = resolve({
+      surface: { tone: 97 },
+      ink: { base: 'surface', tone: 'min' },
+      'ink-up': { base: 'ink', tone: '+4' },
+      'ink-up8': { base: 'ink', tone: '+8' },
+      'ink-up-up': { base: 'ink-up', tone: '+4' },
+      'ink-down': { base: 'ink', tone: '-4' },
+      bg: { tone: 70 },
+      text: { base: 'bg', contrast: 7 },
+      'text-up': { base: 'text', tone: '+2' },
+      'text-down': { base: 'text', tone: '-4' },
+    });
+    const top = toTone(0.95);
+    expect(map.get('ink')!.dark.t * 100).toBeCloseTo(100, 9);
+    const textDark = map.get('text')!.dark.t * 100;
+    expect(textDark).toBeGreaterThan(top + 1);
+    expect(textDark).toBeLessThan(99.5);
+
+    for (const [name, base, delta] of [
+      ['ink-up', 'ink', 4],
+      ['ink-up8', 'ink', 8],
+      ['ink-up-up', 'ink-up', 4],
+      ['text-up', 'text', 2],
+      ['ink-down', 'ink', -4],
+      ['text-down', 'text', -4],
+    ] as const) {
+      // Light takes each delta as written.
+      expect(step(map, name, base, 'light')).toBeCloseTo(delta, 9);
+    }
+    for (const [name, base, delta] of [
+      ['ink-up', 'ink', 4],
+      ['ink-up8', 'ink', 8],
+      ['ink-up-up', 'ink-up', 4],
+      ['text-up', 'text', 2],
+    ] as const) {
+      expect(step(map, name, base, 'dark')).toBeCloseTo(
+        -delta * DEFAULT_DARK_SCALE,
+        9,
+      );
+    }
+    for (const [name, base] of [
+      ['ink-down', 'ink'],
+      ['text-down', 'text'],
+    ] as const) {
+      expect(step(map, name, base, 'dark')).toBeCloseTo(0, 9);
+    }
   });
 
   it('resolves a long chain of deltas without deep recursion', () => {
@@ -595,6 +740,46 @@ describe('unmapDarkTone', () => {
   });
 });
 
+describe('mapDarkToneUnclamped', () => {
+  beforeEach(() => {
+    glaze.resetConfig();
+  });
+
+  it('inverts unmapDarkTone off the authored scale too', () => {
+    for (const darkTone of [
+      [15, 95],
+      { lo: 12, hi: 92, eps: 0.02 },
+    ] as GlazeConfigOverride['darkTone'][]) {
+      const config = { ...glaze.getConfig(), darkTone: darkTone! };
+      for (const isHighContrast of [false, true]) {
+        // Past the window's ends as well as inside it.
+        for (const stored of [0, 2, 9, 50, 97, 100]) {
+          const authored = unmapDarkTone(
+            stored,
+            'auto',
+            isHighContrast,
+            config,
+          );
+          expect(
+            mapDarkToneUnclamped(authored, isHighContrast, config),
+          ).toBeCloseTo(stored, 9);
+        }
+      }
+    }
+  });
+
+  it('is mapToneForScheme exactly on the authored scale', () => {
+    const config = glaze.getConfig();
+    for (const isHighContrast of [false, true]) {
+      for (const authored of [0, 3.3, 50, 97, 100]) {
+        expect(mapDarkToneUnclamped(authored, isHighContrast, config)).toBe(
+          mapToneForScheme(authored, 'auto', true, isHighContrast, config),
+        );
+      }
+    }
+  });
+});
+
 describe('zero tone deltas', () => {
   const SLOTS: Slot[] = ['light', 'dark', 'lightContrast', 'darkContrast'];
 
@@ -638,4 +823,38 @@ describe('zero tone deltas', () => {
       }
     },
   );
+
+  it('lets a level probe that lands on its base pin no side', () => {
+    // A normal floor of 1 is met at the preferred tone — here the base's own —
+    // so the level-0 probe reports no side, and the level solve picks one by
+    // the solver's own rule: the same for '+0' as for no tone at all, instead
+    // of whatever side the probe's float noise fell on.
+    for (const contrastLevel of [10, 30, 45]) {
+      for (const hcTarget of [3, 4.5, 7]) {
+        const theme = glaze(297, 30, { contrastLevel });
+        const contrast: [number, number] = [1, hcTarget];
+        theme.colors({
+          surface: { tone: 35 },
+          solved: { base: 'surface', contrast: 3 },
+          mixed: { type: 'mix', base: 'surface', target: 'solved', value: 40 },
+          'on-solved-0': { base: 'solved', tone: '+0', contrast, hue: '+150' },
+          'on-solved': { base: 'solved', contrast, hue: '+150' },
+          'on-mixed-0': { base: 'mixed', tone: '-0', contrast, hue: '+150' },
+          'on-mixed': { base: 'mixed', contrast, hue: '+150' },
+        });
+        const resolved = theme.resolve();
+        for (const slot of SLOTS) {
+          for (const [zero, none] of [
+            ['on-solved-0', 'on-solved'],
+            ['on-mixed-0', 'on-mixed'],
+          ]) {
+            expect(resolved.get(zero)![slot].t).toBeCloseTo(
+              resolved.get(none)![slot].t,
+              9,
+            );
+          }
+        }
+      }
+    }
+  });
 });

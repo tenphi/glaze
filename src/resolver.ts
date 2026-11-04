@@ -15,13 +15,16 @@
  * sits on the authored scale in that pass (`darkAnchor`, memoized per pass):
  * the authored tone for a base placed by a tone or a chain of deltas, or — for
  * a base whose dark tone is solved, mixed, or replayed (an `auto` extreme) —
- * its own dark tone taken back through the dark window. So the dark step is
- * the dark window's scale times the delta on every base that inverts in dark,
- * in every pass; a `fixed` / `static` base keeps its light-side position, so
- * the inversion follows the dependent's own mode. The flip is still decided on
- * the base's light tone, so dark mirrors the side light took and a base too
- * low for the step on the authored scale stops at the dark window's top.
- * External `glaze.color()` bases supply their own anchor (`darkAnchorOf`).
+ * its own dark tone taken back through the dark window. So a dark delta lands
+ * where the same authored tone would, on every base that inverts in dark: the
+ * dark window's scale times the delta at the reference dark eps (exact in high
+ * contrast), along the dark window's own curve under a custom one. A `fixed` /
+ * `static` base keeps its light-side position, so the inversion follows the
+ * dependent's own mode. The flip is still decided on the base's light tone, so
+ * dark mirrors the side light took and a base too low for the step on the
+ * authored scale stops at the dark window's top; a base a contrast floor pushed
+ * past the window is stepped from where it sits. External `glaze.color()`
+ * bases supply their own anchor (`darkAnchorOf`).
  *
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
  * `t` is the canonical contrast-uniform tone (0–1, reference eps). The
@@ -76,10 +79,12 @@ import {
 import {
   REF_EPS,
   fromTone,
+  mapDarkToneUnclamped,
   mapSaturationDark,
   mapToneForScheme,
   normalizeToneWindow,
   okhslToOkhst,
+  sameDarkWindow,
   schemeToneRange,
   toTone,
   unmapDarkTone,
@@ -125,10 +130,20 @@ interface DarkAnchor {
 }
 
 /**
- * An external base's dark-delta anchor for one pass, supplied by the base's
- * own `glaze.color()` token (internal; see `darkAnchorOf`).
+ * An external base's dark-delta anchor for one pass, read in the base's own
+ * resolve context (see `darkAnchorOf`), with the config it was read under.
  */
-export type DarkAnchorHook = (isHighContrast: boolean) => number;
+export interface ExternalDarkAnchor {
+  tone: number;
+  /** The base's effective config, whose dark window placed the base. */
+  config: GlazeConfigResolved;
+}
+
+/**
+ * An external base's dark-delta anchor for one pass, supplied by the base's
+ * own `glaze.color()` token (internal).
+ */
+export type DarkAnchorHook = (isHighContrast: boolean) => ExternalDarkAnchor;
 
 export interface ResolveContext extends GlazeThemeSeed {
   defs: ColorMap;
@@ -494,23 +509,35 @@ function resolveChannels(
 }
 
 /**
- * Whether this pass's light window is the identity: the full range at the
- * reference eps — high contrast or a level at 100 (both bypass the window to
- * the full range), or a `lightTone` of `false` / `[0, 100]`. Read off the
- * theme's config, not a color's: a `from` color drops its own light window, so
- * its config would report the identity under a theme whose window is not.
+ * Whether a light-side anchor reads the stored light tone in this pass: high
+ * contrast or a level at 100 at the reference light eps, where the light window
+ * bypasses to the full range and is the identity. Those passes have always
+ * stepped dark deltas from the light tone, so reading it as stored keeps them
+ * bit-identical (recomputing the authored tone differs by float noise, which
+ * can flip a tie-broken contrast solve). A normal pass has always read the
+ * authored tone as is, so it keeps doing so even where its window is the
+ * identity too (`lightTone: false` / `[0, 100]`). Read off the theme's config,
+ * not a color's: a `from` color drops its own light window.
  */
-function lightWindowIsIdentity(
+function readsStoredLightTone(
   isHighContrast: boolean,
   config: GlazeConfigResolved,
 ): boolean {
-  const win = normalizeToneWindow(config.lightTone);
-  if (win.eps !== REF_EPS) return false;
-  return (
-    isHighContrast ||
-    hcMirrorsNormal(config) ||
-    (win.lo === 0 && win.hi === 100)
-  );
+  if (normalizeToneWindow(config.lightTone).eps !== REF_EPS) return false;
+  return isHighContrast || hcMirrorsNormal(config);
+}
+
+/**
+ * Where a step of `delta` from `anchor` lands on the authored scale: clamped to
+ * `0–100`, widened to reach an anchor past the dark window (a base a contrast
+ * floor or an extreme's replay pushed there). A step back toward the scale then
+ * moves by the full delta, and one that points further out stops at the anchor
+ * — the base itself — instead of snapping back to the window's edge. Either
+ * way a step stops at the window's edge or at its base, whichever is further
+ * out, so the result moves continuously as the base crosses the edge.
+ */
+function stepFromAnchor(anchor: number, delta: number): number {
+  return clamp(anchor + delta, Math.min(0, anchor), Math.max(100, anchor));
 }
 
 /**
@@ -522,27 +549,33 @@ function lightWindowIsIdentity(
  * - A color placed by a tone (a root, an absolute tone, a `from` value, an
  *   extreme with no base or in `fixed` / `static` mode) returns that tone as
  *   authored for the pass.
- * - A tone delta returns its base's anchor plus the delta, flipped exactly as
- *   the light pass flipped it on the base's light tone, so a chain of deltas
- *   steps evenly. A color with no tone of its own returns its base's.
+ * - A tone delta returns its base's anchor plus the delta (`stepFromAnchor`),
+ *   flipped exactly as the light pass flipped it on the base's light tone, so a
+ *   chain of deltas steps evenly. A color with no tone of its own returns its
+ *   base's.
  * - A color whose dark tone is not the inversion of an authored tone — an
  *   `auto` contrast-solved color, an `auto` extreme on a base (which replays its
  *   light shift), a mix — returns its own dark tone taken back through the dark
- *   window (`unmapDarkTone`). That can fall outside `0–100` when a solve pushed
- *   the color past the window; the caller clamps after adding the delta.
+ *   window (`unmapDarkTone`). That falls outside `0–100` when a solve pushed the
+ *   color past the window; a step from it stays off the scale until it comes
+ *   back (`stepFromAnchor`, `mapDarkToneUnclamped`), so it does not snap to the
+ *   window's edge.
  * - A `fixed` / `static` contrast-solved color does not invert, so it keeps its
  *   light-side answer: its light tone taken back through the light window. A
  *   delta on it (or on any `fixed` / `static` tone) inverts per its own mode.
  * - An external base (a `glaze.color()` link) supplies its own anchor, read in
- *   its own resolve context (`ctx.externalAnchors`). Without one, an `auto`
- *   base is read back through the dark window and any other keeps its light
- *   tone.
+ *   its own resolve context (`ctx.externalAnchors`), when the anchor means the
+ *   same thing here: the base is `fixed` / `static`, or its active dark window
+ *   is this pass's. An `auto` base under another dark window — or one with no
+ *   hook — is read back through this pass's dark window, so a `'+0'` lands on
+ *   it and the step is this window's scale times the delta. Any other base
+ *   without a hook keeps its light tone.
  *
- * Where this pass's light window is the identity, a light-side color's light
- * tone *is* its authored tone, so it is read as stored. That keeps high
- * contrast and `contrastLevel: 100` bit-identical to the light-tone anchor they
- * have always used at default windows (recomputing would differ by float noise,
- * which can flip a tie-broken contrast solve).
+ * In high contrast and at `contrastLevel: 100` at the reference light eps
+ * (`readsStoredLightTone`), a light-side color's light tone *is* its authored
+ * tone, so it is read as stored. That keeps those passes bit-identical to the
+ * light-tone anchor they have always used, as a normal pass stays on the
+ * authored tone it has always used.
  *
  * Memoized per resolve and pass on `ctx.anchors`, so a long chain of deltas
  * resolves in linear time without deep recursion: the dark passes run in topo
@@ -572,10 +605,16 @@ function darkAnchor(
   let anchor: DarkAnchor;
   const def: ColorDef | undefined = ctx.defs[name];
   if (def === undefined) {
-    const hook = ctx.externalAnchors?.get(name);
-    if (hook) anchor = { tone: hook(isHighContrast), lightSide: false };
-    else if (color.mode === 'auto') anchor = fromDark(ctx.config);
-    else anchor = { tone: lightTone, lightSide: false };
+    const external = ctx.externalAnchors?.get(name)?.(isHighContrast);
+    if (
+      color.mode === 'auto' &&
+      (external === undefined ||
+        !sameDarkWindow(isHighContrast, external.config, ctx.config))
+    ) {
+      anchor = fromDark(ctx.config);
+    } else {
+      anchor = { tone: external?.tone ?? lightTone, lightSide: false };
+    }
   } else if (isMixDef(def) || isLightingDef(def)) {
     anchor = fromDark(ctx.config);
   } else {
@@ -605,10 +644,9 @@ function darkAnchor(
           .t * 100;
       const flip = regDef.autoFlip ?? ctx.config.autoFlip;
       anchor = {
-        tone: clamp(
-          base.tone + applyToneFlip(parsed.value, baseLightTone, flip),
-          0,
-          100,
+        tone: stepFromAnchor(
+          base.tone,
+          applyToneFlip(parsed.value, baseLightTone, flip),
         ),
         lightSide: base.lightSide,
       };
@@ -623,7 +661,7 @@ function darkAnchor(
     }
   }
 
-  if (anchor.lightSide && lightWindowIsIdentity(isHighContrast, ctx.config)) {
+  if (anchor.lightSide && readsStoredLightTone(isHighContrast, ctx.config)) {
     anchor = { tone: lightTone, lightSide: true };
   }
   memo.set(name, anchor);
@@ -633,8 +671,9 @@ function darkAnchor(
 /**
  * A resolved color's dark-delta anchor for one pass (see `darkAnchor`), read
  * after its resolve. This is what a `glaze.color()` token hands the resolver
- * when another token links to it as a `base`, so the link steps from where the
- * base sits under the base's own windows and defs. Internal, not public API.
+ * (with its config, and cached per pass) when another token links to it as a
+ * `base`, so the link steps from where the base sits under the base's own
+ * windows and defs. Internal, not public API.
  */
 export function darkAnchorOf(
   name: string,
@@ -729,11 +768,10 @@ function resolveDependentColor(
         // and make it uneven across bases.
         const anchor = darkAnchor(baseName, ctx, isHighContrast).tone;
         // Invert + remap the stepped tone into the dark window, exactly like
-        // an absolute author tone under `mode: 'auto'`.
-        preferredTone = mapToneForScheme(
-          clamp(anchor + delta, 0, 100),
-          'auto',
-          true,
+        // an absolute author tone under `mode: 'auto'` — past the window's
+        // edge where the base itself sits past it.
+        preferredTone = mapDarkToneUnclamped(
+          stepFromAnchor(anchor, delta),
           isHighContrast,
           config,
         );
