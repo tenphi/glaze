@@ -77,6 +77,7 @@ import {
   warnContrastUnmet,
   warnContrastDrift,
   warnLightingUnreachable,
+  warnMixContrastUnmet,
 } from './warnings';
 import type {
   AdaptationMode,
@@ -103,6 +104,11 @@ export interface ResolveContext extends GlazeThemeSeed {
   config: GlazeConfigResolved;
   /** Per-name role memo (filled lazily by `resolveRole`). */
   roles: Map<string, Role>;
+  /**
+   * `unmetKey` of every regular-color variant whose contrast solve came back
+   * unmet, so `verifyContrastDrift` doesn't repeat the solver's warning.
+   */
+  unmet: Set<string>;
 }
 
 type ResolvedField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
@@ -674,6 +680,7 @@ function resolveDependentColor(
     });
 
     if (!result.met) {
+      ctx.unmet.add(unmetKey(name, isDark, isHighContrast));
       warnContrastUnmet(
         name,
         isDark,
@@ -912,6 +919,19 @@ function resolveMixForScheme(
       flip: ctx.config.autoFlip,
     });
     t = result.value;
+
+    // Unmet means even the pure target falls short of the floor. The mix
+    // settles at the end of the range it searched; say so like a regular
+    // color does (deduped, with the same slack, so a rounding miss stays quiet).
+    if (!result.met) {
+      warnMixContrastUnmet(
+        name,
+        isDark,
+        isHighContrast,
+        resolvedContrast,
+        result.contrast,
+      );
+    }
   }
 
   if (blend === 'transparent') {
@@ -1004,11 +1024,28 @@ function seedField(
   }
 }
 
+/** Key for `ResolveContext.unmet`: one color in one scheme. */
+function unmetKey(
+  name: string,
+  isDark: boolean,
+  isHighContrast: boolean,
+): string {
+  return `${name}|${isDark ? 'dark' : 'light'}|${isHighContrast ? 'hc' : ''}`;
+}
+
+/** Below this OKHSL saturation a variant is a gray: its tone is exact. */
+const ACHROMATIC_EPSILON = 1e-6;
+
 /**
  * After the passes, surface chromatic contrast drift (the drift check in
  * docs/okhst.mdx): a color resolved with a `base` + `contrast` may land
  * slightly under the contrast its tone implies because chromatic luminance
  * drifts from the gray tone.
+ *
+ * Two kinds of variant are skipped. One the solver reported as unmet (`unmet`)
+ * already got a "cannot meet" warning with the same measured value, and the
+ * shortfall is an unreachable floor, not drift. An achromatic one (saturation
+ * 0) has no chromatic luminance to drift, so the advisory's cause can't apply.
  *
  * Under a manual `contrastLevel` the spec is resolved at the level, so the check
  * measures each normal variant against the target it was actually solved for. At
@@ -1021,6 +1058,7 @@ function verifyContrastDrift(
   defs: ColorMap,
   result: Map<string, ResolvedColor>,
   config: GlazeConfigResolved,
+  unmet: ReadonlySet<string>,
 ): void {
   const roles = new Map<string, Role>();
   for (const name of order) {
@@ -1050,13 +1088,15 @@ function verifyContrastDrift(
     for (const s of schemes) {
       // At level 100 the high-contrast slots are mirrors of the normal ones.
       if (mirrored && s.isHighContrast) continue;
+      if (unmet.has(unmetKey(name, s.isDark, s.isHighContrast))) continue;
+      const cVariant = color[s.field];
+      if (cVariant.s <= ACHROMATIC_EPSILON) continue;
       const spec = resolveContrastSpec(
         regDef.contrast,
         s.isHighContrast,
         config,
         polarity,
       );
-      const cVariant = color[s.field];
       const bVariant = base[s.field];
       const cOkhsl = toOkhslVariant(cVariant);
       const bOkhsl = toOkhslVariant(bVariant);
@@ -1094,6 +1134,7 @@ export function resolveAllColors(
     resolved: new Map(),
     config,
     roles: new Map(),
+    unmet: new Set(),
   };
 
   // Pre-seed externally-resolved bases. The per-pass loops iterate only
@@ -1149,7 +1190,7 @@ export function resolveAllColors(
     });
   }
 
-  verifyContrastDrift(order, defs, result, config);
+  verifyContrastDrift(order, defs, result, config, ctx.unmet);
 
   return result;
 }

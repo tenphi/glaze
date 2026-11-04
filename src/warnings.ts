@@ -1,6 +1,6 @@
 /**
- * Resolve-time warning dispatcher: unmet contrast floors, chromatic contrast
- * drift, and out-of-reach shadow / glow steps.
+ * Resolve-time warning dispatcher: unmet contrast floors (regular colors and
+ * mixes), chromatic contrast drift, and out-of-reach shadow / glow steps.
  *
  * Tokens memoize their resolution, but a long-lived process (e.g. a dev
  * server with HMR) can re-resolve the same theme many times. The cache
@@ -46,6 +46,30 @@ function dedupe(key: string): boolean {
   return false;
 }
 
+/**
+ * Whether `actual` is short of the floor by more than the slack. The solver
+ * aims slightly past the target, so a smaller shortfall is rounding noise.
+ */
+function missesFloor(contrast: ResolvedContrast, actual: number): boolean {
+  const slack =
+    contrast.metric === 'apca'
+      ? contrast.target - CONTRAST_WARN_SLACK_APCA
+      : contrast.target * CONTRAST_WARN_SLACK_WCAG;
+  return actual < slack;
+}
+
+function contrastKey(
+  kind: string,
+  name: string,
+  scheme: string,
+  contrast: ResolvedContrast,
+  actual: number,
+): string {
+  return `${kind}|${name}|${scheme}|${contrast.metric}|${contrast.target.toFixed(
+    2,
+  )}|${actual.toFixed(2)}`;
+}
+
 /** Warn when the solver could not reach the requested contrast floor. */
 export function warnContrastUnmet(
   name: string,
@@ -54,17 +78,10 @@ export function warnContrastUnmet(
   contrast: ResolvedContrast,
   actual: number,
 ): void {
-  const slack =
-    contrast.metric === 'apca'
-      ? contrast.target - CONTRAST_WARN_SLACK_APCA
-      : contrast.target * CONTRAST_WARN_SLACK_WCAG;
-  if (actual >= slack) return;
+  if (!missesFloor(contrast, actual)) return;
 
   const scheme = schemeLabel(isDark, isHighContrast);
-  const key = `unmet|${name}|${scheme}|${contrast.metric}|${contrast.target.toFixed(
-    2,
-  )}|${actual.toFixed(2)}`;
-  if (dedupe(key)) return;
+  if (dedupe(contrastKey('unmet', name, scheme, contrast, actual))) return;
 
   console.warn(
     `glaze: color "${name}" cannot meet ${metricLabel(contrast)} in ` +
@@ -75,11 +92,38 @@ export function warnContrastUnmet(
 }
 
 /**
+ * Warn when a mix's ratio / opacity search could not reach its contrast floor
+ * against the mix's `base`. An unmet mix means even the pure target falls
+ * short, so the fix is the target color or the floor, not a tone window.
+ * `actual` is the contrast of the value the mix settled at.
+ */
+export function warnMixContrastUnmet(
+  name: string,
+  isDark: boolean,
+  isHighContrast: boolean,
+  contrast: ResolvedContrast,
+  actual: number,
+): void {
+  if (!missesFloor(contrast, actual)) return;
+
+  const scheme = schemeLabel(isDark, isHighContrast);
+  if (dedupe(contrastKey('unmet-mix', name, scheme, contrast, actual))) return;
+
+  console.warn(
+    `glaze: mix "${name}" cannot meet ${metricLabel(contrast)} against its ` +
+      `base in ${scheme} scheme (got ${actual.toFixed(2)}). ` +
+      `Even the pure target falls short; try lowering the contrast target ` +
+      `or mixing toward a color further from the base.`,
+  );
+}
+
+/**
  * Verification (the drift check in docs/okhst.mdx): a chromatic swatch
  * inherits the gray tone's lightness but drifts in real luminance, so a
  * contrast-floored color may land slightly under the contrast its tone
  * implies. Emit an advisory warning when the actual measured contrast
- * drifts below the target.
+ * drifts below the target. The caller skips achromatic variants and ones the
+ * solver already reported through `warnContrastUnmet`.
  */
 export function warnContrastDrift(
   name: string,
@@ -98,17 +142,10 @@ export function warnContrastDrift(
         )
       : contrastRatioFromLuminance(yColor, yBase);
 
-  const slack =
-    contrast.metric === 'apca'
-      ? contrast.target - CONTRAST_WARN_SLACK_APCA
-      : contrast.target * CONTRAST_WARN_SLACK_WCAG;
-  if (actual >= slack) return;
+  if (!missesFloor(contrast, actual)) return;
 
   const scheme = schemeLabel(isDark, isHighContrast);
-  const key = `drift|${name}|${scheme}|${contrast.metric}|${contrast.target.toFixed(
-    2,
-  )}|${actual.toFixed(2)}`;
-  if (dedupe(key)) return;
+  if (dedupe(contrastKey('drift', name, scheme, contrast, actual))) return;
 
   console.warn(
     `glaze: color "${name}" drifts below ${metricLabel(contrast)} in ` +

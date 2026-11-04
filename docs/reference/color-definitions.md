@@ -453,7 +453,7 @@ A blend of two colors: an opaque interpolation, or the target laid over the base
 | `value` | `HCPair<number>` | — | Mix ratio 0–100: `0` is pure base, `100` pure target. With `blend: 'transparent'`, the target's opacity (`value / 100`). Clamped to 0–100. Required. |
 | `blend` | `'opaque' \| 'transparent'` | `'opaque'` | `'opaque'` produces a solid color. `'transparent'` produces the target color with an alpha, for the browser to composite over the base. |
 | `space` | `'okhsl' \| 'srgb'` | `'okhsl'` | Interpolation space for `'opaque'`. `'okhsl'` interpolates hue (shortest arc), saturation, and lightness in OKHSL. `'srgb'` interpolates linear-light sRGB channels, like CSS `color-mix(in srgb-linear, …)`. Ignored for `'transparent'`. |
-| `contrast` | `HCPair<ContrastSpec>` | — | Floor against `base`. The solver adjusts the ratio (opaque) or the opacity (transparent). See [Contrast and high contrast](./contrast.md#contrastspec). |
+| `contrast` | `HCPair<ContrastSpec>` | — | Floor against `base`. The solver adjusts the ratio (opaque) or the opacity (transparent); an unreachable floor pins and [warns](./configuration.md#mix-contrast-unmet). See [Contrast and high contrast](./contrast.md#contrastspec). |
 | `pastel` | `boolean` | The theme's `pastel` | Gamut of the mixed result. See [Per-color `pastel`](#per-color-pastel). |
 | `role` | `RoleInput` | Inferred | Role of the result against `base`, for APCA polarity. Same chain as on a [regular color](#roles). |
 | `inherit` | `boolean` | `true` | See [`inherit`](#inherit). |

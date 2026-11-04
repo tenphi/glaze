@@ -531,13 +531,14 @@ a `contrast` floor. It re-measures the color against its base in each scheme, in
 the floor's own metric (APCA screen luminance for APCA, WCAG luminance for
 WCAG) and with each variant's own `pastel` flag, and emits a `console.warn` when
 the result drifts below the target by more than a small slack: 2% of a WCAG
-ratio, or 1.5 Lc. Because the solver already measures the real chromatic color,
-a floor it meets passes this check. In practice the advisory fires only for an
-unreachable floor, next to the solver's "cannot meet" warning for the same
-scheme and with the same measured value; it stays as a safety net for the
-chromatic approximation. Warnings are deduplicated through a 256-key session
-cache that starts over when full. Both warnings are listed in
-[Configuration](./reference/configuration.md#warnings).
+ratio, or 1.5 Lc. It skips a scheme where the solver couldn't reach the floor,
+which already has the solver's "cannot meet" warning with the same measured
+value, and an achromatic color (saturation 0), whose luminance is exactly its
+tone's. Because the solver already measures the real chromatic color, a floor
+it meets passes this check, so in practice the advisory stays silent; it
+remains as a safety net for the chromatic approximation. Warnings are
+deduplicated through a 256-key session cache that starts over when full. Both
+warnings are listed in [Configuration](./reference/configuration.md#warnings).
 
 ## Input and output
 

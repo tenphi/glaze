@@ -777,9 +777,8 @@ solid tints. Opaque mixes default to perceptual OKHSL interpolation; set
 composited by the browser, and their contrast solve models that compositing.
 Mix colors can also use `contrast`; the solver adjusts the value or opacity to
 meet the floor. If the floor is out of reach, the mix settles at the pure target
-(the pure base when its value is already 100) without a warning, so measure
-mixed pairs that carry accessibility requirements. See [Mixes and
-transparency](./mixes.mdx).
+(the pure base when its value is already 100) and Glaze warns, as it does for a
+regular color. See [Mixes and transparency](./mixes.mdx).
 
 ## High contrast
 
@@ -969,6 +968,5 @@ Before shipping a palette, verify:
   been reviewed on complete screens, not only in a token grid.
 - Rendered WCAG/APCA results have been checked for chromatic foreground/base
   pairs that carry accessibility requirements.
-- Resolution emits no unexplained unreachable-contrast, unreachable shadow /
-  glow, or token-collision warnings. Mixes do not warn when a floor is out of
-  reach, so measure those directly.
+- Resolution emits no unexplained unreachable-contrast (colors and mixes),
+  unreachable shadow / glow, or token-collision warnings.

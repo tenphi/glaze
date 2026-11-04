@@ -536,6 +536,9 @@ To fix one:
 - **Widen the tone window** when the normal scheme is clamping the base.
   High-contrast variants already use the full range.
 
+A mix with a floor it can't reach warns too, with its own message; see
+[Contrast on mixes](#contrast-on-mixes).
+
 ### Chromatic drift advisory
 
 After every scheme is resolved, Glaze re-measures each regular color that has a
@@ -543,16 +546,18 @@ floor against its base in that metric and emits an advisory when the measured va
 is under the target by the same margin:
 
 ```text
-glaze: color "badge-text" drifts below WCAG 7.00 in light scheme
-  (measured 4.94).
+glaze: color "link" drifts below WCAG 4.50 in light scheme
+  (measured <ratio>).
 Chromatic luminance differs from the gray tone; nudge the tone or
   saturation if the floor matters.
 ```
 
 It is a safety net for the gap between tone and a chromatic color's real
-luminance. Because the solver itself measures the chromatic color, you will
-mostly see this advisory next to a "cannot meet" warning for the same color and
-scheme rather than on its own. The model behind it is in
+luminance. It never repeats a "cannot meet" warning: a scheme where the solver
+couldn't reach the floor is skipped, and so is an achromatic color (saturation
+0), whose tone is exact. Because the solver itself measures the chromatic color,
+a floor it meets passes this check too, so you should not normally see this
+advisory at all. The model behind it is in
 [Tone and OKHST](./okhst.mdx#the-drift-check).
 
 ### Contrast and opacity
@@ -685,8 +690,19 @@ Both `value` and `contrast` accept `[normal, highContrast]` pairs. When even the
 pure target can't meet the floor, the mix settles at the pure target. A `value`
 of 100 has no room above, so it falls back to the pure base instead, and a
 transparent mix ends at alpha 0; that includes a high-contrast entry of 100, as
-in `value: [80, 100]`. Either way the mix resolves **without a warning**; the
-drift advisory skips mixes too. Measure a mix yourself when its floor matters. See
+in `value: [80, 100]`. Either way Glaze warns, with the same margins and dedupe
+as a regular color. Here `accent-wash`, a 10% mix toward a tone-55 `accent` on
+a tone-97 `surface` in `glaze(280, 80)`, can't reach AA:
+
+```text
+glaze: mix "accent-wash" cannot meet WCAG 4.50 against its base in
+  light scheme (got 3.54).
+Even the pure target falls short; try lowering the contrast target or
+  mixing toward a color further from the base.
+```
+
+A tone window has no say in a mix, so the fix is a target further from the base
+or a lower floor. The drift advisory skips mixes. See
 [Contrast on mixes](./mixes.mdx#contrast-on-mixes).
 
 ## Using the solver directly

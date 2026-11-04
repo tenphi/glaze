@@ -212,8 +212,11 @@ your `value` as it can.
   pure target for any `value` below 100. A `value` of 100 (including a
   high-contrast entry of 100) has no room above, so it falls back to
   `value: 0`: the base itself, and a transparent mix vanishes. Keep `value`
-  below 100 when you set a floor. Unlike a regular color, a mix does not warn
-  when its floor is unmet.
+  below 100 when you set a floor. Either way Glaze warns once per scheme, like
+  it does for a regular color: `glaze: mix "<name>" cannot meet WCAG 4.50
+  against its base in light scheme (got <ratio>).` The fix is a target further
+  from the base or a lower floor; see
+  [Warnings](./reference/configuration.md#mix-contrast-unmet).
 
 ## Mix chaining
 

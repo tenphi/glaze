@@ -284,7 +284,7 @@ Hue isn't mapped. Dark variants re-anchor relative hues to the theme's `darkHue`
 
 ## Validation
 
-Glaze validates a theme's definitions when it resolves — on the first `resolve()` or output call after the definitions change, not when you call `colors()`. Graph errors throw; recoverable numeric bounds are clamped; a physically unreachable target pins to the limit of its search and warns (a mix pins without a warning); risky combinations resolve and warn.
+Glaze validates a theme's definitions when it resolves — on the first `resolve()` or output call after the definitions change, not when you call `colors()`. Graph errors throw; recoverable numeric bounds are clamped; a physically unreachable target pins to the limit of its search and warns; risky combinations resolve and warn.
 
 ### Errors
 
@@ -360,11 +360,12 @@ A tone delta that overshoots `[0, 100]` mirrors to the other side of its base wh
 | Condition | Result |
 | --- | --- |
 | A regular color's `contrast` floor is out of reach | Pins to the extreme of the side searched first; [contrast unmet](#contrast-unmet) warning. |
+| A mix's `contrast` floor is out of reach | Pins to the end of the base → target range it searched; [mix contrast unmet](#mix-contrast-unmet) warning. |
 | A shadow / glow step is out of the pigment's reach | Pins to the pigment's strongest composite (or stays transparent if it can't move the surface at all); [lighting](#shadow-or-glow-out-of-reach) warning. |
 | `contrast` and `opacity` on the same color | Resolves the floor for the opaque color; [contrast and opacity](#contrast-and-opacity) warning. |
 | A color string with an alpha component (`#rrggbbaa`, `rgb(… / a)`) where Glaze has no opacity field | Alpha dropped; [alpha dropped](#alpha-dropped) warning. |
 
-A mix whose `contrast` target is out of reach resolves **without** a warning: the value pins to the end of the base → target range it searched (normally the pure target). A mix whose value is already 100, including the high-contrast entry of `value: [80, 100]`, can only search toward the base, so it pins to the pure base instead.
+An unmet mix normally pins to the pure target. A mix whose value is already 100, including the high-contrast entry of `value: [80, 100]`, can only search toward the base, so it pins to the pure base instead.
 
 ## Warnings
 
@@ -373,14 +374,15 @@ Glaze reports problems it can recover from through `console.warn`, always prefix
 | Warning | Emitted when | Deduplicated |
 | --- | --- | --- |
 | [Contrast unmet](#contrast-unmet) | The solver can't reach a regular color's floor in a scheme. | Yes |
-| [Contrast drift](#contrast-drift) | A contrast-floored color measures under its target after resolution. | Yes |
+| [Mix contrast unmet](#mix-contrast-unmet) | The solver can't reach a mix's floor in a scheme. | Yes |
+| [Contrast drift](#contrast-drift) | A chromatic color the solver reported as meeting its floor measures under it after resolution. | Yes |
 | [Shadow or glow out of reach](#shadow-or-glow-out-of-reach) | A `shadow` / `glow` step exceeds what its pigment can do. | Yes |
 | [Contrast and opacity](#contrast-and-opacity) | A regular color has both `contrast` and `opacity`. | No — once per resolve |
 | [Alpha dropped](#alpha-dropped) | A color value carries alpha that Glaze discards. | No |
 | [Percentage scale](#percentage-scale) | A `format*` writer gets a value above 1. | Once per writer |
 | Palette collision | Two palette themes produce the same token name. See [Collision detection](./palette.md#collision-detection). | No |
 
-The first three share one session cache of 256 keys, which starts over when full. A key includes the color name, scheme, target, and measured value, so a dev server that re-resolves on every change prints each distinct problem once. Resolved themes are cached until their definitions or the config change, so the contrast-and-opacity warning prints once per actual resolve. The alpha-dropped warning for a theme color's `from` can print several times within one resolve, since the value is parsed more than once.
+The first four share one session cache of 256 keys, which starts over when full. A key includes the color name, scheme, target, and measured value, so a dev server that re-resolves on every change prints each distinct problem once. Resolved themes are cached until their definitions or the config change, so the contrast-and-opacity warning prints once per actual resolve. The alpha-dropped warning for a theme color's `from` can print several times within one resolve, since the value is parsed more than once.
 
 ### Contrast unmet
 
@@ -393,16 +395,27 @@ Try widening the tone window, lowering the contrast target, or picking
 
 Fires when the result is more than 2% under a WCAG target, or more than 1.5 Lc under an APCA target (the solver aims slightly past the target, so smaller shortfalls are rounding). The scheme is `light`, `dark`, `lightContrast`, or `darkContrast`; APCA targets print as `APCA Lc 75.0`. Standalone tokens print their `name` option, or `"value"` when it isn't set. Fixes: [When a floor can't be met](../contrast.mdx#when-a-floor-cant-be-met).
 
+### Mix contrast unmet
+
+```text
+glaze: mix "accent-wash" cannot meet WCAG 4.50 against its base in
+  light scheme (got 3.54).
+Even the pure target falls short; try lowering the contrast target or
+  mixing toward a color further from the base.
+```
+
+This one is for `accent-wash: { type: 'mix', base: 'surface', target: 'accent', value: 10, contrast: 'AA' }` in `glaze(280, 80)`, with `surface` at tone 97 and `accent` at tone 55. It uses the same margins and scheme labels as [contrast unmet](#contrast-unmet), measured between the mix and its `base`. `got` is the contrast of the value the mix settled at: the pure target, or the pure base when the value is already 100 (`got 1.00`, or `0.00` for an APCA floor). Fixes: [Contrast on mixes](../mixes.mdx#contrast-on-mixes).
+
 ### Contrast drift
 
 ```text
-glaze: color "badge-text" drifts below WCAG 7.00 in light scheme
-  (measured 4.94).
+glaze: color "link" drifts below WCAG 4.50 in light scheme
+  (measured <ratio>).
 Chromatic luminance differs from the gray tone; nudge the tone or
   saturation if the floor matters.
 ```
 
-After all schemes resolve, Glaze re-measures every regular color with `contrast` and `base` against its base, in the floor's metric and the color's role polarity, with the same margins. An unmet floor triggers this advisory as well, for the same scheme. Mixes are not re-measured. At an effective `contrastLevel` of 100, global or per instance, the high-contrast slots are skipped because they mirror the normal ones. Background: [Chromatic drift advisory](../contrast.mdx#chromatic-drift-advisory).
+After all schemes resolve, Glaze re-measures every regular color with `contrast` and `base` against its base, in the floor's metric and the color's role polarity, with the same margins. It skips a variant whose floor the solver reported as unmet, which already has its [contrast unmet](#contrast-unmet) warning, and an achromatic variant (saturation 0), whose tone is exact. The solver measures the real chromatic color, so a floor it meets passes this check too: the advisory is a safety net and normally stays silent. Mixes are not re-measured; an unmet mix has [its own warning](#mix-contrast-unmet). At an effective `contrastLevel` of 100, global or per instance, the high-contrast slots are skipped because they mirror the normal ones. Background: [Chromatic drift advisory](../contrast.mdx#chromatic-drift-advisory).
 
 ### Shadow or glow out of reach
 
