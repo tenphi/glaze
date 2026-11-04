@@ -25,7 +25,7 @@
  * default constants.
  */
 
-import { clamp, contrastFraction, lerp } from './hc-pair';
+import { clamp, contrastFraction, lerp, showValue } from './hc-pair';
 import { toe, toeInv } from './okhsl-color-math';
 import type { AdaptationMode, GlazeConfigResolved, ToneWindow } from './types';
 
@@ -162,12 +162,6 @@ export function normalizeToneWindow(
   field = 'tone window',
 ): { lo: number; hi: number; eps: number } {
   if (win === false) return { lo: 0, hi: 100, eps: REF_EPS };
-  // Numbers via `String` (`JSON.stringify(NaN)` is "null"); anything else via
-  // JSON, so a string shows its quotes and an array its shape.
-  const show = (value: unknown): string =>
-    typeof value === 'number' || value === undefined
-      ? String(value)
-      : (JSON.stringify(value) ?? String(value));
   const raw: unknown = win;
   let lo: unknown;
   let hi: unknown;
@@ -178,7 +172,7 @@ export function normalizeToneWindow(
     ({ lo, hi, eps } = raw as Record<string, unknown>);
   } else {
     throw new Error(
-      `glaze: ${field} must be [lo, hi], { lo, hi, eps }, or false (got ${show(raw)}).`,
+      `glaze: ${field} must be [lo, hi], { lo, hi, eps }, or false (got ${showValue(raw)}).`,
     );
   }
   for (const [name, value] of [
@@ -187,7 +181,7 @@ export function normalizeToneWindow(
   ] as const) {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new Error(
-        `glaze: ${field} ${name} must be a finite number (got ${show(value)}).`,
+        `glaze: ${field} ${name} must be a finite number (got ${showValue(value)}).`,
       );
     }
   }
@@ -198,7 +192,7 @@ export function normalizeToneWindow(
     eps > MAX_WINDOW_EPS
   ) {
     throw new Error(
-      `glaze: ${field} eps must be a finite number above 0 and at most 1e6 (got ${show(eps)}).`,
+      `glaze: ${field} eps must be a finite number above 0 and at most 1e6 (got ${showValue(eps)}).`,
     );
   }
   const from = lo as number;

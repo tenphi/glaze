@@ -5,8 +5,8 @@
  * glow-referencing / base/contrast/tone mismatches — a relative tone in either
  * entry of an HC pair needs a base) and bad per-color lighting tuning (a
  * `headroom` on a shadow; a glow `headroom` that is not a finite number ≥ 0,
- * with one above the maximum warned about and clamped at resolve), and detects
- * cycles before the resolver runs. `topoSort` orders defs so each color is
+ * with one above the maximum warned about — once every def has passed — and
+ * clamped at resolve), and detects cycles before the resolver runs. `topoSort` orders defs so each color is
  * processed after its base / bg / fg / target dependencies.
  */
 
@@ -15,6 +15,8 @@ import { normalizeLightingTuning } from './config';
 import { contrastMetricOf } from './contrast-solver';
 import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
 import { isLightingDef, isMixDef } from './lighting';
+import { flushWarnings } from './warnings';
+import type { DeferredWarnings } from './warnings';
 import type {
   ColorMap,
   ContrastSpec,
@@ -91,6 +93,9 @@ export function validateColorDefs(
     ...localNames,
     ...(externalBases ? externalBases.keys() : []),
   ]);
+  // Headroom clamp warnings, sent only once every def has passed, so a map
+  // that throws on a later def doesn't spend them before its fixed retry.
+  const deferred: DeferredWarnings = [];
 
   for (const [name, def] of Object.entries(defs)) {
     if (isLightingDef(def)) {
@@ -114,7 +119,12 @@ export function validateColorDefs(
       }
       // Throws for a shadow `headroom` or a bad glow one; the resolver's
       // tuning merge applies the clamp this warns about.
-      normalizeLightingTuning(kind, def.tuning, `${kind} "${name}" tuning`);
+      normalizeLightingTuning(
+        kind,
+        def.tuning,
+        `${kind} "${name}" tuning`,
+        deferred,
+      );
       continue;
     }
 
@@ -236,6 +246,8 @@ export function validateColorDefs(
   for (const name of localNames) {
     dfs(name);
   }
+
+  flushWarnings(deferred);
 }
 
 export function topoSort(defs: ColorMap): string[] {

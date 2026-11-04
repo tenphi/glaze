@@ -18,7 +18,9 @@
  * `null` throws in either. A glow's HDR `headroom` (`normalizeLightingTuning`,
  * shared with the per-color and standalone validators) must be a finite number
  * ≥ 0 and clamps to `MAX_HEADROOM` stops with a one-time warning; a `headroom`
- * on shadow tuning throws.
+ * on shadow tuning throws. Both entry points hold that warning back
+ * (`DeferredWarnings`) until every field has passed, so a call that throws on
+ * a later field doesn't spend it before the corrected retry applies the clamp.
  *
  * No config object is shared with a caller, in either direction. Going in,
  * `configure()` copies what it keeps and a theme or token copies its override
@@ -30,10 +32,12 @@
  * or handed out can't change a resolve or an export.
  */
 
+import { showValue } from './hc-pair';
 import { MAX_HEADROOM } from './lighting';
 import type { LightingKind } from './lighting';
 import { normalizeToneWindow } from './okhst';
-import { warnHeadroomClamped } from './warnings';
+import { flushWarnings, warnHeadroomClamped } from './warnings';
+import type { DeferredWarnings } from './warnings';
 import type {
   GlazeConfig,
   GlazeConfigOverride,
@@ -124,16 +128,26 @@ export function normalizeToneWindowInput(
  * with a one-time warning, since a ratio typed where stops were meant (`4` for
  * "4× white") is the likely cause. `where` names the tuning in messages
  * (`glowTuning`, `glow "x" tuning`, `glaze.glow() tuning`).
+ *
+ * With `deferred`, the clamp warning is queued there instead of sent, for a
+ * caller that validates more fields after this one: it sends the queue only
+ * once the whole input has passed (`flushWarnings`).
  */
-export function normalizeHeadroom(value: unknown, where: string): number {
+export function normalizeHeadroom(
+  value: unknown,
+  where: string,
+  deferred?: DeferredWarnings,
+): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     throw new Error(
       `glaze: ${where}.headroom must be a finite number ≥ 0 — stops above ` +
-        `SDR white (got ${typeof value === 'string' ? JSON.stringify(value) : String(value)}).`,
+        `SDR white (got ${showValue(value)}).`,
     );
   }
   if (value > MAX_HEADROOM) {
-    warnHeadroomClamped(where, value);
+    const warn = (): void => warnHeadroomClamped(where, value);
+    if (deferred) deferred.push(warn);
+    else warn();
     return MAX_HEADROOM;
   }
   return value;
@@ -144,11 +158,13 @@ export function normalizeHeadroom(value: unknown, where: string): number {
  * glow's `headroom` checked and clamped by `normalizeHeadroom`. A shadow has no
  * headroom — it darkens toward black, and nothing goes below black — so a
  * `headroom` on shadow tuning throws. Only `undefined` counts as unset.
+ * `deferred` queues the clamp warning (see `normalizeHeadroom`).
  */
 export function normalizeLightingTuning(
   kind: LightingKind,
   tuning: GlowTuning | undefined,
   where: string,
+  deferred?: DeferredWarnings,
 ): GlowTuning | undefined {
   if (tuning === undefined) return undefined;
   const out: GlowTuning = { ...tuning };
@@ -161,7 +177,7 @@ export function normalizeLightingTuning(
         `(glowTuning or a glow's tuning).`,
     );
   }
-  out.headroom = normalizeHeadroom(headroom, where);
+  out.headroom = normalizeHeadroom(headroom, where, deferred);
   return out;
 }
 
@@ -290,11 +306,14 @@ export function snapshotConfig(): GlazeConfigResolved {
 /**
  * Merge a `GlazeConfig` into the global config. Fields are validated before
  * anything changes, so a call that throws leaves the config (and its version)
- * untouched. A tone window is kept only when it's `undefined`, as in
- * `mergeConfig()`: a `null` (say, from a JSON config) throws the same error an
- * instance override with it does.
+ * untouched — and sends no warning: a headroom clamp found on the way is sent
+ * only once every field has passed, so the corrected retry still reports it.
+ * A tone window is kept only when it's `undefined`, as in `mergeConfig()`: a
+ * `null` (say, from a JSON config) throws the same error an instance override
+ * with it does.
  */
 export function configure(config: GlazeConfig): void {
+  const deferred: DeferredWarnings = [];
   const next: GlazeConfigResolved = {
     lightTone: normalizeToneWindowInput(
       config.lightTone !== undefined
@@ -330,6 +349,7 @@ export function configure(config: GlazeConfig): void {
       'glow',
       config.glowTuning ?? globalConfig.glowTuning,
       'glowTuning',
+      deferred,
     ),
     autoFlip: config.autoFlip ?? globalConfig.autoFlip,
     // Instance-only; never configurable globally.
@@ -339,6 +359,7 @@ export function configure(config: GlazeConfig): void {
       config.contrastLevel ?? globalConfig.contrastLevel,
     ),
   };
+  flushWarnings(deferred);
   configVersion++;
   globalConfig = next;
 }
@@ -360,13 +381,15 @@ export function resetConfig(): void {
  * cached config can't alias the live global.
  *
  * `pastel` is instance-only: `override.pastel ?? false`, never inherited
- * from the global base.
+ * from the global base. As in `configure()`, a headroom clamp warning is sent
+ * only once every field has passed.
  */
 export function mergeConfig(
   base: GlazeConfigResolved,
   override: GlazeConfigOverride = {},
 ): GlazeConfigResolved {
-  return {
+  const deferred: DeferredWarnings = [];
+  const merged: GlazeConfigResolved = {
     lightTone: normalizeToneWindowInput(
       override.lightTone !== undefined ? override.lightTone : base.lightTone,
       'lightTone',
@@ -389,6 +412,7 @@ export function mergeConfig(
       'glow',
       override.glowTuning ?? base.glowTuning,
       'glowTuning',
+      deferred,
     ),
     autoFlip: override.autoFlip ?? base.autoFlip,
     pastel: override.pastel ?? false,
@@ -397,6 +421,8 @@ export function mergeConfig(
       override.contrastLevel ?? base.contrastLevel,
     ),
   };
+  flushWarnings(deferred);
+  return merged;
 }
 
 /**

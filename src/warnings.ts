@@ -2,7 +2,9 @@
  * Resolve-time warning dispatcher: unmet contrast floors (regular colors and
  * mixes), chromatic contrast drift, out-of-reach shadow / glow steps (SDR, and
  * HDR glows whose headroom cap falls short), and a glow `headroom` clamped to
- * its 2-stop maximum.
+ * its 2-stop maximum. A validator that checks more fields after a clamp queues
+ * that warning (`DeferredWarnings`) and sends it with `flushWarnings` only once
+ * the whole input has passed.
  *
  * Tokens memoize their resolution, but a long-lived process (e.g. a dev
  * server with HMR) can re-resolve the same theme many times. The cache
@@ -194,9 +196,12 @@ export function warnLightingUnreachable(
   );
 }
 
-/** `1 stop`, `2 stops`, `1.5 stops`. */
+/**
+ * `1 stop`, `2 stops`, `1.5 stops`, `0.004 stops`: three significant digits,
+ * so a small headroom never reads as `0 stops`.
+ */
 function stopsLabel(stops: number): string {
-  const n = parseFloat(stops.toFixed(2));
+  const n = Number(stops.toPrecision(3));
   return `${n} stop${n === 1 ? '' : 's'}`;
 }
 
@@ -256,6 +261,19 @@ export function warnLightingShortfall(
   } else {
     warnLightingUnreachable(kind, name, scheme, result.step, result.reached);
   }
+}
+
+/**
+ * Warnings a validator found, queued until the whole input has passed. Every
+ * warning here is deduped for the session, so one sent by a call that then
+ * throws on a later field would leave the corrected retry — the call that
+ * actually applies the value — silent.
+ */
+export type DeferredWarnings = (() => void)[];
+
+/** Send the queued warnings, in the order they were found. */
+export function flushWarnings(deferred: DeferredWarnings): void {
+  for (const warn of deferred) warn();
 }
 
 /**

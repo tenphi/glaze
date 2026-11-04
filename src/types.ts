@@ -349,10 +349,20 @@ export interface GlowTuning extends LightingTuning {
    *
    * Only a glow whose target tone (surface tone + `intensity × k`) passes 100
    * gets an HDR value: the variant's `hdr`, an opaque exposure of what SDR
-   * already paints (the SDR composite over the surface) plus a gain in stops.
+   * paints at its brightest — the pigment at full opacity, or a white surface
+   * no pigment can lift — plus a gain in stops. A pigment that cannot lift a
+   * non-white surface at all (`reach: 0`, say) paints nothing in SDR, so it
+   * gets no HDR value either and keeps the SDR "cannot reach" warning.
    * Nothing about the SDR variant changes. The gain lands the exact step when
    * the headroom allows it; the brightest channel caps at `2^headroom`.
    * High-contrast schemes use the same headroom.
+   *
+   * The HDR value lands the whole step, not just the part past white. A
+   * full-reach glow (the default `reach: 1`) is pinned at white, so its HDR
+   * value starts at white (`exposure` → 0) as the target passes 100. A glow
+   * with `reach` below 1 is pinned at its pigment, below white: just under 100
+   * it stays short there (and warns), and just past 100 its HDR value jumps to
+   * the exact step.
    */
   headroom?: number;
 }
@@ -536,18 +546,20 @@ export interface ResolvedColorVariant {
   pastel?: boolean;
   /**
    * HDR tier of a glow whose step crosses SDR white, present only when the
-   * glow's `headroom` is above 0 and its target tone passes 100 (see
-   * `GlowTuning.headroom`). Absent everywhere else — shadows, mixes, regular
-   * colors, and every glow at the default headroom of 0.
+   * glow's `headroom` is above 0, its target tone passes 100, and SDR is
+   * pinned at its brightest — the pigment at full opacity, or a white surface
+   * (see `GlowTuning.headroom`). Absent everywhere else — shadows, mixes,
+   * regular colors, a glow whose pigment cannot lift a non-white surface, and
+   * every glow at the default headroom of 0.
    */
   hdr?: ResolvedHdr;
 }
 
 /**
  * The HDR value of a glow past SDR white: an opaque base plus a gain. The base
- * is what SDR paints — the glow's composite over its surface at the solved
- * opacity — and the HDR color is that base's linear sRGB times
- * `2^exposure`. Format it with `glaze.formatHdr()`.
+ * is what SDR paints at its brightest — the glow's pigment at full opacity, or
+ * the white surface it cannot lift — and the HDR color is that base's linear
+ * sRGB times `2^exposure`. Format it with `glaze.formatHdr()`.
  *
  * Stored in OKHST like the variant. `s` is always standard (non-pastel)
  * OKHSL saturation, whatever the variant's `pastel`, since the base is an
@@ -1454,7 +1466,8 @@ export interface GlazeCssSchemeBlocks {
 /** CSS custom property declarations grouped by scheme variant. */
 export interface GlazeCssResult extends GlazeCssSchemeBlocks {
   /**
-   * The HDR tier, present only with the `hdr` option: one block per scheme,
+   * The HDR tier, present when HDR output is on — the `hdr` option, which
+   * defaults to the global `modes.hdr`: one block per scheme,
    * each re-declaring every color that has an HDR value in any scheme — its
    * HDR value (`color(srgb-linear R G B)`) where that scheme has one, and
    * the scheme's SDR declaration where it has none. The blocks are dense so
@@ -1512,11 +1525,18 @@ export type DtcgColorValue = DtcgSrgbColorValue | DtcgOklchColorValue;
 export interface GlazeDtcgHdr {
   /** Gain over `base` in stops (`log2` of the linear factor), above 0. */
   exposure: number;
-  /** Luminance tone of the HDR value, past 100 (e.g. `112`). */
+  /**
+   * Luminance tone of the HDR value (e.g. `112`) — past 100 when the headroom
+   * covers the step; a saturated base capped by `headroom` can land below 100,
+   * though its brightest channel still exceeds 1.
+   */
   tone: number;
   /** The opaque base (what SDR paints), as a DTCG sRGB color. */
   base: DtcgSrgbColorValue;
-  /** The HDR color: linear sRGB `base × 2^exposure`, channels above 1. */
+  /**
+   * The HDR color: linear sRGB `base × 2^exposure`, its brightest channel
+   * above 1 (the others may stay below).
+   */
   value: {
     colorSpace: 'srgb-linear';
     components: [number, number, number];

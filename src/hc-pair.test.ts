@@ -7,6 +7,7 @@ import {
   pairNormal,
   parseToneValue,
   parseToneValueAt,
+  showValue,
 } from './hc-pair';
 
 describe('hc-pair', () => {
@@ -158,6 +159,30 @@ describe('hc-pair', () => {
         kind: 'extreme',
         value: 0,
       });
+    });
+  });
+
+  describe('showValue', () => {
+    it('writes numbers and undefined as they print', () => {
+      expect(showValue(1.5)).toBe('1.5');
+      expect(showValue(NaN)).toBe('NaN');
+      expect(showValue(-Infinity)).toBe('-Infinity');
+      expect(showValue(undefined)).toBe('undefined');
+    });
+
+    it('writes everything else as JSON, so its shape shows', () => {
+      expect(showValue('1')).toBe('"1"');
+      expect(showValue([1])).toBe('[1]');
+      expect(showValue({ lo: 1 })).toBe('{"lo":1}');
+      expect(showValue(null)).toBe('null');
+    });
+
+    it('falls back where JSON cannot write the value', () => {
+      expect(showValue(BigInt(3))).toBe('3n');
+      expect(showValue(Symbol('x'))).toBe('Symbol(x)');
+      const cycle: Record<string, unknown> = {};
+      cycle.self = cycle;
+      expect(showValue(cycle)).toBe('[object Object]');
     });
   });
 });

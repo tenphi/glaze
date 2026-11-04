@@ -6,6 +6,7 @@
  * - Absolute / relative / extreme tone discrimination
  * - Generic numeric helpers (`clamp`, `lerp`, hue resolution, relative-value
  *   parsing)
+ * - `showValue`, which writes a rejected input into a validation error
  */
 
 import type { ExtremeValue, HCPair, RelativeValue, ToneValue } from './types';
@@ -24,6 +25,23 @@ export function clamp(v: number, min: number, max: number): number {
 
 export function lerp(a: number, b: number, f: number): number {
   return a + (b - a) * f;
+}
+
+/**
+ * A rejected input as a validation error shows it. Numbers and `undefined`
+ * via `String` (`JSON.stringify(NaN)` is "null"), a bigint with its `n`
+ * (JSON can't write one), anything else via JSON so a string shows its quotes
+ * and an array its shape — falling back to `String` for what JSON can't write
+ * (a symbol, a function, a cycle).
+ */
+export function showValue(value: unknown): string {
+  if (typeof value === 'number' || value === undefined) return String(value);
+  if (typeof value === 'bigint') return `${value}n`;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 // ============================================================================

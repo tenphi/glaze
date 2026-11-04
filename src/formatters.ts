@@ -530,9 +530,10 @@ const DTCG_EXTENSION_NAMESPACE = 'me.tenphi.glaze';
 
 /**
  * The DTCG form of an HDR value: `exposure` in stops, the luminance `tone`
- * it lands (past 100), the opaque `base` as a DTCG sRGB color (always sRGB,
- * whatever `colorSpace`, and never pastel — the base is standard OKHSL), and
- * the HDR color as linear sRGB components above 1.
+ * it lands (past 100 unless `headroom` caps a saturated base short of it), the
+ * opaque `base` as a DTCG sRGB color (always sRGB, whatever `colorSpace`, and
+ * never pastel — the base is standard OKHSL), and the HDR color as linear sRGB
+ * components, the brightest above 1.
  */
 function dtcgHdrValue(hdr: ResolvedHdr): GlazeDtcgHdr {
   const linear = hdrToLinearSrgb(hdr);

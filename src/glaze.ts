@@ -272,7 +272,8 @@ glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
  * object `fg` glows stronger. Accepts the same inputs, plus `tuning.headroom`
  * (merged over the global `glowTuning`): when the step would pass SDR white,
  * the result carries `hdr` — an opaque exposure of the SDR result, formatted
- * by `glaze.formatHdr()`.
+ * by `glaze.formatHdr()` — unless the pigment cannot lift a non-white `bg` at
+ * all (see `GlowTuning.headroom`).
  */
 glaze.glow = function glow(input: GlazeGlowInput): ResolvedColorVariant {
   return standaloneLighting('glow', input);

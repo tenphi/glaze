@@ -384,6 +384,67 @@ describe('HDR glows', () => {
       );
     });
 
+    it('never fires for a pigment that cannot lift a non-white surface', () => {
+      // `reach: 0` parks the pigment at the surface's own tone, so SDR stays
+      // transparent: exposing the bare surface would paint an opaque, brighter
+      // copy of it (opaque white once clamped) where SDR shows the surface.
+      const theme = glaze(0, 0, { glowTuning: { headroom: 2 } });
+      theme.colors({
+        mid: { tone: 50, mode: 'static' },
+        'tinted-flat-glow': {
+          type: 'glow',
+          bg: 'mid',
+          intensity: 70,
+          tuning: { reach: 0, tint: 1 },
+        },
+        light: { tone: 70, mode: 'static' },
+        'flat-glow': {
+          type: 'glow',
+          bg: 'light',
+          intensity: 35,
+          tuning: { reach: 0 },
+        },
+      });
+      const r = theme.resolve();
+      for (const name of ['tinted-flat-glow', 'flat-glow']) {
+        for (const scheme of SCHEMES) {
+          const v = r.get(name)![scheme];
+          expect(v.alpha).toBe(0);
+          expect('hdr' in v).toBe(false);
+        }
+      }
+      // The SDR shortfall warning stays: HDR does not cover the step.
+      expect(warnings('glow "tinted-flat-glow"')[0]).toBe(
+        'glaze: glow "tinted-flat-glow" cannot reach a 70.0-tone step in ' +
+          'light scheme (reached 0.0 at full strength). Lower the intensity, ' +
+          'move the surface away from white, or raise a tuned-down `reach`.',
+      );
+      expect(warnings('glow "flat-glow"')).toHaveLength(SCHEMES.length);
+      expect(warnings('of headroom')).toEqual([]);
+      expect(theme.css({ hdr: true }).hdr).toEqual({
+        light: '',
+        dark: '',
+        lightContrast: '',
+        darkContrast: '',
+      });
+
+      // Standalone too — while a white surface still gets one at opacity 0.
+      const flat = glaze.glow({
+        bg: { h: 0, s: 0, t: 0.8 },
+        intensity: 30,
+        tuning: { reach: 0, headroom: 1 },
+      });
+      expect(flat.alpha).toBe(0);
+      expect('hdr' in flat).toBe(false);
+      const white = glaze.glow({
+        bg: { h: 0, s: 0, t: 1 },
+        intensity: 12,
+        tuning: { reach: 0, headroom: 1 },
+      });
+      expect(white.alpha).toBe(0);
+      expect(hdrTone(white.hdr)).toBeCloseTo(112, 9);
+    });
+
     it('never fires below white, for shadows, or at the default headroom', () => {
       const r = workedExample({ glowTuning: { headroom: 1 } });
       for (const scheme of SCHEMES) {
@@ -470,6 +531,23 @@ describe('HDR glows', () => {
       );
     });
 
+    it('labels the headroom with three significant digits', () => {
+      glaze.glow({ bg: '#ffffff', intensity: 12, tuning: { headroom: 0.004 } });
+      glaze.glow({
+        bg: '#ffffff',
+        intensity: 40,
+        tuning: { headroom: 1.23456 },
+      });
+      expect(warnings('stops of headroom')).toEqual([
+        'glaze: glaze.glow() cannot reach a 12.0-tone step even with 0.004 ' +
+          'stops of headroom (reached 0.1). Lower the intensity or raise ' +
+          '`headroom`.',
+        'glaze: glaze.glow() cannot reach a 40.0-tone step even with 1.23 ' +
+          'stops of headroom (reached 27.2). Lower the intensity or raise ' +
+          '`headroom`.',
+      ]);
+    });
+
     it('caps per channel on a tinted base', () => {
       const v = glaze.glow({
         bg: { h: 30, s: 0.9, t: 0.97 },
@@ -522,6 +600,33 @@ describe('HDR glows', () => {
     expect(last!.alpha).toBe(1);
     expect(glaze.format(last!)).toBe('oklch(1 0 0)');
     expect(glaze.formatHdr(last!)).toBe('color(srgb-linear 1 1 1)');
+  });
+
+  it('jumps to the exact step past white when reach is below 1', () => {
+    // The pigment sits 37% of the way to white (tone 93.7), so SDR pins there,
+    // short. Past 100 the HDR value lands the whole step, not just the part
+    // past white, so it starts at white rather than at the pigment.
+    const bg = { h: 0, s: 0, t: 0.9 };
+    const tuning = { reach: 0.37, headroom: 1 };
+    const below = glaze.glow({ bg, intensity: 10 - 1e-4, tuning });
+    const above = glaze.glow({ bg, intensity: 10 + 1e-4, tuning });
+
+    expect(sdrOf(above)).toEqual(sdrOf(below));
+    expect(paintedTone(variantToOkhsl(below))).toBeCloseTo(93.7, 9);
+    expect('hdr' in below).toBe(false);
+    expect(warnings('glaze.glow() cannot reach a 10.0-tone step')).toEqual([
+      'glaze: glaze.glow() cannot reach a 10.0-tone step (reached 3.7 at ' +
+        'full strength). Lower the intensity, move the surface away from ' +
+        'white, or raise a tuned-down `reach`.',
+    ]);
+
+    expect(above.hdr!.t).toBeCloseTo(0.937, 9);
+    expect(hdrTone(above.hdr)).toBeCloseTo(100 + 1e-4, 9);
+    expect(above.hdr!.exposure).toBeCloseTo(
+      Math.log2(yFromTone(100 + 1e-4) / yFromTone(93.7)),
+      9,
+    );
+    expect(above.hdr!.exposure).toBeGreaterThan(0.29);
   });
 
   describe('theme behavior', () => {
@@ -729,6 +834,77 @@ describe('HDR glows', () => {
           "Headroom counts stops (doublings of SDR white's luminance), not a " +
           'ratio: 1 stop is 2× white, 2 stops 4×.',
       ]);
+    });
+
+    it('shows a rejected headroom the way the tone windows do', () => {
+      const message = (value: unknown) =>
+        'glaze: glowTuning.headroom must be a finite number ≥ 0 — stops ' +
+        `above SDR white (got ${value}).`;
+      for (const [bad, shown] of [
+        [[1], '[1]'],
+        [BigInt(1), '1n'],
+        [{}, '{}'],
+        [null, 'null'],
+        ['2', '"2"'],
+        [NaN, 'NaN'],
+      ] as const) {
+        expect(() =>
+          glaze.configure({
+            glowTuning: { headroom: bad as unknown as number },
+          }),
+        ).toThrow(message(shown));
+      }
+    });
+
+    it('holds the clamp warning until configure() has checked every field', () => {
+      expect(() =>
+        glaze.configure({ glowTuning: { headroom: 3.5 }, contrastLevel: NaN }),
+      ).toThrow(/glaze: contrastLevel must be a finite number/);
+      expect(glaze.getConfig().glowTuning).toBeUndefined();
+      expect(warnings('headroom 3.5')).toEqual([]);
+
+      // The corrected retry is the call that applies the clamp, and it says so.
+      glaze.configure({ glowTuning: { headroom: 3.5 } });
+      expect(glaze.getConfig().glowTuning).toEqual({ headroom: 2 });
+      expect(warnings('glowTuning.headroom 3.5 is above')).toHaveLength(1);
+    });
+
+    it('holds the clamp warning until an instance override has passed', () => {
+      const bad = glaze(0, 0, {
+        glowTuning: { headroom: 2.5 },
+        contrastLevel: NaN,
+      });
+      bad.colors({ paper: { tone: 100 } });
+      expect(() => bad.resolve()).toThrow(/glaze: contrastLevel/);
+      expect(warnings('headroom 2.5')).toEqual([]);
+
+      const fixed = glaze(0, 0, { glowTuning: { headroom: 2.5 } });
+      fixed.colors({ paper: { tone: 100 } });
+      fixed.resolve();
+      expect(warnings('glowTuning.headroom 2.5 is above')).toHaveLength(1);
+    });
+
+    it('holds per-color clamp warnings until every def has passed', () => {
+      const glow: ColorMap = {
+        paper: { tone: 100 },
+        'held-glow': {
+          type: 'glow',
+          bg: 'paper',
+          intensity: 60,
+          tuning: { headroom: 6 },
+        },
+      };
+      const broken = glaze(0, 0);
+      broken.colors({ ...glow, orphan: { base: 'missing', tone: '+10' } });
+      expect(() => broken.resolve()).toThrow(
+        'glaze: color "orphan" references non-existent base "missing".',
+      );
+      expect(warnings('headroom 6')).toEqual([]);
+
+      const fixed = glaze(0, 0);
+      fixed.colors(glow);
+      fixed.resolve();
+      expect(warnings('glow "held-glow" tuning.headroom 6')).toHaveLength(1);
     });
 
     it('rejects a headroom on shadow tuning', () => {
@@ -1533,6 +1709,27 @@ describe('HDR exporters', () => {
       });
       expect(hdr.tone).toBeGreaterThan(100);
       expect(hdr.tone).toBeCloseTo(hdrTone(v.hdr), 3);
+    });
+
+    it('can land a capped saturated base below tone 100', () => {
+      // The per-channel cap binds on the red channel first, so the luminance
+      // tone stays under 100 even though that channel passes 1.
+      const theme = glaze(30, 100, {
+        glowTuning: { headroom: 0.1, tint: 1, reach: 0.5 },
+      });
+      theme.colors({
+        chip: { tone: 90, saturation: 1 },
+        'chip-glow': { type: 'glow', bg: 'chip', intensity: 30 },
+      });
+      const hdr =
+        theme.dtcg(HDR_MODES).light['chip-glow'].$extensions![EXT].hdr;
+      expect(hdr.exposure).toBeCloseTo(0.1, 5);
+      expect(hdr.tone).toBeLessThan(100);
+      expect(Math.max(...hdr.value.components)).toBeCloseTo(2 ** 0.1, 5);
+      expect(Math.min(...hdr.value.components)).toBeLessThan(1);
+      expect(theme.json(HDR_MODES)['chip-glow'].lightHdr).toBe(
+        'color(srgb-linear 1.0718 0.8728 0.8389)',
+      );
     });
 
     it('places the extensions in the resolver contexts', () => {

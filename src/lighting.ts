@@ -14,12 +14,16 @@
  *
  * HDR glows: with `glowTuning.headroom` above 0, a glow whose target tone
  * (surface tone + step) passes 100 also gets an HDR value, computed in closed
- * form after the untouched SDR solve. SDR is pinned there (opacity 0 on white,
- * 1 elsewhere), so the HDR value is an opaque exposure of what SDR paints —
- * the SDR composite as the base, times `2^exposure` — with the gain that
- * lands the exact step, capped per channel at `2^headroom`
- * (`MAX_HEADROOM` stops at most). `hdrToLinearSrgb` turns a resolved HDR
- * value back into linear sRGB for the writers.
+ * form after the untouched SDR solve. SDR is pinned at its brightest there —
+ * the pigment at opacity 1, or a white surface at opacity 0 — and the HDR
+ * value is an opaque exposure of that color: the base times `2^exposure`, the
+ * gain that lands the exact step, capped per channel at `2^headroom`
+ * (`MAX_HEADROOM` stops at most). A pigment that cannot lift a non-white
+ * surface at all gets none and keeps the SDR shortfall warning. Since the
+ * value lands the whole step, only a full-reach glow meets SDR at the boundary
+ * (`exposure` → 0); one with `reach` below 1 jumps from its pigment to the
+ * exact step. `hdrToLinearSrgb` turns a resolved HDR value back into linear
+ * sRGB for the writers.
  */
 
 import {
@@ -28,8 +32,6 @@ import {
   okhslToOklab,
   oklabToOkhsl,
   relativeLuminanceFromLinearRgb,
-  sRGBLinearToGamma,
-  srgbToOkhsl,
   toDisplayGamma,
 } from './okhsl-color-math';
 import { clamp } from './hc-pair';
@@ -77,15 +79,19 @@ export interface LightingResult {
   /** Tone step the composite actually lands. Below `step` only when unreachable. */
   reached: number;
   /**
-   * HDR value of a glow whose target tone passes 100 with `headroom` above 0;
-   * absent otherwise. The SDR fields above are unchanged by it.
+   * HDR value of a glow whose target tone passes 100 with `headroom` above 0,
+   * when SDR is pinned at its brightest (see `pinnedBase`); absent otherwise.
+   * The SDR fields above are unchanged by it.
    */
   hdr?: LightingHdr;
 }
 
 /** The HDR value in a {@link LightingResult}. */
 export interface LightingHdr {
-  /** Base hue (0–360): the SDR composite over the surface, opaque. */
+  /**
+   * Base hue (0–360). The base is what SDR paints at its brightest, opaque:
+   * the pigment, or the white surface it cannot lift.
+   */
   h: number;
   /** Base OKHSL saturation (0–1, always non-pastel). */
   s: number;
@@ -168,6 +174,8 @@ const BISECT_ITERATIONS = 40;
 const GOLDEN = (Math.sqrt(5) - 1) / 2;
 /** Float noise a target tone may sit above 100 without counting as HDR. */
 const HDR_TRIGGER_EPS = 1e-9;
+/** Float noise a surface tone may sit below 100 and still count as white. */
+const WHITE_SURFACE_EPS = 1e-6;
 
 /**
  * Object factor `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`, with `d = +1`
@@ -222,7 +230,8 @@ function pigmentFor(
  * strongest composite, reporting what it reached in `reached`.
  *
  * A glow with `headroom` above 0 whose target tone passes 100 also gets
- * `hdr` (see `exposeGlow`); the SDR fields are the same with or without it.
+ * `hdr` (see `exposeGlow`) when SDR is pinned at its brightest
+ * (`pinnedBase`); the SDR fields are the same with or without it.
  */
 export function computeLighting(
   kind: LightingKind,
@@ -263,13 +272,11 @@ export function computeLighting(
 
   const headroom = tuning.headroom ?? 0;
   if (kind === 'glow' && headroom > 0 && step > 0) {
-    const base =
-      alpha === 1
-        ? standardOkhsl(pigment, pastel)
-        : alpha === 0
-          ? standardOkhsl(bg, bg.pastel ?? pastel)
-          : readBack(compositeOverGamma(bgGamma, pigmentGamma, alpha));
-    const hdr = exposeGlow(base, surfaceTone, step, headroom);
+    const base = pinnedBase(alpha, surfaceTone, pigment, bg, pastel);
+    const hdr =
+      base === undefined
+        ? undefined
+        : exposeGlow(base, surfaceTone, step, headroom);
     if (hdr !== undefined) result.hdr = hdr;
   }
   return result;
@@ -316,35 +323,50 @@ function standardOkhsl(
   return { h, s, l };
 }
 
-/** A linear sRGB composite read back as standard OKHSL. */
-function readBack(linear: [number, number, number]): {
-  h: number;
-  s: number;
-  l: number;
-} {
-  const [h, s, l] = srgbToOkhsl([
-    sRGBLinearToGamma(linear[0]),
-    sRGBLinearToGamma(linear[1]),
-    sRGBLinearToGamma(linear[2]),
-  ]);
-  return { h, s, l };
+/**
+ * What SDR paints once it is pinned at its brightest, as standard OKHSL — the
+ * only color an HDR glow exposes. Past white SDR cannot land the step, so the
+ * solved opacity is 0 or 1 there: at 1 that is the pigment itself; at 0 it is
+ * the surface, which counts only when it is white (no pigment can lift white,
+ * and SDR shows white). A pigment that cannot lift a non-white surface at all
+ * — `reach: 0`, say, or a `tint` that only darkens — paints nothing in SDR, so
+ * there is nothing to expose: an exposure of the bare surface would be an
+ * opaque, brighter copy of it where SDR leaves the surface showing, and a
+ * neutral one clips to opaque white wherever HDR is clamped. `undefined` then
+ * (and for any opacity between, which only float noise at the trigger
+ * reaches).
+ */
+function pinnedBase(
+  alpha: number,
+  surfaceTone: number,
+  pigment: { h: number; s: number; l: number },
+  bg: LightingColor,
+  pastel: boolean,
+): { h: number; s: number; l: number } | undefined {
+  if (alpha === 1) return standardOkhsl(pigment, pastel);
+  if (alpha === 0 && surfaceTone >= 100 - WHITE_SURFACE_EPS) {
+    return standardOkhsl(bg, bg.pastel ?? pastel);
+  }
+  return undefined;
 }
 
 /**
- * HDR value of a glow past white: an opaque exposure of `base` — the SDR glow
- * composited over its surface at the solved opacity, as standard OKHSL — by
- * the gain that lands the target tone `surfaceTone + step`, capped so no
- * channel passes `2^headroom` (displays clip per channel; for a neutral base
- * that is a cap on luminance). `undefined` when the target stays at or below
- * 100 — the trigger depends on the target alone, never on the SDR opacity —
- * or when the base is black and has nothing to expose.
+ * HDR value of a glow past white: an opaque exposure of `base` — what SDR
+ * paints at its brightest (`pinnedBase`), as standard OKHSL — by the gain that
+ * lands the target tone `surfaceTone + step`, capped so no channel passes
+ * `2^headroom` (displays clip per channel; for a neutral base that is a cap on
+ * luminance). `undefined` when the target stays at or below 100 — the trigger
+ * depends on the target alone — or when the base is black and has nothing to
+ * expose.
  *
- * Past white SDR is pinned: opacity 1 (the pigment itself) or 0 (a white
- * surface the pigment cannot lift), so the base is taken from that color
- * exactly; another opacity reads the composite back. Tone runs past 100
- * unchanged (`toneFromY` / `yFromTone` are unclamped), so equal tone steps
- * above white are still equal `Y + 0.05` ratios. The gain is measured on the
- * base as stored, so base × `2^exposure` lands the step to float precision.
+ * Tone runs past 100 unchanged (`toneFromY` / `yFromTone` are unclamped), so
+ * equal tone steps above white are still equal `Y + 0.05` ratios. The gain is
+ * measured on the base as stored, so base × `2^exposure` lands the step to
+ * float precision. It lands the whole step, not just the part past white: a
+ * base at white (full `reach`) meets SDR with `exposure` → 0 as the target
+ * goes to 100⁺, while a base below white (`reach` under 1) starts at
+ * `log2(Y(100) / Y(base))` — just under white SDR stays short at the pigment
+ * and warns; just past it HDR lands the exact step.
  */
 function exposeGlow(
   base: { h: number; s: number; l: number },
