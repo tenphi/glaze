@@ -76,16 +76,16 @@ Glaze solves two metrics. Pick one per color.
 
 ### WCAG 2 ratios
 
-The WCAG 2 contrast ratio compares the relative luminance of two colors on a
+The WCAG 2 contrast ratio compares the relative luminance of two colors on a
 scale from `1:1` to `21:1`. It is symmetric: swapping text and background gives
 the same ratio. A bare number or a preset name means WCAG.
 
 | Preset        | Ratio | Use                                      |
 | ------------- | ----- | ---------------------------------------- |
-| `'AA-large'`  | 3     | Large or bold text (WCAG SC 1.4.3)       |
-| `'AA'`        | 4.5   | Body text (WCAG SC 1.4.3)                |
-| `'AAA-large'` | 4.5   | Large or bold text, enhanced (SC 1.4.6)  |
-| `'AAA'`       | 7     | Body text, enhanced (SC 1.4.6)           |
+| `'AA-large'`  | 3     | Large or bold text (WCAG SC 1.4.3)       |
+| `'AA'`        | 4.5   | Body text (WCAG SC 1.4.3)                |
+| `'AAA-large'` | 4.5   | Large or bold text, enhanced (SC 1.4.6)  |
+| `'AAA'`       | 7     | Body text, enhanced (SC 1.4.6)           |
 
 ### APCA lightness contrast
 
@@ -184,28 +184,39 @@ For each scheme, Glaze resolves the base first, then the dependent color:
    clamped into the scheme's [tone window](./schemes.mdx#tone-windows). An
    absolute tone is mapped through the scheme. A tone delta is applied to the
    base's tone in that scheme, except in dark under the default
-   `mode: 'auto'`: there it is applied to the base's light tone as authored
-   and the result is inverted and remapped like an absolute tone, so the dark
-   step is about 0.87× the delta on every base; high contrast keeps it exact
-   ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). With
-   no `tone`, the color starts at the base's own tone.
+   `mode: 'auto'`. There the delta steps from where the base sits on the
+   authored scale: its authored tone, or, for an `auto` contrast-solved base,
+   a mix, or an `auto` `'max'` / `'min'` on a base, its dark tone read back
+   through the dark window. The result is inverted and remapped like an
+   absolute tone. At the default dark window the dark step is about 0.87× the
+   delta, mirrored, on every base that inverts in dark: a `'-4'` hover on an
+   AAA button steps +3.5 in dark. High contrast keeps the step exact.
+   [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts) covers
+   fixed bases, and [Overshooting deltas](./schemes.mdx#overshooting-deltas)
+   the clamps near the ends of the range. With no `tone`, the color starts at
+   the base's own tone.
 2. **Keep it if it passes.** The pair is measured with the chosen metric. If
-   it clears the floor (with a small safety margin), the preferred tone is the
-   result.
+   it clears the floor with a small safety margin, the preferred tone is the
+   result. A preferred tone that clears the floor but not the margin is kept
+   too when no search can beat it: white text at tone 100 has nowhere further
+   to go.
 3. **Search one side.** Otherwise the solver searches on the side the authored
    tone points to: darker when the preferred tone is below the base, lighter
    when it is above. A color with no tone of its own starts on whichever side
-   reaches higher contrast. For WCAG, the search starts from the gray tone that
-   gives exactly the ratio — tone is contrast-uniform for neutrals, so this
-   seed is closed-form — and a binary search along tone then measures the real,
-   chromatic color. The passing tone nearest the preferred one wins.
+   reaches higher contrast. A tie starts darker: black and white score the
+   same WCAG ratio against a gray at tone 50. A binary search along tone
+   measures the real, chromatic color, and the passing tone nearest the
+   preferred one wins. For WCAG the search first measures the gray tone that
+   gives exactly the ratio. Tone is contrast-uniform for neutrals, so that
+   tone is closed-form. It only narrows the search and never stops it, so a
+   saturated color lands on its own crossing, not the gray's.
 4. **Cross over if needed.** With [`autoFlip`](#autoflip-crossing-to-the-other-side)
    on (the default), the opposite side is searched too.
 
 The solver aims slightly above the target — 1% over a WCAG ratio, 0.5 Lc over
 an APCA target — so rounding in the output formats cannot push the final color
-under the floor. Measured values therefore sit at or just above the floor, and
-a chromatic color can land a little higher when the gray seed already clears it.
+under the floor. Measured values therefore sit at or just above the floor:
+`muted-text` below lands at 4.55:1 for AA in light and dark.
 
 <ContrastExample
   hue={280}
@@ -251,7 +262,7 @@ mid-tone button, for instance. `autoFlip` decides what happens then:
   dark one. When both sides are equally near — a neutral color with no tone of
   its own sits exactly between them — it keeps the side it searched first.
 - **Off:** only the authored side is searched. When it falls short, the color
-  pins to that side's extreme (tone `0` or `100`) and Glaze warns.
+  pins to that side's extreme (tone `0` or `100`) and Glaze warns.
 
 <ContrastExample
   hue={280}
@@ -319,7 +330,7 @@ work; `autoFlip` only reverses a delta or a contrast search around the base.
 When both sides pass, "nearest wins" can pick a different side as the target
 grows. Under a [manual contrast level](#manual-contrast-level), Glaze therefore
 decides the side once per half of the slider, so a color changes side at most
-once, at level 50, instead of jumping back and forth.
+once, at level 50, instead of jumping back and forth.
 
 ## Roles and APCA polarity
 
@@ -417,16 +428,16 @@ automatically, so most colors need no high-contrast entry at all:
 | any APCA target                    | Lc     | Lc + 15, capped at 106           |
 | an explicit pair, outer or inner   | first  | second — no escalation           |
 
-The WCAG step follows the spec's own Enhanced level (SC 1.4.3 → SC 1.4.6). The
+The WCAG step follows the spec's own Enhanced level (SC 1.4.3 → SC 1.4.6). The
 APCA step is the Lc analog of AAA over AA. An explicit high-contrast value, in
 either the outer `contrast` pair or the inner `wcag` / `apca` pair, replaces the
 automatic step. Use one to hold a ceiling: for large or bold text, where APCA
-caps useful contrast at Lc 90 to avoid glare, `{ apca: ['preferred', 'preferred'] }`
-keeps high contrast at Lc 90 instead of boosting it past the cap.
+caps useful contrast at Lc 90 to avoid glare, `{ apca: ['preferred', 'preferred'] }`
+keeps high contrast at Lc 90 instead of boosting it past the cap.
 
 The automatic step can also outrun what a surface allows. An escalated
-`'preferred'` becomes Lc 105, which dark text reaches only on a surface within
-about a tone of white. On an off-white or tinted surface it pins to black and
+`'preferred'` becomes Lc 105, which dark text reaches only on a surface within
+half a tone of white. On an off-white or tinted surface it pins to black and
 warns in `lightContrast` — the `preferred-text` row in
 [Floors at a glance](#floors-at-a-glance) does this. Give it an explicit,
 reachable high-contrast entry there, such as `{ apca: [90, 95] }`.
@@ -482,13 +493,13 @@ mix `value` — can tighten the high-contrast variant the same way; see
 
 With [`contrastLevel`](./reference/contrast.md#manual-contrast-level) set to a number, the normal
 variants solve for a target between the normal and high-contrast floors. Both
-ends are resolved with the rules above first, so `'AA'` ramps from 4.5 at level
-`0` to 7 at level `100`, and an explicit pair ramps between its two entries. A
-pair that switches metric has no midpoint, which is one reason validation
-rejects it. Under a level, the side of the base a color sits on is decided once
-per half of the ramp, so it changes side at most once — at level 50 — instead of
-jumping back and forth. The high-contrast variants are not affected by the
-level. The concept is covered in
+ends are resolved with the rules above first, so `'AA'` ramps from 4.5 at
+level `0` to 7 at level `100`, and an explicit pair ramps between its two
+entries. A pair that switches metric has no midpoint, which is one reason
+validation rejects it. Under a level, the side of the base a color sits on is
+decided once per half of the ramp, so it changes side at most once — at
+level 50 — instead of jumping back and forth. The high-contrast variants are
+not affected by the level. The concept is covered in
 [Light, dark, and high contrast](./schemes.mdx#manual-contrast-level); the full
 rules are in
 [Contrast and high contrast](./reference/contrast.md#manual-contrast-level).
@@ -632,11 +643,15 @@ With a `base`:
 - `contrast` is solved per scheme against the base's `light`, `dark`,
   `lightContrast`, and `darkContrast` variants.
 - A tone delta (`tone: '+N'` / `'-N'`) is measured from the base. Under the
-  default `mode: 'auto'`, the dark variant is derived from the base's light
-  tone, so the step flips direction and comes out about 0.87× the delta on
-  every base, the same as a theme color
+  default `mode: 'auto'`, the dark variant steps from where the base token
+  sits on its own authored scale, read under its own `lightTone`. The step
+  flips direction and comes out about 0.87× the delta at the default dark
+  window, the same as a theme color
   ([How relative tone adapts](./schemes.mdx#how-relative-tone-adapts)). A
-  relative `hue` still anchors to the token's own seed value.
+  base whose dark window differs from the token's (its own `darkTone`, or
+  another `contrastLevel`) is read back through the token's dark window, so a
+  `'+0'` lands on it in dark. A relative `hue` still anchors to the token's
+  own seed value.
 - Pairs chain: a paired token can be the base of the next one.
 
 ```ts
@@ -697,11 +712,13 @@ theme.colors({
 
 Both `value` and `contrast` accept `[normal, highContrast]` pairs. When even the
 pure target can't meet the floor, the mix settles at the pure target. A `value`
-of 100 has no room above, so it falls back to the pure base instead, and a
-transparent mix ends at alpha 0; that includes a high-contrast entry of 100, as
-in `value: [80, 100]`. Either way Glaze warns, with the same margins and dedupe
-as a regular color. Here `accent-wash`, a 10% mix toward a tone-55 `accent` on
-a tone-97 `surface` in `glaze(280, 80)`, can't reach AA:
+of 100 is the pure target already. It is kept whenever it clears the floor,
+even inside the solver's safety margin. When it misses, there is no room
+above, so the mix falls back to the pure base, and a transparent mix ends at
+alpha 0. That includes a high-contrast entry of 100, as in `value: [80, 100]`.
+Either way Glaze warns, with the same margins and dedupe as a regular color.
+Here `accent-wash`, a 10% mix toward a tone-55 `accent` on a tone-97 `surface`
+in `glaze(280, 80)`, can't reach AA:
 
 ```text
 glaze: mix "accent-wash" cannot meet WCAG 4.50 against its base in

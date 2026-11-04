@@ -119,10 +119,10 @@ Each method's own options:
 | `palette.tokens(options?)` | `format`, `modes` (`GlazeJsonOptions`) | |
 | `palette.tasty(options?)` | `format`, `modes`, `states`, `splitHue` (`GlazePaletteTastyOptions`) | No `name`: the hue var base name is each theme's name. `states` defaults to the global config. |
 | `palette.json(options?)` | `format`, `modes` (`GlazeJsonOptions`) | Only these two: no prefix, primary, or collision handling — see [`palette.json()`](#palettejson). |
-| `palette.css(options?)` | `format`, `suffix`, `splitHue` (`GlazePaletteCssOptions`) | No `modes`: always returns all four strings. No `name`, as for `tasty()`. |
+| `palette.css(options?)` | `format`, `suffix`, `splitHue`, `hdr` (`GlazePaletteCssOptions`) | No `modes`: always returns all four strings, plus `hdr` when HDR output is on. No `name`, as for `tasty()`. |
 | `palette.dtcg(options?)` | `colorSpace`, `modes` (`GlazeDtcgOptions`) | |
 | `palette.dtcgResolver(options?)` | `colorSpace`, `modes`, `setName`, `modifierName`, `contextNames`, `version` (`GlazeDtcgResolverOptions`) | |
-| `palette.tailwind(options?)` | `format`, `modes`, `namespace`, `darkSelector`, `highContrastSelector` (`GlazeTailwindOptions`) | `prefix` (theme prefix) and `namespace` (the `--color-` CSS namespace) are separate options. |
+| `palette.tailwind(options?)` | `format`, `modes`, `namespace`, `darkSelector`, `highContrastSelector`, `hdrSelector` (`GlazeTailwindOptions`) | `prefix` (theme prefix) and `namespace` (the `--color-` CSS namespace) are separate options. |
 
 The option semantics and defaults are documented once, in [Output formats](./output.md).
 
@@ -251,11 +251,11 @@ palette.json();
 // }
 ```
 
-Accepts only `format` and `modes` (`GlazeJsonOptions`): no `prefix`, and no primary alias. The per-theme entries have the [`theme.json()`](./output.md#jsonoptions) shape.
+Accepts only `format` and `modes` (`GlazeJsonOptions`): no `prefix`, and no primary alias. The per-theme entries have the [`theme.json()`](./output.md#jsonoptions) shape, `lightHdr` and the other HDR keys included.
 
 ### `palette.css()`
 
-Accepts `GlazePaletteCssOptions`: `format`, `suffix`, and `splitHue` from [`theme.css()`](./output.md#cssoptions) (without its `name`) plus `GlazePaletteExportOptions`. It has no `modes` option: all four strings (`light`, `dark`, `lightContrast`, `darkContrast`) are always returned, each holding every theme's declarations joined by newlines.
+Accepts `GlazePaletteCssOptions`: `format`, `suffix`, `splitHue`, and `hdr` from [`theme.css()`](./output.md#cssoptions) (without its `name`) plus `GlazePaletteExportOptions`. It has no `modes` option: all four strings (`light`, `dark`, `lightContrast`, `darkContrast`) are always returned, each holding every theme's declarations joined by newlines. When HDR output is on, `hdr` holds the four HDR blocks, merged the same way.
 
 ```ts
 const css = palette.css();
@@ -284,7 +284,8 @@ palette.dtcg();
 //       },
 //     },
 //     …
-//     surface: { …, $value: { …, hex: '#f3f4fe' } }, // unprefixed alias
+//     // unprefixed alias
+//     surface: { …, $value: { …, hex: '#f3f4fe' } },
 //     …
 //     'danger-surface': { …, $value: { …, hex: '#fef2f1' } },
 //     …
@@ -359,9 +360,20 @@ The [name-collision check](./output.md#variable-names) spans the whole palette. 
 
 ```text
 glaze: splitHue would declare "--accent-hue" twice: for color "accent"'s
-  own hue (theme "brand") and for the hue of theme "accent". One would
-  silently override the other. Rename the color or the theme, or give the
-  theme a prefix that keeps its hue vars apart.
+  own hue (theme "brand") and for the hue of theme "accent".
+One would silently override the other.
+Rename the color or the theme, or give the theme a prefix that keeps its
+  hue vars apart.
+```
+
+In `css()` the check also covers each color's value property, the primary's unprefixed aliases included. With `suffix: '-hue'`, the primary alias of a color named `ui` lands on the hue var of a theme named `ui`:
+
+```text
+glaze: splitHue would declare "--ui-hue" twice: for the primary alias of
+  color "ui" (theme "brand") and for the hue of theme "ui".
+One would silently override the other.
+Rename the color or the theme, or pass a different `suffix` or theme
+  prefix.
 ```
 
 ```css
@@ -392,4 +404,32 @@ const danger = primary.extend({ hue: 23 });
 glaze
   .palette({ primary, danger }, { primary: 'primary' })
   .css({ splitHue: true });
+```
+
+## HDR in palettes
+
+With `modes.hdr` (for `css()`, its `hdr` option), palette output carries the HDR values of glows past SDR white, in the [shapes `theme` output uses](./output.md#hdr-in-each-exporter):
+
+- HDR entries are built from the same prefixed, collision-filtered maps as the SDR ones, plus the primary alias pass. Prefix maps, `primary: false`, and first-write-wins collisions apply unchanged: a token skipped as a collision loses its HDR entry too.
+- The dense blocks of `tokens()`, `css()`, and `tailwind()` span the whole palette: every token with an HDR value in any emitted scheme, from any theme.
+- `palette.css()` merges each theme's HDR blocks into `result.hdr`, which is present only when HDR output is on.
+- `palette.json()` still groups by theme name, with each color's sparse `lightHdr` / … keys.
+
+```ts
+const brand = glaze(280, 80, { glowTuning: { headroom: 1 } });
+brand.colors({
+  surface: { tone: 100 },
+  'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
+});
+const lit = glaze.palette(
+  { brand, danger: brand.extend({ hue: 23 }) },
+  { primary: 'brand' },
+);
+
+lit.tokens({ modes: { hdr: true } }).lightHdr;
+// → {
+//   'brand-surface-glow': 'color(srgb-linear 1.4631 1.4631 1.4631)',
+//   'surface-glow': 'color(srgb-linear 1.4631 1.4631 1.4631)',
+//   'danger-surface-glow': 'color(srgb-linear 1.4631 1.4631 1.4631)',
+// }
 ```

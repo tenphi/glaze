@@ -72,9 +72,9 @@ The literal color forms. They are accepted by `glaze.color()`, by [`from`](./col
 | --- | --- | --- |
 | Hex | `'#26fcb2'`, `'#abc'`, `'#26fcb2ff'`, `'#abcd'` | 3, 4, 6, or 8 digits after `#`. |
 | `rgb()` / `rgba()` | `'rgb(38 252 178)'`, `'rgba(38, 252, 178, 0.8)'` | Channels 0–255 or percentages. |
-| `hsl()` / `hsla()` | `'hsl(152 97% 57%)'` | Saturation and lightness as percentages. |
-| `okhsl()` | `'okhsl(152 95% 74%)'` | OKHSL, Glaze's own output format. |
-| `okhst()` | `'okhst(152 95% 70%)'` | OKHST: the third value is tone (`70%` = tone 70). Not a native CSS color; [Tasty](https://tasty.style) output can carry it. |
+| `hsl()` / `hsla()` | `'hsl(152 97% 57%)'` | Saturation and lightness as percentages, or bare 0–1 fractions. Unlike CSS, a bare `hsl(120 50 50)` is not 50%: it is out of range and resolves to white, without a warning. |
+| `okhsl()` | `'okhsl(152 95% 74%)'` | OKHSL, Glaze's own output format. Saturation and lightness as percentages or bare 0–1 fractions, as for `hsl()`. |
+| `okhst()` | `'okhst(152 95% 70%)'` | OKHST: the third value is tone (`70%` = tone 70). Percentages or bare 0–1 fractions, as for `hsl()`. Not a native CSS color; [Tasty](https://tasty.style) output can carry it. |
 | `oklch()` | `'oklch(0.85 0.18 152)'` | L 0–1 (or a percentage), C (a percentage maps `100%` to 0.4), H in degrees. |
 | `OkhslColor` | `{ h: 152, s: 0.95, l: 0.74 }` | `h` 0–360; `s`, `l` 0–1. |
 | `OkhstColor` | `{ h: 152, s: 0.95, t: 0.7 }` | `h` 0–360; `s`, `t` 0–1. The `t` key tells it apart from OKHSL. |
@@ -82,9 +82,15 @@ The literal color forms. They are accepted by `glaze.color()`, by [`from`](./col
 | `OklchColor` | `{ l: 0.85, c: 0.18, h: 152 }` | Same meaning as `oklch()`: L and C 0–1, H in degrees. |
 
 - Function names are case-insensitive. Components can be separated by spaces or commas.
-- An alpha component (`#rrggbbaa`, `#rgba`, `/ 0.8`, or a fourth comma value) is dropped with `console.warn`: `glaze: alpha component dropped from "<input>" (standalone color has no opacity field).` Use [`opacity`](#glazecoloroverrides) instead.
+- An alpha component (`#rrggbbaa`, `#rgba`, `/ 0.8`, or any fourth component, comma- or space-separated) is dropped with a `console.warn`. Use [`opacity`](#glazecoloroverrides) instead:
+
+  ```text
+  glaze: alpha component dropped from "rgb(1 2 3 4)" (standalone color has
+    no opacity field).
+  ```
 - Value objects are recognized by their keys: `r`, `g`, `b` → RGB; `l`, `c`, `h` → OKLCh; `h`, `s`, `t` → OKHST; otherwise OKHSL.
-- Not supported: named colors (`'red'`), relative color syntax, angle units other than bare degrees, and `[r, g, b]` tuples.
+- Hue is read in degrees, bare or with `deg`. Other angle units (`turn`, `rad`, `grad`) are not rejected but misread as degrees: `hsl(0.5turn 50% 50%)` gets hue 0.5°, not 180°.
+- Not supported: named colors (`'red'`), relative color syntax, and `[r, g, b]` tuples.
 
 | Input | Error |
 | --- | --- |
@@ -95,7 +101,7 @@ The literal color forms. They are accepted by `glaze.color()`, by [`from`](./col
 | `[38, 252, 178]` | `glaze.color: RGB tuple [r, g, b] is no longer supported — use { r, g, b } instead.` |
 | `{ r: 300, g: 0, b: 0 }` | `glaze.color: RgbColor r must be a finite number in 0–255 (got 300).` |
 
-The OKHSL, OKHST, and OKLCh object checks reject `s`, `l`, `t`, or `c` above 1.5, which catches 0–100 input meant for the structured form.
+The OKHSL, OKHST, and OKLCh object checks reject `s`, `l`, `t`, or `c` above 1.5, which catches 0–100 input meant for the structured form. String components have no such guard (see `hsl()` above).
 
 ## `GlazeColorOverrides`
 
@@ -205,7 +211,8 @@ brand.tailwind({ name: 'brand' });
 
 - Every output that takes `format` defaults to `'oklch'`; `dtcg()` and `dtcgResolver()` take a `colorSpace` instead (`'srgb'` by default). `json()`, `css()`, and `tailwind()` accept only the native CSS formats (`'oklch'`, `'rgb'`, `'hsl'`) and throw on `'okhsl'` / `'okhst'`; `token()` and `tasty()` accept all five. See [Color formats](./output.md#color-formats).
 - `modes` and `states` default to the global config, as on themes. `css()` ignores `modes`. See [Output modes](./output.md#output-modes).
-- The output methods share their option types with themes, with two exceptions: `token()` and `tasty()` take `GlazeTokenOptions` — `theme.tasty()`'s options without `splitHue` and `name` — and `css()` takes the `GlazeColorCssOptions` below. Full shapes are in [Output formats](./output.md).
+- A token is never a glow, so it never carries an [HDR value](./output.md#hdr-output): `modes.hdr`, `states.hdr`, and `hdrSelector` change nothing, and `css()` has no `hdr` option.
+- The output methods share their option types with themes, except four. `token()` and `tasty()` take `GlazeTokenOptions` — `theme.tasty()`'s options without `splitHue` and `name`. `css()` takes the `GlazeColorCssOptions` below. `tailwind()` and `dtcgResolver()` take `GlazeColorTailwindOptions` and `GlazeColorDtcgResolverOptions`: the theme types plus a required `name`. Full shapes are in [Output formats](./output.md).
 
 ### `GlazeColorCssOptions`
 
@@ -213,7 +220,7 @@ brand.tailwind({ name: 'brand' });
 | --- | --- | --- | --- |
 | `name` | `string` | — | Required. The custom property name without `--`: `'brand'` gives `--brand-color`. |
 | `format` | `GlazeColorFormat` | `'oklch'` | Native formats only. |
-| `suffix` | `string` | `'-color'` | Appended to `name`, matching `theme.css()`. |
+| `suffix` | `string` | `'-color'` | Appended to `name`, matching `theme.css()`. With `splitHue`, `'-hue'` throws (below). |
 | `splitHue` | `boolean` | `false` | Emit the hue as a separate `--<name>-hue` property referenced with `var()`, rounded to 2 decimals like the hue in `oklch()` output. Requires `format: 'oklch'`: any other format throws. Throws when the token isn't pastel. See [`splitHue`](./output.md#hue-channel-splitting-splithue). |
 
 ```ts
@@ -223,7 +230,16 @@ brand.css({ name: 'brand', splitHue: true }).light;
 //   '--brand-color: oklch(0.8789 0.0572 var(--brand-hue));'
 ```
 
-`GlazeColorTailwindOptions` is `GlazeTailwindOptions` plus a required `name`; `GlazeColorDtcgResolverOptions` is `GlazeDtcgResolverOptions` plus a required `name`.
+The hue var and the value property share one namespace, so `suffix: '-hue'` would put both on `--brand-hue`. That throws:
+
+```text
+glaze: splitHue would declare "--brand-hue" twice: for the hue of token
+  "brand" and for the value of token "brand".
+One would silently override the other.
+Pass a `suffix` other than '-hue'.
+```
+
+A token achromatic in light declares no hue var, so `'-hue'` is accepted there: `glaze.color('#808080', { pastel: true })` with `name: 'gray'` gives `--gray-hue: oklch(0.5999 0 0);`.
 
 ## Config overrides
 
@@ -231,8 +247,9 @@ The second argument of `glaze.color()` is a `GlazeConfigOverride`, the same type
 
 On a token specifically:
 
+- The override is copied when the token is created, so changing the object you passed afterwards has no effect. Its fields are read by property access, so a class instance with getters or a proxy works.
 - Value forms resolve with a local `lightTone: false`; a `lightTone` in the override replaces it (see [Defaults](#defaults)).
-- `shadowTuning` and `glowTuning` are accepted but have no effect: a token has no shadows.
+- `shadowTuning` and `glowTuning` have no effect: a token is never a shadow or a glow. They are still validated at resolve, so a `headroom` that isn't a finite number ≥ 0, or any `shadowTuning.headroom`, throws.
 - `inferRole` is accepted but has no effect: a token never infers its role from `name` (see [Roles on tokens](#roles-on-tokens)).
 - A `contrastLevel` moves only this token. On a token with a `base`, set it on both; see [Clearing it, exporting it, base links](./contrast.md#clearing-it-exporting-it-base-links).
 - `modes` and `states` aren't part of the override. Pass them to the output methods or set them globally.
@@ -280,7 +297,8 @@ const text2 = glaze.color({
 With `base`:
 
 - `contrast` is solved against the base's `light`, `dark`, `lightContrast`, and `darkContrast` variant in turn.
-- A tone delta (`'+N'` / `'-N'`) is measured from the base, as for a theme's [dependent colors](./color-definitions.md#tone-values). In light and high contrast the step is exact. Under `mode: 'auto'` the dark variant applies the delta to the base's light tone, then inverts and remaps the result through the dark window, so the step flips direction and shrinks to the dark window's scale (about 0.87×), exactly as in a theme: an `'auto'` version of `border` above is 6.93 tones darker than `bg` in dark. `'fixed'` and `'static'` apply it to the base's tone in each scheme, sign kept.
+- A tone delta (`'+N'` / `'-N'`) is measured from the base, as for a theme's [dependent colors](./color-definitions.md#tone-values). In high contrast the step is exact, and in light too unless the base is a structured token, whose raw input tone is the light anchor (see below). Under `mode: 'auto'` the dark variant steps from where the base sits on its own authored scale — its authored tone, read under the base's own `lightTone` — then inverts and maps the result through the dark window, so the step flips direction and shrinks to the dark window's scale (about 0.87×), as in a theme: an `'auto'` version of `border` above is 6.93 tones darker than `bg` in dark. `'fixed'` and `'static'` apply it to the base's tone in each scheme, sign kept.
+- An `'auto'` base whose active dark window differs from the dependent's — its own `darkTone`, or another `contrastLevel` — is read back through the dependent's dark window instead, so a `'+0'` dependent lands on it and steps mirror at the dependent's scale. On `glaze.color('#808080', { darkTone: false })`, `'+6'` steps 5.2 tones darker in dark and `'-6'` 5.2 lighter.
 - A relative `hue` still anchors to the token's own seed (the value passed to `glaze.color()`), not to the base.
 - `mode` applies to the pair: `'auto'` mirrors the relationship in dark, `'fixed'` keeps its sign.
 - The base is resolved lazily, when the dependent first resolves.
@@ -315,7 +333,8 @@ A token's [role](./color-definitions.md#roles) is its explicit `role`, or `'text
 // token with base: glaze.color({ from: '#ffffff', mode: 'static' }).
 glaze.color({ from: '#ffffff', contrast: { apca: 60 } });
 
-// A fill with white on top: light is rgb(152 152 152), Lc 60.5 the other way.
+// A fill with white on top: light is rgb(152 152 152), Lc 60.5 the
+// other way.
 glaze.color({ from: '#ffffff', contrast: { apca: 60 }, role: 'surface' });
 ```
 
@@ -369,6 +388,7 @@ const restored = glaze.colorFrom(JSON.parse(JSON.stringify(data)));
 ```
 
 - Both the value and the structured forms round-trip.
+- An explicit `role`, an alias such as `'bg'` included, is recorded as written — in `overrides.role` (value form) or `input.role` (structured form) — and restored by `glaze.colorFrom()`. A token without `role` isn't frozen to one; it restores with the `'text'` default.
 - `override` merges over the token's own override for the snapshot only, and is passed to a nested `base` export too.
 - The config freeze follows the same rules as [`theme.export()`](./theme.md#themeexportoverride): `contrastLevel` is frozen only when set on the token or passed as `override`; `modes` and `states` never are.
 

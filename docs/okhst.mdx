@@ -118,7 +118,32 @@ Inverted, the tone distance between two neutrals for a target ratio `R` is
 | 4.5:1 (`'AA'`)         |         49.40 |
 | 7:1 (`'AAA'`)          |         63.92 |
 
-These distances are exact for neutrals only. The next section explains why.
+These distances are exact for neutrals only;
+[Same tone, same lightness](#same-tone-same-lightness) explains why.
+
+### Tone above 100
+
+The transfer has no ceiling: `toneFromY` keeps counting past SDR white
+(`Y = 1`), so tone runs on past 100.
+
+| Luminance `Y` | Stops above white |   Tone |
+| ------------: | ----------------: | -----: |
+|             1 |                 0 |    100 |
+|             2 |                 1 | 121.98 |
+|             4 |                 2 | 144.34 |
+
+Each stop, a doubling of `Y`, adds about 22 tones. The scale is still a
+logarithm of `Y + 0.05`, so equal tone steps past 100 are still equal ratios of
+`Y + 0.05`: 12 tones past white (`Y` 1.4631, tone 112) is the same ratio as a
+12-tone step anywhere else. Contrast does not carry over. WCAG and APCA are
+defined only up to SDR white, so a tone past 100 has no contrast meaning, and
+the contrast solver never searches there.
+
+[HDR glows](./shadows-and-glows.mdx#hdr-glows) are the only place Glaze goes
+past 100. A glow whose step would cross white, given `headroom` above 0, can
+carry an HDR value next to its SDR one: an opaque base plus an exposure in
+stops that lands it on the tone past 100, as far as the headroom allows. A
+resolved variant's own `t` stays within 0–1.
 
 ## Same tone, same lightness
 
@@ -202,9 +227,13 @@ A window takes three forms:
 | `{ lo, hi, eps }` | Boundaries plus a render curvature for this scheme. Advanced.                   |
 | `false`           | The full range `[0, 100]` at the reference `eps`: no boundaries, same tone curve. |
 
-Endpoints clamp to 0–100. A window with `lo` above `hi`, a non-finite endpoint,
-or an `eps` that isn't above 0 throws instead of quietly inverting or breaking
-the scale; the rules are in
+Endpoints clamp to 0–100. A value that is none of the three forms (`null`
+included), a window with `lo` above `hi` or a non-finite endpoint, and an `eps`
+outside `(0, 1e6]` all throw instead of quietly inverting or breaking the
+scale. The `eps` cap is numerical: the transfer divides by
+`ln(1 + eps) - ln(eps)`, which loses precision as `eps` grows and cancels to 0
+(`NaN` tones) from about 1e15, while past about 1e3 the curve is already linear
+in luminance. The rules are in
 [Configuration](./reference/configuration.md#tone-windows).
 
 ### Calibrated defaults
@@ -365,15 +394,37 @@ How the delta travels depends on the dependent color's `mode`:
   the delta is applied to the base's resolved tone in that scheme, sign
   preserved. It is an exact tone step, so for neutrals it is an exact contrast
   step.
-- **`auto` in the dark schemes:** the delta is applied to the base's *light*
-  tone as authored — with the light window's lift taken back out — and the
-  result is inverted and mapped through the dark window like an absolute tone.
-  In dark high contrast it is the base's light high-contrast tone, which has no
-  lift to remove. Order and direction carry over — text that sits below its
-  surface in light sits above it in dark — and the step scales with the dark
-  window's span: 86.6% of the authored delta at the default windows, on every
-  base (a tone-50 base steps `'+4'` to −3.5 and `'-4'` to +3.5). In dark high
-  contrast the window is the full range, so the step is exact, only mirrored.
+- **`auto` in the dark schemes:** the delta is added to the base's **anchor**
+  — where the base sits on the authored scale, the tone its own dark variant is
+  the inversion of — and the result is inverted and mapped through the dark
+  window like an absolute tone. Order and direction carry over — text that
+  sits below its surface in light sits above it in dark.
+
+The anchor depends on how the base got its tone, and the same rules hold in
+both dark passes:
+
+- A base placed by a tone (a number, a `from` color, an extreme with no base,
+  or a `fixed` / `static` extreme on a base) anchors at its authored tone, and
+  a tone delta at its base's anchor plus the delta, so a chain steps evenly. A
+  color with no `tone` or `contrast` of its own anchors at its base's anchor.
+- An `auto` base whose dark tone is not the inversion of an authored one — a
+  contrast-solved color, an `auto` extreme on a base, a mix — anchors at its
+  own dark tone read back through the dark window (the window remap run
+  backwards, then un-inverted), so a dependent follows where the base lands in
+  dark.
+- A `fixed` or `static` contrast-solved base keeps its light-side answer: its
+  light tone read back through the light window.
+
+On every base that inverts in dark, the step is then the dark window's scale
+times the delta at the reference dark `eps`, 86.6% of the authored delta at
+the default windows. A tone-50 base steps `'+4'` to −3.5 and `'-4'` to +3.5,
+and a `'-4'` hover on an AAA-solved button steps +3.5 too. A custom dark `eps`
+bends the dark window's curve, so a dark delta lands where the same authored
+tone would instead of at a fixed scale. In dark high contrast the window is
+the full range, so at the reference dark `eps` the step is exact, only
+mirrored, wherever it fits on the scale (limits below). The anchor is the
+authored position, not the base's light high-contrast tone, so a custom light
+`eps`, which lifts that tone, doesn't change the step away from the ends.
 
 Order carries over only when the base inverts too. An `auto` delta on a
 `fixed` or `static` base inverts on its own while the base keeps its side, so
@@ -383,7 +434,28 @@ dark. Make such a dependent `fixed` as well.
 
 If `base + delta` overshoots `[0, 100]`, `autoFlip` (on by default) mirrors the
 delta to the other side of the base; if the mirror overshoots too, or `autoFlip`
-is off, the delta clamps on its authored side.
+is off, the delta clamps on its authored side. Under `auto` the flip is decided
+on the light tones, and dark mirrors the side light took. Dark then steps on
+the authored scale, which adds two limits there:
+
+- A step that fits from the base's light tone can still run past 0 or 100
+  from the anchor. In dark it then stops at the dark window's edge. The light
+  window lifts authored tone 0 to 4.95, so a base placed by a tone meets
+  this at the bottom: `'-4'` steps about +1.7 on a tone-2 base and not at all
+  on a tone-0 one. A base anchored at its own dark tone can meet it at either
+  end. In `glaze(280, 40)`, `contrast: 12` text on a tone-97 surface sits at
+  15.6 in light but anchors at 2.7, so a `'-4'` hover on it steps +2.3 in
+  dark, not +3.5.
+- An anchor past the dark window — a base a contrast floor or an extreme pushed
+  beyond its edge — is stepped from where it sits. A step back toward the
+  window moves by the full scaled delta; one further out stops at the window
+  edge or the base, whichever is further out.
+
+High contrast's windows are the full range, and at the reference light `eps`
+the light one is the identity, so a base placed by a tone flips the same way
+in both high-contrast schemes and its step fits. The first limit still
+applies there under a custom light `eps`, and to a base anchored at its own
+dark tone.
 
 ### Extremes: `'max'` and `'min'`
 
@@ -459,7 +531,7 @@ ratio matters.
 ## Contrast floors and verification
 
 Tone is the contrast solver's search axis because it is contrast-uniform: the
-search converges quickly and WCAG gets a closed-form starting point. But Glaze
+search converges quickly and WCAG gets a closed-form first probe. But Glaze
 never assumes a chromatic color has the luminance of the gray at its tone. It
 measures the real color.
 
@@ -480,13 +552,14 @@ For a color with `base` and `contrast`, in each scheme Glaze:
    small margin (×1.01 for a WCAG ratio, +0.5 Lc for APCA, to absorb rounding
    in the output formats), the tone is kept (`contrast` is a floor, not a
    target);
-3. otherwise searches tone. For WCAG the search starts from the gray tone whose
-   luminance hits the ratio exactly — `Y = R * (Y_base + 0.05) - 0.05` on the
-   lighter side, `(Y_base + 0.05) / R - 0.05` on the darker — then
-   binary-searches against the measured chromatic luminance. For APCA it
-   binary-searches against the Lc target directly. The search covers the full
-   0–100 range, so a demanding floor can push a color past the window, and it
-   aims for the same margin past the target;
+3. otherwise searches tone. For WCAG the search first measures the gray tone
+   whose luminance hits the ratio exactly — `Y = R * (Y_base + 0.05) - 0.05`
+   on the lighter side, `(Y_base + 0.05) / R - 0.05` on the darker — which
+   only narrows where the binary search against the measured chromatic
+   luminance looks, so a chromatic color still lands on its own crossing. For
+   APCA it binary-searches against the Lc target directly. The search covers
+   the full 0–100 range, so a demanding floor can push a color past the
+   window, and it aims for the same margin past the target;
 4. warns when the target is physically unreachable in the scheme.
 
 ```ts

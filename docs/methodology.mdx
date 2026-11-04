@@ -44,12 +44,13 @@ sibling themes:
 
 The main simplification is OKHST tone. Dark mode is a single inversion
 (`100 - t`) plus a scheme tone window, so tone relationships carry over from
-light to dark. A relative **tone delta** such as `tone: '-4'` is placed against
-its base's light tone, then inverted and remapped like any authored tone: in
-dark it flips with its base and keeps its place in the ladder, slightly
-compressed by the dark window (about 0.87× at the defaults, on every base; high
-contrast keeps it exact). The step is exactly contrast-even for neutrals and
-approximate for chromatic colors; add a `contrast` floor when the measured
+light to dark. A relative **tone delta** such as `tone: '-4'` is an exact tone
+step from its base in light. In dark it steps from where the base sits on the
+authored scale and is inverted and remapped like any authored tone, so it flips
+with its base and keeps its place in the ladder, slightly compressed by the
+dark window (about 0.87× at the defaults, on every base that inverts in dark;
+high contrast keeps it exact). The step is exactly contrast-even for neutrals
+and approximate for chromatic colors; add a `contrast` floor when the measured
 result matters.
 [How relative tone adapts](./schemes.mdx#how-relative-tone-adapts) shows the
 mapping.
@@ -86,9 +87,10 @@ Use this order when defining a token:
 2. Use an absolute numeric `tone` for independent placement. Use a signed
    **tone delta** (`'+N'` / `'-N'`) for distance from a base: surface ladders,
    soft chips, disabled states, and similar relationships. Under `auto`, the
-   dark step is computed from the base's light tone, so it follows a base
-   placed by tone but not a `fixed` or contrast-solved one: make a delta off a
-   `fixed` base `fixed` too, and give a link hover its own `contrast` floor, or
+   dark step mirrors the light one on a base placed by tone, solved by a
+   contrast floor, or mixed, but a `fixed` base keeps its side while the delta
+   inverts: make a delta off a `fixed` base `fixed` too. A delta has no floor
+   of its own, so give a hover that must stay readable its own `contrast`, or
    use a [state layer](#state-layers) on fills.
 3. Add `contrast` only when readability or recognizability needs a measured
    floor.
@@ -261,12 +263,12 @@ defaultTheme.colors({
   caption="The ladder in light and dark. Each step moves away from surface's end of the scale in both schemes. Before any text exists, the UI is a wireframe: the page is surface-2, the cards are surface, and the bars and track are surface-3."
 />
 
-Each tone delta is placed against `surface`'s light tone and then mapped into
-each scheme like an authored tone, so the ladder keeps its order everywhere and
-flips with `surface` in dark. The dark window compresses the steps a little:
-`'-2'` and `'-4'` land 1.7 and 3.5 tones from `surface` in dark, and high
-contrast keeps them exact. These small deltas are enough to define the ladder;
-there is no separate dark-mode curve to tune.
+Each tone delta is an exact step from `surface` in light; in dark it steps from
+`surface`'s authored tone and is mapped like an authored tone, so the ladder
+keeps its order everywhere and flips with `surface` in dark. The dark window
+compresses the steps a little: `'-2'` and `'-4'` land 1.7 and 3.5 tones from
+`surface` in dark, and high contrast keeps them exact. These small deltas are
+enough to define the ladder; there is no separate dark-mode curve to tune.
 
 ### Text and borders
 
@@ -673,8 +675,8 @@ in high contrast.
   dark high contrast all three pin at full opacity and still land only about 2
   tones down. Glaze warns for each step it cannot reach. Every color resolves
   in all four schemes, so not binding a shadow in dark only keeps the pinned
-  value off screen; the warning fires anyway. The fix is headroom: a lower
-  `intensity`, or a surface with room below it in every scheme. For elevation
+  value off screen; the warning fires anyway. The fix is a lower `intensity`,
+  or a surface with room below it in every scheme. For elevation
   in dark, reach for [glows](./shadows-and-glows.mdx#dark-mode-elevation)
   instead. This palette keeps its near-white page, so these warnings are
   expected.
@@ -709,15 +711,18 @@ defaultTheme.colors({
 A fixed opacity cannot do this: an 8% black layer darkens white by about 6
 tones but a tone-10 surface by about 1
 ([The same step on every surface](./shadows-and-glows.mdx#the-same-step-on-every-surface)
-compares the two). The same headroom rule applies, though: in dark high
+compares the two). The same limit applies, though: in dark high
 contrast `surface` sits at tone 0, so `surface-hover` has nothing to darken
 there and resolves transparent, with a warning.
 
 Glows are the mirror, for dark-mode elevation and edge highlights. A glow needs
-headroom above its surface, so a glow on a white light-mode surface has
-nothing to lighten — Glaze leaves it transparent and warns, even if you only
-use the token in dark. Give glows a surface with room in every scheme, as
-`accent-surface-highlight` has on the mid-tone accent fill.
+room above its surface, so a glow on a white light-mode surface has nothing to
+lighten — Glaze leaves it transparent and warns, even if you only use the token
+in dark. Give glows a surface with room in every scheme, as
+`accent-surface-highlight` has on the mid-tone accent fill. With `headroom`
+above 0, an [HDR glow](./shadows-and-glows.mdx#hdr-glows) can carry a value
+past white for platforms that can show it, but its standard value on white
+stays transparent.
 
 ### Fixed opacity and mixes
 

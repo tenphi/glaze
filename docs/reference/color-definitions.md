@@ -145,15 +145,24 @@ type ToneValue = number | RelativeValue | ExtremeValue;
 
 **Absolute tone.** On a root, the tone is mapped into each scheme by its [`mode`](#mode). On a dependent, it positions the color independently of the base: each scheme maps it on its own, and a `contrast` floor acts as the safety net.
 
-**Delta.** Adds a signed tone delta to the base's resolved tone. In light and high contrast the step is exact, which gives an equal contrast step for neutrals and a stable visual progression for chromatic colors. Dark depends on the color's `mode`:
+**Delta.** Adds a signed tone delta to the base's resolved tone. In `light` and `lightContrast` the step is exact, which gives an equal contrast step for neutrals and a stable visual progression for chromatic colors. Dark depends on the color's `mode`:
 
-- `'auto'` (default): the delta is applied to the base's **light** tone as authored (with the light window's lift taken back out), and the result is inverted and remapped through the dark window, so dark text on a light surface becomes light text on a dark one. The dark step is the dark window's scale times the delta, about 0.87× at the defaults, on every base: on a tone-97 surface, `'-10'` becomes +8.7 in dark and `'-52'` becomes +45.1; on a tone-50 base, `'+4'` becomes −3.5 and `'-4'` becomes +3.5. A base whose tone a contrast floor chose is read back through the light window, so the dependent follows where that base sits in light.
+- `'auto'` (default): Glaze steps from the base's **anchor**, where the base sits on the authored scale, and inverts and remaps the result through the dark window, so dark text on a light surface becomes light text on a dark one. The anchor is the base's authored tone when the base is placed by a tone or a chain of deltas. For an `'auto'` base placed by a contrast floor, a mix, or a `'max'` / `'min'` on a base, it is the base's own dark tone read back through the dark window. A `'fixed'` or `'static'` base gives its light-side tone, which the dependent inverts on its own (`'+10'` on a fixed tone-30 base steps +26.0 in dark). Full table: [Adaptation modes](./configuration.md#adaptation-modes).
 - `'fixed'` and `'static'`: the delta is applied to the base's tone in each scheme, sign kept.
 
-See [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts). If `base + delta` falls outside `[0, 100]`:
+At the reference dark `eps`, every `'auto'` dark step on a base that inverts in dark is the dark window's scale times the delta, about 0.87× at the defaults: on a tone-97 surface, `'-10'` becomes +8.7 in dark and `'-52'` becomes +45.1; on a tone-50 base, `'+4'` becomes −3.5 and `'-4'` becomes +3.5; a `'-4'` hover on an `'AAA'` button steps +3.5. In `darkContrast` the same step is exact (±N), under any light `eps`. A custom dark `eps` reshapes the dark curve in `dark` and `darkContrast` alike, so a dark delta lands where the same authored tone would instead of at scale × delta. Near the ends of the scale the clamps below apply. See [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts).
+
+If `base + delta` falls outside `[0, 100]`:
 
 - with `autoFlip` (the default), the delta is mirrored to the other side of the base;
 - if the mirrored target is also out of range, or `autoFlip` is off, the result is clamped on the authored side.
+
+The flip is decided on the light tone, and dark mirrors whichever side light took. Two clamps apply in dark only:
+
+- **Step off the scale.** Dark steps from the anchor, so a step that fits from the base's light tone can still run past 0 or 100 from the anchor; dark then stops at the dark window's edge. A base placed by a tone meets this at the bottom, because the light window lifts authored tone 0 to 4.95: `'-4'` on tone 2 steps about +1.7 in dark, on tone 0 not at all. A base anchored at its own dark tone can meet it at either end: in `glaze(280, 40)`, a `'-4'` hover on `contrast: 12` text over a tone-97 surface steps +2.3 in dark, not +3.5. In `darkContrast` this applies only to a base anchored at its own dark tone, or under a custom light `eps`.
+- **Base past the dark window.** A contrast floor or an extreme can push a base past the dark window. A step from it is limited by the window edge or the base, whichever is further out: a step back toward the window moves the full scaled delta, one pointing further out stops at the base. On a tone-97 surface, `ink: { base: 'surface', tone: 'min' }` sits at tone 100 in dark; `'+4'` on it steps −3.5 there and `'-4'` stays at 100.
+
+Add a `contrast` floor when a dark step must survive either clamp.
 
 A delta needs `base`. When either entry of `tone` is a delta and there is no `base`, validation throws `glaze: color "<name>" has relative "tone" without "base".` That includes a delta only in the high-contrast entry (`tone: [50, '+20']`). With a `base`, the entries can mix forms: `tone: [50, '-20']` places the color at absolute tone 50 in the normal schemes and exactly 20 tones from its base in high contrast: below it in `lightContrast`, and above it in `darkContrast` under `mode: 'auto'`.
 
@@ -236,7 +245,7 @@ The type is `HCPair<ContrastSpec>`: a WCAG ratio or preset, or an `{ apca }` Lc 
 
 `autoFlip` decides what happens when a result falls outside its valid range:
 
-- **Delta overshoot.** When `base ± delta` leaves `[0, 100]`, the delta is mirrored to the other side of the base (`'+30'` becomes `'-30'`) instead of clamping to the boundary. If the mirrored target is also out of range, the original delta is kept and clamped on the authored side.
+- **Delta overshoot.** When `base ± delta` leaves `[0, 100]`, the delta is mirrored to the other side of the base (`'+30'` becomes `'-30'`) instead of clamping to the boundary. If the mirrored target is also out of range, the original delta is kept and clamped on the authored side. Light decides the side and dark mirrors it, with the dark-only clamps under [Tone values](#tone-values).
 - **`contrast` direction.** When the requested direction can't meet the floor, the solver tries the opposite side of the base and uses it if it passes.
 
 It defaults to the theme's effective `autoFlip`, which is `true` unless changed with `glaze.configure()` or a [config override](./theme.md#per-theme-config-override). Set `autoFlip: false` on a color to keep a delta on the authored side, or to pin an unmet floor to that direction's extreme (with a warning) instead of crossing over. Mixes have no per-color `autoFlip`; their contrast solve follows the theme's. See [Contrast solving](../contrast.mdx#autoflip-crossing-to-the-other-side).
@@ -362,7 +371,7 @@ Translucent overlays. Each emits a pigment (black for a shadow, white for a glow
 | `bg` | `string` | — | The surface the overlay falls on. Required. Can't be a shadow or glow. |
 | `fg` | `string` | — | The object casting the shadow or emitting the glow, such as the card. Scales the step: a darker object casts a deeper shadow, a lighter one a stronger glow. Omit for an exact shade or tint of `intensity` tones. Can't be a shadow or glow. |
 | `intensity` | `HCPair<number>` | — | Tone step, 0–100: how many tones darker (shadow) or lighter (glow) than `bg` the composite lands. Clamped to 0–100. Required. |
-| `tuning` | `LightingTuning` | — | Per-color [tuning](#lightingtuning), merged field by field over the global `shadowTuning` / `glowTuning`. |
+| `tuning` | `ShadowTuning` / `GlowTuning` | — | Per-color [tuning](#lightingtuning), merged field by field over the global `shadowTuning` / `glowTuning`. A glow's can set [`headroom`](#lightingtuning); on a shadow's, `headroom` throws. |
 | `pastel` | `boolean` | The theme's `pastel` | Gamut for the pigment. See [Per-color `pastel`](#per-color-pastel). |
 | `inherit` | `boolean` | `true` | See [`inherit`](#inherit). |
 
@@ -392,7 +401,7 @@ theme.colors({
 - **Per scheme.** `bg` and `fg` are read in each scheme, so the step and `k` adapt in dark and high contrast on their own.
 - **HC pairs and the level.** `intensity` accepts `[normal, highContrast]` and is interpolated by a manual [`contrastLevel`](./contrast.md#manual-contrast-level).
 - **Output.** Shadows and glows appear in every output method next to regular colors, with an alpha component. They have no `role` (always `'surface'`), no `mode`, and no channels of their own; `ResolvedColor.mode` is omitted for them.
-- **Unreachable steps.** A glow on white or a deep shadow on near-black can't reach the step. The result pins to the pigment's strongest composite (full opacity, or transparent when the pigment can't move the surface at all) and emits a deduped `console.warn`. This includes the common case of a shadow on an `auto` light surface: a tone-97 surface sits at tone 3 in `darkContrast`, so `card-shadow` and `surface-hover` above pin to opaque black and warn there (`accent-pressed`, on a mid-tone accent, is unaffected). Use a glow for elevation in dark.
+- **Unreachable steps.** A glow on white or a deep shadow on near-black can't reach the step. The result pins to the pigment's strongest composite (full opacity, or transparent when the pigment can't move the surface at all) and emits a deduped `console.warn`. This includes the common case of a shadow on an `auto` light surface: a tone-97 surface sits at tone 3 in `darkContrast`, so `card-shadow` and `surface-hover` above pin to opaque black and warn there (`accent-pressed`, on a mid-tone accent, is unaffected). Use a glow for elevation in dark. A glow with a `headroom` can go past white instead; see [HDR values](#hdr-values-resolvedhdr).
 - **Errors.** `glaze: shadow "<name>" references non-existent bg "<ref>".` and `glaze: glow "<name>" fg "<ref>" references a shadow color.` (and the same for the other combinations).
 
 How the opacity solve works, the [object-factor table](../shadows-and-glows.mdx#object-influence), state layers, and [dark-mode elevation](../shadows-and-glows.mdx#dark-mode-elevation) are in [Shadows and glows](../shadows-and-glows.mdx). The standalone functions are in [`glaze.shadow()` / `glaze.glow()`](./utilities.md#glazeshadowinput--glazeglowinput).
@@ -407,7 +416,9 @@ interface LightingTuning {
   hueBleed?: number;
 }
 type ShadowTuning = LightingTuning;
-type GlowTuning = LightingTuning;
+interface GlowTuning extends LightingTuning {
+  headroom?: number;
+}
 ```
 
 | Field | Default | Description |
@@ -416,6 +427,7 @@ type GlowTuning = LightingTuning;
 | `tint` | `0` | Pigment saturation (0–1) in the surface's hue. `0` is neutral black or white. Shows only with `reach` below `1`, because pure black and white have no hue. |
 | `reach` | `1` | Where the pigment sits: the fraction (0–1) of the way from the surface's tone to black (shadow) or white (glow). `1` is pure black or white, the most reach. Lower values let a `tint` show and cost reach. |
 | `hueBleed` | `0` | Pull (0–1) of the pigment hue from the surface's hue toward the object's (`fg`) hue. Needs `fg`, a `tint`, and `reach` below `1` to show. |
+| `headroom` | `0` | Glows only. Stops above SDR white a glow may use when its step crosses white: `1` allows up to 2× white's luminance, `2` up to 4×. A finite number ≥ 0; above 2 it clamps to 2 with a warning. On a shadow's tuning it throws. See [HDR values](#hdr-values-resolvedhdr) and [Glow headroom](./configuration.md#glow-headroom). |
 
 `tint`, `reach`, and `hueBleed` are clamped to 0–1. Each field resolves separately, later wins:
 
@@ -440,6 +452,43 @@ glaze.configure({
 ```
 
 There is no opacity cap: when the step is reachable, it is exact. For a lighter overlay, lower `intensity`. What a tint costs on dark surfaces is shown in [Tinted pigment](../shadows-and-glows.mdx#tinted-pigment).
+
+### HDR values (`ResolvedHdr`)
+
+With a `headroom` above 0, a glow whose target tone (surface tone + `intensity × k`) passes 100 gets an HDR value on its resolved variant, next to the unchanged SDR one:
+
+```ts
+interface ResolvedHdr {
+  h: number; // base OKHSL hue, 0–360
+  s: number; // base OKHSL saturation, 0–1, never pastel
+  t: number; // base tone, 0–1
+  exposure: number; // gain over the base, in stops (> 0)
+}
+// ResolvedColorVariant.hdr?: ResolvedHdr
+```
+
+- **Base.** What SDR paints at its brightest, taken opaque: the pigment at full opacity, or a white surface (tone 100) that no pigment can lift. The HDR color is the base's linear sRGB times `2^exposure`. `variant.t` stays at most 1.
+- **Exposure.** `log2(min(Y(T*) / Y(base), 2^headroom / max channel))`, with `T*` the target tone: the exact step when the headroom allows it, otherwise capped so no channel passes `2^headroom`, with a [warning](./configuration.md#shadow-or-glow-out-of-reach). A step the HDR value covers doesn't warn.
+- **`s` is never pastel.** The base can be any in-gamut composite, so `s` is standard OKHSL saturation even on a `pastel` variant.
+- **Absent elsewhere.** The `hdr` key is missing (not `undefined`) on regular colors, shadows, mixes, glows that stay below white, a glow whose pigment can't lift a non-white surface at all (`reach: 0`, say: SDR paints nothing, so there is nothing to expose), and every glow at `headroom: 0`.
+- **Continuity.** A full-reach glow (the default `reach: 1`) is pinned at white, so its HDR value starts at white (`exposure` → 0) as the target passes 100. A glow with `reach` below 1 is pinned at its pigment, below white: just under 100 it stays short there and warns, and just past 100 it jumps to the exact step.
+
+```ts
+const theme = glaze(280, 80, { glowTuning: { headroom: 1 } });
+theme.colors({
+  surface: { tone: 100 },
+  'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
+});
+
+const glow = theme.resolve().get('surface-glow')!;
+glaze.format(glow.light); // 'oklch(1 0 0 / 0)' — SDR can't lift white
+glow.light.hdr?.exposure; // 0.5489…
+glaze.formatHdr(glow.light);
+// → 'color(srgb-linear 1.4631 1.4631 1.4631)', tone 112
+glow.dark.hdr; // undefined — the dark surface leaves room below white
+```
+
+Exporters emit HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output). What HDR glows are for: [HDR glows](../shadows-and-glows.mdx#hdr-glows). Formatting: [`glaze.formatHdr()`](./utilities.md#glazeformathdrvariant-hdrformat).
 
 ## `MixColorDef`
 

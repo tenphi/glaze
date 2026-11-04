@@ -146,11 +146,11 @@ theme.colors({
 />
 
 - The label sits at tone 100: white in light and high contrast, and near-white
-  (tone 96) in dark, where the dark tone window caps it. The fill starts one
-  tone below the label and moves down until the pair clears 4.5:1; a saturated
-  fill like this one lands a little past the floor, at about 4.8:1. Because the
-  fill depends on the label, the pair passes in every scheme — in high contrast
-  the fill darkens further, until the pair clears 7:1.
+  (tone 95.9) in dark, where the dark tone window caps it. The fill starts one
+  tone below the label and moves down until the pair clears 4.5:1, landing
+  just past the floor at about 4.55:1 (the solver keeps a 1% margin). Because
+  the fill depends on the label, the pair passes in every scheme — in high
+  contrast the fill darkens further, until the pair clears 7:1.
 - `mode: 'fixed'` keeps both colors on their authored side of the tone scale in
   dark mode, so the button stays a saturated fill with a light label. The
   default, `mode: 'auto'`, inverts.

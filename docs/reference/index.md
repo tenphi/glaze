@@ -17,13 +17,13 @@ The package ships ESM and CommonJS with full type declarations and has no runtim
 | Page | Covers |
 | --- | --- |
 | [Themes](./theme.md) | `glaze()`, `fromHex` / `fromRgb` / `themeFrom`, theme properties and methods, `extend`, `resolve`, `export`. |
-| [Color definitions](./color-definitions.md) | The `ColorDef` union: regular, shadow, glow, and mix colors, every field. |
+| [Color definitions](./color-definitions.md) | The `ColorDef` union: regular, shadow, glow, and mix colors, every field, and a glow's HDR value. |
 | [Contrast and high contrast](./contrast.md) | `HCPair`, `ContrastSpec`, WCAG and APCA presets, high-contrast escalation, the manual contrast level. |
 | [Color tokens](./color-tokens.md) | Standalone `glaze.color()` tokens, their methods, and `glaze.colorFrom()`. |
 | [Palettes](./palette.md) | `glaze.palette()`, prefixes, collisions, the primary alias, `glaze.paletteFrom()`. |
-| [Output formats](./output.md) | Every output method and option, color formats, output modes, state aliases, `splitHue`. |
+| [Output formats](./output.md) | Every output method and option, color formats, output modes, state aliases, `splitHue`, HDR output. |
 | [Configuration](./configuration.md) | `glaze.configure()` and every `GlazeConfig` field, per-instance overrides, validation, warnings. |
-| [Utilities](./utilities.md) | `glaze.format`, standalone `glaze.shadow` / `glaze.glow`, color math, tone utilities, the contrast solver, role helpers, guards. |
+| [Utilities](./utilities.md) | `glaze.format` / `glaze.formatHdr`, standalone `glaze.shadow` / `glaze.glow`, color math, tone utilities, the contrast solver, role helpers, guards. |
 
 ## `glaze` and its statics
 
@@ -44,6 +44,7 @@ The package ships ESM and CommonJS with full type declarations and has no runtim
 | `glaze.shadow(input)` | `ResolvedColorVariant` | [Utilities](./utilities.md#glazeshadowinput--glazeglowinput) |
 | `glaze.glow(input)` | `ResolvedColorVariant` | [Utilities](./utilities.md#glazeshadowinput--glazeglowinput) |
 | `glaze.format(variant, format?, pastel?)` | `string` | [Utilities](./utilities.md#glazeformatvariant-format-pastel) |
+| `glaze.formatHdr(variant, hdrFormat?)` | `string \| undefined` | [Utilities](./utilities.md#glazeformathdrvariant-hdrformat) |
 | `glaze.configure(config)` | `void` | [Configuration](./configuration.md#glazeconfigureconfig) |
 | `glaze.getConfig()` | `GlazeConfigResolved` | [Configuration](./configuration.md#glazegetconfig) |
 | `glaze.resetConfig()` | `void` | [Configuration](./configuration.md#global-config) |
@@ -76,6 +77,7 @@ Everything below is exported from `'@tenphi/glaze'` next to `glaze`. Apart from 
 | `toTone`, `fromTone`, `toneFromY`, `yFromTone`, `okhstToOkhsl`, `okhslToOkhst`, `variantToOkhsl`, `REF_EPS` | OKHST tone utilities | [Utilities](./utilities.md#okhst-tone-utilities); the model in [Tone and OKHST](../okhst.mdx) |
 | `okhslToLinearSrgb`, `okhslToSrgb`, `okhslToOklab`, `oklabToOkhsl`, `srgbToOkhsl`, `hslToSrgb`, `okhslToOklch`, `cuspLightness`, `parseHex`, `parseHexAlpha`, `srgbToHex`, `relativeLuminanceFromLinearRgb`, `contrastRatioFromLuminance`, `gamutClampedLuminance`, `apcaLuminanceFromLinearRgb` | Color math | [Utilities](./utilities.md#color-math) |
 | `formatOkhsl`, `formatOkhst`, `formatRgb`, `formatHsl`, `formatOklch` | Format writers (0–1 scale) | [Utilities](./utilities.md#format-writers) |
+| `formatSrgbLinear` | HDR writer: linear sRGB channels, unclamped, as `color(srgb-linear R G B)` | [Utilities](./utilities.md#format-writers); where it applies: [HDR strings](./output.md#hdr-strings) |
 
 ## Types
 
@@ -85,6 +87,7 @@ All public types are exported with `import type`.
 | --- | --- | --- |
 | Theme | `GlazeTheme`, `GlazeThemeSeed`, `GlazeExtendOptions`, `GlazeThemeExport` | [Themes](./theme.md) |
 | Resolved values | `ResolvedColor`, `ResolvedColorVariant` | [Themes](./theme.md#themeresolve) |
+| HDR values | `ResolvedHdr`, `GlazeHdrFormat` | [Color definitions](./color-definitions.md#hdr-values-resolvedhdr), [Utilities](./utilities.md#glazeformathdrvariant-hdrformat), [Output formats](./output.md#hdr-output) |
 | Color definitions | `ColorDef`, `ColorMap`, `RegularColorDef`, `ShadowColorDef`, `GlowColorDef`, `MixColorDef`, `LightingTuning`, `ShadowTuning`, `GlowTuning` | [Color definitions](./color-definitions.md) |
 | Tone and adaptation | `ToneValue`, `RelativeValue`, `ExtremeValue`, `AdaptationMode` | [Color definitions](./color-definitions.md), [Configuration](./configuration.md) |
 | Roles | `Role`, `RoleInput`, `Polarity` | [Color definitions](./color-definitions.md), [Utilities](./utilities.md) |
@@ -95,8 +98,9 @@ All public types are exported with `import type`.
 | Color tokens | `GlazeColorToken`, `GlazeColorInput`, `GlazeFromInput`, `GlazeColorOverrides`, `GlazeColorCssOptions`, `GlazeColorTailwindOptions`, `GlazeColorDtcgResult`, `GlazeColorDtcgResolverOptions`, `GlazeColorTokenExport`, `GlazeColorInputExport`, `GlazeColorOverridesExport` | [Color tokens](./color-tokens.md) |
 | Standalone shadow and glow | `GlazeLightingInput`, `GlazeShadowInput`, `GlazeGlowInput` | [Utilities](./utilities.md) |
 | Palette | `GlazePalette`, `GlazePaletteOptions`, `GlazePaletteExportOptions`, `GlazePaletteTastyOptions`, `GlazePaletteCssOptions`, `GlazePaletteExport` | [Palettes](./palette.md) |
-| Output options | `GlazeColorFormat`, `GlazeOutputModes`, `GlazeTokenOptions`, `GlazeTastyOptions`, `GlazeJsonOptions`, `GlazeCssOptions`, `GlazeCssResult`, `GlazeTailwindOptions` | [Output formats](./output.md) |
+| Output options | `GlazeColorFormat`, `GlazeOutputModes`, `GlazeTokenOptions`, `GlazeTastyOptions`, `GlazeJsonOptions`, `GlazeCssOptions`, `GlazeCssResult`, `GlazeCssSchemeBlocks`, `GlazeTailwindOptions` | [Output formats](./output.md) |
 | DTCG | `GlazeDtcgOptions`, `GlazeDtcgResult`, `DtcgColorSpace`, `DtcgColorToken`, `DtcgColorValue`, `DtcgSrgbColorValue`, `DtcgOklchColorValue`, `DtcgDocument` | [Output formats](./output.md#dtcgoptions) |
+| DTCG HDR extension | `GlazeDtcgExtensions`, `GlazeDtcgHdr` | [Output formats](./output.md#dtcg-extensions) |
 | DTCG resolver | `GlazeDtcgResolverOptions`, `GlazeDtcgResolverContextNames`, `GlazeDtcgResolverDocument`, `DtcgResolverSet`, `DtcgResolverModifier`, `DtcgResolverRef`, `DtcgTokenTree` | [Output formats](./output.md#dtcgresolveroptions) |
 | `splitHue` planning | `HuePlan`, `HueDeclaration`, `ChannelCtx` | [Output formats](./output.md#planning-types) |
 | Snapshots | `GlazeExportKind`, `GlazeExportVersion` | [Authoring snapshots](#authoring-snapshots-and-versioning) |
@@ -115,7 +119,8 @@ Glaze mixes a few numeric scales. Which one applies depends on where a value is 
 | Tone | 0–100 | Authored `tone`, tone deltas (`'+20'`). Shadow and glow `intensity` is a step in tones (0–100). |
 | Tone window endpoints | 0–100 OKHSL lightness, not tone | `lightTone` / `darkTone` `lo` and `hi`. The default `darkTone: [15, 95]` holds tones 9.25–95.9, so a tone-100 `auto` surface lands at tone 9.25 in dark. See [Tone windows](./configuration.md#tone-windows). |
 | Mix `value` | 0–100 | `MixColorDef.value` (0 = base, 100 = target). |
-| Resolved variant | `h` 0–360; `s`, `t`, `alpha` 0–1 | `ResolvedColorVariant`, the input to `glaze.format()`. |
+| Resolved variant | `h` 0–360; `s`, `t`, `alpha` 0–1 | `ResolvedColorVariant`, the input to `glaze.format()`. Its optional `hdr` (`ResolvedHdr`) uses the same scales plus `exposure`. |
+| Headroom, exposure | Stops above SDR white; each stop doubles luminance. `headroom` 0–2. | `glowTuning.headroom` and a glow's `tuning.headroom`; `ResolvedHdr.exposure` and DTCG `exposure`. 1 stop past white is tone 121.98, 2 stops tone 144.34. |
 | Value objects | `{ h, s, l }` and `{ h, s, t }`: `s`, `l`, `t` 0–1. `{ r, g, b }`: 0–255. `{ l, c, h }`: `L` and `C` 0–1, `H` degrees. | `from`, `glaze.color()`, `glaze.shadow()` / `glaze.glow()` inputs. |
 | Format writers and converters | `h` 0–360; `s`, `l`, `t` 0–1 | `formatOkhsl` … `formatOklch` and the color math functions. The format writers warn when they get 0–100 percentages (the pre-2.0 scale). |
 | Opacity, ratios | 0–1 | `opacity`, `darkDesaturation`, lighting `tint` / `reach` / `hueBleed`. |

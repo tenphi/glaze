@@ -50,7 +50,7 @@ the authored spacing — exactly for neutrals, approximately for chromatic
 colors, whose luminance drifts a little with hue and saturation. The dark window
 then scales every step to its span, about 0.87× at the defaults, so order and
 direction carry over but steps come out a little smaller in dark. Tone deltas
-scale the same way on every base; see
+scale the same way on every base that inverts in dark; see
 [How relative tone adapts](#how-relative-tone-adapts).
 
 A surface at tone 97 becomes a dark surface, and text 52 tones below it
@@ -171,19 +171,16 @@ and the base is resolved separately in each scheme. What happens to the delta
 depends on the dependent's mode:
 
 - **`auto`** — in light, the delta is applied to the base's light tone as
-  written. In dark, Glaze adds the delta to the base's _light_ tone as authored
-  — before the light window lifted it — then inverts and remaps that result
+  written. In dark, Glaze steps from where the base sits on the authored scale
+  (its [anchor](#where-a-dark-step-starts)), then inverts and remaps the result
   through the dark window, exactly like an authored tone. The step flips
   direction, keeps its place in the ladder, and comes out the dark window's
-  scale times the delta on every base, about 0.87× at the defaults: `'-4'`
-  becomes +3.5 in dark on a tone-97 surface and on a tone-50 base alike (and
-  `'+4'` on the tone-50 base becomes −3.5), and a chain of deltas steps the
-  same way at every link. In high contrast the windows are the full range, so
-  the step is exact in both schemes. A base whose tone a
-  [contrast floor](./contrast.mdx) chose has no authored tone, so its light
-  tone is taken back through the light window; its own dark tone is solved
-  separately, so the dependent follows where the base sits in light, not where
-  it lands in dark.
+  scale times the delta, about 0.87× at the defaults: `'-4'` becomes +3.5 in
+  dark on a tone-97 surface and on a tone-50 base alike (and `'+4'` on the
+  tone-50 base becomes −3.5), and a chain of deltas steps the same way at
+  every link. In high contrast the windows are the full range, so at the
+  reference dark `eps` the step is exact in both schemes, except near the ends
+  of the scale ([Overshooting deltas](#overshooting-deltas)).
 - **`fixed`** — the delta is applied to the base's tone in each scheme with its
   sign preserved. A `'+30'` label stays 30 tones lighter than its fill in light
   and in dark. A label on a `fixed` fill should be `fixed` too: the inversion
@@ -216,6 +213,51 @@ same `'-52'` step measures 4.93:1 in light and 3.92:1 in dark. A delta is a
 visual relationship; a [contrast floor](./contrast.mdx) is a guarantee that is
 solved in every scheme.
 
+### Where a dark step starts
+
+An `auto` dependent steps in dark from its base's **anchor**: the tone on the
+authored `0–100` scale that the base's own dark variant is the inversion of.
+Glaze finds it from how the base got its tone:
+
+| Base                                                                                                           | Anchor                                               |
+| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Placed by a tone: a number, a `from` color, an extreme with no base, or a `fixed` / `static` extreme on a base | Its authored tone                                    |
+| A tone delta                                                                                                   | Its base's anchor plus the delta                     |
+| No `tone` or `contrast` of its own                                                                             | Its base's anchor                                    |
+| `auto` with a contrast floor, an `auto` extreme on a base, or a mix                                            | Its own dark tone, read back through the dark window |
+| `fixed` or `static` with a contrast floor                                                                      | Its light tone, read back through the light window   |
+
+The fourth row is why a dependent follows where its base lands in dark, not
+where it sits in light. A contrast floor solves the base's dark tone on its
+own, and a mix blends two dark variants, yet the steps off them stay even:
+
+<SchemeExample
+  hue={280}
+  saturation={40}
+  colors={{
+    surface: { tone: 97 },
+    button: { base: 'surface', contrast: 'AAA' },
+    'button-hover': { base: 'button', tone: '-4' },
+    wash: { type: 'mix', base: 'surface', target: 'button', value: 30 },
+    'wash-hover': { base: 'wash', tone: '-6' },
+  }}
+  show={['button', 'button-hover', 'wash', 'wash-hover']}
+  schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
+  delta
+  caption="Hovers on a contrast-solved button and on a mix. The button's own step from surface differs between light and dark, because the floor is solved per scheme, yet button-hover steps +3.5 in dark and wash-hover +5.2, both 0.87× their delta; high contrast keeps them exact."
+/>
+
+A `fixed` or `static` base keeps its side in dark, so its anchor stays on the
+light side and the dependent's own mode decides whether it inverts (see the
+`fixed` bullet above).
+
+The 0.87× scale holds at the reference dark `eps`. A custom dark `eps` bends
+the dark window's curve, so a dark delta lands where the same authored tone
+would rather than at a fixed scale: under
+`darkTone: { lo: 15, hi: 95, eps: 0.2 }`, `'+4'` and `'-4'` on a tone-50 base
+step −3.1 and +3.0 in dark, exactly where tones 54 and 46 land. High contrast
+keeps the dark window's `eps`, so its dark steps bend the same way.
+
 ### Overshooting deltas
 
 When `base + delta` falls outside `[0, 100]`, the delta is mirrored to the other
@@ -225,6 +267,35 @@ original delta is kept and clamped on the authored side. This is `autoFlip`,
 on by default; set `autoFlip: false` on the color (or globally) to always clamp
 on the authored side. Under `mode: 'auto'` the flip is decided on the light
 tones, and dark mirrors whichever side light took.
+
+Because dark steps from the anchor rather than the light tone, it has two
+limits of its own:
+
+- **A step that runs off the scale.** The flip is decided on the base's light
+  tone, so a step that fits there can still run past 0 or 100 from the
+  anchor. In dark it then stops at the dark window's edge. A base
+  placed by a tone meets this at the bottom, because the light window lifts
+  authored tone 0 to 4.95: `'-4'` on a tone-2 base steps about +1.7 in dark,
+  and on a tone-0 base not at all. A base whose anchor is read back from its
+  dark tone can meet it at either end. In `glaze(280, 40)`, text with
+  `contrast: 12` on a tone-97 surface sits at 15.6 in light, but its dark tone
+  reads back to 2.7, so a `'-4'` hover on it steps +2.3 in dark, not +3.5.
+  Add a contrast floor if the step has to survive.
+- **A base past the dark window.** A contrast floor or an extreme on a base can
+  push a base past the dark window's edge. A step back toward the window moves
+  by the full scaled delta; a step further out stops at the window's edge or
+  at the base, whichever is further out, instead of snapping back to the edge.
+  An `ink: { base: 'surface', tone: 'min' }` on a tone-97 surface sits at
+  tone 100 in dark, past the window's 95.9: `'+4'` on it steps −3.5 there,
+  and `'-4'` stays on `ink`.
+
+High contrast's windows are the full range. At the reference light `eps` the
+light one is the identity, so a base placed by a tone sits at its anchor
+there, light and dark agree on the flip, and the step fits. The first limit
+still applies under a custom light `eps`, and to a base read back from its
+dark tone: in `glaze(280, 40)`, a `'-8'` hover on
+`{ base: 'surface', contrast: 3 }` over a tone-40 surface steps −8 in light
+high contrast and +4.0 in dark high contrast.
 
 ## Extremes in dark
 
@@ -543,8 +614,13 @@ no `modes` option: it always returns all four declaration blocks. A per-call
 `100` drops the high-contrast tier even when `modes` asks for it; the full
 precedence is in [Output modes](./reference/output.md#output-modes).
 
+A third flag, `hdr` (off by default), adds the HDR values of glows that pass
+SDR white; `css()` takes it as an `hdr` option of its own. See
+[HDR glows](./shadows-and-glows.mdx#hdr-glows).
+
 The selectors that switch variants in [Tasty](https://tasty.style) output come
 from [`states.dark` and `states.highContrast`](./reference/output.md#state-aliases)
 (by default the `prefers-color-scheme: dark` and `prefers-contrast: more` media
-queries). How each export lays out its variants is in
-[Output formats](./reference/output.md) and [Exporting and integration](./exporting.mdx).
+queries), and HDR values from `states.hdr` (`dynamic-range: high`). How each
+export lays out its variants is in [Output formats](./reference/output.md) and
+[Exporting and integration](./exporting.mdx).

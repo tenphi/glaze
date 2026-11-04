@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: The global config, per-instance overrides, tone windows, the scheme mapping formulas, validation rules, and every warning Glaze emits.
+description: The global config, per-instance overrides, tone windows, glow headroom, the scheme mapping formulas, validation rules, and every warning Glaze emits.
 ---
 
 Glaze has one global config that every theme, palette, and color token reads at resolve time. Themes and tokens can override part of it with a sparse per-instance `GlazeConfigOverride`. This page lists every field, how the scheme mapping uses them, what Glaze validates, and what it warns about. For the ideas behind tone windows and adaptation, see [Light, dark, and high contrast](../schemes.mdx) and [Tone and OKHST](../okhst.mdx).
@@ -17,10 +17,11 @@ glaze.configure({
   states: {
     dark: '@media(prefers-color-scheme: dark)',
     highContrast: '@media(prefers-contrast: more)',
+    hdr: '@media(dynamic-range: high)',
   },
-  modes: { dark: true, highContrast: false },
+  modes: { dark: true, highContrast: false, hdr: false },
   shadowTuning: { objectInfluence: 0.5 },
-  glowTuning: { objectInfluence: 0.5 },
+  glowTuning: { objectInfluence: 0.5, headroom: 0 },
   autoFlip: true,
   inferRole: true,
   contrastLevel: 'auto',
@@ -35,10 +36,10 @@ glaze.configure({
 
 ### `glaze.configure(config)`
 
-- Omitted fields keep their current value. `configure()` never clears a field by omission, and passing `undefined` is the same as omitting it. Use `resetConfig()` to start over, or `contrastLevel: 'auto'` to leave manual contrast mode.
+- Omitted fields keep their current value. `configure()` never clears a field by omission, and passing `undefined` is the same as omitting it. `null` is not: a `null` tone window throws. Use `resetConfig()` to start over, or `contrastLevel: 'auto'` to leave manual contrast mode.
 - `states` and `modes` merge field by field: `configure({ modes: { highContrast: true } })` keeps `modes.dark`.
-- `lightTone`, `darkTone`, `shadowTuning`, and `glowTuning` are replaced as a whole. `configure({ shadowTuning: { tint: 0.3 } })` followed by `configure({ shadowTuning: { reach: 0.9 } })` leaves `{ reach: 0.9 }`. They are copied, so changing the array or object you passed afterwards has no effect.
-- `contrastLevel`, `darkDesaturation`, and the tone windows are validated on the spot. `contrastLevel` clamps to 0–100 and `darkDesaturation` to 0–1; a non-finite number throws, for example `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).` Window rules are under [Tone windows](#tone-windows). A call that throws changes nothing, not even the fields that were valid.
+- `lightTone`, `darkTone`, `shadowTuning`, and `glowTuning` are replaced as a whole. `configure({ shadowTuning: { tint: 0.3 } })` followed by `configure({ shadowTuning: { reach: 0.9 } })` leaves `{ reach: 0.9 }`, and a `glowTuning` without `headroom` drops an earlier one. They are copied, so changing the array or object you passed afterwards has no effect.
+- `contrastLevel`, `darkDesaturation`, the tone windows, and the tunings are validated on the spot. `contrastLevel` clamps to 0–100 and `darkDesaturation` to 0–1; a non-finite number throws, for example `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).` Window rules are under [Tone windows](#tone-windows), `headroom` rules under [Glow headroom](#glow-headroom). A call that throws changes nothing, not even the fields that were valid, and prints no warning: a `headroom` clamp found on the way is reported only once the whole call has passed.
 - Every call bumps an internal config version, so cached resolutions recompute on the next output call. Existing themes pick up the change for every field their own override doesn't set.
 
 ### `glaze.getConfig()`
@@ -54,8 +55,9 @@ glaze.getConfig();
 //   states: {
 //     dark: '@media(prefers-color-scheme: dark)',
 //     highContrast: '@media(prefers-contrast: more)',
+//     hdr: '@media(dynamic-range: high)',
 //   },
-//   modes: { dark: true, highContrast: false },
+//   modes: { dark: true, highContrast: false, hdr: false },
 //   autoFlip: true,
 //   pastel: false,
 //   inferRole: true,
@@ -80,10 +82,12 @@ The input to `glaze.configure()`. Every field is optional.
 | `darkDesaturation` | `number` | `0.1` | Fraction (0–1) of saturation removed in `dark` and `darkContrast`. Clamps to 0–1; non-finite numbers throw. See [Saturation](#saturation). |
 | `states.dark` | `string` | `'@media(prefers-color-scheme: dark)'` | State key for dark variants in [`tasty()`](./output.md#state-aliases) output. |
 | `states.highContrast` | `string` | `'@media(prefers-contrast: more)'` | State key for high-contrast variants in `tasty()` output. |
+| `states.hdr` | `string` | `'@media(dynamic-range: high)'` | State key for the HDR values of glows in `tasty()` output. Used only with `modes.hdr`. |
 | `modes.dark` | `boolean` | `true` | Emit dark variants. See [Output modes](./output.md#output-modes). |
 | `modes.highContrast` | `boolean` | `false` | Emit high-contrast variants. Independent of `contrastLevel`, except that a global level of `100` drops the tier (it would duplicate the normal one). |
-| `shadowTuning` | `ShadowTuning` | — | Default tuning for every `shadow` color. A per-color `tuning` merges over it field by field. Fields and defaults: [`LightingTuning`](./color-definitions.md#lightingtuning). |
-| `glowTuning` | `GlowTuning` | — | Default tuning for every `glow` color. Same shape and merge rule. |
+| `modes.hdr` | `boolean` | `false` | Emit the HDR values of glows past SDR white next to their SDR values, in every exporter. Off, the output is the same as with no `headroom` set. `css()` reads its own `hdr` option, which falls back to this. See [HDR output](./output.md#hdr-output). |
+| `shadowTuning` | `ShadowTuning` | — | Default tuning for every `shadow` color. A per-color `tuning` merges over it field by field. Fields and defaults: [`LightingTuning`](./color-definitions.md#lightingtuning). A `headroom` here throws. |
+| `glowTuning` | `GlowTuning` | — | Default tuning for every `glow` color. Same shape and merge rule, plus [`headroom`](#glow-headroom). |
 | `autoFlip` | `boolean` | `true` | Default for each color's `autoFlip`. When on, a contrast floor that can't be met on the requested side of the base may be met on the other side, and a tone delta that overshoots `[0, 100]` mirrors to the other side of its base. When off, only the requested direction is used: an unmet floor pins the tone to that direction's extreme (with a warning) and an overshooting tone delta clamps. Mix colors have no per-color `autoFlip` and always use this value. |
 | `inferRole` | `boolean` | `true` | Infer a color's `role` (APCA polarity) from its name when it has no explicit `role`. With `false`, the base-opposite and `'text'` fallbacks still apply. Theme colors only: a standalone token never infers from its `name`. See [How a role is chosen](../contrast.mdx#how-a-role-is-chosen). |
 | `contrastLevel` | `number \| 'auto'` | `'auto'` | Manual contrast level, 0–100. Resolves the `light` / `dark` variants at that point between normal (`0`) and high contrast (`100`); `lightContrast` / `darkContrast` stay the true high-contrast resolution. Numbers clamp to 0–100; non-finite numbers throw. Full rules: [Manual contrast level](./contrast.md#manual-contrast-level). |
@@ -98,9 +102,10 @@ What `glaze.getConfig()` and `theme.getConfig()` return: the same fields with de
 | --- | --- |
 | `lightTone`, `darkTone` | `ToneWindow` |
 | `darkDesaturation` | `number` |
-| `states` | `{ dark: string; highContrast: string }` |
-| `modes` | `{ dark: boolean; highContrast: boolean }` |
-| `shadowTuning`, `glowTuning` | `LightingTuning \| undefined` |
+| `states` | `{ dark: string; highContrast: string; hdr: string }` |
+| `modes` | `{ dark: boolean; highContrast: boolean; hdr: boolean }` |
+| `shadowTuning` | `ShadowTuning \| undefined` |
+| `glowTuning` | `GlowTuning \| undefined` — `headroom` already clamped to 0–2. |
 | `autoFlip` | `boolean` |
 | `inferRole` | `boolean` |
 | `contrastLevel` | `number \| 'auto'` |
@@ -133,7 +138,21 @@ type ToneWindow =
 - **`mode: 'static'`** colors skip the window entirely.
 - **Colors seeded with `from`** skip the light window so the light variant reproduces the literal; dark and high contrast still adapt. See [`from`](./color-definitions.md#from).
 
-Windows are validated where they enter: by `configure()` on the spot, and for a per-instance override when the instance resolves. Endpoints must be finite numbers with `lo ≤ hi`, and an object window's `eps` must be a finite number above 0; anything else throws (messages under [Errors](#errors)). Endpoints outside 0–100 then clamp into it, keeping the form you wrote: `[-10, 120]` is stored as `[0, 100]`. `lo === hi` is allowed and renders every tone at that one lightness.
+Windows are validated where they enter: by `configure()` on the spot, and for a per-instance override when the instance resolves. Endpoints must be finite numbers with `lo ≤ hi`, and an object window's `eps` must be a finite number above 0 and at most `1e6` (past that the tone transfer loses precision, and from about `1e15` it renders `NaN`). Anything else throws, `null` included, in `configure()` as in an override (messages under [Errors](#errors)). Endpoints outside 0–100 then clamp into it, keeping the form you wrote: `[-10, 120]` is stored as `[0, 100]`. `lo === hi` is allowed and renders every tone at that one lightness.
+
+## Glow headroom
+
+`glowTuning.headroom` lets a glow go past SDR white. It counts stops above white, doublings of white's luminance: `1` allows up to 2× white (tone 121.98), `2` up to 4× (tone 144.34). At the default `0` nothing changes and no variant carries an HDR value. What an HDR glow is for, and where browsers stand: [HDR glows](../shadows-and-glows.mdx#hdr-glows).
+
+```ts
+glaze.configure({ glowTuning: { headroom: 1 } });
+```
+
+- **Where it's set.** Globally (`glowTuning`), per theme (the override's `glowTuning`; a `glaze.color()` token is never a glow), per color (a glow's `tuning`), or per call (`glaze.glow({ tuning })`). A glow's `tuning.headroom` merges over the global `glowTuning` field by field. An override's `glowTuning` replaces the global object as a whole, so `glaze(280, 80, { glowTuning: { tint: 0.1 } })` drops a global `headroom`, and so does a child's `glowTuning` in `extend()`.
+- **When it applies.** Only to a glow whose target tone (surface tone + `intensity × k`) passes 100, and only where SDR is pinned at its brightest: the pigment at full opacity, or a white surface (tone 100) the pigment can't lift. Such a variant gains `hdr`, an opaque base plus a gain in stops; see [`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr). Every scheme uses the same headroom, high contrast included.
+- **Validation.** It must be a finite number ≥ 0; anything else throws. Above 2 it clamps to 2 with a [warning](#headroom-clamped), deduplicated per field and value and printed only once the whole `configure()` call, instance override, or color map has passed. A `headroom` on `shadowTuning`, a shadow's `tuning`, or `glaze.shadow()` throws: a shadow darkens toward black, and nothing goes below black.
+- **Export.** `export()` freezes `glowTuning` with the clamped headroom, and a glow's own `tuning.headroom` travels with its definition. Snapshots stay at version 2.
+- **Output.** The exporters emit HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output).
 
 ## Per-instance overrides
 
@@ -156,8 +175,8 @@ A `GlazeConfigOverride` overrides resolve-relevant fields for one theme or color
 | `autoFlip` | `boolean` | global `autoFlip` | Default for each color's `autoFlip`. |
 | `inferRole` | `boolean` | global `inferRole` | Name-based role inference. |
 | `contrastLevel` | `number \| 'auto'` | global `contrastLevel` | Manual contrast level for this instance. `'auto'` opts out of a global level. A per-instance level never changes which modes are emitted. Validated when the instance resolves. |
-| `shadowTuning` | `ShadowTuning` | global `shadowTuning` | Replaces the global shadow tuning as a whole for this instance. Per-color `tuning` still merges over it field by field. Meaningful for themes; harmless on tokens. |
-| `glowTuning` | `GlowTuning` | global `glowTuning` | Same for glows. |
+| `shadowTuning` | `ShadowTuning` | global `shadowTuning` | Replaces the global shadow tuning as a whole for this instance. Per-color `tuning` still merges over it field by field. Meaningful for themes; a token has no shadows, but a `headroom` here still throws when it resolves. |
+| `glowTuning` | `GlowTuning` | global `glowTuning` | Same for glows, `headroom` included: an override without `headroom` drops the global one. Validated when the instance resolves. |
 | `pastel` | `boolean` | `false` | Instance-wide [`pastel`](./color-definitions.md#per-color-pastel) default for colors that don't set their own. Instance-only: never read from the global config. |
 
 `states` and `modes` are not part of the override. They are global, or per call on the [output methods](./output.md).
@@ -165,6 +184,7 @@ A `GlazeConfigOverride` overrides resolve-relevant fields for one theme or color
 ### Merge rules
 
 - **Sparse and live.** An instance stores only the fields you set. At resolve time they are merged over the *current* global config, so fields you didn't set keep following `glaze.configure()`.
+- **Copied on creation.** The theme or token copies the override when it is created (and `extend()` copies the child's), so changing the object or array you passed afterwards has no effect. Fields are read by property access, so a class instance with getters, inherited fields, or a proxy works as an override. Validation still waits for the resolve.
 - **Overridden fields are pinned.** A later `configure()` can't change them for this instance.
 - **`extend`** inherits the parent's override and shallow-merges the child's on top.
 - **Export freezes.** `.export(override?)` writes `getConfig() ∪ instance override ∪ override` into the snapshot, and `themeFrom` / `colorFrom` / `paletteFrom` pin that freeze as the restored instance's override. Nested objects (windows, tunings) are replaced wholesale, not merged. `states` and `modes` are never frozen.
@@ -215,7 +235,16 @@ glaze.color(
 | `'fixed'` | No | Applied | Applied |
 | `'static'` | No | Skipped | Skipped |
 
-Tone deltas (`'+N'` / `'-N'`) are measured from the base. Under `'fixed'` and `'static'` the delta is applied to the base's tone in each scheme, sign kept. Under `'auto'`, dark applies it to the base's *light* tone as authored (the light window's lift taken back out), then inverts and remaps the result like an authored tone, so the dark step is the dark window's scale times the delta, about 0.87× at the defaults, on every base (`'-20'` steps 17.3 on tone 97 and on tone 50 alike). The light window doesn't change dark steps; the dark window sets their size. High-contrast steps stay exact. Details: [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts).
+Tone deltas (`'+N'` / `'-N'`) are measured from the base. Under `'fixed'` and `'static'` the delta is applied to the base's tone in each scheme, sign kept. Under `'auto'` it is applied as is in `light` and `lightContrast`. In dark, Glaze steps from the base's **anchor**, where the base sits on the authored scale, then inverts and remaps the result like an authored tone:
+
+| Base | Anchor |
+| --- | --- |
+| Placed by a tone (absolute, `from`, `'max'` / `'min'` without a base, or a `'fixed'` / `'static'` `'max'` / `'min'` on a base), or by a chain of deltas | Its authored tone. |
+| No `tone` or `contrast` of its own | Its base's anchor. |
+| An `'auto'` base placed by a contrast floor, a mix, or a `'max'` / `'min'` on a base | Its own dark tone, read back through the dark window. |
+| A `'fixed'` or `'static'` base placed by a contrast floor | Its light tone, read back through the light window. |
+
+At the reference dark `eps`, every dark step on a base that inverts in dark is then the dark window's scale times the delta, about 0.87× at the defaults (`'-20'` steps +17.3 on tone 97 and on tone 50 alike), and every `darkContrast` step is exact, under any light `eps`. The dark window sets their size, and a custom dark `eps` reshapes them in `dark` and `darkContrast` alike: a dark delta lands where the same authored tone would. A `'fixed'` or `'static'` base doesn't invert, so its anchor is on the light side and the `'auto'` dependent inverts on its own: `'+10'` on a fixed tone-30 base steps +10 in light and +26.0 in dark. Near the ends of the scale, dark has two clamps of its own (a step off the scale, a base past the dark window), listed under [Tone values](./color-definitions.md#tone-values). Concept: [How relative tone adapts](../schemes.mdx#how-relative-tone-adapts).
 
 ## Scheme mapping
 
@@ -307,8 +336,10 @@ Glaze validates a theme's definitions when it resolves — on the first `resolve
 | Non-finite or non-number `darkDesaturation` (same two places) | `glaze: darkDesaturation must be a finite number 0–1 (got NaN).` |
 | Tone window with `lo` above `hi` (same two places, for `lightTone` or `darkTone`) | `glaze: lightTone lo (90) is above hi (20). A window runs from its dark end to its light end: [lo, hi] with lo ≤ hi, e.g. [20, 90].` |
 | Tone window endpoint that isn't a finite number | `glaze: lightTone lo must be a finite number (got NaN).` |
-| Object tone window whose `eps` isn't a finite number above 0 (missing included) | `glaze: lightTone eps must be a finite number above 0 (got 0).` |
-| Tone window that isn't `[lo, hi]`, `{ lo, hi, eps }`, or `false` | `glaze: lightTone must be [lo, hi], { lo, hi, eps }, or false (got [10]).` |
+| Object tone window whose `eps` isn't a finite number above 0 and at most `1e6` (missing included) | `glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got 0).` |
+| Tone window that isn't `[lo, hi]`, `{ lo, hi, eps }`, or `false` (`null` included) | `glaze: lightTone must be [lo, hi], { lo, hi, eps }, or false (got [10]).` |
+| Glow `headroom` that isn't a finite number ≥ 0: in `glowTuning` (same two places), a glow's `tuning` (at resolve), or `glaze.glow()` | `glaze: glowTuning.headroom must be a finite number ≥ 0 — stops above SDR white (got -1).` The prefix names the source (`glow "g" tuning`, `glaze.glow() tuning`), and the value is shown as written: `(got "2")`, `(got [1])`. |
+| `headroom` in `shadowTuning`, a shadow's `tuning`, or `glaze.shadow()` | `glaze: shadowTuning.headroom is not supported — a shadow darkens toward black, and nothing goes below black. Headroom is for glows (glowTuning or a glow's tuning).` |
 
 ### Color value errors
 
@@ -351,7 +382,7 @@ Errors specific to the structured `glaze.color()` input, restoring snapshots, an
 | WCAG numeric target | At least 1 |
 | APCA numeric target | Its magnitude (`-60` → `60`) |
 
-A tone delta that overshoots `[0, 100]` mirrors to the other side of its base when `autoFlip` is on; if the mirror also overshoots, it clamps on the authored side. With `autoFlip: false` it clamps on the authored side. For example, a `'static'` color with `tone: '-20'` on a static base at tone 10 resolves to 30 with `autoFlip` and to 0 without, in every scheme; with `'-60'` on a base at 50 it resolves to 0 either way. An `'auto'` child gets the same results in light; in dark it follows the light-anchored rule in [Adaptation modes](#adaptation-modes).
+A tone delta that overshoots `[0, 100]` mirrors to the other side of its base when `autoFlip` is on; if the mirror also overshoots, it clamps on the authored side. With `autoFlip: false` it clamps on the authored side. For example, a `'static'` color with `tone: '-20'` on a static base at tone 10 resolves to 30 with `autoFlip` and to 0 without, in every scheme; with `'-60'` on a base at 50 it resolves to 0 either way. An `'auto'` child gets the same results in light. In dark it inverts that light-side result, by the anchor rule in [Adaptation modes](#adaptation-modes): 30 becomes 69.9. The flip is always decided in light, and dark mirrors whichever side light took, with two dark-only clamps (a step off the scale, a base past the dark window) listed under [Tone values](./color-definitions.md#tone-values).
 
 ### Resolved with a warning
 
@@ -359,11 +390,13 @@ A tone delta that overshoots `[0, 100]` mirrors to the other side of its base wh
 | --- | --- |
 | A regular color's `contrast` floor is out of reach | Pins to the extreme of the side searched first; [contrast unmet](#contrast-unmet) warning. |
 | A mix's `contrast` floor is out of reach | Pins to the end of the base → target range it searched; [mix contrast unmet](#mix-contrast-unmet) warning. |
-| A shadow / glow step is out of the pigment's reach | Pins to the pigment's strongest composite (or stays transparent if it can't move the surface at all); [lighting](#shadow-or-glow-out-of-reach) warning. |
+| A shadow / glow step is out of the pigment's reach | Pins to the pigment's strongest composite (or stays transparent if it can't move the surface at all); [lighting](#shadow-or-glow-out-of-reach) warning. A glow whose HDR value covers the step doesn't warn. |
+| A glow step past white that its `headroom` cap leaves short | The HDR value pins at the cap, `2^headroom` on the brightest channel; the HDR form of the [lighting](#shadow-or-glow-out-of-reach) warning. |
+| A glow `headroom` above 2 | Clamps to 2; [headroom clamped](#headroom-clamped) warning. |
 | `contrast` and `opacity` on the same color | Resolves the floor for the opaque color; [contrast and opacity](#contrast-and-opacity) warning. |
 | A color string with an alpha component (`#rrggbbaa`, `rgb(… / a)`) where Glaze has no opacity field | Alpha dropped; [alpha dropped](#alpha-dropped) warning. |
 
-An unmet mix normally pins to the pure target. A mix whose value is already 100, including the high-contrast entry of `value: [80, 100]`, can only search toward the base, so it pins to the pure base instead.
+An unmet mix normally pins to the pure target. A mix whose value is already 100, including the high-contrast entry of `value: [80, 100]`, can only search toward the base, so when its pure target misses the floor it pins to the pure base instead. A pure target that clears the floor, even inside the solver's margin, is kept.
 
 ## Warnings
 
@@ -374,13 +407,14 @@ Glaze reports problems it can recover from through `console.warn`, always prefix
 | [Contrast unmet](#contrast-unmet) | The solver can't reach a regular color's floor in a scheme. | Yes |
 | [Mix contrast unmet](#mix-contrast-unmet) | The solver can't reach a mix's floor in a scheme. | Yes |
 | [Contrast drift](#contrast-drift) | A chromatic color the solver reported as meeting its floor measures under it after resolution. | Yes |
-| [Shadow or glow out of reach](#shadow-or-glow-out-of-reach) | A `shadow` / `glow` step exceeds what its pigment can do. | Yes |
+| [Shadow or glow out of reach](#shadow-or-glow-out-of-reach) | A `shadow` / `glow` step exceeds what its pigment can do, or a glow's `headroom` cap leaves its step short. | Yes |
+| [Headroom clamped](#headroom-clamped) | A glow `headroom` above 2 is clamped. | Yes |
 | [Contrast and opacity](#contrast-and-opacity) | A regular color has both `contrast` and `opacity`. | No — once per resolve |
 | [Alpha dropped](#alpha-dropped) | A color value carries alpha that Glaze discards. | No |
 | [Percentage scale](#percentage-scale) | A `format*` writer gets a value above 1. | Once per writer |
 | Palette collision | Two palette themes produce the same token name. See [Collision detection](./palette.md#collision-detection). | No |
 
-The first four share one session cache of 256 keys, which starts over when full. A key includes the color name, scheme, target, and measured value, so a dev server that re-resolves on every change prints each distinct problem once. Resolved themes are cached until their definitions or the config change, so the contrast-and-opacity warning prints once per actual resolve. The alpha-dropped warning for a theme color's `from` can print several times within one resolve, since the value is parsed more than once.
+The first five share one session cache of 256 keys, which starts over when full. A key includes the color name, scheme, target, and measured value (for a clamp, the field and value), so a dev server that re-resolves on every change prints each distinct problem once. Resolved themes are cached until their definitions or the config change, so the contrast-and-opacity warning prints once per actual resolve. The alpha-dropped warning for a theme color's `from` can print several times within one resolve, since the value is parsed more than once.
 
 ### Contrast unmet
 
@@ -425,6 +459,26 @@ Lower the intensity, move the surface away from white, or raise a
 ```
 
 Fires when the composite lands more than 0.05 tones short of `intensity × k`. The standalone functions name themselves instead of a color and omit the scheme: `glaze: glaze.glow() cannot reach a 5.0-tone step (reached 0.0 at full strength). …`. A shadow's message suggests moving the surface away from black. See [Unreachable steps](../shadows-and-glows.mdx#unreachable-steps).
+
+With a [`headroom`](#glow-headroom), a glow whose HDR value covers the step prints nothing. One the cap leaves short gets this form instead, here for a 30-tone glow on a tone-100 surface at `headroom: 1`:
+
+```text
+glaze: glow "big" cannot reach a 30.0-tone step in light scheme even
+  with 1 stop of headroom (reached 22.0).
+Lower the intensity or raise `headroom`.
+```
+
+At `headroom: 2` the advice reads ``Lower the intensity; `headroom` is already at its 2-stop maximum.`` A glow whose pigment can't lift a non-white surface at all (`reach: 0`, say) gets no HDR value and keeps the first form.
+
+### Headroom clamped
+
+```text
+glaze: glowTuning.headroom 3 is above the 2-stop maximum; using 2.
+Headroom counts stops (doublings of SDR white's luminance), not a
+  ratio: 1 stop is 2× white, 2 stops 4×.
+```
+
+A `headroom` above 2 is likely a ratio typed where stops were meant (`4` for "4× white"). The prefix names where the value came from: `glowTuning`, `glow "g" tuning`, or `glaze.glow() tuning`. Printed once per field and value, and only after the whole `configure()` call, instance override, or color map has validated, so a call that throws on another field leaves the warning for the corrected retry.
 
 ### Contrast and opacity
 

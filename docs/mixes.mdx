@@ -70,7 +70,7 @@ Every field is listed in [Color definitions](./reference/color-definitions.md#mi
 ## Opaque mix
 
 An opaque mix (the default, `blend: 'opaque'`) interpolates between the
-resolved base and target and emits a solid color with alpha 1. `value: 0` is
+resolved base and target and emits a solid color with alpha 1. `value: 0` is
 the base, `value: 100` is the target. Because base and target are resolved for
 each scheme first, the mix follows them: a tint of the accent over the surface
 in light mode is a tint of the dark-mode accent over the dark-mode surface in
@@ -96,7 +96,7 @@ The same two colors, mixed at every tenth of the way in each space:
   }}
   base="blue"
   target="yellow"
-  caption="Blue (hue 260, tone 40) toward yellow (hue 95, tone 90). Top number: value. Bottom number: the result's tone. OKHSL walks the hue around the wheel through cyan and green; linear sRGB passes through desaturated colors."
+  caption="Blue (hue 260, tone 40) toward yellow (hue 95, tone 90). Top number: value. Bottom number: the result's tone. OKHSL walks the hue around the wheel through cyan and green; linear sRGB passes through desaturated colors."
 />
 
 <MixRamp
@@ -209,14 +209,46 @@ your `value` as it can.
 - For APCA floors, `role` sets the polarity of the mix against its `base`,
   exactly as on a regular color ([roles](./contrast.mdx#roles-and-apca-polarity)).
 - When even the pure target cannot meet the floor, the mix settles at the
-  pure target for any `value` below 100. A `value` of 100 (including a
-  high-contrast entry of 100) has no room above, so it falls back to
-  `value: 0`: the base itself, and a transparent mix vanishes. Keep `value`
-  below 100 when you set a floor. Either way Glaze warns once per scheme, like
-  it does for a regular color: `glaze: mix "<name>" cannot meet WCAG 4.50
-  against its base in light scheme (got <ratio>).` The fix is a target further
-  from the base or a lower floor; see
-  [Warnings](./reference/configuration.md#mix-contrast-unmet).
+  pure target for any `value` below 100.
+- A `value` of 100 is the pure target already. Glaze keeps it whenever it
+  clears the floor, even inside the solver's safety margin. When it misses,
+  there is no room above, so the mix falls back to `value: 0`: the base
+  itself, and a transparent mix vanishes. That includes a high-contrast entry
+  of 100. Keep `value` below 100 when you set a floor.
+
+An unmet floor warns once per scheme, like it does for a regular color. Below,
+`accent-fill` meets AA in light at about 4.55:1. In dark the pure target
+reaches only 4.24:1, so the mix settles there. High contrast escalates the
+floor to 7:1, which the pure target misses (5.72:1 in light high contrast), so
+the high-contrast entry of 100 falls back to the surface itself:
+
+```ts
+const theme = glaze(280, 80);
+
+theme.colors({
+  surface: { tone: 95 },
+  accent: { tone: 40 },
+  'accent-fill': {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: [80, 100],
+    contrast: 'AA',
+  },
+});
+```
+
+```text
+glaze: mix "accent-fill" cannot meet WCAG 7.00 against its base in
+  lightContrast scheme (got 1.00).
+Even the pure target falls short; try lowering the contrast target or
+  mixing toward a color further from the base.
+```
+
+The dark-scheme warning names `WCAG 4.50` and `(got 4.24)` instead. The fix is
+a target further from the base or a lower floor. Here `contrast: ['AA', 'AA']`
+holds high contrast at 4.5:1, which the pure target clears, so its entry of
+100 is kept. See [Warnings](./reference/configuration.md#mix-contrast-unmet).
 
 ## Mix chaining
 
@@ -244,7 +276,7 @@ A mix can use another mix as its `base` or `target`:
     },
   }}
   scheme="light"
-  caption="Light scheme, where the auto black sits at the light tone window's floor rather than tone 0. gray is halfway from white to black in linear sRGB; gray-light is halfway from white to gray. In dark schemes white and black invert, so the whole chain mirrors."
+  caption="Light scheme, where the auto black sits at the light tone window's floor rather than tone 0. gray is halfway from white to black in linear sRGB; gray-light is halfway from white to gray. In dark schemes white and black invert, so the whole chain mirrors."
 />
 
 A mix **cannot** reference a `shadow` or `glow` color, as `base` or as

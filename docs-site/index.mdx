@@ -147,9 +147,9 @@ white for a glow by default. Glaze solves their opacity per surface, so once the
 browser composites them the surface lands exactly `intensity` tones darker or
 lighter: on light, dark, and chromatic surfaces alike, as long as the surface
 has room for the step. A shadow can't go past black and a glow can't go past
-white, so an out-of-reach step gets as close as it can and logs a console
-warning: the card shadow at the top of this page disappears in dark high
-contrast, where the page is already black (see
+white in SDR, so an out-of-reach step gets as close as it can and logs a
+console warning: the card shadow at the top of this page disappears in dark
+high contrast, where the page is already black (see
 [unreachable steps](../docs/shadows-and-glows.mdx#unreachable-steps)). An
 optional object color (`fg`) deepens or softens the step the way bounce light
 does.
@@ -215,6 +215,10 @@ browsers, and edge runtimes.
   [hue and saturation](../docs/reference/color-definitions.md#hue-and-saturation).
 - **Mixes.** Blend two colors in OKHSL or sRGB, opaque or transparent, with
   optional contrast solving. See [Mixes and transparency](../docs/mixes.mdx).
+- **HDR glows.** Set `glowTuning.headroom`, and a glow whose step passes
+  white also gets an exact HDR value for displays and native apps that can
+  show it; exporters add it when you turn on `modes.hdr`. See
+  [HDR glows](../docs/shadows-and-glows.mdx#hdr-glows).
 - **Brand colors.** Start a theme from a hex or RGB value with
   `glaze.fromHex()` / `glaze.fromRgb()`, or seed a single color from a literal
   value with `from`. See

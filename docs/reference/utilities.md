@@ -1,6 +1,6 @@
 ---
 title: Utilities
-description: glaze.format, standalone glaze.shadow and glaze.glow, and the color math, tone, contrast-solver, role, and guard functions Glaze exports for custom pipelines.
+description: glaze.format and glaze.formatHdr, standalone glaze.shadow and glaze.glow, and the color math, tone, contrast-solver, role, and guard functions Glaze exports for custom pipelines.
 ---
 
 Most code only needs `glaze()` and its output methods. The functions on this page are for formatting single values, computing an overlay outside a theme, and building your own pipeline on Glaze's math. Everything here is exported from `'@tenphi/glaze'`.
@@ -41,6 +41,65 @@ const plain = { ...light, pastel: undefined }; // read as non-pastel
 glaze.format(plain); // 'oklch(0.6542 0.1604 280)'
 ```
 
+`glaze.format()` writes the SDR color only. A glow's HDR value has its own writer, below.
+
+## `glaze.formatHdr(variant, hdrFormat?)`
+
+Formats a variant's HDR value, the [`hdr`](./color-definitions.md#hdr-values-resolvedhdr) a glow carries when its step passes SDR white with a `headroom` above 0.
+
+```ts
+glaze.formatHdr(
+  variant: ResolvedColorVariant,
+  hdrFormat?: GlazeHdrFormat,
+): string | undefined
+```
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `variant` | `ResolvedColorVariant` | — | A variant from `resolve()` or `glaze.glow()`. |
+| `hdrFormat` | `GlazeHdrFormat` | `'srgb-linear'` | The only format: `type GlazeHdrFormat = 'srgb-linear'`. |
+
+- Writes `color(srgb-linear R G B)`: the base's linear sRGB times `2^exposure`, 4 decimals, unclamped, so the brightest channel is above 1. Opaque: no alpha.
+- Returns `undefined` for a variant without `hdr`.
+- Any other `hdrFormat` throws `glaze: unknown HDR format "oklch". Use 'srgb-linear'.` OKLCH lightness clamps at parse time, and `rgb()` / `hsl()` can't go past white.
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+const v = glaze.glow({
+  bg: '#ffffff',
+  intensity: 12,
+  tuning: { headroom: 1 },
+});
+
+glaze.format(v); // 'oklch(1 0 0)' — SDR, pinned at white
+v.hdr; // → { h: 0, s: 0, t: 1, exposure: 0.5489… }
+glaze.formatHdr(v); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
+
+const shade = glaze.shadow({ bg: '#ffffff', intensity: 6 });
+glaze.formatHdr(shade); // undefined
+```
+
+`'#ffffff'` parses a hair below tone 100 (99.9999994), so the white pigment pins at α 1 and SDR is opaque white. A theme's `tone: 100` surface, or `bg: { h: 0, s: 0, t: 1 }`, is exact white: SDR stays transparent (α 0), and the HDR value is the same.
+
+To build the value yourself, for a native API that takes linear components, scale the base of `v` above and write it with [`formatSrgbLinear`](#format-writers):
+
+```ts
+import {
+  okhstToOkhsl,
+  okhslToLinearSrgb,
+  formatSrgbLinear,
+} from '@tenphi/glaze';
+
+const { h, s, l } = okhstToOkhsl(v.hdr!);
+const gain = 2 ** v.hdr!.exposure;
+const rgb = okhslToLinearSrgb(h, s, l).map((c) => c * gain);
+formatSrgbLinear(rgb as [number, number, number]);
+// → 'color(srgb-linear 1.4631 1.4631 1.4631)'
+```
+
+Theme output carries HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output).
+
 ## `glaze.shadow(input)` / `glaze.glow(input)`
 
 Compute a shadow or glow overlay over one surface, outside a theme. The result is the pigment and the opacity that lands the composite exactly `intensity × k` tones darker (`shadow`) or lighter (`glow`) than `bg`, the same solve a theme runs per scheme. How it works: [Shadows and glows](../shadows-and-glows.mdx).
@@ -50,20 +109,20 @@ glaze.shadow(input: GlazeShadowInput): ResolvedColorVariant
 glaze.glow(input: GlazeGlowInput): ResolvedColorVariant
 ```
 
-`GlazeShadowInput` and `GlazeGlowInput` are aliases of `GlazeLightingInput`:
+`GlazeShadowInput` is an alias of `GlazeLightingInput`; `GlazeGlowInput` extends it with glow tuning (`tuning?: GlowTuning`):
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `bg` | `GlazeColorValue` | The surface. Any [color value](./color-tokens.md) form: hex (`#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` / `okhst()` / `oklch()` strings, or `{ r, g, b }` / `{ h, s, l }` / `{ h, s, t }` / `{ l, c, h }` objects. An alpha component is dropped with a warning. |
 | `fg` | `GlazeColorValue` | Optional. The object casting the shadow or emitting the glow. Same forms. Without it, `k = 1`. |
 | `intensity` | `number` | The tone step, 0–100. Clamped. |
-| `tuning` | `LightingTuning` | Optional. Merges field by field over the global `shadowTuning` / `glowTuning` and the defaults. Fields: [`LightingTuning`](./color-definitions.md#lightingtuning). |
+| `tuning` | `ShadowTuning` / `GlowTuning` | Optional. Merges field by field over the global `shadowTuning` / `glowTuning` and the defaults. Fields: [`LightingTuning`](./color-definitions.md#lightingtuning). A glow's can set `headroom`; a shadow's `headroom` throws `glaze: glaze.shadow() tuning.headroom is not supported — …`. |
 
 - The object factor is `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`, with `d = +1` for a shadow, `−1` for a glow, and `β = objectInfluence`.
 - There are no schemes here: call it once per surface you composite onto. Per-instance config overrides don't apply; only the global tuning does.
 - The result is `{ h, s, t, alpha }` with no `pastel` flag. Format it with `glaze.format()`.
-- Compositing is modeled the way browsers paint (`source-over` on gamma-encoded sRGB), and the pigment is an sRGB color, so a glow can't go past sRGB white.
-- An out-of-reach step pins to the pigment's strongest composite and warns `glaze: glaze.glow() cannot reach a 5.0-tone step …` ([details](./configuration.md#shadow-or-glow-out-of-reach)).
+- Compositing is modeled the way browsers paint (`source-over` on gamma-encoded sRGB), and the pigment is an sRGB color, so the result itself can't go past sRGB white. With a `headroom` (from `tuning` or the global `glowTuning`), a glow whose step would pass white also returns [`hdr`](./color-definitions.md#hdr-values-resolvedhdr); format it with [`glaze.formatHdr()`](#glazeformathdrvariant-hdrformat).
+- An out-of-reach step pins to the pigment's strongest composite and warns `glaze: glaze.glow() cannot reach a 5.0-tone step …`. A glow whose HDR value covers the step doesn't warn; one capped by its `headroom` warns `… even with 1 stop of headroom (reached 22.0). …` ([details](./configuration.md#shadow-or-glow-out-of-reach)).
 
 ```ts
 glaze.shadow({ bg: '#ffffff', intensity: 6 });
@@ -84,6 +143,21 @@ glaze.glow({
   tuning: { tint: 0.3, reach: 0.85 },
 });
 // → { h: 280, s: 0.3, t: 0.8712…, alpha: 0.0745… }
+
+// A 12-tone glow on a tone-95 gray passes white: SDR pins at
+// opaque white, HDR lands tone 107
+glaze.glow({
+  bg: { h: 0, s: 0, t: 0.95 },
+  intensity: 12,
+  tuning: { headroom: 1 },
+});
+// → {
+//   h: 0,
+//   s: 0,
+//   t: 1,
+//   alpha: 1,
+//   hdr: { h: 0, s: 0, t: 1, exposure: 0.3212… },
+// }
 ```
 
 ## Color math
@@ -149,7 +223,7 @@ APCA contrast is [`apcaContrast`](#apcacontrastytext-ybg) below.
 
 ### Format writers
 
-Write one OKHSL (or OKHST) color as a string. Every writer takes `h` on 0–360 and `s` / `l` / `t` on **0–1** — the scale every converter returns — and scales to percentages itself.
+Write one OKHSL (or OKHST) color as a string. Every writer but `formatSrgbLinear` takes `h` on 0–360 and `s` / `l` / `t` on **0–1** — the scale every converter returns — and scales to percentages itself.
 
 | Function | Output |
 | --- | --- |
@@ -158,6 +232,7 @@ Write one OKHSL (or OKHST) color as a string. Every writer takes `h` on 0–360 
 | `formatRgb(h, s, l, pastel?)` | `rgb(R G B)`, channels 0–255 with up to 2 decimals |
 | `formatHsl(h, s, l, pastel?)` | `hsl(H S% L%)` |
 | `formatOklch(h, s, l, pastel?)` | `oklch(L C H)`, `L` / `C` to 4 decimals, `H` to 2 |
+| `formatSrgbLinear([r, g, b])` | `color(srgb-linear R G B)`, linear channels to 4 decimals, unclamped (below) |
 
 ```ts
 import {
@@ -179,6 +254,15 @@ formatOklch(0, 0, 0.5); // 'oklch(0.5688 0 0)'
 - With `pastel: true`, `formatOkhsl` and `formatOkhst` re-express the saturation as its standard OKHSL equivalent, so parsers that don't know about pastel render the same color: `formatOkhsl(280, 0.6, 0.6, true)` → `'okhsl(280 34.46% 60%)'`. The other writers convert the pastel color directly.
 - The writers emit no alpha. For a string with alpha, use [`glaze.format()`](#glazeformatvariant-format-pastel) on a variant.
 - A value above 1 means pre-2.0 percentage input: each writer warns once per process ([Percentage scale](./configuration.md#percentage-scale)) and still formats the value.
+
+`formatSrgbLinear(rgb)` is the odd one out: it takes **linear sRGB** channels, not OKHSL, and writes `color(srgb-linear R G B)` with 4 decimals. It doesn't clamp and doesn't warn above 1, because that is its job: `1` is SDR white and `2` one stop above it. It is the writer behind [`glaze.formatHdr()`](#glazeformathdrvariant-hdrformat).
+
+```ts
+import { formatSrgbLinear } from '@tenphi/glaze';
+
+formatSrgbLinear([2, 2, 2]); // 'color(srgb-linear 2 2 2)'
+formatSrgbLinear([1.2, 0.5, -0.1]); // 'color(srgb-linear 1.2 0.5 -0.1)'
+```
 
 A resolved variant composes with the writers directly; `variantToOkhsl` turns its tone into OKHSL lightness:
 
@@ -207,8 +291,8 @@ The tone transfer behind OKHST. The model and why `eps` is `0.05`: [Tone and OKH
 | --- | --- |
 | `toTone(l, eps = REF_EPS)` | OKHSL lightness (0–1) → tone (**0–100**). Divide by 100 for `formatOkhst` or a variant's `t`. |
 | `fromTone(t, eps = REF_EPS)` | Tone (**0–100**) → OKHSL lightness (0–1). Inverse of `toTone`. |
-| `toneFromY(y, eps = REF_EPS)` | Luminance (0–1) → tone (0–100): `100 · ln((y + eps) / eps) / ln((1 + eps) / eps)`. |
-| `yFromTone(t, eps = REF_EPS)` | Tone (0–100) → luminance (0–1). Inverse of `toneFromY`. |
+| `toneFromY(y, eps = REF_EPS)` | Luminance → tone: `100 · ln((y + eps) / eps) / ln((1 + eps) / eps)`. Luminance 0–1 maps to tone 0–100, unclamped: `Y` above 1 (HDR) gives a tone above 100 (`Y` 2 → 121.98). |
+| `yFromTone(t, eps = REF_EPS)` | Tone → luminance. Inverse of `toneFromY`, unclamped past tone 100. |
 | `okhstToOkhsl({ h, s, t })` | OKHST (`t` 0–1) → `{ h, s, l }`. |
 | `okhslToOkhst({ h, s, l })` | OKHSL → `{ h, s, t }` (`t` 0–1). |
 | `variantToOkhsl(variant)` | A `ResolvedColorVariant` → `{ h, s, l }` for rendering. `alpha` and `pastel` stay on the variant. |
@@ -331,14 +415,14 @@ Searches tone for the value nearest `preferredTone` that meets a floor against a
 | --- | --- | --- | --- |
 | `hue` | `number` | — | Candidate hue, 0–360. |
 | `saturation` | `number` | — | Candidate OKHSL saturation, 0–1. |
-| `preferredTone` | `number` | — | Starting tone. Returned as-is if it already passes. |
+| `preferredTone` | `number` | — | Starting tone. Returned as is if it already passes, and kept when nothing searched does better (see `branch`). |
 | `baseLinearRgb` | `[r, g, b]` | — | The base color, linear sRGB. |
 | `contrast` | `ResolvedContrast` | — | `{ metric, target, polarity? }`, e.g. from `resolveContrastForMode`. |
 | `toneRange` | `[number, number]` | `[0, 1]` | Search bounds. Glaze itself searches the full `[0, 1]` and only clamps `preferredTone` into the scheme's tone window (`'max'` / `'min'` excepted), so a floor can push a color past the window. |
 | `epsilon` | `number` | `1e-4` | Convergence threshold. |
 | `maxIterations` | `number` | `18` | Binary-search iterations per side. |
-| `initialDirection` | `'lighter' \| 'darker'` | Side whose bound scores higher | Side to search first. When `preferredTone` sits on a bound, the only open side. |
-| `flip` | `boolean` | `false` | Also search the opposite side. Without it, a side that can't reach the target pins the result to that side's bound. When both sides pass, the result nearer `preferredTone` wins; a tie keeps `initialDirection`. |
+| `initialDirection` | `'lighter' \| 'darker'` | Side whose bound scores higher; a tie within float noise (a gray base at tone 50) starts `'darker'` | Side to search first. When `preferredTone` sits on a bound, the only open side. |
+| `flip` | `boolean` | `false` | Also search the opposite side. Without it, a side that can't reach the target pins the result to that side's bound, unless `preferredTone` itself clears the bare target: it is then kept, met, with `branch: 'preferred'`. When both sides pass, the result nearer `preferredTone` wins; a tie keeps `initialDirection`. |
 | `preferInitial` | `boolean` | `false` | With `flip`, when both sides pass, keep `initialDirection` instead of the result nearer `preferredTone`. The manual contrast level uses it so a color keeps its side across the ramp. |
 | `pastel` | `boolean` | `false` | Use the pastel gamut for the candidate. |
 
@@ -349,12 +433,14 @@ Searches tone for the value nearest `preferredTone` that meets a floor against a
 | `tone` | `number` | The chosen tone, 0–1. |
 | `contrast` | `number` | The achieved score: WCAG ratio or APCA Lc magnitude. |
 | `met` | `boolean` | Whether `contrast` reaches the target. |
-| `branch` | `'lighter' \| 'darker' \| 'preferred'` | The side the result was found on. `'preferred'` means `preferredTone` already passed. |
+| `branch` | `'lighter' \| 'darker' \| 'preferred'` | The side the result was found on; a met result sits on that side of the base. `'preferred'` whenever a met result is `preferredTone` itself: it already cleared the overshoot, or it clears the bare target and no search could improve on it (no searched side met the floor, or the starting side's only position was `preferredTone`, on that side's bound). Also `'preferred'` when `toneRange` leaves no room to search, met or not. An unmet result otherwise names the side whose bound it pinned to. |
 | `flipped` | `true` (optional) | Present when the result is on the side opposite `initialDirection`. |
 
 The search aims slightly past the target (WCAG ×1.01, APCA +0.5 Lc) to absorb rounding in the output formats; `met` is judged against the exact target. WCAG scores use `gamutClampedLuminance`, APCA scores use `Ys` with `polarity` deciding which side is the text.
 
-The two sides meet at `preferredTone`. Once it misses the overshoot target it sits between the passing tones on either side of the base, so each side can only reach its own: a met `'darker'` result sits below the base and a `'lighter'` one above it, and clears the overshoot unless it is that side's bound. A side that can't reach the target reports its bound, never a tone next to `preferredTone`. For WCAG, the first side's search starts from the closed-form gray seed, which can narrow that side but never extend it past `preferredTone`. With `flip`, two passing sides whose distances from `preferredTone` differ by no more than twice the search resolution (`epsilon`, or the solver's 0.0001 tone step if coarser) count as a tie. A neutral color whose `preferredTone` is the base's own tone sits exactly as far from either crossing, so without that margin search noise would pick its side.
+The two sides meet at `preferredTone`. Once it misses the overshoot target it sits between the passing tones on either side of the base, so each side can only reach its own: a met `'darker'` result sits below the base and a `'lighter'` one above it, and clears the overshoot unless it is that side's bound. A side that can't reach the target reports its bound, never a tone next to `preferredTone`. When no searched side reaches the floor but `preferredTone` clears the bare target (it sits on a bound, or `flip` is off and `initialDirection` points away from it), `preferredTone` wins over the unmet bound: it is returned met, with `branch: 'preferred'`. White against a tone-35 gray at a 7.2:1 floor comes back as `{ tone: 1, contrast: 7.23…, met: true, branch: 'preferred' }`.
+
+For WCAG, the first side measures the closed-form gray seed (the gray tone at exactly the target ratio) before it bisects. The seed is only a probe: it narrows the search but never bounds it, so a chromatic color still lands on its own crossing nearest `preferredTone`, at about the overshoot (4.546:1 for a 4.5 floor). Without `initialDirection`, the search starts toward the bound that scores higher, and a float-noise tie between the two (a gray base at tone 50) starts darker. With `flip`, two passing sides whose distances from `preferredTone` differ by no more than twice the search resolution (`epsilon`, or the solver's 0.0001 tone step if coarser) count as a tie. A neutral color whose `preferredTone` is the base's own tone sits exactly as far from either crossing, so without that margin search noise would pick its side.
 
 ```ts
 import {
@@ -372,7 +458,7 @@ findToneForContrast({
   baseLinearRgb: surface,
   contrast: { metric: 'wcag', target: 4.5 },
 });
-// → { tone: 0.4758…, contrast: 4.67…, met: true, branch: 'darker' }
+// → { tone: 0.4846…, contrast: 4.54…, met: true, branch: 'darker' }
 
 findToneForContrast({
   hue: 280,
@@ -408,7 +494,7 @@ The same search over a mix parameter (0–1) between a base and a target — wha
 | `maxIterations` | `number` | `20` | Binary-search iterations per side. |
 | `flip` | `boolean` | `false` | Also search the opposite side of `preferredValue`. |
 
-It starts toward whichever end (0 or 1) scores higher, or toward the only open side when `preferredValue` is 0 or 1, and on failure pins to the end it started toward. So a mix at value 1 that misses its floor pins to 0, the pure base. As with tone, the two sides meet at `preferredValue`, and a side that can't reach the target reports its end — never `preferredValue` itself, even when that clears the bare target but not the overshoot. `FindValueForMixContrastResult` is `{ value, contrast, met, flipped? }`.
+It starts toward whichever end (0 or 1) scores higher (a tie starts toward 0), or toward the only open side when `preferredValue` is 0 or 1, and on failure pins to the end it started toward. As with tone, the two sides meet at `preferredValue`, and a side that can't reach the target reports its end, never a value next to `preferredValue`. When no searched side reaches the floor but `preferredValue` itself clears the bare target, it is kept, met. So a mix at value 1 keeps a pure target that clears the floor, even inside the overshoot, and pins to 0, the pure base, only when the pure target misses. `FindValueForMixContrastResult` is `{ value, contrast, met, flipped? }`. The options have no `targetLinearRgb`: the solver sees the target only through `luminanceAtValue`.
 
 ```ts
 import {
@@ -430,6 +516,17 @@ findValueForMixContrast({
   luminanceAtValue: (t) => relativeLuminanceFromLinearRgb(lerp(t)),
 });
 // → { value: 0.766…, contrast: 3.03…, met: true }
+
+// A pure target at 4.52:1 against white: inside the overshoot,
+// above the bare 4.5, so value 1 is kept
+const yTarget = 1.05 / 4.52 - 0.05;
+findValueForMixContrast({
+  preferredValue: 1,
+  baseLinearRgb: [1, 1, 1],
+  contrast: { metric: 'wcag', target: 4.5 },
+  luminanceAtValue: (t) => 1 + (yTarget - 1) * t,
+});
+// → { value: 1, contrast: 4.52, met: true }
 ```
 
 ### Constants and types
