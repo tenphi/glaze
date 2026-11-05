@@ -459,6 +459,41 @@ describe('darkDesaturation validation', () => {
     expect(resolved.dark.s).toBeCloseTo(resolved.light.s, 10);
   });
 
+  it('throws for null, globally and per instance, like any non-number', () => {
+    // Only `undefined` means "keep"; `??` used to read `null` as unset.
+    glaze.configure({ darkDesaturation: 0.25, contrastLevel: 40 });
+    expect(() =>
+      glaze.configure({ darkDesaturation: null as unknown as number }),
+    ).toThrow(
+      'glaze: darkDesaturation must be a finite number 0–1 (got null).',
+    );
+    expect(() =>
+      glaze.configure({ contrastLevel: null as unknown as number }),
+    ).toThrow(
+      "glaze: contrastLevel must be a finite number 0–100 or 'auto' (got null).",
+    );
+    expect(glaze.getConfig().darkDesaturation).toBe(0.25);
+    expect(glaze.getConfig().contrastLevel).toBe(40);
+
+    const theme = glaze(0, 80, {
+      contrastLevel: null as unknown as number,
+    });
+    theme.colors({ a: { tone: 50 } });
+    expect(() => theme.resolve()).toThrow(/contrastLevel .* \(got null\)/);
+    expect(() =>
+      glaze
+        .color('#3366cc', { darkDesaturation: null as unknown as number })
+        .resolve(),
+    ).toThrow(/darkDesaturation .* \(got null\)/);
+  });
+
+  it('keeps the current value for undefined', () => {
+    glaze.configure({ darkDesaturation: 0.25, contrastLevel: 40 });
+    glaze.configure({ darkDesaturation: undefined, contrastLevel: undefined });
+    expect(glaze.getConfig().darkDesaturation).toBe(0.25);
+    expect(glaze.getConfig().contrastLevel).toBe(40);
+  });
+
   it('throws for a non-finite per-instance override when it resolves', () => {
     const theme = glaze(0, 80, { darkDesaturation: Number.NaN });
     theme.colors({ a: { tone: 50 } });
@@ -755,5 +790,71 @@ describe('normalizeToneWindow', () => {
     expect(outObj).toEqual(obj);
     expect(outObj).not.toBe(obj);
     expect(normalizeToneWindowInput(false, 'darkTone')).toBe(false);
+  });
+});
+
+describe('lighting tuning validation', () => {
+  const FIELDS = ['objectInfluence', 'tint', 'reach', 'hueBleed'] as const;
+
+  it.each(FIELDS)('configure() throws for a non-finite %s', (field) => {
+    for (const key of ['shadowTuning', 'glowTuning'] as const) {
+      for (const value of [Number.NaN, Infinity, '0.5', null]) {
+        expect(() =>
+          glaze.configure({ [key]: { [field]: value as number } }),
+        ).toThrow(
+          `glaze: ${key}.${field} must be a finite number (got ${
+            typeof value === 'string' ? `"${value}"` : String(value)
+          }).`,
+        );
+      }
+    }
+  });
+
+  it('throws for a non-finite per-color field at resolve', () => {
+    const theme = glaze(0, 0);
+    theme.colors({
+      surface: { tone: 97 },
+      shade: {
+        type: 'shadow',
+        bg: 'surface',
+        intensity: 8,
+        tuning: { reach: Number.NaN },
+      },
+    });
+    expect(() => theme.resolve()).toThrow(
+      /tuning\.reach must be a finite number \(got NaN\)/,
+    );
+  });
+
+  it('reads a field set to undefined as unset, at every level', () => {
+    const shades = (config?: GlazeConfigOverride, tuning?: object) => {
+      const theme = glaze(250, 40, config);
+      theme.colors({
+        surface: { tone: 97 },
+        fill: { tone: 40 },
+        shade: {
+          type: 'shadow',
+          bg: 'surface',
+          fg: 'fill',
+          intensity: 8,
+          tuning,
+        },
+        halo: { type: 'glow', bg: 'fill', intensity: 8, tuning },
+      });
+      return theme.tokens({ format: 'rgb' });
+    };
+    const reference = shades();
+    const unset = {
+      objectInfluence: undefined,
+      tint: undefined,
+      reach: undefined,
+      hueBleed: undefined,
+    };
+    expect(shades(undefined, unset)).toEqual(reference);
+    glaze.configure({ shadowTuning: unset, glowTuning: unset });
+    expect(shades()).toEqual(reference);
+    expect(shades({ shadowTuning: unset, glowTuning: unset })).toEqual(
+      reference,
+    );
   });
 });

@@ -1,5 +1,6 @@
 import { glaze } from './glaze';
 import { hasRelativeTone, validateColorDefs } from './validation';
+import type { ColorDef, ContrastSpec } from './types';
 
 afterEach(() => {
   glaze.resetConfig();
@@ -79,5 +80,188 @@ describe('relative tone without base', () => {
     const r = token.resolve();
     expect(r.light.t).toBeCloseTo(0.5, 10);
     expect(r.lightContrast.t).toBeCloseTo(seedTone + 0.2, 10);
+  });
+});
+
+describe('contrast spec', () => {
+  const contrastOf = (contrast: unknown) =>
+    validateColorDefs({
+      bg: { tone: 90 },
+      fg: { base: 'bg', contrast: contrast as ContrastSpec },
+    });
+
+  it.each<unknown>([
+    4.5,
+    'AA',
+    'AAA-large',
+    { wcag: 7 },
+    { wcag: ['AA', 'AAA'] },
+    { apca: 60 },
+    { apca: 'body' },
+    { apca: [60, 'preferred'] },
+    ['AA', { wcag: 'AAA' }],
+    [{ wcag: 3 }, 7],
+    { apca: 60, wcag: undefined },
+    { wcag: 4.5, apca: undefined },
+    { apca: 60, note: 'body copy' },
+  ])('accepts %j', (contrast) => {
+    expect(() => contrastOf(contrast)).not.toThrow();
+  });
+
+  it('reads a metric key holding undefined as unset', () => {
+    const fg = (contrast: unknown) => {
+      const theme = glaze(250, 80);
+      theme.colors({
+        s: { tone: 97 },
+        x: { base: 's', tone: '-10', contrast: contrast as ContrastSpec },
+      });
+      return theme.tokens({ format: 'oklch' });
+    };
+    expect(fg({ apca: 60, wcag: undefined })).toEqual(fg({ apca: 60 }));
+    expect(fg({ wcag: 4.5, apca: undefined })).toEqual(fg({ wcag: 4.5 }));
+  });
+
+  it.each<unknown>([
+    'aa',
+    'AAA_large',
+    NaN,
+    Infinity,
+    { apca: 'Body' },
+    { wcag: 'body' },
+    { apca: NaN },
+    {},
+    { wcag: 4.5, apca: 60 },
+    { lc: 60 },
+    ['AA'],
+    ['AA', 'AAA', 'AAA'],
+    { apca: [60] },
+    { wcag: undefined },
+    // eslint-disable-next-line no-sparse-arrays
+    [, 7],
+    // eslint-disable-next-line no-sparse-arrays
+    { wcag: [, 7] },
+    null,
+  ])('rejects %j, naming the color', (contrast) => {
+    expect(() => contrastOf(contrast)).toThrow(
+      /^glaze: color "fg" has an invalid "contrast"/,
+    );
+  });
+
+  it('rejects a malformed contrast on a mix', () => {
+    expect(() =>
+      validateColorDefs({
+        a: { tone: 90 },
+        b: { tone: 10 },
+        m: {
+          type: 'mix',
+          base: 'a',
+          target: 'b',
+          value: 50,
+          contrast: 'aa' as ContrastSpec,
+        },
+      }),
+    ).toThrow('glaze: color "m" has an invalid "contrast" "aa".');
+  });
+
+  it('throws from a theme at resolve', () => {
+    const theme = glaze(0, 0);
+    theme.colors({
+      bg: { tone: 90 },
+      fg: { base: 'bg', contrast: 'aa' as ContrastSpec },
+    });
+    expect(() => theme.resolve()).toThrow(/invalid "contrast" "aa"/);
+  });
+});
+
+describe('numeric fields', () => {
+  /** Validate a regular color `c` on a tone-50 base. */
+  const fieldOf = (def: Record<string, unknown>) =>
+    validateColorDefs({ base: { tone: 50 }, c: { base: 'base', ...def } });
+
+  it.each<[string, unknown]>([
+    ['tone', 50],
+    ['tone', '+4'],
+    ['tone', '-.5'],
+    ['tone', '+1e1'],
+    ['tone', 'max'],
+    ['tone', [40, '-10']],
+    ['tone', '-5 '],
+    ['tone', ' +5'],
+    ['hue', 120],
+    ['hue', '-30'],
+    ['darkHue', '+15'],
+    ['saturation', 40],
+    ['darkSaturation', 0],
+    ['opacity', 0],
+    ['opacity', 1],
+  ])('accepts %s %j', (field, value) => {
+    expect(() => fieldOf({ [field]: value })).not.toThrow();
+  });
+
+  it.each<[string, unknown]>([
+    ['tone', NaN],
+    ['tone', Infinity],
+    ['tone', '+-5'],
+    ['tone', '+abc'],
+    ['tone', '4'],
+    ['tone', [40, NaN]],
+    ['tone', [40]],
+    // eslint-disable-next-line no-sparse-arrays
+    ['tone', [, 40]],
+    ['tone', null],
+    ['hue', NaN],
+    ['hue', 'max'],
+    ['darkHue', Infinity],
+    ['saturation', NaN],
+    ['saturation', '+10'],
+    ['darkSaturation', NaN],
+    ['opacity', 1.5],
+    ['opacity', -0.1],
+    ['opacity', NaN],
+  ])('rejects %s %j, naming the color and field', (field, value) => {
+    expect(() => fieldOf({ [field]: value })).toThrow(
+      new RegExp(`^glaze: color "c" has an invalid "${field}"`),
+    );
+  });
+
+  it('rejects a non-finite mix value', () => {
+    expect(() =>
+      validateColorDefs({
+        a: { tone: 90 },
+        b: { tone: 10 },
+        m: { type: 'mix', base: 'a', target: 'b', value: NaN },
+      }),
+    ).toThrow('glaze: color "m" has an invalid "value" NaN.');
+  });
+
+  it('rejects a non-finite shadow intensity', () => {
+    expect(() =>
+      validateColorDefs({
+        bg: { tone: 90 },
+        s: { type: 'shadow', bg: 'bg', intensity: [10, NaN] },
+      }),
+    ).toThrow('glaze: color "s" has an invalid "intensity" [10,NaN].');
+  });
+
+  it('rejects a shadow or glow without bg, naming it', () => {
+    for (const type of ['shadow', 'glow'] as const) {
+      expect(() =>
+        validateColorDefs({
+          s: { type, intensity: 10 } as unknown as ColorDef,
+        }),
+      ).toThrow(`glaze: ${type} "s" is missing "bg".`);
+    }
+  });
+
+  it('rejects a theme seed that is not a finite number', () => {
+    expect(() => glaze(NaN, 50)).toThrow(
+      'glaze: theme seed hue must be a finite number (got NaN).',
+    );
+    expect(() => glaze({ hue: 250, saturation: Infinity })).toThrow(
+      'glaze: theme seed saturation must be a finite number (got Infinity).',
+    );
+    expect(() => glaze({ hue: 250, saturation: 50, darkHue: NaN })).toThrow(
+      'glaze: theme seed darkHue must be a finite number (got NaN).',
+    );
   });
 });

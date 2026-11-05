@@ -3,7 +3,10 @@
  *
  * `validateColorDefs` rejects bad references (missing / shadow- or
  * glow-referencing / base/contrast/tone mismatches — a relative tone in either
- * entry of an HC pair needs a base) and bad per-color lighting tuning (a
+ * entry of an HC pair needs a base), a malformed `contrast` spec (a misspelled
+ * preset, a non-finite number, a bad shape), a numeric field the resolver can't
+ * place (non-finite, a malformed `'+N'`, an opacity outside 0–1), and bad
+ * per-color lighting tuning (a
  * `headroom` on a shadow; a glow `headroom` that is not a finite number ≥ 0,
  * with one above the maximum warned about — once every def has passed — and
  * clamped at resolve), and detects cycles before the resolver runs. `topoSort` orders defs so each color is
@@ -12,8 +15,12 @@
 
 import { extractOkhslFromValue } from './color-value';
 import { normalizeLightingTuning } from './config';
-import { contrastMetricOf } from './contrast-solver';
-import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
+import {
+  contrastMetricOf,
+  isApcaPreset,
+  isContrastPreset,
+} from './contrast-solver';
+import { isAbsoluteTone, pairHC, pairNormal, showValue } from './hc-pair';
 import { isLightingDef, isMixDef } from './lighting';
 import { flushWarnings } from './warnings';
 import type { DeferredWarnings } from './warnings';
@@ -46,6 +53,98 @@ export function hasAbsoluteTone(def: RegularColorDef): boolean {
 export function hasRelativeTone(tone: HCPair<ToneValue> | undefined): boolean {
   if (tone === undefined) return false;
   return !isAbsoluteTone(pairNormal(tone)) || !isAbsoluteTone(pairHC(tone));
+}
+
+const isWcagValue = (value: unknown): boolean =>
+  (typeof value === 'number' && Number.isFinite(value)) ||
+  isContrastPreset(value);
+
+const isApcaValue = (value: unknown): boolean =>
+  (typeof value === 'number' && Number.isFinite(value)) || isApcaPreset(value);
+
+/**
+ * A value, or a `[normal, highContrast]` pair of two, that passes `isValue`.
+ * Both entries are read by index: `every` would skip a hole (`[, 7]`).
+ */
+function isPairOf(value: unknown, isValue: (v: unknown) => boolean): boolean {
+  return Array.isArray(value)
+    ? value.length === 2 && isValue(value[0]) && isValue(value[1])
+    : isValue(value);
+}
+
+/**
+ * A WCAG value, or an object with exactly one of `wcag` / `apca` set. A key
+ * holding `undefined` is unset, as everywhere else; other keys are ignored.
+ */
+function isContrastSpec(spec: unknown): boolean {
+  if (isWcagValue(spec)) return true;
+  if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+    return false;
+  }
+  const { wcag, apca } = spec as { wcag?: unknown; apca?: unknown };
+  if ((wcag === undefined) === (apca === undefined)) return false;
+  return wcag !== undefined
+    ? isPairOf(wcag, isWcagValue)
+    : isPairOf(apca, isApcaValue);
+}
+
+const SIGNED_NUMBER_RE = /^[+-](?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * A relative `'+N'` / `'-N'` string with a finite `N`. Whitespace around it
+ * is allowed, as the resolver's `parseFloat` reads past it. Also checks a
+ * token's structured `darkHue`.
+ */
+export const isRelativeValue = (value: unknown): boolean =>
+  typeof value === 'string' &&
+  SIGNED_NUMBER_RE.test(value.trim()) &&
+  Number.isFinite(parseFloat(value));
+
+const isToneValue = (value: unknown): boolean =>
+  isFiniteNumber(value) ||
+  value === 'max' ||
+  value === 'min' ||
+  isRelativeValue(value);
+
+const isHueValue = (value: unknown): boolean =>
+  isFiniteNumber(value) || isRelativeValue(value);
+
+const isOpacity = (value: unknown): boolean =>
+  isFiniteNumber(value) && value >= 0 && value <= 1;
+
+/**
+ * Reject a numeric field the resolver can't place: `NaN`, `Infinity`, a
+ * relative string that isn't `'+N'` / `'-N'` (`'+-5'`, `'+abc'`), an opacity
+ * outside 0–1. Each would otherwise reach the output as `NaN`.
+ */
+function assertField(
+  name: string,
+  field: string,
+  value: unknown,
+  isValid: (value: unknown) => boolean,
+): void {
+  if (value === undefined || isValid(value)) return;
+  throw new Error(
+    `glaze: color "${name}" has an invalid "${field}" ${showValue(value)}.`,
+  );
+}
+
+/**
+ * Reject a malformed `contrast`: a misspelled preset, a non-finite number, an
+ * object without exactly one of `wcag` / `apca`, or a pair without exactly two
+ * entries. The solver would read each as no target at all and pin the color
+ * to the scheme's extreme without a word.
+ */
+function assertValidContrast(name: string, contrast: unknown): void {
+  if (contrast === undefined || isPairOf(contrast, isContrastSpec)) return;
+  throw new Error(
+    `glaze: color "${name}" has an invalid "contrast" ${showValue(contrast)}. ` +
+      `Use a WCAG ratio or 'AA' / 'AAA' / 'AA-large' / 'AAA-large', ` +
+      `{ wcag: … }, { apca: … }, or a [normal, highContrast] pair of these.`,
+  );
 }
 
 /**
@@ -104,7 +203,10 @@ export function validateColorDefs(
       const kind = def.type;
       for (const field of ['bg', 'fg'] as const) {
         const ref = def[field];
-        if (ref === undefined) continue;
+        if (ref === undefined) {
+          if (field === 'fg') continue;
+          throw new Error(`glaze: ${kind} "${name}" is missing "bg".`);
+        }
         if (!allNames.has(ref)) {
           throw new Error(
             `glaze: ${kind} "${name}" references non-existent ${field} "${ref}".`,
@@ -117,6 +219,9 @@ export function validateColorDefs(
           );
         }
       }
+      assertField(name, 'intensity', def.intensity, (v) =>
+        isPairOf(v, isFiniteNumber),
+      );
       // Throws for a shadow `headroom` or a bad glow one; the resolver's
       // tuning merge applies the clamp this warns about.
       normalizeLightingTuning(
@@ -148,12 +253,21 @@ export function validateColorDefs(
           );
         }
       }
+      assertField(name, 'value', def.value, (v) => isPairOf(v, isFiniteNumber));
+      assertValidContrast(name, def.contrast);
       assertConsistentContrastMetric(name, def.contrast);
       continue;
     }
 
     const regDef = def as RegularColorDef;
 
+    assertField(name, 'tone', regDef.tone, (v) => isPairOf(v, isToneValue));
+    assertField(name, 'hue', regDef.hue, isHueValue);
+    assertField(name, 'darkHue', regDef.darkHue, isHueValue);
+    assertField(name, 'saturation', regDef.saturation, isFiniteNumber);
+    assertField(name, 'darkSaturation', regDef.darkSaturation, isFiniteNumber);
+    assertField(name, 'opacity', regDef.opacity, isOpacity);
+    assertValidContrast(name, regDef.contrast);
     assertConsistentContrastMetric(name, regDef.contrast);
 
     // Parse `from` here rather than letting the resolver hit it. The parser's own

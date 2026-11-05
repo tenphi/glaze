@@ -87,7 +87,7 @@ Restores a theme from a [`theme.export()`](#themeexportoverride) snapshot (`Glaz
 | `kind` is present and not `'theme'` | `glaze.themeFrom: expected kind "theme", got "<kind>".` |
 | `version` is present and not an integer ≥ 1 | `glaze.themeFrom: invalid "version" field — expected an integer >= 1 (got <value>).` |
 | `version` is greater than `GLAZE_EXPORT_VERSION` | `glaze.themeFrom: unsupported export version <n> (this library supports version 2). Upgrade @tenphi/glaze to load this snapshot.` |
-| `version` is `1` and the snapshot has shadow colors or a `shadowTuning` | `glaze.themeFrom: this snapshot is export version 1 (Glaze 2) and contains …` — see [Upgrading to 3.0](../migration.md#30--shadows-and-glows). |
+| `version` is `1` and the snapshot has shadow colors or a `shadowTuning` | `glaze.themeFrom: this snapshot is export version 1 (Glaze 1.1–2) and contains …` — see [Upgrading to 3.0](../migration.md#30--shadows-and-glows). |
 | `hue` or `saturation` is not a number | `glaze.themeFrom: expected numeric "hue" and "saturation" fields.` |
 | `darkHue` / `darkSaturation` is present and not a number | `glaze.themeFrom: expected "darkHue" to be a number when present (got <value>).` |
 

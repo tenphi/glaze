@@ -403,5 +403,34 @@ describe('output options', () => {
       expect(light).toContain('--a-hue: 30.99;');
       expect(light).toContain('--b-hue: calc(var(--theme-hue) + 10.56);');
     });
+
+    it('keeps a static color at its one hue when it has a darkHue', () => {
+      // `mode: 'static'` ignores `darkHue`, as the resolver does; an `auto`
+      // color next to it still takes its own.
+      const theme = glaze(240, 50, { pastel: true });
+      theme.colors({
+        pin: { tone: 52, hue: 30, darkHue: 200, mode: 'static' },
+        live: { tone: 52, hue: 30, darkHue: 200 },
+      });
+      const { dark } = theme.css({ splitHue: true });
+      expect(dark).toContain('--pin-hue: 30;');
+      expect(dark).toContain('--live-hue: 200;');
+      // A relative static hue keeps following the theme hue in both schemes.
+      const rel = glaze(250, 70, { pastel: true });
+      rel.colors({
+        a: { tone: 50, mode: 'static', hue: '+30', darkHue: '+90' },
+        b: { tone: 50, darkHue: '+90' },
+      });
+      const out = rel.css({ splitHue: true });
+      for (const block of [out.light, out.dark]) {
+        expect(block).toContain('--a-hue: calc(var(--theme-hue) + 30);');
+      }
+      expect(theme.css().dark).toContain(
+        '--pin-color: oklch(0.5784 0.0492 30);',
+      );
+      expect(dark).toContain(
+        '--pin-color: oklch(0.5784 0.0492 var(--pin-hue));',
+      );
+    });
   });
 });

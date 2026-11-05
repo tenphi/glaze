@@ -199,6 +199,12 @@ describe('contrast-solver', () => {
       expect(resolveContrastForMode({ apca: 100 }, true).target).toBe(106);
     });
 
+    it('keeps a normal APCA target already past the HC cap', () => {
+      // The cap limits the boost; it never lowers HC below the normal tier.
+      expect(resolveContrastForMode({ apca: 108 }, false).target).toBe(108);
+      expect(resolveContrastForMode({ apca: 108 }, true).target).toBe(108);
+    });
+
     it('does not enhance when the inner apca pair carries an explicit HC value', () => {
       expect(resolveContrastForMode({ apca: [60, 60] }, true).target).toBe(60);
       expect(resolveContrastForMode({ apca: [60, 90] }, true).target).toBe(90);
@@ -298,6 +304,14 @@ describe('contrast-solver', () => {
     it('clamps out-of-range levels', () => {
       expect(resolveContrastForLevel('AA', 150).target).toBe(7);
       expect(resolveContrastForLevel('AA', -50).target).toBe(4.5);
+    });
+
+    it('throws on a non-finite level', () => {
+      for (const level of [NaN, Infinity, -Infinity]) {
+        expect(() => resolveContrastForLevel('AA', level)).toThrow(
+          /needs a finite level/,
+        );
+      }
     });
   });
 

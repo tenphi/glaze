@@ -209,9 +209,9 @@ Then:
    `config.shadowTuning`, and set `version` to `2` (a palette snapshot has one at
    the top and one per theme), then load it and export again. A snapshot
    without shadows passes the version check and restores, but it resolves with
-   the other 3.0 changes on this page, and one whose frozen config or colors
-   hold a value 3.0 rejects throws on its first output (see
-   [stricter input validation](#30--stricter-input-validation)).
+   the other 3.0 changes on this page, and one that holds a value 3.0 rejects
+   throws, on its first output or (for a token's color value) when restored
+   (see [stricter input validation](#30--stricter-input-validation)).
 
 `glaze.shadow()` keeps its signature with the new semantics, and `glaze.glow()`
 takes the same input. See
@@ -248,11 +248,15 @@ on its own, mirrored around wherever the base sits. See
 What moves:
 
 - **Dark variants** of `auto` tone-delta colors, and anything solved, mixed,
-  or lit from them in dark: by up to about 4 tones on the lowest bases, about
-  2 on a tone-50 base, and a fraction of a tone on a light surface. Deltas on
-  a contrast-solved, mixed, or extreme base move more (the `'AAA'` hover
-  above moves 9 tones), and so do deltas on a base past the dark window or
-  under a custom light `eps`. A contrast-solved delta whose 2.x dark step
+  or lit from them in dark: at the default light window, by up to about
+  4 tones on the lowest bases, about 2 on a tone-50 base, and a fraction of a
+  tone on a light surface. Deltas on a contrast-solved, mixed, or extreme base
+  move more (the `'AAA'` hover above moves 9 tones), and so do deltas on a
+  base past the dark window or under a custom light window: the move grows
+  with how far the window lifts the base, so `lightTone: [15, 100]` moves a
+  tone-50 base's deltas about 4 tones and up to 8 at the bottom, and a `hi`
+  below 100 moves a white surface's about 0.7 tones per tone it drops (about
+  3.5 at `hi` 95). A custom light `eps` moves them too. A contrast-solved delta whose 2.x dark step
   crossed its base now lands on the side that mirrors light, which can move
   it most of the scale: in `glaze(0, 0)`,
   `{ base: 'fill', tone: '-1', contrast: 3 }` on a tone-50 fill goes from
@@ -359,6 +363,12 @@ you have pinned:
 | A `darkDesaturation` that isn't a finite number (`NaN`, `Infinity`, `'0.5'`, `true`) | `NaN` dark colors (`NaN`), fully gray ones (`Infinity`, `true`), or a string read as a number |
 | A relative tone in the high-contrast entry of a root color (`tone: [50, '+20']`, no `base`) | Read `'+20'` as tone 20. Now throws: add a `base`, or write the tone you got (`[50, 20]`) |
 | A hex color with a non-hex digit (`'#1z2z3z'`) in `glaze.color()`, `glaze.fromHex()`, a color's `from`, or the `bg` / `fg` of `glaze.shadow()` | Read only the first digit of each pair (`#010203`) |
+| A color-function component that isn't a number (`'hsl(abc 50% 50%)'`, `'rgb(Infinity 0 0)'`) | `NaN` colors, or a silent gray |
+| A value object with a negative `s`, `l`, `t`, or `c` (`{ l: 0.5, c: -0.05, h: 30 }`) | A plausible color: a negative chroma turned the hue around |
+| A malformed `contrast`: a misspelled preset (`'aa'`, `{ apca: 'Body' }`), `NaN`, `{}`, both `wcag` and `apca`, or a pair without two entries | A `TypeError` from the warning code, or a color pinned to black or white; both keys used APCA, and a longer pair its first two entries |
+| A color field that isn't a finite number (`tone: NaN`, `saturation: NaN`), a relative string that isn't `'+N'` / `'-N'` (`hue: 'abc'`, `tone: '+-5'`, `tone: '+5px'`), an `opacity` outside 0–1, or a non-finite mix `value` or shadow `intensity` | `NaN` colors, or an alpha outside 0–1; a trailing unit was read past (`'+5px'` as `'+5'`) |
+| A theme seed whose hue or saturation isn't a finite number (`glaze({ hue: 280 })` without `saturation`, `glaze.fromRgb(NaN, 0, 0)`) | `NaN` colors |
+| `null` for `contrastLevel` or `darkDesaturation` | Ignored: the current value stayed |
 
 ```text
 glaze: lightTone lo (90) is above hi (20).
@@ -368,14 +378,42 @@ A window runs from its dark end to its light end: [lo, hi] with lo ≤ hi,
 glaze: color "a" has relative "tone" without "base".
 
 glaze: invalid hex color "#1z2z3z".
+
+glaze: color "text" has an invalid "contrast" "aa". Use a WCAG ratio or
+  'AA' / 'AAA' / 'AA-large' / 'AAA-large', { wcag: … }, { apca: … }, or a
+  [normal, highContrast] pair of these.
 ```
 
 `configure()` throws at the call and leaves the config as it was. A theme or
 token override (`glaze(hue, saturation, config)`, `glaze.color(value, config)`,
 `extend({ config })`) is checked when it resolves, so it throws on the first
-output or `resolve()`. A snapshot that holds such a value still restores with
-`glaze.themeFrom()` / `paletteFrom()` / `colorFrom()` and throws on its first
-output: fix the value in the JSON and export again.
+output or `resolve()`, and so are a theme's colors. A theme or palette
+snapshot that holds such a value still restores with `glaze.themeFrom()` /
+`paletteFrom()` and throws on its first output, and so does a token snapshot
+whose frozen config holds one. A token snapshot whose color value (its input,
+or a raw `base`) 3.0 rejects throws in `glaze.colorFrom()` itself, as
+`glaze.color()` does, and so does a theme snapshot whose seed does. Fix the
+value in the JSON and export again.
+
+The exported `parseHex()` / `parseHexAlpha()` return `null` for such hex, as
+their type always allowed; 2.x read the first digit of each pair, and
+`'#-1-2-3'` gave negative channels. Check for `null` before using the result.
+
+Color strings also change in two ways that move colors instead of throwing. A
+hue in `turn`, `rad`, or `grad` is converted (2.x read `hsl(0.5turn 50% 50%)`
+as hue 0.5°, not 180°), and the CSS keyword `none` reads as 0. Out-of-range
+color-function values clamp as CSS clamps them, which moves an `rgb()` channel
+outside 0–255, an `okhsl()` / `okhst()` saturation outside 0–100%, a negative
+`okhsl()` lightness (2.x gave `NaN` or a wrong tone), a negative `oklch()`
+chroma (2.x turned its hue around), and an `oklch()` lightness below about
+−0.37 (2.x emitted `NaN`). A saturation past 100% moves a token in dark, and
+one outside 0–100% moves a theme color's `from` in every scheme: 2.x painted
+its light variant out of gamut, which could turn the hue
+(`'okhsl(200 -20% 50%)'` came out reddish), and colors solved, mixed, or lit
+from it move with it. An `hsl()` or
+`oklch()` lightness past its range already rendered clamped. A value object's
+0–1 field between 1 and 1.5 clamps to 1 too, which moves a saturation there
+the same way.
 
 Two out-of-range values clamp instead, which can move output: window endpoints
 clamp to 0–100 (2.x extended a `[-10, 120]` window past the range), and
@@ -502,4 +540,4 @@ Colors used to be authored on OKHSL lightness. They are now authored on
 | `glaze: color "X" cannot meet WCAG … in light scheme (got …)` | The contrast target is physically unreachable for the color's hue and saturation against its base. The color pins to the extreme of the side it searched first, which may not be the closer one; see [When a floor can't be met](./contrast.mdx#when-a-floor-cant-be-met). | Lower the floor or change the base. If only the high-contrast schemes fail, give `contrast` an explicit, reachable high-contrast entry (`['AA', 'AA']`). On standalone colors, set `name` so the warning is identifiable; see [`name`](./reference/color-tokens.md#name). |
 | `glaze: mix "X" cannot meet WCAG … against its base in light scheme (got …)` | Even the pure target doesn't reach the floor against the mix's `base`. The mix pins to the pure target, or to the pure base when its `value` is already 100; see [Contrast on mixes](./mixes.mdx#contrast-on-mixes). | Mix toward a target further from the base, or lower the floor. If only the high-contrast schemes fail, give `contrast` an explicit, reachable high-contrast entry. Keep `value` below 100 when you set a floor. |
 | `glaze: shadow "X" cannot reach a 10.0-tone step …` (or `glow`) | The surface has fewer tones of room than `intensity` asks for: a glow on white, a deep shadow on near-black, or any shadow on a light `auto` page in dark high contrast (at or near tone 0 there). The overlay is pinned to its strongest composite (transparent when the surface is already at the pigment's extreme). | Lower `intensity` or give the overlay a surface with room in every scheme, and use glows for dark elevation. Otherwise expect the warning: every color resolves in all four schemes, so not using the token in a scheme doesn't silence it. A glow with `headroom` gets an HDR value past white instead and warns only when the cap leaves the step short (`… even with 1 stop of headroom (reached …)`): lower `intensity` or raise `headroom`. See [Unreachable steps](./shadows-and-glows.mdx#unreachable-steps). |
-| `glaze.themeFrom: this snapshot is export version 1 (Glaze 2) …` | A 2.x snapshot with shadow colors or `shadowTuning`; shadows changed meaning in 3.0. | Re-author the shadows and export again; see [3.0 — shadows and glows](#30--shadows-and-glows). |
+| `glaze.themeFrom: this snapshot is export version 1 (Glaze 1.1–2) …` | A 2.x snapshot with shadow colors or `shadowTuning`; shadows changed meaning in 3.0. | Re-author the shadows and export again; see [3.0 — shadows and glows](#30--shadows-and-glows). |

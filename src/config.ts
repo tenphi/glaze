@@ -75,6 +75,14 @@ export function defaultConfig(): GlazeConfigResolved {
 }
 
 /**
+ * `value`, or `fallback` when it is `undefined`. Only `undefined` means
+ * "keep": a `null` is passed on so the field's validator rejects it.
+ */
+function keepIfUndefined<T>(value: T | undefined, fallback: T): T {
+  return value !== undefined ? value : fallback;
+}
+
+/**
  * Validate an authored `contrastLevel`. Numbers clamp to 0–100 so a slider
  * can't produce an out-of-range level; a non-finite number throws rather than
  * silently reading as `'auto'`, which would turn a `NaN` slider value into an
@@ -154,11 +162,13 @@ export function normalizeHeadroom(
 }
 
 /**
- * Validate and copy a lighting tuning: a detached copy (or `undefined`) with a
- * glow's `headroom` checked and clamped by `normalizeHeadroom`. A shadow has no
- * headroom — it darkens toward black, and nothing goes below black — so a
- * `headroom` on shadow tuning throws. Only `undefined` counts as unset.
- * `deferred` queues the clamp warning (see `normalizeHeadroom`).
+ * Validate and copy a lighting tuning: a detached copy (or `undefined`) with
+ * `objectInfluence` / `tint` / `reach` / `hueBleed` checked to be finite
+ * numbers (the 0–1 fields clamp at use) and a glow's `headroom` checked and
+ * clamped by `normalizeHeadroom`. A shadow has no headroom — it darkens toward
+ * black, and nothing goes below black — so a `headroom` on shadow tuning
+ * throws. Only `undefined` counts as unset. `deferred` queues the clamp
+ * warning (see `normalizeHeadroom`).
  */
 export function normalizeLightingTuning(
   kind: LightingKind,
@@ -168,6 +178,22 @@ export function normalizeLightingTuning(
 ): GlowTuning | undefined {
   if (tuning === undefined) return undefined;
   const out: GlowTuning = { ...tuning };
+  for (const field of [
+    'objectInfluence',
+    'tint',
+    'reach',
+    'hueBleed',
+  ] as const) {
+    const value: unknown = out[field];
+    if (
+      value !== undefined &&
+      (typeof value !== 'number' || !Number.isFinite(value))
+    ) {
+      throw new Error(
+        `glaze: ${where}.${field} must be a finite number (got ${showValue(value)}).`,
+      );
+    }
+  }
   const headroom = (tuning as { headroom?: unknown } | null)?.headroom;
   if (headroom === undefined) return out;
   if (kind === 'shadow') {
@@ -266,7 +292,9 @@ const OVERRIDE_FIELD_COPY: Record<
 export function copyConfigOverride(
   override: GlazeConfigOverride | undefined,
 ): GlazeConfigOverride | undefined {
-  if (typeof override !== 'object' || override === null) return override;
+  // `null` is no override, as `undefined` is.
+  if (override === null) return undefined;
+  if (typeof override !== 'object') return override;
   const source = override as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const [key, copy] of Object.entries(OVERRIDE_FIELD_COPY)) {
@@ -326,7 +354,7 @@ export function configure(config: GlazeConfig): void {
       'darkTone',
     ),
     darkDesaturation: normalizeDarkDesaturation(
-      config.darkDesaturation ?? globalConfig.darkDesaturation,
+      keepIfUndefined(config.darkDesaturation, globalConfig.darkDesaturation),
     ),
     states: {
       dark: config.states?.dark ?? globalConfig.states.dark,
@@ -356,7 +384,7 @@ export function configure(config: GlazeConfig): void {
     pastel: false,
     inferRole: config.inferRole ?? globalConfig.inferRole,
     contrastLevel: normalizeContrastLevel(
-      config.contrastLevel ?? globalConfig.contrastLevel,
+      keepIfUndefined(config.contrastLevel, globalConfig.contrastLevel),
     ),
   };
   flushWarnings(deferred);
@@ -399,7 +427,7 @@ export function mergeConfig(
       'darkTone',
     ),
     darkDesaturation: normalizeDarkDesaturation(
-      override.darkDesaturation ?? base.darkDesaturation,
+      keepIfUndefined(override.darkDesaturation, base.darkDesaturation),
     ),
     states: { ...base.states },
     modes: { ...base.modes },
@@ -418,7 +446,7 @@ export function mergeConfig(
     pastel: override.pastel ?? false,
     inferRole: override.inferRole ?? base.inferRole,
     contrastLevel: normalizeContrastLevel(
-      override.contrastLevel ?? base.contrastLevel,
+      keepIfUndefined(override.contrastLevel, base.contrastLevel),
     ),
   };
   flushWarnings(deferred);

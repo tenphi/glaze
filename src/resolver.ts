@@ -141,6 +141,43 @@ interface DarkAnchor {
 }
 
 /**
+ * Defs anchored at their authored tone whatever their mode (see `darkAnchor`).
+ * A `glaze.color()` token's hidden seed is `static` only so that its token's
+ * `contrast` floor measures against the literal input; a delta on it still
+ * steps in dark like one on an `auto` color authored at that tone.
+ */
+const authoredToneAnchors = new WeakSet<ColorDef>();
+
+/**
+ * Anchor `def` at its authored tone in dark, whatever its mode (internal, for
+ * a token's hidden seed; see `authoredToneAnchors`).
+ */
+export function anchorAtAuthoredTone<T extends ColorDef>(def: T): T {
+  authoredToneAnchors.add(def);
+  return def;
+}
+
+/**
+ * The base of a tone-less, contrast-less `auto` color, which takes its base's
+ * dark anchor as is; `undefined` for any other def.
+ */
+function aliasBaseOf(def: ColorDef | undefined): string | undefined {
+  if (def === undefined || isMixDef(def) || isLightingDef(def)) {
+    return undefined;
+  }
+  const regDef = def as RegularColorDef;
+  if (
+    (regDef.mode ?? 'auto') !== 'auto' ||
+    regDef.contrast !== undefined ||
+    regDef.tone !== undefined ||
+    regDef.from !== undefined
+  ) {
+    return undefined;
+  }
+  return regDef.base;
+}
+
+/**
  * An external base's dark-delta anchor for one pass, read in the base's own
  * resolve context (see `darkAnchorOf`), with the config it was read under.
  */
@@ -542,11 +579,11 @@ function readsStoredLightTone(
  * Where a step of `delta` from `anchor` lands on the authored scale: clamped to
  * `0–100`, widened to reach an anchor past the dark window (a base a contrast
  * floor, an extreme's replay, or its own fixed / static placement put there).
- * A step back toward the scale then
- * moves by the full delta, and one that points further out stops at the anchor
- * — the base itself — instead of snapping back to the window's edge. Either
- * way a step stops at the window's edge or at its base, whichever is further
- * out, so the result moves continuously as the base crosses the edge.
+ * A step back toward the scale then moves by the full delta, and one that
+ * points further out stops at the anchor — the base itself — instead of
+ * snapping back to the window's edge. Either way a step stops at the window's
+ * edge or at its base, whichever is further out, so the result moves
+ * continuously as the base crosses the edge.
  */
 function stepFromAnchor(anchor: number, delta: number): number {
   return clamp(anchor + delta, Math.min(0, anchor), Math.max(100, anchor));
@@ -579,6 +616,9 @@ function stepFromAnchor(anchor: number, delta: number): number {
  *   is this pass's. A base under another dark window — or one with no hook — is
  *   read back through this pass's dark window, so a `'+0'` lands on it and the
  *   step is this window's scale times the delta.
+ * - A token's hidden seed (`anchorAtAuthoredTone`) is `static`, but returns its
+ *   tone as authored, like an `auto` color placed by a tone, so a delta on it
+ *   inverts in dark as it would from the same color in a theme.
  *
  * In high contrast and at `contrastLevel: 100` at the reference light eps
  * (`readsStoredLightTone`), a light-side color's light tone *is* its authored
@@ -588,7 +628,9 @@ function stepFromAnchor(anchor: number, delta: number): number {
  *
  * Memoized per resolve and pass on `ctx.anchors`, so a long chain of deltas
  * resolves in linear time without deep recursion: the dark passes run in topo
- * order, so a base's anchor is cached before its dependents ask for it.
+ * order, so a base's anchor is cached before its dependents ask for it. A
+ * tone-less alias never asks for its own, so a chain of aliases is walked in a
+ * loop instead.
  */
 function darkAnchor(
   name: string,
@@ -599,8 +641,26 @@ function darkAnchor(
   const cached = memo.get(name);
   if (cached) return cached;
 
+  if (aliasBaseOf(ctx.defs[name]) !== undefined) {
+    const chain: string[] = [];
+    let target = name;
+    for (
+      let base = aliasBaseOf(ctx.defs[target]);
+      base !== undefined && !memo.has(target);
+      base = aliasBaseOf(ctx.defs[target])
+    ) {
+      chain.push(target);
+      target = base;
+    }
+    let anchor = darkAnchor(target, ctx, isHighContrast);
+    for (let i = chain.length - 1; i >= 0; i--) {
+      anchor = withStoredLightTone(chain[i], anchor, ctx, isHighContrast);
+      memo.set(chain[i], anchor);
+    }
+    return anchor;
+  }
+
   const color = ctx.resolved.get(name)!;
-  const lightTone = getSchemeVariant(color, false, isHighContrast).t * 100;
   const fromDark = (config: GlazeConfigResolved): DarkAnchor => ({
     tone: unmapDarkTone(
       getSchemeVariant(color, true, isHighContrast).t * 100,
@@ -632,7 +692,10 @@ function darkAnchor(
         ? undefined
         : passTone(rawTone, isHighContrast, config);
 
-    if (mode !== 'auto' || regDef.contrast !== undefined) {
+    if (
+      (mode !== 'auto' && !authoredToneAnchors.has(regDef)) ||
+      regDef.contrast !== undefined
+    ) {
       anchor = fromDark(config);
     } else if (parsed === undefined) {
       anchor = darkAnchor(regDef.base!, ctx, isHighContrast);
@@ -656,11 +719,29 @@ function darkAnchor(
     }
   }
 
-  if (anchor.lightSide && readsStoredLightTone(isHighContrast, ctx.config)) {
-    anchor = { tone: lightTone, lightSide: true };
-  }
+  anchor = withStoredLightTone(name, anchor, ctx, isHighContrast);
   memo.set(name, anchor);
   return anchor;
+}
+
+/**
+ * A light-side anchor read as the color's stored light tone where that is its
+ * authored tone (`readsStoredLightTone`; see `darkAnchor`).
+ */
+function withStoredLightTone(
+  name: string,
+  anchor: DarkAnchor,
+  ctx: AnchorContext,
+  isHighContrast: boolean,
+): DarkAnchor {
+  if (!anchor.lightSide || !readsStoredLightTone(isHighContrast, ctx.config)) {
+    return anchor;
+  }
+  const color = ctx.resolved.get(name)!;
+  return {
+    tone: getSchemeVariant(color, false, isHighContrast).t * 100,
+    lightSide: true,
+  };
 }
 
 /**

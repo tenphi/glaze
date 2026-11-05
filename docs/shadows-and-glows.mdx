@@ -373,7 +373,9 @@ is opt-in through tuning:
   surface's tone to black (shadow) or white (glow). `1` is pure black or
   white, the most reach; lower values let a tint show at the cost of reach.
 - **`tint`** is the pigment's saturation, in the surface's hue. It shows only
-  with `reach` below 1, since pure black and white have no hue.
+  with `reach` below 1, since pure black and white have no hue. A neutral
+  surface has no hue to give, so there the tint takes the object's hue when
+  `hueBleed` is above 0, and the pigment stays neutral otherwise.
 - **`hueBleed`** pulls the pigment's hue from the surface's hue toward the
   object's (`fg`). It needs `fg`, a `tint`, and `reach` below 1 to show.
 - **`objectInfluence`** is the `β` in [object influence](#object-influence).

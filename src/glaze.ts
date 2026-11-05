@@ -34,6 +34,7 @@ import {
   toResolvedHdr,
 } from './lighting';
 import type { LightingKind } from './lighting';
+import { showValue } from './hc-pair';
 import { okhslToOkhst } from './okhst';
 import { warnLightingShortfall } from './warnings';
 import {
@@ -121,16 +122,27 @@ export function glaze(
   if (typeof hueOrOptions === 'number') {
     const saturation =
       typeof saturationOrConfig === 'number' ? saturationOrConfig : undefined;
+    // `glaze(hue, config)` is not a typed form, but dropping the config
+    // without a word would be worse than taking it. A third argument still
+    // wins, as it always did.
+    const override =
+      (config === undefined || config === null) &&
+      typeof saturationOrConfig === 'object' &&
+      saturationOrConfig !== null
+        ? saturationOrConfig
+        : config;
     return createTheme(
       { hue: hueOrOptions, saturation: saturation ?? 100 },
       undefined,
-      config,
+      override,
     );
   }
   // The object form takes its override second; the older
   // `glaze(seed, undefined, config)` spelling still works.
   const override =
-    typeof saturationOrConfig === 'object' ? saturationOrConfig : config;
+    typeof saturationOrConfig === 'object' && saturationOrConfig !== null
+      ? saturationOrConfig
+      : config;
   return createTheme(hueOrOptions, undefined, override);
 }
 
@@ -212,8 +224,10 @@ glaze.color = function color(
   const obj = input as object;
 
   if ('from' in obj) {
-    const { from, ...overrides } = input as GlazeFromInput;
-    return createColorTokenFromValue(from, overrides, config);
+    // The token reads its override fields off the input itself (`from` aside),
+    // so a getter or a proxy field counts.
+    const fromInput = input as GlazeFromInput;
+    return createColorTokenFromValue(fromInput.from, fromInput, config);
   }
 
   if ('hue' in obj) {
@@ -229,6 +243,19 @@ function standaloneLighting(
   kind: LightingKind,
   input: GlazeLightingInput | GlazeGlowInput,
 ): ResolvedColorVariant {
+  if (input?.bg === undefined) {
+    throw new Error(`glaze.${kind}(): "bg" is required.`);
+  }
+  if (
+    typeof input.intensity !== 'number' ||
+    !Number.isFinite(input.intensity)
+  ) {
+    throw new Error(
+      `glaze.${kind}(): "intensity" must be a finite number (got ${showValue(input.intensity)}).`,
+    );
+  }
+  // The parser clamps a value past white or black (an `rgb()` channel over
+  // 255, `l` over 1) to white or black, as the browser composites it.
   const bg = extractOkhslFromValue(input.bg as GlazeColorValue);
   const fg = input.fg
     ? extractOkhslFromValue(input.fg as GlazeColorValue)
@@ -363,14 +390,24 @@ glaze.paletteFrom = function paletteFrom(
   return createPaletteFromExport(data);
 };
 
+// Typed explicitly: the declaration bundler would write `typeof isThemeExport`
+// inside `namespace glaze`, where the name means the static itself, and the
+// published guard would come out as `any`.
+
 /** Type guard for theme authoring snapshots. */
-glaze.isThemeExport = isThemeExport;
+glaze.isThemeExport = isThemeExport as (
+  value: unknown,
+) => value is GlazeThemeExport;
 
 /** Type guard for color-token authoring snapshots. */
-glaze.isColorTokenExport = isColorTokenExport;
+glaze.isColorTokenExport = isColorTokenExport as (
+  value: unknown,
+) => value is GlazeColorTokenExport;
 
 /** Type guard for palette authoring snapshots. */
-glaze.isPaletteExport = isPaletteExport;
+glaze.isPaletteExport = isPaletteExport as (
+  value: unknown,
+) => value is GlazePaletteExport;
 
 /** Get the current global configuration (for testing/debugging). */
 glaze.getConfig = function getConfig(): GlazeConfigResolved {

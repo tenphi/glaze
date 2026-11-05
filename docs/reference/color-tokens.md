@@ -85,11 +85,13 @@ The literal color forms. They are accepted by `glaze.color()`, by [`from`](./col
 - An alpha component (`#rrggbbaa`, `#rgba`, `/ 0.8`, or any fourth component, comma- or space-separated) is dropped with a `console.warn`. Use [`opacity`](#glazecoloroverrides) instead:
 
   ```text
-  glaze: alpha component dropped from "rgb(1 2 3 4)" (standalone
-    color has no opacity field).
+  glaze: alpha component dropped from "rgb(1 2 3 4)"; use the color's
+    `opacity` (or a transparent mix) for translucency.
   ```
 - Value objects are recognized by their keys: `r`, `g`, `b` → RGB; `l`, `c`, `h` → OKLCh; `h`, `s`, `t` → OKHST; otherwise OKHSL.
-- Hue is read in degrees, bare or with `deg`. Other angle units (`turn`, `rad`, `grad`) are not rejected but misread as degrees: `hsl(0.5turn 50% 50%)` gets hue 0.5°, not 180°.
+- A hue is a bare number (degrees) or takes `deg`, `turn`, `rad`, or `grad`: `hsl(0.5turn 50% 50%)` has hue 180°.
+- A component may be the CSS keyword `none`, read as 0 as CSS renders a missing component: `oklch(0.97 0 none)` is a gray. Any other component that isn't a number throws (`glaze: invalid component "abc" in "hsl(abc 50% 50%)".`).
+- Out-of-range values clamp, as CSS clamps them: an `rgb()` channel to 0–255, `hsl()` / `okhsl()` / `okhst()` percentages to 0–100%, `oklch()` L to 0–1 and C to at least 0. A value object clamps a 0–1 field between 1 and 1.5 the same way, but throws for one below 0 or above 1.5, and for an RGB channel outside 0–255 (below).
 - Not supported: named colors (`'red'`), relative color syntax, and `[r, g, b]` tuples.
 
 | Input | Error |
@@ -97,11 +99,13 @@ The literal color forms. They are accepted by `glaze.color()`, by [`from`](./col
 | `'red'` | `glaze: unsupported color string "red".` |
 | `'#12'` | `glaze: invalid hex color "#12".` |
 | `'rgb(38 252)'` | `glaze: expected 3 components in "rgb(38 252)".` |
+| `'rgb(38 252 x)'` | `glaze: invalid component "x" in "rgb(38 252 x)".` |
 | `{ h: 152, s: 95, l: 74 }` | `glaze.color: OkhslColor s/l must be in 0–1 range. Did you mean the structured form { hue, saturation, tone } (which uses 0–100)?` |
+| `{ h: 152, s: -0.1, l: 0.74 }` | `glaze.color: OkhslColor s must be 0 or more (got -0.1).` |
 | `[38, 252, 178]` | `glaze.color: RGB tuple [r, g, b] is no longer supported — use { r, g, b } instead.` |
 | `{ r: 300, g: 0, b: 0 }` | `glaze.color: RgbColor r must be a finite number in 0–255 (got 300).` |
 
-The OKHSL, OKHST, and OKLCh object checks reject `s`, `l`, `t`, or `c` above 1.5, which catches 0–100 input meant for the structured form. String components have no such guard (see `hsl()` above).
+The OKHSL, OKHST, and OKLCh object checks reject `s`, `l`, `t`, or `c` below 0, and above 1.5, which catches 0–100 input meant for the structured form. String components have no such guard (see `hsl()` above).
 
 ## `GlazeColorOverrides`
 
@@ -350,7 +354,7 @@ Set `role: 'surface'` (or an alias such as `'bg'`) for a token that is a fill wi
 
 ## `token.export(override?)` / `glaze.colorFrom(data)`
 
-`token.export()` returns a JSON-safe authoring snapshot: the original input, the overrides (with a token `base` exported recursively), and the effective config frozen at call time. `glaze.colorFrom()` rebuilds the token from it and pins the frozen config, so later `glaze.configure()` calls don't change the restored token.
+`token.export()` returns a detached, JSON-safe authoring snapshot: the original input, the overrides (with the `base` exported recursively), and the effective config frozen at call time. `glaze.colorFrom()` rebuilds the token from it and pins the frozen config, so later `glaze.configure()` calls don't change the restored token.
 
 ```ts
 const bg = glaze.color('#1a1a2e');
@@ -402,7 +406,7 @@ const restored = glaze.colorFrom(JSON.parse(JSON.stringify(data)));
 | `overrides` | `GlazeColorOverridesExport` | The value form's overrides, when any were given. |
 | `config` | `GlazeConfigOverride` | The frozen effective config. |
 
-`GlazeColorInputExport` and `GlazeColorOverridesExport` have the same fields as `GlazeColorInput` and `GlazeColorOverrides`, except that a token `base` is stored as its `GlazeColorTokenExport` (a raw-value base is kept as is).
+`GlazeColorInputExport` and `GlazeColorOverridesExport` have the same fields as `GlazeColorInput` and `GlazeColorOverrides`, except that a `base` is stored as its `GlazeColorTokenExport`: a raw-value base as the snapshot of the token it is wrapped in, so its config is frozen too. A snapshot written by an earlier release with a raw-value base still restores, with that base following the live config.
 
 `glaze.colorFrom()` throws when:
 

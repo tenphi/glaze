@@ -44,7 +44,7 @@ contrast floor.
 - **Import/Export** — serialize and restore themes, color tokens, and entire palettes as JSON
 - **Create from hex/RGB** — start from an existing brand color
 - **Zero dependencies** — pure math, runs anywhere (Node.js, browser, edge)
-- **Tree-shakeable ESM + CJS** — dual-format package
+- **ESM + CJS** — dual-format package
 - **TypeScript-first** — full type definitions included
 
 ## Installation

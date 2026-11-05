@@ -54,14 +54,15 @@ function dedupe(key: string): boolean {
 
 /**
  * Whether `actual` is short of the floor by more than the slack. The solver
- * aims slightly past the target, so a smaller shortfall is rounding noise.
+ * aims slightly past the target, so a smaller shortfall is rounding noise. A
+ * non-finite target or measurement counts as a miss, so it is reported.
  */
 function missesFloor(contrast: ResolvedContrast, actual: number): boolean {
   const slack =
     contrast.metric === 'apca'
       ? contrast.target - CONTRAST_WARN_SLACK_APCA
       : contrast.target * CONTRAST_WARN_SLACK_WCAG;
-  return actual < slack;
+  return !(actual >= slack);
 }
 
 function contrastKey(

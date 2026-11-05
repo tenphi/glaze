@@ -128,11 +128,11 @@ Without an explicit high-contrast entry, the `lightContrast` / `darkContrast` va
 | `'AA-large'`, `{ wcag: 'AA-large' }` | 3 | 4.5 (`'AAA-large'`) |
 | `'AAA'`, `'AAA-large'` | 7, 4.5 | Unchanged — already the top WCAG tier. |
 | A WCAG number (`4.5`, `{ wcag: 6 }`) | as written | Unchanged — a bare ratio has no successor tier. |
-| An APCA number or preset | Lc | Lc + 15, capped at 106. |
+| An APCA number or preset | Lc | Lc + 15, capped at 106 (a target already above 106 is kept). |
 | An explicit pair, outer or inner | first entry | second entry, no escalation. |
 
 - **WCAG promotion** follows the spec's own Enhanced level, SC 1.4.3 → SC 1.4.6.
-- **APCA Enhanced Level** adds `APCA_HC_ENHANCEMENT` (15 Lc), the Lc analog of AAA over AA, and clamps the result to `APCA_MAX_LC` (106).
+- **APCA Enhanced Level** adds `APCA_HC_ENHANCEMENT` (15 Lc), the Lc analog of AAA over AA, and clamps the result to `APCA_MAX_LC` (106). The cap only limits the boost: a normal target already above 106 stays as it is, never lower than the normal tier's.
 - **An explicit high-contrast value** in the outer `contrast` pair or the inner `wcag` / `apca` pair replaces the automatic step. Use one to hold a ceiling. APCA caps large or bold text at Lc 90 to avoid glare, so for a heading write `{ apca: ['preferred', 'preferred'] }` rather than letting high contrast boost it past 90.
 - **Other pairs** (`tone`, `intensity`, mix `value`) have no automatic escalation: a single value is used in both tiers.
 - **Tone windows** don't apply in high contrast: placement and the contrast search use the full `0–100` tone range. See [Light, dark, and high contrast](../schemes.mdx#high-contrast).
@@ -209,10 +209,10 @@ A `contrast` pair can't switch metric at all; see [Metric switching](#metric-swi
 
 [`autoFlip`](./color-definitions.md#autoflip) decides per solve, and its tie-break (when both sides of the base meet the floor, take the one nearer the preferred tone) depends on the target. Along a ramp of targets that tie-break can change, so a naive solve would let a color jump across its own base as the slider moves.
 
-Under a manual level, the side is chosen once per half of the ramp, by a solve at the nearer endpoint's target (level `0` below 50, level `100` from 50 up), and then preferred at every level in that half:
+Under a manual level, each level first runs a probe: a solve at the nearer endpoint's target (level `0` below 50, level `100` from 50 up), from that level's preferred tone and base. The color then prefers the side the probe lands on:
 
 - While the preferred side meets the floor, the color stays there, even where the other side would be nearer its preferred tone.
-- The preferred side changes only at level 50, where un-interpolable pairs also switch, and only when the two endpoints land on different sides.
+- The probe's target is the same across each half of the ramp, so the preferred side normally holds through it and changes only at level 50, where un-interpolable pairs also switch, when the two endpoints land on different sides. The preferred tone and the base move with the tone windows, though, so a color whose endpoint solve is close to a tie (both sides about equally near its preferred tone) can switch sides at another level.
 - Flipping is re-ordered, not disabled. At a level where the preferred side can't reach the interpolated target, the solver falls back to the opposite side, so the floor is met wherever either side can meet it. Where neither side can, the color pins to the preferred side's extreme. A color near the limit of what either side can reach can therefore cross its base at other levels, and back again, even when both endpoints land on the same side.
 - A probe that lands on its base pins no side. With `contrast: [1, 4.5]`, the level-0 probe keeps the preferred tone, and for a `'+0'` delta that is the base's own tone. Each level then picks a side by the solver's own tie rule, exactly as the same color without a `tone` would.
 

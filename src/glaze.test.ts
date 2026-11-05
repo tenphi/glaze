@@ -157,6 +157,51 @@ describe('glaze', () => {
       });
       expect(legacy.getConfig().pastel).toBe(true);
     });
+
+    it('takes a config second after a numeric hue (untyped, not dropped)', () => {
+      const theme = glaze(280, { pastel: true } as never);
+      expect(theme.saturation).toBe(100);
+      expect(theme.getConfig().pastel).toBe(true);
+    });
+
+    it('lets a third-argument config win over an untyped second one', () => {
+      const theme = glaze(200, { lightTone: false } as never, {
+        darkTone: false,
+      });
+      expect(theme.getConfig().darkTone).toBe(false);
+      expect(theme.getConfig().lightTone).toEqual(glaze.getConfig().lightTone);
+    });
+
+    it('reads a null config as no override', () => {
+      const css = (theme: ReturnType<typeof glaze>) => {
+        theme.colors({ a: { tone: 50 } });
+        return theme.css().light;
+      };
+      const reference = css(glaze(200, 50));
+      expect(css(glaze(200, 50, null as never))).toBe(reference);
+      expect(
+        css(glaze({ hue: 200, saturation: 50 }, undefined, null as never)),
+      ).toBe(reference);
+      expect(
+        glaze(200, { lightTone: false } as never, null as never).getConfig()
+          .lightTone,
+      ).toBe(false);
+    });
+
+    it('reads a null saturation as unset', () => {
+      const theme = glaze(280, null as never, { pastel: true });
+      expect(theme.saturation).toBe(100);
+      expect(theme.getConfig().pastel).toBe(true);
+      const plain = glaze(280, null as never);
+      plain.colors({ a: { tone: 50 } });
+      expect(plain.css().light).toBe(
+        (() => {
+          const ref = glaze(280);
+          ref.colors({ a: { tone: 50 } });
+          return ref.css().light;
+        })(),
+      );
+    });
   });
 
   describe('color definitions', () => {
@@ -1948,7 +1993,7 @@ describe('glaze', () => {
       );
     });
 
-    describe('version-1 (Glaze 2) snapshots', () => {
+    describe('version-1 (Glaze 1.1–2) snapshots', () => {
       const v1 = {
         kind: 'theme' as const,
         version: 1,
@@ -1969,7 +2014,7 @@ describe('glaze', () => {
             },
           }),
         ).toThrow(
-          /export version 1 \(Glaze 2\).*shadow colors \("shadow-md"\)/,
+          /export version 1 \(Glaze 1\.1–2\).*shadow colors \("shadow-md"\)/,
         );
       });
 
@@ -3638,6 +3683,53 @@ describe('glaze', () => {
         expect(theme.resolve().get('bleed')!.light.h).toBeCloseTo(260, 6);
       });
 
+      it('a tint on a neutral surface stays neutral, or takes the object hue', () => {
+        // A hex gray parses with float-noise saturation at an arbitrary hue
+        // (about 90° for #808080); that hue must not tint the pigment.
+        const object = 'oklch(0.5 0.2 260)';
+        const objectHue = glaze.color(object).resolve().light.h;
+        const tuning = { tint: 0.5, reach: 0.8 };
+        for (const bg of ['#808080', '#fefefe', 'okhsl(0 0% 50%)']) {
+          for (const kind of ['shadow', 'glow'] as const) {
+            const plain = glaze[kind]({ bg, fg: object, intensity: 8, tuning });
+            expect(plain.s).toBe(0);
+            const bled = glaze[kind]({
+              bg,
+              fg: object,
+              intensity: 8,
+              tuning: { ...tuning, hueBleed: 0.3 },
+            });
+            // No surface hue to lerp from: the object's hue, whole.
+            expect(bled.h).toBeCloseTo(objectHue, 6);
+            expect(bled.s).toBeCloseTo(0.5, 6);
+          }
+        }
+      });
+
+      it('a pigment on the surface tone paints nothing', () => {
+        // `reach: 0` parks a neutral pigment on a neutral surface's own tone,
+        // where it moves the surface only by float noise: it stays
+        // transparent.
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          for (const bg of ['okhsl(0 0% 50%)', 'okhst(0 0% 12%)', '#ffffff']) {
+            for (const kind of ['shadow', 'glow'] as const) {
+              const v = glaze[kind]({
+                bg,
+                intensity: 8,
+                tuning: { reach: 0 },
+              });
+              expect(v.alpha).toBe(0);
+              expect(v.hdr).toBeUndefined();
+            }
+          }
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
       it('global shadowTuning / glowTuning apply per type and merge per field', () => {
         try {
           glaze.configure({
@@ -3776,6 +3868,44 @@ describe('glaze', () => {
       expect(
         stepOver(g, variantToOkhsl(glaze.color('#202020').resolve().light)),
       ).toBeCloseTo(-10, 4);
+    });
+
+    it('glaze.shadow() / glaze.glow() reject a missing bg or a bad intensity', () => {
+      for (const kind of ['shadow', 'glow'] as const) {
+        expect(() => glaze[kind]({ intensity: 8 } as never)).toThrow(
+          `glaze.${kind}(): "bg" is required.`,
+        );
+        for (const [intensity, shown] of [
+          [Number.NaN, 'NaN'],
+          [Infinity, 'Infinity'],
+          ['8', '"8"'],
+        ] as const) {
+          expect(() =>
+            glaze[kind]({ bg: '#808080', intensity: intensity as number }),
+          ).toThrow(
+            `glaze.${kind}(): "intensity" must be a finite number (got ${shown}).`,
+          );
+        }
+      }
+    });
+
+    it('glaze.shadow() / glaze.glow() read a value past white as white', () => {
+      // The browser composites an over-range surface or object at white, so
+      // the step (and an HDR glow's value) is solved for white.
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const over = { h: 0, s: 0, l: 1.2 };
+        const white = { h: 0, s: 0, l: 1 };
+        const glow = (bg: typeof white) =>
+          glaze.glow({ bg, intensity: 10, tuning: { headroom: 1 } });
+        expect(glow(over)).toEqual(glow(white));
+        expect(glow(white).hdr).toBeDefined();
+        expect(
+          glaze.shadow({ bg: '#808080', fg: over, intensity: 10 }),
+        ).toEqual(glaze.shadow({ bg: '#808080', fg: white, intensity: 10 }));
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

@@ -317,6 +317,8 @@ export interface LightingTuning {
   /**
    * Pigment saturation (0–1) in the surface's hue. Default: 0 (neutral black /
    * white). Shows only with `reach` below 1 — pure black and white have no hue.
+   * A neutral surface has no hue either: there the tint takes the object's
+   * hue with `hueBleed` above 0, and the pigment stays neutral otherwise.
    */
   tint?: number;
   /**

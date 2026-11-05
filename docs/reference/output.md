@@ -586,6 +586,7 @@ Rename the color, or pass a different `suffix` or `name`.
 | Only `darkHue` set | Per-color var: `var(--<name>-hue)` in light, the dark value in dark. A color that authors a hue in either scheme gets its own var in both, so the shared `var()` reference stays valid. |
 | `from` literal color | Per-color var pinned to the color's resolved hue, so re-skinning the theme doesn't re-tint a literal brand color. |
 | `mode: 'static'` while the theme has a dark seed hue different from `hue` | Per-color var pinned to the resolved hue, so the color doesn't drift with the dark seed. |
+| `mode: 'static'` with a `darkHue` | Its light reference in both schemes: a static color has one hue, so its `darkHue` is ignored, as the resolver ignores it. |
 | Shadow, glow, and mix colors | Inline full `oklch()` value; they don't follow hue rotation. A glow's HDR value is a literal `color(srgb-linear …)`. |
 | Achromatic in light (saturation 0) | Inline in every scheme: `oklch(L 0 0)`, or `oklch()` at its own hue in a scheme where it has chroma (a `darkSaturation`). No per-color var in any scheme. |
 

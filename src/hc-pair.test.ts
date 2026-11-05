@@ -177,6 +177,20 @@ describe('hc-pair', () => {
       expect(showValue(null)).toBe('null');
     });
 
+    it('writes undefined or a non-finite number inside JSON as it prints', () => {
+      expect(showValue([10, NaN])).toBe('[10,NaN]');
+      expect(showValue({ apca: -Infinity })).toBe('{"apca":-Infinity}');
+      expect(showValue(['NaN'])).toBe('["NaN"]');
+      expect(showValue({ wcag: undefined })).toBe('{"wcag":undefined}');
+      expect(showValue([4.5, undefined])).toBe('[4.5,undefined]');
+    });
+
+    it("keeps the quotes of a caller's string that holds the marker", () => {
+      const marked = '\uE000NaN\uE000';
+      expect(showValue([marked, 7])).toBe(`["${marked}",7]`);
+      expect(showValue(marked)).toBe(`"${marked}"`);
+    });
+
     it('falls back where JSON cannot write the value', () => {
       expect(showValue(BigInt(3))).toBe('3n');
       expect(showValue(Symbol('x'))).toBe('Symbol(x)');

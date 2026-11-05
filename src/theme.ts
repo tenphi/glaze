@@ -52,6 +52,7 @@ import {
   DEFAULT_TAILWIND_HDR_SELECTOR,
   resolveModes,
 } from './formatters';
+import { showValue } from './hc-pair';
 import { resolveAllColors } from './resolver';
 import { GLAZE_EXPORT_VERSION } from './serialize';
 import type {
@@ -77,6 +78,28 @@ import type {
   ResolvedColor,
 } from './types';
 
+/**
+ * Reject a seed the resolver can't use: every color multiplies its hue and
+ * saturation, so a non-finite one paints the whole theme `NaN`.
+ */
+function assertValidSeed(seed: GlazeThemeSeed): void {
+  for (const field of [
+    'hue',
+    'saturation',
+    'darkHue',
+    'darkSaturation',
+  ] as const) {
+    const value: unknown = seed?.[field];
+    const optional = field === 'darkHue' || field === 'darkSaturation';
+    if (optional && value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(
+        `glaze: theme seed ${field} must be a finite number (got ${showValue(value)}).`,
+      );
+    }
+  }
+}
+
 export function createTheme(
   seed: GlazeThemeSeed,
   initialColors?: ColorMap,
@@ -85,6 +108,7 @@ export function createTheme(
   // Copied once here, so resolve, `getConfig()`, `export()` and `extend()`
   // read one object the caller can no longer mutate.
   const configOverride = copyConfigOverride(callerOverride);
+  assertValidSeed(seed);
   const { hue, saturation, darkHue, darkSaturation } = seed;
   let colorDefs: ColorMap = initialColors ? { ...initialColors } : {};
 

@@ -139,16 +139,17 @@ function themeHuePlan(
   // is re-declared in dark whenever the theme seeds one. Pin the resolved hue
   // so a static color doesn't drift with it — matching what the resolver does.
   // Both variants carry the same hue under `static`, so either one works.
-  if (
-    (regDef.mode ?? 'auto') === 'static' &&
-    schemeSeedHue(ctx, 'dark') !== ctx.seedHue
-  ) {
+  const isStatic = (regDef.mode ?? 'auto') === 'static';
+  if (isStatic && schemeSeedHue(ctx, 'dark') !== ctx.seedHue) {
     return {
       hueVar: `var(${prop})`,
       inline: false,
       declarations: [{ prop, value: hueValue(variant.h) }],
     };
   }
+  // The resolver ignores a static color's `darkHue`, so its light authoring
+  // holds in both schemes and it keeps following `--{baseName}-hue`.
+  const darkHue = isStatic ? undefined : regDef.darkHue;
 
   // A color needs its own var as soon as *either* scheme authors a hue: the
   // `var()` reference is shared across schemes, so it can't be the theme var
@@ -159,14 +160,13 @@ function themeHuePlan(
   // theme is seeded with — the same failure a `darkHue`-only color used to have.
   if (
     regDef.hue === undefined &&
-    regDef.darkHue === undefined &&
+    darkHue === undefined &&
     regDef.from === undefined
   ) {
     return { hueVar: baseHueVar, inline: false, declarations: [] };
   }
 
-  const authored =
-    scheme === 'dark' ? (regDef.darkHue ?? regDef.hue) : regDef.hue;
+  const authored = scheme === 'dark' ? (darkHue ?? regDef.hue) : regDef.hue;
 
   if (authored === undefined) {
     // `from` supplied the hue for this scheme, so pin the resolved literal —

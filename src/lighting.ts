@@ -153,11 +153,15 @@ export function resolveLightingTuning(
   perColor?: GlowTuning,
   globalTuning?: GlowTuning,
 ): ResolvedLightingTuning {
+  // `??`, not a spread: a field set to `undefined` is unset, not a value.
+  const field = <K extends keyof LightingTuning>(key: K) =>
+    perColor?.[key] ?? globalTuning?.[key] ?? DEFAULT_LIGHTING_TUNING[key];
   const headroom = perColor?.headroom ?? globalTuning?.headroom ?? 0;
   return {
-    ...DEFAULT_LIGHTING_TUNING,
-    ...globalTuning,
-    ...perColor,
+    objectInfluence: field('objectInfluence'),
+    tint: field('tint'),
+    reach: field('reach'),
+    hueBleed: field('hueBleed'),
     headroom: clamp(headroom, 0, MAX_HEADROOM),
   };
 }
@@ -169,11 +173,17 @@ export function circularLerp(a: number, b: number, t: number): number {
   return (((a + diff * t) % 360) + 360) % 360;
 }
 
-const SAT_EPSILON = 1e-6;
+/**
+ * Saturation at or below which a color has no hue of its own. Hex and `rgb()`
+ * grays parse to float noise (up to ~2e-5 at `#fefefe`) with an arbitrary hue.
+ */
+const HUE_EPSILON = 1e-4;
 const BISECT_ITERATIONS = 40;
 const GOLDEN = (Math.sqrt(5) - 1) / 2;
 /** Float noise a target tone may sit above 100 without counting as HDR. */
 const HDR_TRIGGER_EPS = 1e-9;
+/** Float noise a pigment may move the surface by and still count as not. */
+const NO_LIFT_EPS = 1e-9;
 /** Float noise a surface tone may sit below 100 and still count as white. */
 const WHITE_SURFACE_EPS = 1e-6;
 
@@ -198,7 +208,9 @@ export function objectFactor(
  * The pigment: pure black (shadow) / pure white (glow) by default. `reach`
  * below 1 parks it part of the way from the surface's tone to that extreme so
  * a `tint` — saturation in the surface's hue, optionally pulled toward the
- * object's hue by `hueBleed` — can show.
+ * object's hue by `hueBleed` — can show. A neutral surface has no hue to give:
+ * the tint takes the object's hue when `hueBleed` is above 0, and the pigment
+ * stays neutral otherwise.
  */
 function pigmentFor(
   kind: LightingKind,
@@ -211,11 +223,18 @@ function pigmentFor(
   const tone =
     kind === 'shadow' ? bgTone * (1 - reach) : bgTone + (100 - bgTone) * reach;
   const bleed = clamp(tuning.hueBleed, 0, 1);
+  const l = clamp(fromTone(tone), 0, 1);
+  const tint = clamp(tuning.tint, 0, 1);
+  const objectHue =
+    fg !== undefined && fg.s > HUE_EPSILON && bleed > 0 ? fg.h : undefined;
+  if (bg.s <= HUE_EPSILON) {
+    return objectHue === undefined
+      ? { h: bg.h, s: 0, l }
+      : { h: objectHue, s: tint, l };
+  }
   const h =
-    fg !== undefined && fg.s > SAT_EPSILON && bleed > 0
-      ? circularLerp(bg.h, fg.h, bleed)
-      : bg.h;
-  return { h, s: clamp(tuning.tint, 0, 1), l: clamp(fromTone(tone), 0, 1) };
+    objectHue === undefined ? bg.h : circularLerp(bg.h, objectHue, bleed);
+  return { h, s: tint, l };
 }
 
 /**
@@ -299,8 +318,11 @@ function solveOpacity(
     hi = kind === 'shadow' ? strongestShadowAlpha(gain) : 1;
     const reached = gain(hi);
     if (reached < step) {
-      // A pigment that cannot move the surface at all stays fully transparent.
-      return reached > 0 ? { alpha: hi, reached } : { alpha: 0, reached: 0 };
+      // A pigment that cannot move the surface at all — or only by float
+      // noise, as a neutral one at the surface's own tone — stays transparent.
+      return reached > NO_LIFT_EPS
+        ? { alpha: hi, reached }
+        : { alpha: 0, reached: 0 };
     }
   }
 

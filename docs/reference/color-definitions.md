@@ -409,7 +409,7 @@ theme.colors({
 - **HC pairs and the level.** `intensity` accepts `[normal, highContrast]` and is interpolated by a manual [`contrastLevel`](./contrast.md#manual-contrast-level).
 - **Output.** Shadows and glows appear in every output method next to regular colors, with an alpha component. They have no `role` (always `'surface'`), no `mode`, and no channels of their own; `ResolvedColor.mode` is `undefined` for them.
 - **Unreachable steps.** A glow on white or a deep shadow on near-black can't reach the step. The result pins to the pigment's strongest composite (full opacity, or transparent when the pigment can't move the surface at all) and emits a deduped `console.warn`. This includes the common case of a shadow on an `auto` light surface: a tone-97 surface sits at tone 3 in `darkContrast`, so `card-shadow` and `surface-hover` above pin to opaque black and warn there (`accent-pressed`, on a mid-tone accent, is unaffected). Use a glow for elevation in dark. A glow with a `headroom` can go past white instead; see [HDR values](#hdr-values-resolvedhdr).
-- **Errors.** `glaze: shadow "<name>" references non-existent bg "<ref>".` and `glaze: glow "<name>" fg "<ref>" references a shadow color.` (and the same for the other combinations).
+- **Errors.** `glaze: shadow "<name>" is missing "bg".`, `glaze: shadow "<name>" references non-existent bg "<ref>".`, and `glaze: glow "<name>" fg "<ref>" references a shadow color.` (and the same for the other combinations).
 
 How the opacity solve works, the [object-factor table](../shadows-and-glows.mdx#object-influence), state layers, and [dark-mode elevation](../shadows-and-glows.mdx#dark-mode-elevation) are in [Shadows and glows](../shadows-and-glows.mdx). The standalone functions are in [`glaze.shadow()` / `glaze.glow()`](./utilities.md#glazeshadowinput--glazeglowinput).
 
@@ -431,12 +431,12 @@ interface GlowTuning extends LightingTuning {
 | Field | Default | Description |
 | --- | --- | --- |
 | `objectInfluence` | `0.5` | β in the object factor. `0` removes `fg`'s effect on the step (`k = 1`); `fg` still feeds `hueBleed`. `k` tops out at `1 + β`, for a black object on a white surface (shadow). |
-| `tint` | `0` | Pigment saturation (0–1) in the surface's hue. `0` is neutral black or white. Shows only with `reach` below `1`, because pure black and white have no hue. |
+| `tint` | `0` | Pigment saturation (0–1) in the surface's hue. `0` is neutral black or white. Shows only with `reach` below `1`, because pure black and white have no hue. On a neutral surface (saturation at most `1e-4`, which covers every hex gray) the tint takes the object's hue when `hueBleed` is above `0`, and the pigment stays neutral otherwise. |
 | `reach` | `1` | Where the pigment sits: the fraction (0–1) of the way from the surface's tone to black (shadow) or white (glow). `1` is pure black or white, the most reach. Lower values let a `tint` show and cost reach. |
 | `hueBleed` | `0` | Pull (0–1) of the pigment hue from the surface's hue toward the object's (`fg`) hue. Needs `fg`, a `tint`, and `reach` below `1` to show. |
 | `headroom` | `0` | Glows only. Stops above SDR white a glow may use when its step crosses white: `1` allows up to 2× white's luminance, `2` up to 4×. A finite number ≥ 0; above 2 it clamps to 2 with a warning. On a shadow's tuning it throws. See [HDR values](#hdr-values-resolvedhdr) and [Glow headroom](./configuration.md#glow-headroom). |
 
-`tint`, `reach`, and `hueBleed` are clamped to 0–1. Each field resolves separately, later wins:
+`tint`, `reach`, and `hueBleed` are clamped to 0–1. A field that is set must be a finite number, or the tuning throws (`glaze: shadowTuning.reach must be a finite number (got NaN).`); a field set to `undefined` counts as unset. Each field resolves separately, later wins:
 
 1. The defaults above.
 2. The global `shadowTuning` (for shadows) or `glowTuning` (for glows), from `glaze.configure()`. A theme or token [config override](./configuration.md#glazeconfigoverride) that sets `shadowTuning` / `glowTuning` replaces the global object as a whole.

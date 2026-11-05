@@ -333,7 +333,7 @@ The solver Glaze runs for `contrast` floors, exported for tools that work outsid
 High-contrast escalation in `resolveContrastForMode`, applied only when `isHighContrast` is `true`, `outerExplicitHC` is not set, and the spec has no inner pair:
 
 - WCAG `'AA'` → `'AAA'` (7) and `'AA-large'` → `'AAA-large'` (4.5). AAA presets and bare numbers are unchanged.
-- APCA: `+APCA_HC_ENHANCEMENT` (15) Lc, capped at `APCA_MAX_LC` (106).
+- APCA: `+APCA_HC_ENHANCEMENT` (15) Lc, capped at `APCA_MAX_LC` (106); a target already above 106 is kept.
 
 `polarity` (`'fg'` default, or `'bg'`) is copied onto APCA results; WCAG results have no `polarity`. `resolveContrastForLevel` returns the plain normal / high-contrast result at levels 0 and 100, and throws for any level in between when the two ends use different metrics (`glaze: a "contrast" pair cannot switch metric between its normal (wcag) and high-contrast (apca) entry — …`).
 

@@ -395,9 +395,135 @@ describe('glaze.color value strings', () => {
       title: 'hue as bare degrees or deg',
       forms: ['hsl(180 50% 50%)', 'hsl(180deg 50% 50%)'],
     },
+    {
+      title: 'hue in turn, rad and grad',
+      forms: [
+        'okhsl(180 50% 50%)',
+        'okhsl(0.5turn 50% 50%)',
+        `okhsl(${Math.PI}rad 50% 50%)`,
+        'okhsl(200grad 50% 50%)',
+        'okhsl(180DEG 50% 50%)',
+      ],
+    },
+    {
+      title: 'none as 0',
+      forms: ['oklch(0.5 none 120)', 'oklch(0.5 0 120)'],
+    },
+    {
+      title: 'an rgb() channel past 255 or below 0 as clamped',
+      forms: ['rgb(300 -20 0)', 'rgb(255 0 0)', 'rgb(120% 0% 0%)'],
+    },
+    {
+      title: 'an hsl() percentage past 100% as clamped',
+      forms: ['hsl(120 150% 50%)', 'hsl(120 100% 50%)'],
+    },
+    {
+      title: 'an oklch() lightness past 1 and a negative chroma as clamped',
+      forms: ['oklch(1.2 -0.1 120)', 'oklch(1 0 120)'],
+    },
   ])('reads $title', ({ forms }) => {
     const [first, ...rest] = forms.map(rgbOf);
     for (const other of rest) expect(other).toEqual(first);
+  });
+
+  it.each([
+    'hsl(abc 50% 50%)',
+    'rgb(1px 0 0)',
+    'rgb(1e999 0 0)',
+    'oklch(0.5 0.1 120%)',
+    'okhsl(120 50%% 50%)',
+    'rgb(-- 0 0)',
+  ])('rejects %s, naming the component', (value) => {
+    expect(() => glaze.color(value)).toThrow(/^glaze: invalid component "/);
+  });
+
+  it.each<[GlazeColorValue, string]>([
+    [{ h: 0, s: -0.1, l: 0.5 }, 'OkhslColor s must be 0 or more (got -0.1)'],
+    [{ h: 0, s: 0.5, l: -0.1 }, 'OkhslColor l must be 0 or more (got -0.1)'],
+    [{ h: 0, s: -0.1, t: 0.5 }, 'OkhstColor s must be 0 or more (got -0.1)'],
+    [{ l: -0.1, c: 0.1, h: 0 }, 'OklchColor l must be 0 or more (got -0.1)'],
+    [{ l: 0.5, c: -0.1, h: 0 }, 'OklchColor c must be 0 or more (got -0.1)'],
+  ])('rejects a negative component in %j, naming it', (value, message) => {
+    expect(() => glaze.color(value)).toThrow(`glaze.color: ${message}.`);
+  });
+
+  it('reads value objects by property access, like a theme color', () => {
+    class Rgb {
+      #r: number;
+      #g: number;
+      #b: number;
+      constructor(r: number, g: number, b: number) {
+        this.#r = r;
+        this.#g = g;
+        this.#b = b;
+      }
+      get r() {
+        return this.#r;
+      }
+      get g() {
+        return this.#g;
+      }
+      get b() {
+        return this.#b;
+      }
+    }
+    const plain = (value: GlazeColorValue) => glaze.color(value).json();
+    expect(plain(new Rgb(51, 102, 255))).toEqual(
+      plain({ r: 51, g: 102, b: 255 }),
+    );
+    expect(plain(Object.create({ h: 250, s: 0.5, l: 0.5 }))).toEqual(
+      plain({ h: 250, s: 0.5, l: 0.5 }),
+    );
+    expect(
+      glaze
+        .color({
+          from: new Rgb(51, 102, 255),
+          base: new Rgb(255, 255, 255),
+          contrast: 'AA',
+        })
+        .json(),
+    ).toEqual(
+      glaze.color({ from: '#3366ff', base: '#ffffff', contrast: 'AA' }).json(),
+    );
+    expect(
+      glaze
+        .color({
+          hue: 250,
+          saturation: 80,
+          tone: 50,
+          base: new Rgb(255, 255, 255),
+          contrast: 'AA',
+        })
+        .json(),
+    ).toEqual(
+      glaze
+        .color({
+          hue: 250,
+          saturation: 80,
+          tone: 50,
+          base: '#ffffff',
+          contrast: 'AA',
+        })
+        .json(),
+    );
+  });
+
+  it('warns once per string when a theme color re-parses it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const theme = glaze(0, 0);
+      theme.colors({ a: { from: 'rgb(10 20 30 / 0.5)' } });
+      theme.resolve();
+      glaze.configure({});
+      theme.resolve();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toBe(
+        'glaze: alpha component dropped from "rgb(10 20 30 / 0.5)"; use the color\'s `opacity` (or a transparent mix) for translucency.',
+      );
+    } finally {
+      warn.mockRestore();
+      glaze.resetConfig();
+    }
   });
 
   it.each([
@@ -416,5 +542,226 @@ describe('glaze.color value strings', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('glaze.color input and snapshots are detached', () => {
+  afterEach(() => {
+    glaze.resetConfig();
+  });
+
+  it('copies its input, so editing it later changes nothing', () => {
+    const tone: [string, string] = ['+10', '+20'];
+    const contrast = { apca: [45, 60] as [number, number] };
+    const base = { h: 250, s: 0.3, l: 0.9 };
+    const value = { h: 250, s: 0.6, l: 0.4 };
+    const input = { from: value, base, tone, contrast } as GlazeFromInput;
+    const token = glaze.color(input);
+    const before = token.resolve();
+    const exported = JSON.stringify(token.export());
+
+    tone[0] = '+40';
+    contrast.apca[0] = 90;
+    base.l = 0.2;
+    value.l = 0.8;
+    glaze.configure({}); // drop the resolve cache
+
+    expect(token.resolve()).toEqual(before);
+    expect(JSON.stringify(token.export())).toBe(exported);
+  });
+
+  it('copies a structured input', () => {
+    const input = {
+      hue: 250,
+      saturation: 60,
+      tone: [40, 30] as [number, number],
+      base: { h: 250, s: 0.3, l: 0.9 },
+      contrast: { wcag: 'AA' as const },
+    };
+    const token = glaze.color(input);
+    const before = token.resolve();
+    input.tone[1] = 80;
+    input.base.l = 0.1;
+    input.contrast.wcag = 'AAA' as 'AA';
+    glaze.configure({});
+    expect(token.resolve()).toEqual(before);
+  });
+
+  it('hands out a snapshot editing which never reaches the token', () => {
+    const token = glaze.color({
+      from: '#5b4cff',
+      tone: ['-4', '-8'],
+      base: glaze.color('#f0f0f0'),
+      contrast: { apca: [60, 75] },
+    });
+    const first = token.export();
+    const pristine = JSON.stringify(first);
+    const overrides = first.overrides!;
+    (overrides.tone as string[])[0] = '+40';
+    (overrides.contrast as { apca: number[] }).apca[0] = 15;
+    (overrides.base as GlazeColorTokenExport).config = { lightTone: false };
+    expect(JSON.stringify(token.export())).toBe(pristine);
+  });
+
+  it('snapshots a raw base as its token, config frozen', () => {
+    const token = glaze.color({
+      from: '#5b4cff',
+      base: '#f0f0f0',
+      contrast: 'AA',
+    });
+    const exported = token.export();
+    expect(glaze.isColorTokenExport(exported.overrides!.base)).toBe(true);
+
+    const restored = glaze.colorFrom(
+      JSON.parse(JSON.stringify(exported)) as GlazeColorTokenExport,
+    );
+    const before = restored.resolve();
+    expect(before).toEqual(token.resolve());
+
+    // A later global change reaches neither the token nor its base.
+    glaze.configure({ lightTone: [20, 90], darkTone: [25, 80] });
+    expect(restored.resolve()).toEqual(before);
+  });
+
+  it('reads structured and override fields by property access', () => {
+    // Accessor fields, as a reactive store's class compiles to.
+    class Input {
+      #data = {
+        hue: 10,
+        saturation: 50,
+        tone: 30,
+        mode: 'fixed' as const,
+        opacity: 0.5,
+      };
+      get hue() {
+        return this.#data.hue;
+      }
+      get saturation() {
+        return this.#data.saturation;
+      }
+      get tone() {
+        return this.#data.tone;
+      }
+      get mode() {
+        return this.#data.mode;
+      }
+      get opacity() {
+        return this.#data.opacity;
+      }
+    }
+    const plain = { hue: 10, saturation: 50, tone: 30, mode: 'fixed' } as const;
+    const token = glaze.color(new Input());
+    expect(token.json()).toEqual(
+      glaze.color({ ...plain, opacity: 0.5 }).json(),
+    );
+    expect(token.export().input).toEqual({ ...plain, opacity: 0.5 });
+
+    // A non-enumerable token base still counts.
+    const withBase = { hue: 200, saturation: 40, tone: 30, contrast: 'AA' };
+    Object.defineProperty(withBase, 'base', {
+      value: glaze.color('#1a1a2e'),
+      enumerable: false,
+    });
+    expect(glaze.color(withBase as GlazeColorInput).json()).toEqual(
+      glaze
+        .color({ ...withBase, base: glaze.color('#1a1a2e') } as GlazeColorInput)
+        .json(),
+    );
+
+    // The value form reads its overrides the same way.
+    class From {
+      #data = { from: '#3366cc', tone: '-10' as const };
+      get from() {
+        return this.#data.from;
+      }
+      get tone() {
+        return this.#data.tone;
+      }
+    }
+    expect(glaze.color(new From() as GlazeFromInput).json()).toEqual(
+      glaze.color({ from: '#3366cc', tone: '-10' }).json(),
+    );
+  });
+
+  it('clamps a value object field between 1 and 1.5 like a string', () => {
+    const json = (value: GlazeColorValue) => glaze.color(value).json();
+    expect(json({ h: 30, s: 1.3, l: 0.5 })).toEqual(json('okhsl(30 100% 50%)'));
+    expect(json({ h: 30, s: 1.3, t: 0.5 })).toEqual(json('okhst(30 100% 50%)'));
+    expect(json({ l: 1.2, c: 0.1, h: 30 })).toEqual(json('oklch(1 0.1 30)'));
+  });
+
+  it('rejects a structured darkHue that is neither a number nor an offset', () => {
+    const input = { hue: 250, saturation: 60, tone: 50 };
+    expect(() => glaze.color({ ...input, darkHue: '+20' })).not.toThrow();
+    expect(() =>
+      glaze.color({ ...input, darkHue: '10' as `+${number}` }),
+    ).toThrow(`offset (got "10").`);
+    for (const darkHue of [Number.NaN, '+abc', '20', '+-5']) {
+      expect(() =>
+        glaze.color({ ...input, darkHue: darkHue as number }),
+      ).toThrow(
+        /^glaze\.color: structured darkHue must be a finite number or a '\+N' \/ '-N' offset/,
+      );
+    }
+  });
+});
+
+describe('glaze.color copies by property access', () => {
+  it('takes a reactive (proxy) contrast and keeps it detached', () => {
+    const contrast = new Proxy({ wcag: [4.5, 7] as [number, number] }, {});
+    const token = glaze.color({ from: '#3366cc', base: '#ffffff', contrast });
+    const reference = glaze.color({
+      from: '#3366cc',
+      base: '#ffffff',
+      contrast: { wcag: [4.5, 7] },
+    });
+    expect(token.json()).toEqual(reference.json());
+    expect(token.export()).toEqual(reference.export());
+
+    const pair = new Proxy(['AA', 'AAA'] as ['AA', 'AAA'], {});
+    expect(
+      glaze
+        .color({ hue: 250, saturation: 60, tone: 40, contrast: pair })
+        .json(),
+    ).toEqual(
+      glaze
+        .color({ hue: 250, saturation: 60, tone: 40, contrast: ['AA', 'AAA'] })
+        .json(),
+    );
+  });
+
+  it('exports a value object with extra fields as its color only', () => {
+    const value = {
+      r: 10,
+      g: 20,
+      b: 30,
+      toJSON() {
+        return 'ignored';
+      },
+    };
+    expect(glaze.color(value).export().input).toEqual({ r: 10, g: 20, b: 30 });
+  });
+
+  it('exports a long chain of links in linear time', () => {
+    let token = glaze.color('#808080');
+    for (let i = 0; i < 1000; i++) {
+      token = glaze.color({
+        from: '#3366cc',
+        base: token,
+        tone: i % 2 ? '+1' : '-1',
+      });
+    }
+    const start = performance.now();
+    const snapshot = token.export();
+    expect(performance.now() - start).toBeLessThan(250);
+    let depth = 0;
+    for (
+      let node: GlazeColorTokenExport | undefined = snapshot;
+      node !== undefined;
+      node = node.overrides?.base as GlazeColorTokenExport | undefined
+    ) {
+      depth++;
+    }
+    expect(depth).toBe(1001);
   });
 });

@@ -12,8 +12,10 @@ import type {
   ColorMap,
   GlazeColorToken,
   GlazeConfigOverride,
+  HCPair,
   ResolvedColor,
   ResolvedColorVariant,
+  ToneValue,
   ToneWindow,
 } from './types';
 
@@ -587,6 +589,35 @@ describe('resolver: dark tone deltas', () => {
     }
   });
 
+  it('steps a token delta with no base like one on its own color', () => {
+    // A token with no `base` measures a delta from its own input color, held
+    // by a hidden `static` seed. The seed is static only for contrast: a delta
+    // on it inverts in dark as it would on the same color linked as a base.
+    const cases: [string, HCPair<ToneValue>][] = [
+      ['#f7f7fb', '-4'],
+      ['#1d1d2b', '+8'],
+      ['#5b4cff', '-10'],
+      ['#808080', ['-8', '-16']],
+    ];
+    for (const [hex, tone] of cases) {
+      const own = glaze.color({ from: hex, tone }).resolve();
+      const linked = glaze
+        .color({ from: hex, base: glaze.color(hex), tone })
+        .resolve();
+      for (const slot of [
+        'light',
+        'dark',
+        'lightContrast',
+        'darkContrast',
+      ] as const) {
+        expect(own[slot].t).toBeCloseTo(linked[slot].t, 12);
+      }
+    }
+    const hover = glaze.color({ from: '#f7f7fb', tone: '-4' }).resolve();
+    expect(hover.dark.t * 100).toBeCloseTo(14.58, 2);
+    expect(hover.darkContrast.t * 100).toBeCloseTo(6.15, 2);
+  });
+
   it("reads each linked token's anchor once per pass", () => {
     let token = glaze.color('#808080');
     const links = 40;
@@ -697,6 +728,20 @@ describe('resolver: dark tone deltas', () => {
     const last = length - 1;
     expect(step(map, `c${last}`, `c${last - 1}`, 'dark')).toBeCloseTo(
       (last % 2 ? -1 : 1) * DEFAULT_DARK_SCALE,
+      9,
+    );
+  });
+
+  it('resolves a long chain of tone-less aliases without deep recursion', () => {
+    // An alias never asks for its own anchor, so the first delta after a chain
+    // of them is the first to: the chain is walked in a loop, not recursed.
+    const colors: ColorMap = { c0: { tone: 50 } };
+    const length = 20000;
+    for (let i = 1; i < length; i++) colors[`c${i}`] = { base: `c${i - 1}` };
+    colors.end = { base: `c${length - 1}`, tone: '+4' };
+    const map = resolve(colors);
+    expect(step(map, 'end', 'c0', 'dark')).toBeCloseTo(
+      -4 * DEFAULT_DARK_SCALE,
       9,
     );
   });

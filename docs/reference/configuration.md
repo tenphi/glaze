@@ -323,22 +323,27 @@ Glaze validates a theme's definitions when it resolves — on the first `resolve
 | Relative `tone` without `base` (theme color), in either entry of a pair (`[50, '+20']` included) | `glaze: color "a" has relative "tone" without "base".` |
 | No absolute `tone`, no `from`, and no `base` | `glaze: color "a" must have either absolute "tone" (root), "from" (a literal color), or "base" (dependent).` |
 | `from` can't be parsed | `glaze: color "a" has an invalid "from" value. glaze: invalid hex color "#zzz".` |
+| Malformed `contrast`, regular or mix: a misspelled preset (`'aa'`, `{ apca: 'Body' }`), a non-finite number, an object without exactly one of `wcag` / `apca` set (a key holding `undefined` is unset; other keys are ignored), or a pair without two entries | `glaze: color "a" has an invalid "contrast" "aa". Use a WCAG ratio or 'AA' / 'AAA' / 'AA-large' / 'AAA-large', { wcag: … }, { apca: … }, or a [normal, highContrast] pair of these.` |
+| A color field the resolver can't place: a `tone`, `hue`, `darkHue`, `saturation`, `darkSaturation`, mix `value`, or shadow / glow `intensity` that isn't a finite number, a relative string that isn't `'+N'` / `'-N'` (`'+-5'`), or an `opacity` outside 0–1 | `glaze: color "a" has an invalid "tone" NaN.` |
+| A theme seed `hue` / `saturation` (or a given `darkHue` / `darkSaturation`) that isn't a finite number, at `glaze()` | `glaze: theme seed saturation must be a finite number (got undefined).` |
 | `contrast` pair switches metric (`[4.5, { apca: 75 }]`), regular or mix | `glaze: color "a" has a "contrast" pair that switches metric (wcag → apca). A WCAG ratio and an APCA Lc are different scales; use one metric for both entries, e.g. { wcag: [normal, highContrast] }.` |
 | `base` names a missing color | `glaze: color "a" references non-existent base "nope".` |
 | `base` names a shadow or glow | `glaze: color "b" base "a" references a glow color.` |
+| Shadow / glow without a `bg` | `glaze: shadow "a" is missing "bg".` (`glaze.shadow()` / `glaze.glow()`: `glaze.shadow(): "bg" is required.`) |
 | Shadow / glow `bg` or `fg` names a missing color | `glaze: shadow "a" references non-existent bg "nope".` |
 | Shadow / glow `bg` or `fg` names a shadow or glow | `glaze: glow "b" bg "a" references a shadow color.` |
 | Mix `base` names a missing color | `glaze: mix "a" references non-existent base "nope".` |
 | Mix `target` names a missing color | `glaze: mix "a" references non-existent target "nope".` |
 | Mix `base` / `target` names a shadow or glow | `glaze: mix "a" target "sh" references a shadow color.` |
 | Circular reference through `base`, `bg`, `fg`, or a mix's `base` / `target` | `glaze: circular base reference detected involving "a".` |
-| Non-finite or non-number `contrastLevel` other than `'auto'` (thrown by `configure()`, or when an instance with such an override resolves) | `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).` |
+| Non-finite or non-number `contrastLevel` other than `'auto'`, `null` included (thrown by `configure()`, or when an instance with such an override resolves) | `glaze: contrastLevel must be a finite number 0–100 or 'auto' (got NaN).` |
 | Non-finite or non-number `darkDesaturation` (same two places) | `glaze: darkDesaturation must be a finite number 0–1 (got NaN).` |
 | Tone window with `lo` above `hi` (same two places, for `lightTone` or `darkTone`) | `glaze: lightTone lo (90) is above hi (20). A window runs from its dark end to its light end: [lo, hi] with lo ≤ hi, e.g. [20, 90].` |
 | Tone window endpoint that isn't a finite number | `glaze: lightTone lo must be a finite number (got NaN).` |
 | Object tone window whose `eps` isn't a finite number above 0 and at most `1e6` (missing included) | `glaze: lightTone eps must be a finite number above 0 and at most 1e6 (got 0).` |
 | Tone window that isn't `[lo, hi]`, `{ lo, hi, eps }`, or `false` (`null` included) | `glaze: lightTone must be [lo, hi], { lo, hi, eps }, or false (got [10]).` |
 | Glow `headroom` that isn't a finite number ≥ 0: in `glowTuning` (same two places), a glow's `tuning` (at resolve), or `glaze.glow()` | `glaze: glowTuning.headroom must be a finite number ≥ 0 — stops above SDR white (got -1).` The prefix names the source (`glow "g" tuning`, `glaze.glow() tuning`), and the value is shown as written: `(got "2")`, `(got [1])`. |
+| `objectInfluence`, `tint`, `reach`, or `hueBleed` set to something other than a finite number, in any tuning | `glaze: shadowTuning.reach must be a finite number (got NaN).` (prefixed like `headroom`) |
 | `headroom` in `shadowTuning`, a shadow's `tuning`, or `glaze.shadow()` | `glaze: shadowTuning.headroom is not supported — a shadow darkens toward black, and nothing goes below black. Headroom is for glows (glowTuning or a glow's tuning).` |
 
 ### Color value errors
@@ -350,8 +355,10 @@ Every place that takes a `GlazeColorValue` — a theme color's `from`, `glaze.co
 | Hex of the wrong length (not 3, 4, 6, or 8 digits) or with non-hex digits | `glaze: invalid hex color "#zzz".` |
 | A string that isn't hex or `rgb()` / `rgba()` / `hsl()` / `hsla()` / `okhsl()` / `okhst()` / `oklch()` (named colors included) | `glaze: unsupported color string "red".` |
 | A color function without exactly 3 components (alpha aside) | `glaze: expected 3 components in "rgb(1 2)".` |
+| A color-function component that isn't a number (or `none`), or has a unit it can't take | `glaze: invalid component "abc" in "hsl(abc 50% 50%)".` |
 | `{ h, s, l }` with a non-finite field | `glaze.color: OkhslColor h/s/l must be finite numbers.` |
 | `{ h, s, l }` with `s` or `l` above 1.5 | `glaze.color: OkhslColor s/l must be in 0–1 range. Did you mean the structured form { hue, saturation, tone } (which uses 0–100)?` |
+| `{ h, s, l }`, `{ h, s, t }`, or `{ l, c, h }` with a 0–1 field below 0 | `glaze.color: OkhslColor s must be 0 or more (got -0.1).` (`OkhstColor` / `OklchColor` likewise) |
 | `{ h, s, t }` with a non-finite field, or `s` / `t` above 1.5 | `glaze.color: OkhstColor h/s/t must be finite numbers.` / `glaze.color: OkhstColor s/t must be in 0–1 range. …` |
 | `{ r, g, b }` with a channel outside 0–255 | `glaze.color: RgbColor r must be a finite number in 0–255 (got 300).` |
 | `{ l, c, h }` with a non-finite field, or `l` / `c` above 1.5 | `glaze.color: OklchColor l/c/h must be finite numbers.` / `glaze.color: OklchColor l/c must be in 0–1 range (matching oklch() strings).` |
@@ -410,11 +417,11 @@ Glaze reports problems it can recover from through `console.warn`, always prefix
 | [Shadow or glow out of reach](#shadow-or-glow-out-of-reach) | A `shadow` / `glow` step exceeds what its pigment can do, or a glow's `headroom` cap leaves its step short. | Yes |
 | [Headroom clamped](#headroom-clamped) | A glow `headroom` above 2 is clamped. | Yes |
 | [Contrast and opacity](#contrast-and-opacity) | A regular color has both `contrast` and `opacity`. | No — once per resolve |
-| [Alpha dropped](#alpha-dropped) | A color value carries alpha that Glaze discards. | No |
+| [Alpha dropped](#alpha-dropped) | A color value carries alpha that Glaze discards. | Once per color string |
 | [Percentage scale](#percentage-scale) | A `format*` writer gets a value above 1. | Once per writer |
 | Palette collision | Two palette themes produce the same token name. See [Collision detection](./palette.md#collision-detection). | No |
 
-The first five share one session cache of 256 keys, which starts over when full. A key includes the color name, scheme, target, and measured value (for a clamp, the field and value), so a dev server that re-resolves on every change prints each distinct problem once. Resolved themes are cached until their definitions or the config change, so the contrast-and-opacity warning prints once per actual resolve. The alpha-dropped warning for a theme color's `from` can print several times within one resolve, since the value is parsed more than once.
+The first five share one session cache of 256 keys, which starts over when full. A key includes the color name, scheme, target, and measured value (for a clamp, the field and value), so a dev server that re-resolves on every change prints each distinct problem once. Resolved themes are cached until their definitions or the config change, so the contrast-and-opacity warning prints once per actual resolve. The alpha-dropped warning keeps its own cache of 256 color strings, so it prints once per string.
 
 ### Contrast unmet
 
@@ -492,8 +499,8 @@ Emitted during validation. For a translucent color with a floor, use a [transpar
 ### Alpha dropped
 
 ```text
-glaze: alpha component dropped from "#ffffff80"
-  (standalone color has no opacity field).
+glaze: alpha component dropped from "#ffffff80"; use the color's
+  `opacity` (or a transparent mix) for translucency.
 ```
 
 Any color string Glaze parses — a `from` value, a `glaze.color()` value, or a `glaze.shadow()` / `glaze.glow()` input — keeps only its color. Use `opacity` on a regular color, or a transparent mix, for translucency.

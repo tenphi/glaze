@@ -171,7 +171,7 @@ Every `.export()` writes two fields:
 
 | Version | Written by |
 | --- | --- |
-| `1` | Glaze 2.x. |
+| `1` | Glaze 1.1–2.x. |
 | `2` | Glaze 3: shadow `intensity`, `fg`, and tuning changed meaning, and `glow` was added. |
 
 ### Restore checks
@@ -190,7 +190,7 @@ Every `.export()` writes two fields:
 A version-1 theme snapshot with shadows is rejected because Glaze 3 changed what shadow `intensity`, `fg`, and tuning mean: restoring it would silently render every shadow differently. The error names the shadows and points to the upgrade guide:
 
 ```text
-glaze.themeFrom: this snapshot is export version 1 (Glaze 2) and contains
+glaze.themeFrom: this snapshot is export version 1 (Glaze 1.1–2) and contains
   shadow colors ("card-shadow").
 Glaze 3 changed what shadow "intensity", "fg" and tuning mean, so it would
   restore with different shadows.
@@ -198,7 +198,7 @@ Re-author them as described in docs/migration.md ("3.0 — shadows and
   glows") and export again.
 ```
 
-A theme entry inside a palette snapshot that has no `version` of its own is checked against the palette's `version`. The check keys on `version: 1`, so a snapshot without any `version` is not checked. How to re-author Glaze 2 shadows is in [3.0 — shadows and glows](../migration.md#30--shadows-and-glows).
+A theme entry inside a palette snapshot that has no `version` of its own is checked against the palette's `version`. The check keys on `version: 1`, so a snapshot without any `version` (a hand-written one, or one from Glaze 1.0) is not checked: re-author its shadows before restoring it. How to re-author Glaze 2 shadows is in [3.0 — shadows and glows](../migration.md#30--shadows-and-glows).
 
 ### Type guards
 

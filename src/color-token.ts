@@ -52,14 +52,18 @@ import {
   type HueVarLabels,
   type SplitHueOwners,
 } from './channels';
-import { extractOkhslFromValue } from './color-value';
+import { copyColorValue, extractOkhslFromValue } from './color-value';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
-import { pairNormal } from './hc-pair';
-import { darkAnchorOf, resolveAllColors } from './resolver';
+import { pairNormal, showValue } from './hc-pair';
+import {
+  anchorAtAuthoredTone,
+  darkAnchorOf,
+  resolveAllColors,
+} from './resolver';
 import type { DarkAnchorHook, ExternalDarkAnchor } from './resolver';
 import { normalizeRole } from './roles';
-import { hasRelativeTone } from './validation';
+import { hasRelativeTone, isRelativeValue } from './validation';
 import {
   buildCssMap,
   buildDtcgMap,
@@ -92,6 +96,7 @@ import type {
   GlazeThemeSeed,
   GlazeTokenOptions,
   HCPair,
+  ContrastSpec,
   OkhslColor,
   RegularColorDef,
   ResolvedColor,
@@ -206,9 +211,14 @@ function validateStructuredInput(input: GlazeColorInput): void {
       );
     }
   }
-  if (typeof input.darkHue === 'number' && !Number.isFinite(input.darkHue)) {
+  if (
+    input.darkHue !== undefined &&
+    !(typeof input.darkHue === 'number'
+      ? Number.isFinite(input.darkHue)
+      : isRelativeValue(input.darkHue))
+  ) {
     throw new Error(
-      `glaze.color: structured darkHue must be a finite number (got ${input.darkHue}).`,
+      `glaze.color: structured darkHue must be a finite number or a '+N' / '-N' offset (got ${showValue(input.darkHue)}).`,
     );
   }
   if (input.darkSaturation !== undefined) {
@@ -310,7 +320,9 @@ function standaloneRole(role: RoleInput | undefined): Role {
  * When the user requests `contrast` or relative `tone`, a hidden
  * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
  * the seed pinned to the literal user-provided color across all four
- * variants, so the contrast solver always anchors against it.
+ * variants, so the contrast solver always anchors against it. Its dark-delta
+ * anchor is still its authored tone (`anchorAtAuthoredTone`), so a delta on it
+ * inverts in dark like one on the same color in a theme.
  */
 function buildStandaloneValueDefs(
   main: OkhslColor,
@@ -364,14 +376,14 @@ function buildStandaloneValueDefs(
   const defs: ColorMap = { [primary]: valueDef };
 
   if (needsSeedAnchor) {
-    defs[STANDALONE_SEED] = {
+    defs[STANDALONE_SEED] = anchorAtAuthoredTone({
       hue: main.h,
       saturation: 1,
       tone: seedTone,
       mode: 'static',
       // The anchor is the background the token is measured on.
       role: 'surface',
-    };
+    });
   }
 
   return {
@@ -662,9 +674,11 @@ export function isGlazeColorToken(
 // ============================================================================
 
 export function createColorToken(
-  input: GlazeColorInput,
+  rawInput: GlazeColorInput,
   configOverride?: GlazeConfigOverride,
 ): GlazeColorToken {
+  // Validate the copy, so the token is built from exactly what passed.
+  const input = copyTokenOptions(rawInput);
   validateStructuredInput(input);
 
   const userName = input.name;
@@ -696,7 +710,7 @@ export function createColorToken(
   };
 
   if (needsSeedAnchor) {
-    defs[STANDALONE_SEED] = {
+    defs[STANDALONE_SEED] = anchorAtAuthoredTone({
       // The seed anchor must be a concrete tone; resolve 'max'/'min' to its
       // extreme so the static anchor is well-defined.
       tone: pinExtremeTone(pairNormal(input.tone)),
@@ -704,7 +718,7 @@ export function createColorToken(
       mode: 'static',
       // The anchor is the background the token is measured on.
       role: 'surface',
-    };
+    });
   }
 
   // Copied once, so resolve and `export()` read the same detached object.
@@ -724,7 +738,7 @@ export function createColorToken(
       kind: 'color',
       version: GLAZE_EXPORT_VERSION,
       form: 'structured',
-      input: buildStructuredInputExport(input, exportArg),
+      input: buildStructuredInputExport(input, baseToken, exportArg),
       config: freezeConfigForExport(localOverride, exportArg),
     }),
   );
@@ -735,10 +749,12 @@ export function createColorToken(
 // ============================================================================
 
 export function createColorTokenFromValue(
-  value: GlazeColorValue,
-  options: GlazeColorOverrides | undefined,
+  input: GlazeColorValue,
+  inputOptions: GlazeColorOverrides | undefined,
   configOverride: GlazeConfigOverride | undefined,
 ): GlazeColorToken {
+  const value = copyColorValue(input);
+  const options = inputOptions && copyTokenOptions(inputOptions);
   const main = extractOkhslFromValue(value);
   const baseToken = resolveBaseToken(options?.base);
   const { seed, defs, primary } = buildStandaloneValueDefs(main, options);
@@ -755,9 +771,9 @@ export function createColorTokenFromValue(
       kind: 'color',
       version: GLAZE_EXPORT_VERSION,
       form: 'value',
-      input: value,
+      input: copyColorValue(value),
       ...(options !== undefined
-        ? { overrides: buildOverridesExport(options, exportArg) }
+        ? { overrides: buildOverridesExport(options, baseToken, exportArg) }
         : {}),
       config: freezeConfigForExport(localOverride, exportArg),
     }),
@@ -769,18 +785,21 @@ export function createColorTokenFromValue(
 // ============================================================================
 
 /**
- * Build a JSON-safe snapshot of `GlazeColorOverrides`. `base` is
- * recursively serialized when it was originally a token; raw values are
- * preserved as-is so `glaze.colorFrom(...)` round-trips them.
+ * Build a JSON-safe snapshot of `GlazeColorOverrides`. `base` is serialized
+ * as its token's own snapshot: a raw value as the token it is wrapped in, so
+ * its config is frozen with the rest and a restored token doesn't follow later
+ * `glaze.configure()` calls through its base. Every object in it is a fresh
+ * copy, so editing a snapshot never reaches the live token.
  */
 function buildOverridesExport(
   options: GlazeColorOverrides,
+  baseToken: GlazeColorToken | undefined,
   exportArg?: GlazeConfigOverride,
 ): GlazeColorOverridesExport {
   const out: GlazeColorOverridesExport = {};
   if (options.hue !== undefined) out.hue = options.hue;
   if (options.saturation !== undefined) out.saturation = options.saturation;
-  if (options.tone !== undefined) out.tone = options.tone;
+  if (options.tone !== undefined) out.tone = copyPair(options.tone);
   if (options.saturationFactor !== undefined) {
     out.saturationFactor = options.saturationFactor;
   }
@@ -793,27 +812,27 @@ function buildOverridesExport(
   }
   if (options.mode !== undefined) out.mode = options.mode;
   if (options.autoFlip !== undefined) out.autoFlip = options.autoFlip;
-  if (options.contrast !== undefined) out.contrast = options.contrast;
+  if (options.contrast !== undefined) {
+    out.contrast = copyContrast(options.contrast);
+  }
   if (options.opacity !== undefined) out.opacity = options.opacity;
   if (options.name !== undefined) out.name = options.name;
   if (options.pastel !== undefined) out.pastel = options.pastel;
   if (options.role !== undefined) out.role = options.role;
-  if (options.base !== undefined) {
-    out.base = isGlazeColorToken(options.base)
-      ? options.base.export(exportArg)
-      : options.base;
-  }
+  if (baseToken !== undefined) out.base = baseToken.export(exportArg);
   return out;
 }
 
+/** The structured-input counterpart of `buildOverridesExport`. */
 function buildStructuredInputExport(
   input: GlazeColorInput,
+  baseToken: GlazeColorToken | undefined,
   exportArg?: GlazeConfigOverride,
 ): GlazeColorInputExport {
   const out: GlazeColorInputExport = {
     hue: input.hue,
     saturation: input.saturation,
-    tone: input.tone,
+    tone: copyPair(input.tone),
   };
   if (input.saturationFactor !== undefined) {
     out.saturationFactor = input.saturationFactor;
@@ -828,16 +847,79 @@ function buildStructuredInputExport(
   if (input.mode !== undefined) out.mode = input.mode;
   if (input.autoFlip !== undefined) out.autoFlip = input.autoFlip;
   if (input.opacity !== undefined) out.opacity = input.opacity;
-  if (input.contrast !== undefined) out.contrast = input.contrast;
+  if (input.contrast !== undefined) out.contrast = copyContrast(input.contrast);
   if (input.name !== undefined) out.name = input.name;
   if (input.pastel !== undefined) out.pastel = input.pastel;
   if (input.role !== undefined) out.role = input.role;
-  if (input.base !== undefined) {
-    out.base = isGlazeColorToken(input.base)
-      ? input.base.export(exportArg)
-      : input.base;
-  }
+  if (baseToken !== undefined) out.base = baseToken.export(exportArg);
   return out;
+}
+
+/** A copy of a `[normal, highContrast]` pair, or the value itself. */
+function copyPair<T>(value: HCPair<T>): HCPair<T> {
+  return Array.isArray(value) ? ([...value] as HCPair<T>) : value;
+}
+
+/**
+ * A copy of a `contrast` value, read by property access so a proxy (reactive
+ * state) copies too. Other keys of a spec object are kept for the validator.
+ */
+function copyContrast(contrast: HCPair<ContrastSpec>): HCPair<ContrastSpec> {
+  const copySpec = (spec: ContrastSpec): ContrastSpec => {
+    if (typeof spec !== 'object' || spec === null) return spec;
+    const out: Record<string, unknown> = { ...spec };
+    for (const key of ['wcag', 'apca'] as const) {
+      const value = (spec as Record<string, unknown>)[key];
+      if (value !== undefined) out[key] = copyPair(value);
+    }
+    return out as ContrastSpec;
+  };
+  return Array.isArray(contrast)
+    ? (contrast.map(copySpec) as HCPair<ContrastSpec>)
+    : copySpec(contrast);
+}
+
+/** Every field of `GlazeColorInput` / `GlazeColorOverrides`. */
+const TOKEN_OPTION_KEYS = [
+  'hue',
+  'saturation',
+  'tone',
+  'saturationFactor',
+  'darkHue',
+  'darkSaturation',
+  'darkSaturationFactor',
+  'mode',
+  'autoFlip',
+  'opacity',
+  'contrast',
+  'base',
+  'name',
+  'pastel',
+  'role',
+] as const;
+
+/**
+ * A detached copy of a token's input or overrides, each field read by property
+ * access so a getter, an inherited field or a proxy copies like a plain one.
+ * The pairs, `contrast` and a raw value `base` are copied too, so a caller
+ * editing them later doesn't change the token (a token `base` is kept, as
+ * tokens are immutable). Other keys (a value form's `from`) are left out.
+ */
+function copyTokenOptions<T extends GlazeColorOverrides | GlazeColorInput>(
+  options: T,
+): T {
+  const source = options as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of TOKEN_OPTION_KEYS) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  const copy = out as T;
+  if (copy.tone !== undefined) copy.tone = copyPair(copy.tone) as T['tone'];
+  if (copy.contrast !== undefined) copy.contrast = copyContrast(copy.contrast);
+  if (copy.base !== undefined && !isGlazeColorToken(copy.base)) {
+    copy.base = copyColorValue(copy.base);
+  }
+  return copy;
 }
 
 /**

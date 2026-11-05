@@ -148,6 +148,23 @@ const WCAG_HC_PROMOTION: Partial<Record<ContrastPreset, ContrastPreset>> = {
   'AA-large': 'AAA-large',
 };
 
+/** An `{ apca }` spec: its `apca` is set (a key holding `undefined` is not). */
+function isApcaSpec(
+  spec: object,
+): spec is Extract<ContrastSpec, { apca: unknown }> {
+  return (spec as { apca?: unknown }).apca !== undefined;
+}
+
+/** Whether `value` names a WCAG preset (internal; see validation.ts). */
+export function isContrastPreset(value: unknown): value is ContrastPreset {
+  return typeof value === 'string' && Object.hasOwn(CONTRAST_PRESETS, value);
+}
+
+/** Whether `value` names an APCA preset (internal; see validation.ts). */
+export function isApcaPreset(value: unknown): value is ApcaPreset {
+  return typeof value === 'string' && Object.hasOwn(APCA_PRESETS, value);
+}
+
 export function resolveMinContrast(value: MinContrast): number {
   if (typeof value === 'number') {
     return Math.max(1, value);
@@ -184,7 +201,7 @@ function pickPair<T>(p: HCPair<T>, isHighContrast: boolean): T {
  * presets are `'wcag'`; only an `{ apca }` object is `'apca'`.
  */
 export function contrastMetricOf(spec: ContrastSpec): ContrastMetric {
-  return typeof spec === 'object' && 'apca' in spec ? 'apca' : 'wcag';
+  return typeof spec === 'object' && isApcaSpec(spec) ? 'apca' : 'wcag';
 }
 
 /**
@@ -216,12 +233,16 @@ export function resolveContrastForMode(
       target: resolveWcagTarget(spec, isHighContrast, !!outerExplicitHC),
     };
   }
-  if ('apca' in spec) {
+  if (isApcaSpec(spec)) {
     const baseTarget = resolveApcaTarget(pickPair(spec.apca, isHighContrast));
     const innerExplicitHC = Array.isArray(spec.apca);
+    // The cap only limits the boost: a normal target already past it is kept.
     const enhanced =
       isHighContrast && !outerExplicitHC && !innerExplicitHC
-        ? Math.min(baseTarget + APCA_HC_ENHANCEMENT, APCA_MAX_LC)
+        ? Math.max(
+            baseTarget,
+            Math.min(baseTarget + APCA_HC_ENHANCEMENT, APCA_MAX_LC),
+          )
         : baseTarget;
     return {
       metric: 'apca',
@@ -263,6 +284,11 @@ export function resolveContrastForLevel(
   level: number,
   polarity?: 'fg' | 'bg',
 ): ResolvedContrast {
+  if (!Number.isFinite(level)) {
+    throw new Error(
+      `glaze: resolveContrastForLevel needs a finite level (got ${level}).`,
+    );
+  }
   const outerExplicitHC = Array.isArray(spec);
   const f = levelFraction(level);
   const normal = resolveContrastForMode(

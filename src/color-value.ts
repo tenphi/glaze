@@ -27,19 +27,55 @@ import type {
  * Matches the color functions Glaze itself emits (`rgb()`, `hsl()`, `okhsl()`,
  * `okhst()`, `oklch()`) plus their legacy alpha aliases (`rgba()`, `hsla()`).
  *
- * Only numeric components are supported; named colors (`red`) and
- * relative-color syntax (`from <color> ...`) are out of scope. Hue is read with
- * `parseFloat`, so a bare number or `deg` is degrees and any other angle unit
- * (`turn`, `rad`, `grad`) is misread as degrees.
+ * Only numeric components are supported, plus the CSS keyword `none` (a missing
+ * component, read as 0 as CSS renders it); named colors (`red`) and
+ * relative-color syntax (`from <color> ...`) are out of scope. A hue takes a
+ * bare number (degrees) or `deg` / `turn` / `rad` / `grad`.
  */
 const COLOR_FN_RE = /^(rgba?|hsla?|okhsl|okhst|oklch)\(\s*([^)]*)\s*\)$/i;
 
-function parseNumberOrPercent(raw: string, percentScale: number): number {
-  if (raw.endsWith('%')) {
-    return (parseFloat(raw) / 100) * percentScale;
+/** One numeric component: a CSS number with an optional unit. */
+const COMPONENT_RE = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)([a-z%]*)$/i;
+
+/** Degrees per unit of each CSS angle unit. */
+const ANGLE_UNITS: Record<string, number> = {
+  '': 1,
+  deg: 1,
+  turn: 360,
+  rad: 180 / Math.PI,
+  grad: 0.9,
+};
+
+function readComponent(
+  raw: string,
+  input: string,
+  units: Record<string, number>,
+): number {
+  if (raw.toLowerCase() === 'none') return 0;
+  const m = COMPONENT_RE.exec(raw);
+  const scale = m ? units[m[2].toLowerCase()] : undefined;
+  const value = m ? parseFloat(m[1]) * (scale ?? NaN) : NaN;
+  if (!Number.isFinite(value)) {
+    throw new Error(`glaze: invalid component "${raw}" in "${input}".`);
   }
-  return parseFloat(raw);
+  return value;
 }
+
+/** A number, or a percentage of `percentScale`. */
+function parseNumberOrPercent(
+  raw: string,
+  percentScale: number,
+  input: string,
+): number {
+  return readComponent(raw, input, { '': 1, '%': percentScale / 100 });
+}
+
+/** A hue in degrees. */
+function parseHue(raw: string, input: string): number {
+  return readComponent(raw, input, ANGLE_UNITS);
+}
+
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
 /**
  * Split the body of a CSS color function into its components and detect
@@ -47,7 +83,7 @@ function parseNumberOrPercent(raw: string, percentScale: number): number {
  *
  * Handles both modern slash syntax (`R G B / A` or `R, G, B / A`) and
  * legacy comma syntax (`R, G, B, A`). The alpha value itself is discarded
- * by the caller — standalone Glaze colors have no opacity field.
+ * by the caller, with a warning: translucency is a color's `opacity` field.
  */
 function splitColorBody(body: string): {
   components: string[];
@@ -72,9 +108,15 @@ function splitColorBody(body: string): {
   return { components, hadAlpha: false };
 }
 
+/** Inputs already warned about, so a re-parsed `from` warns once. */
+const warnedAlpha = new Set<string>();
+
 function warnDroppedAlpha(input: string): void {
+  if (warnedAlpha.has(input)) return;
+  if (warnedAlpha.size >= 256) warnedAlpha.clear();
+  warnedAlpha.add(input);
   console.warn(
-    `glaze: alpha component dropped from "${input}" (standalone color has no opacity field).`,
+    `glaze: alpha component dropped from "${input}"; use the color's \`opacity\` (or a transparent mix) for translucency.`,
   );
 }
 
@@ -100,40 +142,43 @@ export function parseColorString(input: string): OkhslColor {
     throw new Error(`glaze: expected 3 components in "${input}".`);
   }
 
+  // Out-of-range values clamp, as CSS clamps them at parse time: a channel
+  // past 255, a lightness past 100%, a negative chroma.
+  const [c0, c1, c2] = components;
   switch (fn) {
     case 'rgb':
     case 'rgba': {
-      const r = parseNumberOrPercent(components[0], 255) / 255;
-      const g = parseNumberOrPercent(components[1], 255) / 255;
-      const b = parseNumberOrPercent(components[2], 255) / 255;
+      const r = clamp01(parseNumberOrPercent(c0, 255, input) / 255);
+      const g = clamp01(parseNumberOrPercent(c1, 255, input) / 255);
+      const b = clamp01(parseNumberOrPercent(c2, 255, input) / 255);
       const [h, s, l] = srgbToOkhsl([r, g, b]);
       return { h, s, l };
     }
     case 'hsl':
     case 'hsla': {
-      const h = parseFloat(components[0]);
-      const s = parseNumberOrPercent(components[1], 1);
-      const l = parseNumberOrPercent(components[2], 1);
+      const h = parseHue(c0, input);
+      const s = clamp01(parseNumberOrPercent(c1, 1, input));
+      const l = clamp01(parseNumberOrPercent(c2, 1, input));
       const [oh, os, ol] = srgbToOkhsl(hslToSrgb(h, s, l));
       return { h: oh, s: os, l: ol };
     }
     case 'okhsl': {
-      const h = parseFloat(components[0]);
-      const s = parseNumberOrPercent(components[1], 1);
-      const l = parseNumberOrPercent(components[2], 1);
+      const h = parseHue(c0, input);
+      const s = clamp01(parseNumberOrPercent(c1, 1, input));
+      const l = clamp01(parseNumberOrPercent(c2, 1, input));
       return { h, s, l };
     }
     case 'okhst': {
-      const h = parseFloat(components[0]);
-      const s = parseNumberOrPercent(components[1], 1);
-      const t = parseNumberOrPercent(components[2], 1);
+      const h = parseHue(c0, input);
+      const s = clamp01(parseNumberOrPercent(c1, 1, input));
+      const t = clamp01(parseNumberOrPercent(c2, 1, input));
       return okhstToOkhsl({ h, s, t });
     }
     case 'oklch': {
-      const L = parseNumberOrPercent(components[0], 1);
+      const L = clamp01(parseNumberOrPercent(c0, 1, input));
       // Per CSS Color 4: chroma percent maps `100% → 0.4`.
-      const C = parseNumberOrPercent(components[1], 0.4);
-      const hDeg = parseFloat(components[2]);
+      const C = Math.max(0, parseNumberOrPercent(c1, 0.4, input));
+      const hDeg = parseHue(c2, input);
       const hRad = (hDeg * Math.PI) / 180;
       const a = C * Math.cos(hRad);
       const b = C * Math.sin(hRad);
@@ -157,10 +202,22 @@ export function validateOkhslColor(value: OkhslColor): void {
   if (!Number.isFinite(h) || !Number.isFinite(s) || !Number.isFinite(l)) {
     throw new Error('glaze.color: OkhslColor h/s/l must be finite numbers.');
   }
+  assertNonNegative('OkhslColor', { s, l });
   if (s > 1.5 || l > 1.5) {
     throw new Error(
       'glaze.color: OkhslColor s/l must be in 0–1 range. Did you mean the structured form { hue, saturation, tone } (which uses 0–100)?',
     );
+  }
+}
+
+/** Reject a negative 0–1 component, naming it: no color has one. */
+function assertNonNegative(kind: string, fields: Record<string, number>): void {
+  for (const [key, n] of Object.entries(fields)) {
+    if (n < 0) {
+      throw new Error(
+        `glaze.color: ${kind} ${key} must be 0 or more (got ${n}).`,
+      );
+    }
   }
 }
 
@@ -182,6 +239,7 @@ export function validateOklchColor(value: OklchColor): void {
   if (!Number.isFinite(l) || !Number.isFinite(c) || !Number.isFinite(h)) {
     throw new Error('glaze.color: OklchColor l/c/h must be finite numbers.');
   }
+  assertNonNegative('OklchColor', { l, c });
   if (l > 1.5 || c > 1.5) {
     throw new Error(
       'glaze.color: OklchColor l/c must be in 0–1 range (matching oklch() strings).',
@@ -199,6 +257,23 @@ export function oklchComponentsToOkhsl(
   const b = c * Math.sin(hRad);
   const [h, s, outL] = oklabToOkhsl([l, a, b]);
   return { h, s, l: outL };
+}
+
+/**
+ * A detached copy of a color value. A value object is read by property access
+ * once its shape is known, so a getter, an inherited field or a proxy copies
+ * like a plain field (a spread would drop the first two). Strings, and shapes
+ * the parser rejects anyway, pass through.
+ */
+export function copyColorValue<T extends GlazeColorValue>(value: T): T {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return value;
+  }
+  const v = value as unknown as Record<string, unknown>;
+  if (isRgbColorObject(value)) return { r: v.r, g: v.g, b: v.b } as T;
+  if (isOklchColorObject(value)) return { l: v.l, c: v.c, h: v.h } as T;
+  if (isOkhstColorObject(value)) return { h: v.h, s: v.s, t: v.t } as T;
+  return { h: v.h, s: v.s, l: v.l } as T;
 }
 
 export function isRgbColorObject(value: object): value is RgbColor {
@@ -219,6 +294,7 @@ export function validateOkhstColor(value: OkhstColor): void {
   if (!Number.isFinite(h) || !Number.isFinite(s) || !Number.isFinite(t)) {
     throw new Error('glaze.color: OkhstColor h/s/t must be finite numbers.');
   }
+  assertNonNegative('OkhstColor', { s, t });
   if (s > 1.5 || t > 1.5) {
     throw new Error(
       'glaze.color: OkhstColor s/t must be in 0–1 range. Did you mean the structured form { hue, saturation, tone } (which uses 0–100)?',
@@ -229,7 +305,9 @@ export function validateOkhstColor(value: OkhstColor): void {
 /**
  * Extract an OKHSL color from any `GlazeColorValue` form. Also used by
  * `glaze.shadow()` / `glaze.glow()` so all their inputs (hex, color
- * functions, OKHSL, literal objects) go through one parser.
+ * functions, OKHSL, literal objects) go through one parser. A value object's
+ * 0–1 field that passed its check above 1 (up to 1.5) clamps to 1, as the
+ * same value in a color function does.
  */
 export function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
   if (typeof value === 'string') return parseColorString(value);
@@ -249,12 +327,16 @@ export function extractOkhslFromValue(value: GlazeColorValue): OkhslColor {
   }
   if (isOklchColorObject(value)) {
     validateOklchColor(value);
-    return oklchComponentsToOkhsl(value.l, value.c, value.h);
+    return oklchComponentsToOkhsl(clamp01(value.l), value.c, value.h);
   }
   if (isOkhstColorObject(value)) {
     validateOkhstColor(value);
-    return okhstToOkhsl(value);
+    return okhstToOkhsl({
+      h: value.h,
+      s: clamp01(value.s),
+      t: clamp01(value.t),
+    });
   }
   validateOkhslColor(value);
-  return value;
+  return { h: value.h, s: clamp01(value.s), l: clamp01(value.l) };
 }
