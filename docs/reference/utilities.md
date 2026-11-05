@@ -173,7 +173,7 @@ Glaze's color science, exported as plain functions over tuples. `pastel` (defaul
 | `okhslToOklab(h, s, l, pastel?)` | `[L, a, b]` | OKHSL → OKLab. |
 | `okhslToOklch(h, s, l, pastel?)` | `[L, C, H]` | OKHSL → OKLCh (`L` 0–1, `C` chroma, `H` degrees). Same math as the `oklch` output. |
 | `oklabToOkhsl([L, a, b], pastel?)` | `[h, s, l]` | OKLab → OKHSL. Achromatic colors and the black / white extremes return `[0, 0, l]`. |
-| `srgbToOkhsl([r, g, b], pastel?)` | `[h, s, l]` | Gamma-encoded sRGB (0–1) → OKHSL. |
+| `srgbToOkhsl([r, g, b], pastel?)` | `[h, s, l]` | Gamma-encoded sRGB (0–1) → OKHSL. A gray comes back with saturation 0: an input whose OKLab chroma is under 1e-6, well above the float residue an exact gray leaves (at most 3.7e-8). |
 | `hslToSrgb(h, s, l)` | `[r, g, b]` | CSS HSL (`s`, `l` 0–1) → gamma-encoded sRGB. CSS HSL is not OKHSL; chain with `srgbToOkhsl`. |
 | `srgbToHex([r, g, b])` | `` `#${string}` `` | Gamma-encoded sRGB → `#rrggbb`. Channels are clamped and rounded to 8 bits; no alpha. |
 | `parseHex(hex)` | `[r, g, b] \| null` | `#rgb` / `#rrggbb` → sRGB 0–1. The `#` is optional and digits are case-insensitive. Returns `null` for a wrong length, forms with alpha, and any character that isn't a hex digit — every digit is checked, so `'#1z2z3z'` and `'#-1-2-3'` are `null`. |

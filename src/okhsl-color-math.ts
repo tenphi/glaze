@@ -68,6 +68,12 @@ const K1 = 0.206;
 const K2 = 0.03;
 const K3 = (1.0 + K1) / (1.0 + K2);
 const EPSILON = 1e-10;
+/**
+ * OKLab chroma under which an sRGB input counts as gray. An exact sRGB gray
+ * leaves float residue in OKLab a / b (at most 3.7e-8, at white); the faintest
+ * deliberate tint, one channel 0.01 of 255 off gray, has 1.06e-5.
+ */
+const GRAY_CHROMA = 1e-6;
 
 // ============================================================================
 // Helpers
@@ -649,6 +655,11 @@ export const oklabToOkhsl = (lab: Vec3, pastel = false): Vec3 => {
 /**
  * Convert gamma-encoded sRGB (0–1 per channel) to OKHSL.
  * Returns [h, s, l] where h: 0–360, s: 0–1, l: 0–1.
+ *
+ * A gray reads with saturation 0 (its computed hue is kept). Its OKLab
+ * residue would otherwise come out as a saturation that grows toward white
+ * (`#fefefe` reads 1.6e-5, `rgb(254.999 254.999 254.999)` 1.6e-2), which a
+ * color carries into every scheme and an OKHSL mix reads as a hue.
  */
 export function srgbToOkhsl(
   rgb: [number, number, number],
@@ -660,7 +671,9 @@ export function srgbToOkhsl(
     sRGBGammaToLinear(rgb[2]),
   ];
   const oklab = linearSrgbToOklab(linear);
-  return oklabToOkhsl(oklab, pastel) as [number, number, number];
+  const okhsl = oklabToOkhsl(oklab, pastel) as [number, number, number];
+  if (Math.hypot(oklab[1], oklab[2]) < GRAY_CHROMA) okhsl[1] = 0;
+  return okhsl;
 }
 
 /**

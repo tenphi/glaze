@@ -257,6 +257,33 @@ describe('hex parsing', () => {
   });
 });
 
+describe('srgbToOkhsl grays', () => {
+  // An exact sRGB gray leaves float residue in OKLab a / b, which OKHSL
+  // saturation inflates toward white. It reads as saturation 0 instead.
+  it.each([false, true])(
+    'reads every gray as saturation 0 (pastel: %s)',
+    (pastel) => {
+      for (let n = 0; n <= 255; n++) {
+        const c = n / 255;
+        expect(srgbToOkhsl([c, c, c], pastel)[1]).toBe(0);
+      }
+      // Decimal grays up to white, where the residue saturation peaks.
+      for (let i = 0; i <= 1000; i++) {
+        const c = (254 + i / 1000) / 255;
+        expect(srgbToOkhsl([c, c, c], pastel)[1]).toBe(0);
+      }
+    },
+  );
+
+  it.each([false, true])('keeps the faintest tints (pastel: %s)', (pastel) => {
+    // One 8-bit step off gray, and one channel 0.01 of 255 off it.
+    expect(srgbToOkhsl([254 / 255, 1, 1], pastel)[1]).toBeGreaterThan(0);
+    expect(
+      srgbToOkhsl([254.51 / 255, 254.5 / 255, 254.5 / 255], pastel)[1],
+    ).toBeGreaterThan(0);
+  });
+});
+
 /**
  * `apcaLuminanceFromLinearRgb` is the `Ys` the solver feeds `apcaContrast`,
  * exported so consumers can re-score a pair and get the solver's own Lc.

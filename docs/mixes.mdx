@@ -120,15 +120,14 @@ matches the "missing component" behavior of CSS `color-mix()`: a mix from
 such a white toward an accent stays in the accent's hue the whole way instead
 of sweeping through other hues.
 
-Only zero counts, along with float noise under 1e-6. A gray given as a value
-reads with noise that grows toward white: `'#eeeeee'` stays under it, but
-`'#f1f1f1'` and lighter don't, and carry a hue near 90. Give a gray endpoint
-`saturation: 0`, which also works with `from`. A white or black that keeps
+Only zero counts, along with float noise up to 1e-6. A gray given as a value,
+such as `'#f5f5f5'` or `rgb(250 250 250)`, parses with a saturation of zero,
+and so does an `srgb` mix that lands on a gray. A white or black that keeps
 real saturation, such as `{ tone: 100 }` in a saturated theme, still carries
-its hue, and a mix toward an accent of another hue sweeps between the two. A
-mix between two zero-saturation colors stays gray in either space; the spaces
-differ only in how lightness is spread along the ramp (see black toward white
-above).
+its hue, and a mix toward
+an accent of another hue sweeps between the two. A mix between two
+zero-saturation colors stays gray in either space; the spaces differ only in
+how lightness is spread along the ramp (see black toward white above).
 
 <MixRamp
   hue={280}

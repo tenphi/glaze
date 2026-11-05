@@ -3687,7 +3687,7 @@ describe('glaze', () => {
       });
 
       it('a tint on a neutral surface stays neutral, or takes the object hue', () => {
-        // A hex gray parses with float-noise saturation at an arbitrary hue
+        // A hex gray parses with saturation 0 but keeps its computed hue
         // (about 90° for #808080); that hue must not tint the pigment.
         const object = 'oklch(0.5 0.2 260)';
         const objectHue = glaze.color(object).resolve().light.h;
@@ -3706,6 +3706,26 @@ describe('glaze', () => {
             expect(bled.h).toBeCloseTo(objectHue, 6);
             expect(bled.s).toBeCloseTo(0.5, 6);
           }
+        }
+      });
+
+      it('a near-white gray value is neutral as a surface and as an object', () => {
+        // Its float residue used to read as a saturation above the neutral
+        // threshold, at a hue near 90, which the tint then took.
+        const gray = 'rgb(254.9 254.9 254.9)';
+        const tuning = { tint: 0.5, reach: 0.8, objectInfluence: 0 };
+        expect(glaze.shadow({ bg: gray, intensity: 8, tuning }).s).toBe(0);
+        const surface = '#3366cc';
+        const surfaceHue = glaze.color(surface).resolve().light.h;
+        for (const kind of ['shadow', 'glow'] as const) {
+          const bled = glaze[kind]({
+            bg: surface,
+            fg: gray,
+            intensity: 8,
+            tuning: { ...tuning, hueBleed: 1 },
+          });
+          // No object hue to bleed toward: the surface's hue.
+          expect(bled.h).toBeCloseTo(surfaceHue, 6);
         }
       });
 
@@ -4057,6 +4077,69 @@ describe('glaze', () => {
       expect(m.light.t).toBeLessThanOrEqual(1);
     });
 
+    describe('gray values as endpoints', () => {
+      const SCHEMES = [
+        'light',
+        'dark',
+        'lightContrast',
+        'darkContrast',
+      ] as const;
+
+      it('takes the accent hue from a light gray value', () => {
+        // A gray given as a value parses with saturation 0 however close to
+        // white it is, so an OKHSL mix from it stays in the accent's hue.
+        for (const gray of [
+          '#f1f1f1',
+          '#f5f5f5',
+          '#fefefe',
+          'rgb(254.999 254.999 254.999)',
+          'hsl(0 0% 99.99%)',
+        ]) {
+          const theme = glaze(280, 80);
+          theme.colors({
+            surface: { from: gray },
+            accent: { tone: 40, hue: 140 },
+            tint: { type: 'mix', base: 'surface', target: 'accent', value: 50 },
+          });
+          const r = theme.resolve();
+          for (const scheme of SCHEMES) {
+            expect(r.get('surface')![scheme].s).toBe(0);
+            expect(r.get('tint')![scheme].h).toBeCloseTo(
+              r.get('accent')![scheme].h,
+              6,
+            );
+          }
+        }
+      });
+
+      it('takes the accent hue from an sRGB blend of grays', () => {
+        // A blend near white, where float residue in its saturation used to
+        // read as a hue.
+        const theme = glaze(280, 80);
+        theme.colors({
+          white: { tone: 100, saturation: 0 },
+          gray: { tone: 50, saturation: 0 },
+          mid: {
+            type: 'mix',
+            base: 'white',
+            target: 'gray',
+            value: 5,
+            space: 'srgb',
+          },
+          accent: { tone: 40, hue: 140 },
+          tint: { type: 'mix', base: 'mid', target: 'accent', value: 50 },
+        });
+        const r = theme.resolve();
+        for (const scheme of SCHEMES) {
+          expect(r.get('mid')![scheme].s).toBe(0);
+          expect(r.get('tint')![scheme].h).toBeCloseTo(
+            r.get('accent')![scheme].h,
+            6,
+          );
+        }
+      });
+    });
+
     describe('endpoints under another pastel flag', () => {
       // A mix's `pastel` sets the gamut of the mixed result, while the base
       // and target keep their own flags. Each endpoint is read in the mix's
@@ -4193,8 +4276,8 @@ describe('glaze', () => {
       it('keeps a gray endpoint gray under the other flag', () => {
         // A gray has no hue, so the mix takes the brand's the whole way,
         // whichever gamut the mix paints in. The `saturation: 0` gray keeps
-        // its own hue (30) on the variant, and `#eeeeee` reads with a noise
-        // saturation just under the gray threshold, at a hue near 90.
+        // its own hue (30) on the variant, and `#eeeeee` parses with
+        // saturation 0 at its computed hue near 90.
         const grays: RegularColorDef[] = [
           { tone: 97, hue: 30, saturation: 0 },
           { from: '#eeeeee' },

@@ -174,8 +174,9 @@ export function circularLerp(a: number, b: number, t: number): number {
 }
 
 /**
- * Saturation at or below which a color has no hue of its own. Hex and `rgb()`
- * grays parse to float noise (up to ~2e-5 at `#fefefe`) with an arbitrary hue.
+ * Saturation at or below which a color has no hue of its own. A gray given as
+ * a value parses with saturation 0; a near-gray under this has a hue too
+ * faint to give a tint.
  */
 const HUE_EPSILON = 1e-4;
 const BISECT_ITERATIONS = 40;
