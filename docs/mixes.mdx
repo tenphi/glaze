@@ -120,11 +120,15 @@ matches the "missing component" behavior of CSS `color-mix()`: a mix from
 such a white toward an accent stays in the accent's hue the whole way instead
 of sweeping through other hues.
 
-Only exactly zero counts. A white or black that keeps any saturation, such as
-`{ tone: 100 }` in a saturated theme, still carries its hue, and a mix toward
-an accent of another hue sweeps between the two. A mix between two
-zero-saturation colors stays gray in either space; the spaces differ only in
-how lightness is spread along the ramp (see black toward white above).
+Only zero counts, along with float noise under 1e-6. A gray given as a value
+reads with noise that grows toward white: `'#eeeeee'` stays under it, but
+`'#f1f1f1'` and lighter don't, and carry a hue near 90. Give a gray endpoint
+`saturation: 0`, which also works with `from`. A white or black that keeps
+real saturation, such as `{ tone: 100 }` in a saturated theme, still carries
+its hue, and a mix toward an accent of another hue sweeps between the two. A
+mix between two zero-saturation colors stays gray in either space; the spaces
+differ only in how lightness is spread along the ramp (see black toward white
+above).
 
 <MixRamp
   hue={280}
@@ -142,9 +146,10 @@ how lightness is spread along the ramp (see black toward white above).
 ## Transparent mix
 
 With `blend: 'transparent'`, the output is the **target** color (its resolved
-hue, saturation, and tone) with `alpha = value / 100`. Nothing is blended in
-Glaze; the browser composites it over whatever is underneath, which should be
-the `base`.
+hue, saturation, and tone, in the mix's gamut when their
+[`pastel` flags](#pastel-mixes) differ) with `alpha = value / 100`. Nothing is
+blended in Glaze; the browser composites it over whatever is underneath, which
+should be the `base`.
 
 ```ts
 theme.colors({
@@ -289,6 +294,45 @@ Other translucent colors are accepted but lose their alpha. A transparent mix
 or a color with `opacity`, used as a mix's `base` or `target` (or as a shadow's
 `bg`), counts as its opaque color: a mix toward a 10% accent wash comes out the
 same as a mix toward the accent. Chain off opaque colors.
+
+## Pastel mixes
+
+A mix's `pastel` sets the gamut of the color it emits. Like any color, a mix
+takes the theme's `pastel` unless it sets its own. Its base and target keep
+their own flags, and when a flag differs from the mix's, the mix reads that
+color in its own gamut through the color it paints:
+
+- A standard mix holds every pastel color, so `value: 0` paints the base and
+  `value: 100` the target exactly.
+- A pastel mix caps a vivid color at the pastel limit, keeping its hue and
+  lightness. A pastel mix toward a vivid brand color ends at the brand with
+  its saturation capped.
+- A transparent mix's overlay is the target in the mix's gamut, and an
+  `srgb` mix interpolates the colors as painted, then caps the result.
+
+```ts
+const theme = glaze(280, 80, { pastel: true });
+
+theme.colors({
+  surface: { tone: 95 },
+  brand: { tone: 40, pastel: false },
+  // pastel like the theme: at value 100 it would be the brand, capped
+  'brand-soft': { type: 'mix', base: 'surface', target: 'brand', value: 60 },
+  // standard: the brand in full at value 100
+  'brand-tint': {
+    type: 'mix',
+    base: 'surface',
+    target: 'brand',
+    value: 60,
+    pastel: false,
+  },
+});
+```
+
+The contrast solver measures the color the mix paints, so a floor holds on
+screen. When a pastel mix misses its floor because the cap took the target's
+saturation, the [warning](./reference/configuration.md#mix-contrast-unmet)
+says so; `pastel: false` on the mix paints the target in full.
 
 ## Mix, shadow, glow, or opacity?
 

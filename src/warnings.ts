@@ -102,7 +102,10 @@ export function warnContrastUnmet(
  * Warn when a mix's ratio / opacity search could not reach its contrast floor
  * against the mix's `base`. An unmet mix means even the pure target falls
  * short, so the fix is the target color or the floor, not a tone window.
- * `actual` is the contrast of the value the mix settled at.
+ * `actual` is the contrast of the value the mix settled at. `pastelCapped`
+ * says the pastel cap is why: the mix's pastel gamut paints the target with
+ * less saturation, and the target painted in full would meet the floor, so
+ * the hint offers `pastel: false`.
  */
 export function warnMixContrastUnmet(
   name: string,
@@ -110,6 +113,7 @@ export function warnMixContrastUnmet(
   isHighContrast: boolean,
   contrast: ResolvedContrast,
   actual: number,
+  pastelCapped = false,
 ): void {
   if (!missesFloor(contrast, actual)) return;
 
@@ -119,8 +123,12 @@ export function warnMixContrastUnmet(
   console.warn(
     `glaze: mix "${name}" cannot meet ${metricLabel(contrast)} against its ` +
       `base in ${scheme} scheme (got ${actual.toFixed(2)}). ` +
-      `Even the pure target falls short; try lowering the contrast target ` +
-      `or mixing toward a color further from the base.`,
+      (pastelCapped
+        ? `Even the pure target falls short once the mix's pastel gamut caps ` +
+          `its saturation; try \`pastel: false\` on the mix, lowering the ` +
+          `contrast target, or mixing toward a color further from the base.`
+        : `Even the pure target falls short; try lowering the contrast ` +
+          `target or mixing toward a color further from the base.`),
   );
 }
 

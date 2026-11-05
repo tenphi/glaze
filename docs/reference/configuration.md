@@ -445,6 +445,16 @@ Even the pure target falls short; try lowering the contrast target or
 
 This one is for `accent-wash: { type: 'mix', base: 'surface', target: 'accent', value: 10, contrast: 'AA' }` in `glaze(280, 80)`, with `surface` at tone 97 and `accent` at tone 55. It uses the same margins and scheme labels as [contrast unmet](#contrast-unmet), measured between the mix and its `base`. `got` is the contrast of the value the mix settled at: the pure target, or the pure base when the value is already 100 (`got 1.00`, or `0.00` for an APCA floor). Fixes: [Contrast on mixes](../mixes.mdx#contrast-on-mixes).
 
+When the pastel cap is why a mix misses (its target is a standard color outside the pastel gamut that would meet the floor painted in full), the hint names the cap:
+
+```text
+Even the pure target falls short once the mix's pastel gamut caps its
+  saturation; try `pastel: false` on the mix, lowering the contrast
+  target, or mixing toward a color further from the base.
+```
+
+See [Pastel mixes](../mixes.mdx#pastel-mixes).
+
 ### Contrast drift
 
 ```text

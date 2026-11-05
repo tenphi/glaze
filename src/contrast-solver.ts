@@ -426,7 +426,7 @@ function cachedLuminance(
  * background (`apcaContrast(yBase, yCandidate)`). The magnitude is taken
  * either way. WCAG is symmetric, so polarity is ignored there.
  */
-function metricScore(
+export function metricScore(
   metric: 'wcag' | 'apca',
   yCandidate: number,
   yBase: number,

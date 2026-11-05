@@ -10,7 +10,11 @@ import type {
   FindToneForContrastOptions,
   FindToneForContrastResult,
 } from './contrast-solver';
-import type { ResolvedColor, ResolvedColorVariant } from './types';
+import type {
+  RegularColorDef,
+  ResolvedColor,
+  ResolvedColorVariant,
+} from './types';
 
 /**
  * The resolver's tone solver, swappable per test. The resolver measures the
@@ -196,6 +200,80 @@ describe('mix contrast warnings', () => {
       );
     });
     expect(warnings).toEqual([]);
+  });
+
+  it('points at the pastel gamut when it caps the target', () => {
+    const warningFor = (target: RegularColorDef) =>
+      captureWarnings(() => {
+        const theme = glaze(300, 90, { pastel: true });
+        theme.colors({
+          surface: { tone: 80 },
+          brand: target,
+          'brand-text': {
+            type: 'mix',
+            base: 'surface',
+            target: 'brand',
+            value: 40,
+            space: 'srgb',
+            contrast: 'AA',
+          },
+        });
+        theme.resolve();
+      }).find((m) => m.includes('"brand-text"') && schemeOf(m) === 'light');
+
+    // The vivid brand clears 4.5:1, but the pastel mix paints it capped.
+    const capped = warningFor({ tone: 30, pastel: false });
+    expect(capped).toContain("once the mix's pastel gamut caps its saturation");
+    expect(capped).toContain('`pastel: false` on the mix');
+  });
+
+  it('leaves the pastel cap out when the full target misses too', () => {
+    const warnings = captureWarnings(() => {
+      const theme = glaze(140, 90, { pastel: true });
+      theme.colors({
+        surface: { tone: 90 },
+        brand: { tone: 50, pastel: false },
+        'brand-ink': {
+          type: 'mix',
+          base: 'surface',
+          target: 'brand',
+          value: 50,
+          contrast: 'AA',
+        },
+      });
+      theme.resolve();
+    });
+    // The capped brand reaches about 3.1:1 and the vivid one about 3.05:1, so
+    // `pastel: false` on the mix wouldn't help.
+    const light = warnings.find(
+      (m) => m.includes('"brand-ink"') && schemeOf(m) === 'light',
+    );
+    expect(light).toContain('Even the pure target falls short; try lowering');
+  });
+
+  it('scores the full target with the floor polarity for the cap hint', () => {
+    const warnings = captureWarnings(() => {
+      const theme = glaze(84, 95, { pastel: true });
+      theme.colors({
+        surface: { tone: 15, saturation: 0 },
+        accent: { tone: 85, hue: 140, pastel: false },
+        'accent-fill': {
+          type: 'mix',
+          base: 'surface',
+          target: 'accent',
+          value: 50,
+          contrast: { apca: 75 },
+          role: 'surface',
+        },
+      });
+      theme.resolve();
+    });
+    // As a surface the full accent reaches Lc 74.2 (as text it would be
+    // 75.7), so `pastel: false` on the mix wouldn't meet Lc 75.
+    const light = warnings.find(
+      (m) => m.includes('"accent-fill"') && schemeOf(m) === 'light',
+    );
+    expect(light).toContain('Even the pure target falls short; try lowering');
   });
 
   it('stays quiet when the pure target misses by less than the slack', () => {

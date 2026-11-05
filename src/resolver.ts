@@ -33,11 +33,13 @@
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
  * `t` is the canonical contrast-uniform tone (0–1, reference eps). The
  * resolver works in tone for regular colors and converts to/from OKHSL
- * lightness only at the mix / shadow / glow and luminance edges. A glow whose
- * step crosses white with `headroom` above 0 also carries `hdr` — its opaque
- * base in OKHST plus an exposure in stops — and swaps the SDR shortfall
- * warning for one that fires only when the headroom cap falls short. HDR
- * values never feed another color: nothing may build on a glow.
+ * lightness only at the mix / shadow / glow and luminance edges. A mix reads
+ * a base or target under another `pastel` flag in its own gamut, through the
+ * color that endpoint paints, and measures its contrast floor on the color it
+ * emits. A glow whose step crosses white with `headroom` above 0 also carries
+ * `hdr` — its opaque base in OKHST plus an exposure in stops — and swaps the
+ * SDR shortfall warning for one that fires only when the headroom cap falls
+ * short. HDR values never feed another color: nothing may build on a glow.
  *
  * Every function receives a single `GlazeConfigResolved` so the full
  * per-instance config (including overrides) is available without
@@ -47,7 +49,8 @@
 import {
   compositeOverGamma,
   okhslToLinearSrgb,
-  sRGBLinearToGamma,
+  okhslToOklab,
+  oklabToOkhsl,
   srgbToOkhsl,
   toDisplayGamma,
 } from './okhsl-color-math';
@@ -55,6 +58,7 @@ import {
   findToneForContrast,
   findValueForMixContrast,
   metricLuminance,
+  metricScore,
   resolveContrastForLevel,
   resolveContrastForMode,
 } from './contrast-solver';
@@ -1095,6 +1099,11 @@ function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {
   return okhslToLinearSrgb(v.h, v.s, v.l, pastel);
 }
 
+/** Saturation at or below which a mix endpoint counts as gray (no hue). */
+const MIX_SAT_EPSILON = 1e-6;
+/** Lightness margin from 0 and 1 for re-reading a mix endpoint's saturation. */
+const MIX_EXTREME_L = 1e-4;
+
 /**
  * Resolve hue for OKHSL mixing, handling achromatic colors.
  * When one color has no saturation, its hue is meaningless —
@@ -1102,9 +1111,8 @@ function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {
  * color-mix "missing component" behavior).
  */
 function mixHue(base: OkhslVariant, target: OkhslVariant, t: number): number {
-  const SAT_EPSILON = 1e-6;
-  const baseHasSat = base.s > SAT_EPSILON;
-  const targetHasSat = target.s > SAT_EPSILON;
+  const baseHasSat = base.s > MIX_SAT_EPSILON;
+  const targetHasSat = target.s > MIX_SAT_EPSILON;
 
   if (baseHasSat && targetHasSat) return circularLerp(base.h, target.h, t);
   if (targetHasSat) return target.h;
@@ -1123,17 +1131,14 @@ function linearSrgbLerp(
   ];
 }
 
-function linearRgbToToneVariant(
-  rgb: LinearRgb,
-  pastel: boolean,
-): ResolvedColorVariant {
-  const gamma: [number, number, number] = [
-    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[0]))),
-    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[1]))),
-    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[2]))),
-  ];
-  const [h, s, l] = srgbToOkhsl(gamma, pastel);
-  return toToneVariant({ h, s, l, alpha: 1 });
+/**
+ * Linear sRGB → OKHSL in one saturation space. Channels are clamped to sRGB
+ * first, and a pastel read caps saturation at the pastel limit (same hue and
+ * lightness), so the result is a color that space can paint.
+ */
+function linearRgbToOkhsl(rgb: LinearRgb, pastel: boolean): OkhslVariant {
+  const [h, s, l] = srgbToOkhsl(toDisplayGamma(rgb), pastel);
+  return { h, s, l, alpha: 1, pastel };
 }
 
 function resolveMixForScheme(
@@ -1160,14 +1165,68 @@ function resolveMixForScheme(
   const role = resolveRole(name, def, ctx);
   const polarity = roleToPolarity(role);
   const pastel = def.pastel ?? ctx.config.pastel;
-  const baseLinear = okhslVariantToLinearRgb(
-    baseVariant,
-    baseVariant.pastel ?? ctx.config.pastel,
-  );
-  const targetLinear = okhslVariantToLinearRgb(
-    targetVariant,
-    targetVariant.pastel ?? ctx.config.pastel,
-  );
+  const basePastel = baseVariant.pastel ?? ctx.config.pastel;
+  const targetPastel = targetVariant.pastel ?? ctx.config.pastel;
+  // What each endpoint paints, under its own flag.
+  const baseLinear = okhslVariantToLinearRgb(baseVariant, basePastel);
+  const targetLinear = okhslVariantToLinearRgb(targetVariant, targetPastel);
+
+  // `pastel` sets the gamut of the mixed result, so an endpoint under the
+  // other flag has its saturation re-read in the mix's space from the same
+  // OKLab color; hue and lightness carry over. A standard mix holds a pastel
+  // endpoint exactly, and a pastel mix caps a vivid one at the pastel limit.
+  const inMixSpace = (v: OkhslVariant, own: boolean): OkhslVariant => {
+    // A gray (as `mixHue` counts one) has no saturation to re-read.
+    if (own === pastel || v.s <= MIX_SAT_EPSILON) return v;
+    // White and black have no chroma to measure in either space, so the
+    // re-read runs just inside the lightness range, where it has converged:
+    // their saturation still carries their hue, and the mix stays continuous
+    // as an endpoint reaches tone 0 or 100.
+    const l = clamp(v.l, MIX_EXTREME_L, 1 - MIX_EXTREME_L);
+    const s = oklabToOkhsl(okhslToOklab(v.h, v.s, l, own), pastel)[1];
+    return { ...v, s, pastel };
+  };
+
+  // `mixAt(v)` is the color the mix emits at value `v` and `paintAt(v)` what
+  // it paints. The contrast search measures `paintAt`, so the floor holds on
+  // the emitted color.
+  let mixAt: (v: number) => OkhslVariant;
+  let paintAt: (v: number) => LinearRgb;
+
+  if (blend === 'transparent') {
+    // The overlay is the target in the mix's gamut, composited by the browser
+    // over the base as painted.
+    const overlay = inMixSpace(targetVariant, targetPastel);
+    const baseGamma = toDisplayGamma(baseLinear);
+    const overlayGamma = toDisplayGamma(
+      okhslVariantToLinearRgb(overlay, pastel),
+    );
+    mixAt = (v) => ({ ...overlay, alpha: clamp(v, 0, 1) });
+    paintAt = (v) => compositeOverGamma(baseGamma, overlayGamma, v);
+  } else if (space === 'srgb') {
+    // The lerp runs between the painted endpoints and is emitted in the mix's
+    // space. The standard gamut holds every lerp (sRGB is convex), so only a
+    // pastel mix can clamp one, at the pastel limit (saturation 1), and only
+    // a clamped lerp is measured as emitted.
+    const lerpAt = (v: number) => linearSrgbLerp(baseLinear, targetLinear, v);
+    mixAt = (v) => linearRgbToOkhsl(lerpAt(v), pastel);
+    paintAt = pastel
+      ? (v) => {
+          const mixed = mixAt(v);
+          return mixed.s < 1 ? lerpAt(v) : okhslVariantToLinearRgb(mixed, true);
+        }
+      : lerpAt;
+  } else {
+    const from = inMixSpace(baseVariant, basePastel);
+    const to = inMixSpace(targetVariant, targetPastel);
+    mixAt = (v) => ({
+      h: mixHue(from, to, v),
+      s: clamp(from.s + (to.s - from.s) * v, 0, 1),
+      l: clamp(from.l + (to.l - from.l) * v, 0, 1),
+      alpha: 1,
+    });
+    paintAt = (v) => okhslVariantToLinearRgb(mixAt(v), pastel);
+  }
 
   if (def.contrast !== undefined) {
     const resolvedContrast = resolveContrastSpec(
@@ -1178,30 +1237,11 @@ function resolveMixForScheme(
     );
     const metric = resolvedContrast.metric;
 
-    let luminanceAt: (v: number) => number;
-
-    if (blend === 'transparent') {
-      const baseGamma = toDisplayGamma(baseLinear);
-      const targetGamma = toDisplayGamma(targetLinear);
-      luminanceAt = (v: number) =>
-        metricLuminance(metric, compositeOverGamma(baseGamma, targetGamma, v));
-    } else if (space === 'srgb') {
-      luminanceAt = (v: number) =>
-        metricLuminance(metric, linearSrgbLerp(baseLinear, targetLinear, v));
-    } else {
-      luminanceAt = (v: number) => {
-        const h = mixHue(baseVariant, targetVariant, v);
-        const s = baseVariant.s + (targetVariant.s - baseVariant.s) * v;
-        const l = baseVariant.l + (targetVariant.l - baseVariant.l) * v;
-        return metricLuminance(metric, okhslToLinearSrgb(h, s, l, pastel));
-      };
-    }
-
     const result = findValueForMixContrast({
       preferredValue: t,
       baseLinearRgb: baseLinear,
       contrast: resolvedContrast,
-      luminanceAtValue: luminanceAt,
+      luminanceAtValue: (v) => metricLuminance(metric, paintAt(v)),
       flip: ctx.config.autoFlip,
     });
     t = result.value;
@@ -1216,36 +1256,21 @@ function resolveMixForScheme(
         isHighContrast,
         resolvedContrast,
         result.contrast,
+        // Blame the pastel cap only when the target painted in full would
+        // meet the floor.
+        pastel &&
+          !targetPastel &&
+          metricScore(
+            metric,
+            metricLuminance(metric, targetLinear),
+            metricLuminance(metric, baseLinear),
+            resolvedContrast.polarity,
+          ) >= resolvedContrast.target,
       );
     }
   }
 
-  if (blend === 'transparent') {
-    return {
-      ...toToneVariant({
-        h: targetVariant.h,
-        s: targetVariant.s,
-        l: targetVariant.l,
-        alpha: clamp(t, 0, 1),
-      }),
-      pastel,
-    };
-  }
-
-  if (space === 'srgb') {
-    const mixed = linearSrgbLerp(baseLinear, targetLinear, t);
-    return { ...linearRgbToToneVariant(mixed, pastel), pastel };
-  }
-
-  return {
-    ...toToneVariant({
-      h: mixHue(baseVariant, targetVariant, t),
-      s: clamp(baseVariant.s + (targetVariant.s - baseVariant.s) * t, 0, 1),
-      l: clamp(baseVariant.l + (targetVariant.l - baseVariant.l) * t, 0, 1),
-      alpha: 1,
-    }),
-    pastel,
-  };
+  return { ...toToneVariant(mixAt(t)), pastel };
 }
 
 function defMode(def: ColorDef): AdaptationMode | undefined {

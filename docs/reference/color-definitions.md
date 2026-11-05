@@ -317,7 +317,7 @@ child.resolve().get('soft')!.light.pastel; // → false
 ```
 
 - **Shadows and glows**: `pastel` sets the gamut used to convert the pigment for the opacity solve and for output. The surface (`bg`) keeps its own flag.
-- **Mixes**: `pastel` sets the gamut of the mixed result. The base and target keep their own flags.
+- **Mixes**: `pastel` sets the gamut of the mixed result. The base and target keep their own flags, and the mix reads each in its gamut through the color it paints: a standard mix paints a pastel base or target exactly, and a pastel mix caps a vivid one at the pastel limit, keeping its hue and lightness. A transparent mix's overlay is the target in that gamut. The contrast solver measures the color the mix paints. See [Pastel mixes](../mixes.mdx#pastel-mixes).
 - **Color tokens**: the same field exists on both `glaze.color()` input forms and survives the `export()` / `colorFrom()` round-trip; see [Color tokens](./color-tokens.md).
 - **`splitHue`** requires every emitted color to be pastel; see [Output formats](./output.md#hue-channel-splitting-splithue).
 
@@ -544,8 +544,8 @@ theme.colors({
 });
 ```
 
-- **Transparent output.** The color is the target's hue, saturation, and tone with `alpha = value / 100`. The browser composites it with `source-over` on gamma-encoded sRGB, and the contrast solve models exactly that, so a solved opacity renders at the contrast it was solved for.
-- **Achromatic colors.** In `'okhsl'`, a side with a saturation of exactly zero (a color defined with `saturation: 0`) has no hue, so the mix takes the other side's hue, matching CSS `color-mix()` "missing component" behavior. A white or black that keeps any saturation still carries its hue. A mix of two zero-saturation colors stays gray in either space. See [Achromatic colors](../mixes.mdx#achromatic-colors).
+- **Transparent output.** The color is the target's hue, saturation, and tone (in the mix's gamut when their [`pastel` flags](#per-color-pastel) differ) with `alpha = value / 100`. The browser composites it with `source-over` on gamma-encoded sRGB, and the contrast solve models exactly that, so a solved opacity renders at the contrast it was solved for.
+- **Achromatic colors.** In `'okhsl'`, a side with a saturation of zero (a color defined with `saturation: 0`) or of float noise under 1e-6 has no hue, so the mix takes the other side's hue, matching CSS `color-mix()` "missing component" behavior. A gray given as a value reads with noise that grows toward white (`'#f1f1f1'` and lighter carry a hue near 90), so give a gray endpoint `saturation: 0`, which also works with `from`. A white or black that keeps real saturation still carries its hue. A mix of two zero-saturation colors stays gray in either space. See [Achromatic colors](../mixes.mdx#achromatic-colors).
 - **Chaining.** A mix can use another mix as its `base` or `target`. A transparent mix or an `opacity` color is accepted as a mix's `base` / `target` or a shadow's or glow's `bg` / `fg`, but its alpha is ignored: its opaque color is used.
 - **`autoFlip`.** Mixes have no per-color `autoFlip`; the contrast solve uses the theme's.
 - **Adaptation.** A mix reads its base and target in each scheme, so it adapts to dark and high contrast with them. `ResolvedColor.mode` is `undefined` for mixes.

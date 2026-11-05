@@ -10,6 +10,8 @@ import {
   sRGBGammaToLinear,
   srgbToHex,
   srgbToOkhsl,
+  toDisplayGamma,
+  compositeOverGamma,
 } from './okhsl-color-math';
 import { apcaContrast } from './contrast-solver';
 import { fromTone, toneFromY, variantToOkhsl } from './okhst';
@@ -21,6 +23,7 @@ import type {
   GlazeColorTokenExport,
   HCPair,
   LightingTuning,
+  MixColorDef,
   RegularColorDef,
   ResolvedColor,
   ResolvedColorVariant,
@@ -4052,6 +4055,366 @@ describe('glaze', () => {
       expect(m.light.s).toBeLessThanOrEqual(1);
       expect(m.light.t).toBeGreaterThanOrEqual(0);
       expect(m.light.t).toBeLessThanOrEqual(1);
+    });
+
+    describe('endpoints under another pastel flag', () => {
+      // A mix's `pastel` sets the gamut of the mixed result, while the base
+      // and target keep their own flags. Each endpoint is read in the mix's
+      // gamut through the color it paints, and the floor is measured on the
+      // color the mix emits.
+      const BLENDS: [string, Pick<MixColorDef, 'blend' | 'space'>][] = [
+        ['an OKHSL mix', { space: 'okhsl' }],
+        ['an sRGB mix', { space: 'srgb' }],
+        ['a transparent mix', { blend: 'transparent' }],
+      ];
+
+      /** Linear sRGB a variant paints, read with its own `pastel` flag. */
+      function painted(v: ResolvedColorVariant): [number, number, number] {
+        const c = variantToOkhsl(v);
+        return okhslToLinearSrgb(c.h, c.s, c.l, v.pastel);
+      }
+
+      /** What a mix paints over its base: the composite when translucent. */
+      function paintedOver(
+        mix: ResolvedColorVariant,
+        base: ResolvedColorVariant,
+      ): [number, number, number] {
+        if (mix.alpha >= 1) return painted(mix);
+        return compositeOverGamma(
+          toDisplayGamma(painted(base)),
+          toDisplayGamma(painted(mix)),
+          mix.alpha,
+        );
+      }
+
+      function paintedContrast(
+        mix: ResolvedColorVariant,
+        base: ResolvedColorVariant,
+      ): number {
+        return contrastRatioFromLuminance(
+          gamutClampedLuminance(paintedOver(mix, base)),
+          gamutClampedLuminance(painted(base)),
+        );
+      }
+
+      function expectSameColor(
+        actual: [number, number, number],
+        expected: [number, number, number],
+      ): void {
+        // OKHSL's gamut approximation leaves ~1e-8 of round-trip noise.
+        actual.forEach((c, i) => expect(c).toBeCloseTo(expected[i], 6));
+      }
+
+      it.each(BLENDS)(
+        'paints the base at 0 and the target at 100 in %s',
+        (_, blend) => {
+          // A standard mix holds pastel endpoints exactly, and a pastel mix
+          // holds standard ones inside the pastel gamut.
+          for (const pastel of [false, true]) {
+            const theme = glaze(84, 95, { pastel });
+            theme.colors({
+              surface: {
+                tone: 14,
+                hue: 30,
+                saturation: pastel ? 0.3 : 1,
+                mode: 'static',
+                pastel: !pastel,
+              },
+              accent: {
+                tone: 51,
+                hue: 254,
+                saturation: pastel ? 0.3 : 1,
+                mode: 'static',
+                pastel: !pastel,
+              },
+              from: {
+                type: 'mix',
+                base: 'surface',
+                target: 'accent',
+                value: 0,
+                ...blend,
+              },
+              to: {
+                type: 'mix',
+                base: 'surface',
+                target: 'accent',
+                value: 100,
+                ...blend,
+              },
+            });
+            const r = theme.resolve();
+            const surface = r.get('surface')!.light;
+            const accent = r.get('accent')!.light;
+            expect(r.get('to')!.light.pastel).toBe(pastel);
+            // For a transparent mix, value 0 is alpha 0: this checks the alpha.
+            expectSameColor(
+              paintedOver(r.get('from')!.light, surface),
+              painted(surface),
+            );
+            expectSameColor(
+              paintedOver(r.get('to')!.light, surface),
+              painted(accent),
+            );
+          }
+        },
+      );
+
+      it.each(BLENDS)(
+        'caps a vivid target at the pastel limit in %s',
+        (_, blend) => {
+          const theme = glaze(84, 95, { pastel: true });
+          theme.colors({
+            surface: { tone: 14, mode: 'static' },
+            brand: { tone: 51, hue: 254, mode: 'static', pastel: false },
+            to: {
+              type: 'mix',
+              base: 'surface',
+              target: 'brand',
+              value: 100,
+              ...blend,
+            },
+          });
+          const r = theme.resolve();
+          const to = r.get('to')!.light;
+          const brand = variantToOkhsl(r.get('brand')!.light);
+          const capped = variantToOkhsl(to);
+          // Same hue and lightness, saturation at the pastel limit.
+          expect(to.pastel).toBe(true);
+          expect(capped.h).toBeCloseTo(brand.h, 4);
+          expect(capped.l).toBeCloseTo(brand.l, 6);
+          expect(capped.s).toBeCloseTo(1, 6);
+          expectSameColor(
+            paintedOver(to, r.get('surface')!.light),
+            okhslToLinearSrgb(brand.h, 1, brand.l, true),
+          );
+        },
+      );
+
+      it('keeps a gray endpoint gray under the other flag', () => {
+        // A gray has no hue, so the mix takes the brand's the whole way,
+        // whichever gamut the mix paints in. The `saturation: 0` gray keeps
+        // its own hue (30) on the variant, and `#eeeeee` reads with a noise
+        // saturation just under the gray threshold, at a hue near 90.
+        const grays: RegularColorDef[] = [
+          { tone: 97, hue: 30, saturation: 0 },
+          { from: '#eeeeee' },
+        ];
+        for (const pastel of [false, true]) {
+          for (const gray of grays) {
+            const theme = glaze(280, 80, { pastel });
+            theme.colors({
+              surface: { ...gray, pastel: !pastel },
+              brand: { tone: 40 },
+              tint: {
+                type: 'mix',
+                base: 'surface',
+                target: 'brand',
+                value: 60,
+              },
+            });
+            const r = theme.resolve();
+            for (const scheme of [
+              'light',
+              'dark',
+              'lightContrast',
+              'darkContrast',
+            ] as const) {
+              expect(r.get('tint')![scheme].h).toBeCloseTo(
+                r.get('brand')![scheme].h,
+                6,
+              );
+            }
+          }
+        }
+      });
+
+      it('keeps the hue of a white that has saturation', () => {
+        // White paints no chroma in either gamut, but its saturation carries
+        // its hue, so the mix sweeps from it the same under either flag.
+        const hues = [true, false].map((surfacePastel) => {
+          const theme = glaze(280, 80, { pastel: true });
+          theme.colors({
+            surface: { tone: 100, pastel: surfacePastel },
+            accent: { tone: 40, hue: 140, pastel: false },
+            tint: {
+              type: 'mix',
+              base: 'surface',
+              target: 'accent',
+              value: 30,
+              pastel: false,
+            },
+          });
+          return theme.resolve().get('tint')!.light.h;
+        });
+        expect(hues[0]).toBeCloseTo(hues[1], 6);
+        // Swept from white's hue 280 toward the accent's 140.
+        expect(Math.abs(hues[0] - 140)).toBeGreaterThan(50);
+      });
+
+      it('meets the floor on the overlay it paints', () => {
+        // A pastel accent in a standard theme. The overlay used to keep the
+        // accent's pastel saturation under the standard flag, a different
+        // color, and composited at 2.88:1.
+        const theme = glaze(84, 90);
+        theme.colors({
+          surface: { tone: 20, mode: 'static' },
+          accent: { tone: 60, hue: 30, mode: 'static', pastel: true },
+          wash: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            blend: 'transparent',
+            contrast: 3,
+          },
+        });
+        const r = theme.resolve();
+        const wash = r.get('wash')!.light;
+        expectSameColor(
+          paintedOver({ ...wash, alpha: 1 }, r.get('surface')!.light),
+          painted(r.get('accent')!.light),
+        );
+        expectMeetsWcag(paintedContrast(wash, r.get('surface')!.light), 3);
+      });
+
+      it('stays continuous as an endpoint reaches white or black', () => {
+        // Tone 0 / 100 land on OKHSL lightness 0 / 1 in high contrast (and
+        // 100 in light), where neither gamut has chroma to measure.
+        const mixOff = (tone: number) => {
+          const theme = glaze(90, 100, { pastel: true });
+          theme.colors({
+            surface: { tone },
+            brand: { tone: 50, hue: 264, pastel: false },
+            tint: {
+              type: 'mix',
+              base: 'surface',
+              target: 'brand',
+              value: 30,
+              pastel: false,
+            },
+          });
+          return theme.resolve().get('tint')!;
+        };
+        for (const [extreme, near] of [
+          [100, 99.99],
+          [0, 0.01],
+        ]) {
+          const a = mixOff(extreme);
+          const b = mixOff(near);
+          for (const scheme of [
+            'light',
+            'dark',
+            'lightContrast',
+            'darkContrast',
+          ] as const) {
+            expect(a[scheme].h).toBeCloseTo(b[scheme].h, 3);
+            expect(a[scheme].s).toBeCloseTo(b[scheme].s, 2);
+          }
+        }
+      });
+
+      it('composites over the base as painted', () => {
+        // The overlay sits on the base under the base's own flag: here a
+        // vivid surface in a pastel theme.
+        const theme = glaze(84, 95, { pastel: true });
+        theme.colors({
+          surface: { tone: 50, hue: 300, mode: 'static', pastel: false },
+          accent: { tone: 95, hue: 140, mode: 'static' },
+          wash: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            blend: 'transparent',
+            contrast: 3,
+          },
+        });
+        const r = theme.resolve();
+        expectMeetsWcag(
+          paintedContrast(r.get('wash')!.light, r.get('surface')!.light),
+          3,
+        );
+      });
+
+      it('meets the floor on the OKHSL mix it paints', () => {
+        // A standard mix toward a pastel accent interpolates the accent's
+        // saturation re-read in the standard gamut, and measures that.
+        const theme = glaze(84, 95, { pastel: true });
+        theme.colors({
+          surface: {
+            tone: 65,
+            hue: 0,
+            saturation: 0.5,
+            mode: 'static',
+            pastel: false,
+          },
+          accent: { tone: 20, hue: 30, mode: 'static' },
+          fill: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 30,
+            contrast: 3,
+            role: 'surface',
+            pastel: false,
+          },
+        });
+        const r = theme.resolve();
+        expectMeetsWcag(
+          paintedContrast(r.get('fill')!.light, r.get('surface')!.light),
+          3,
+        );
+      });
+
+      it('measures a pastel sRGB blend raw until the cap clamps it', () => {
+        // The endpoints paint the same under either mix flag, and the blend
+        // stays inside the pastel gamut, so a pastel and a standard mix measure
+        // the same lerp and settle at the same tone.
+        const theme = glaze(55, 100, { pastel: true });
+        const mix = {
+          type: 'mix',
+          base: 'white',
+          target: 'black',
+          value: 0,
+          space: 'srgb',
+          contrast: 1.5,
+        } as const;
+        theme.colors({
+          white: { tone: 100 },
+          black: { tone: 'min' },
+          'pastel-mix': mix,
+          'standard-mix': { ...mix, pastel: false },
+        });
+        const r = theme.resolve();
+        expect(r.get('pastel-mix')!.light.pastel).toBe(true);
+        expect(r.get('pastel-mix')!.light.t).toBe(
+          r.get('standard-mix')!.light.t,
+        );
+      });
+
+      it('meets the floor on the sRGB mix it paints', () => {
+        // A vivid accent in a pastel theme. The search used to measure the
+        // unclamped sRGB lerp and emit the pastel-clamped one at 4.31:1.
+        const theme = glaze(84, 90, { pastel: true });
+        theme.colors({
+          surface: { tone: 95, mode: 'static' },
+          accent: { tone: 40, hue: 300, mode: 'static', pastel: false },
+          text: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            space: 'srgb',
+            contrast: 'AA',
+          },
+        });
+        const r = theme.resolve();
+        expect(r.get('text')!.light.pastel).toBe(true);
+        expectMeetsWcag(
+          paintedContrast(r.get('text')!.light, r.get('surface')!.light),
+          4.5,
+        );
+      });
     });
   });
 
