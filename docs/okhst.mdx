@@ -139,11 +139,8 @@ logarithm of `Y + 0.05`, so equal tone steps past 100 are still equal ratios of
 defined only up to SDR white, so a tone past 100 has no contrast meaning, and
 the contrast solver never searches there.
 
-[HDR glows](./hdr.mdx) are the only place Glaze goes
-past 100. A glow whose step would cross white, given `headroom` above 0, can
-carry an HDR value next to its SDR one: an opaque base plus an exposure in
-stops that lands it on the tone past 100, as far as the headroom allows. A
-resolved variant's own `t` stays within 0–1.
+Only [HDR glows](./hdr.mdx) go past 100, in an HDR value kept next to the SDR
+one; a resolved variant's own `t` stays within 0–1.
 
 ## Same tone, same lightness
 

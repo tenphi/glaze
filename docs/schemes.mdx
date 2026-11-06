@@ -625,13 +625,12 @@ no `modes` option: it always returns all four declaration blocks. A per-call
 `100` drops the high-contrast tier even when `modes` asks for it; the full
 precedence is in [Output modes](./reference/output.md#output-modes).
 
-A third flag, `hdr` (off by default), adds the HDR values of glows that pass
-SDR white; `css()` takes it as an `hdr` option of its own. See
-[HDR glows](./hdr.mdx).
+A third flag, `hdr`, is off by default and is only for
+[HDR glows](./hdr.mdx#output-is-opt-in).
 
 The selectors that switch variants in [Tasty](https://tasty.style) output come
 from [`states.dark` and `states.highContrast`](./reference/output.md#state-aliases)
 (by default the `prefers-color-scheme: dark` and `prefers-contrast: more` media
-queries), and HDR values from `states.hdr` (`dynamic-range: high`). How each
-export lays out its variants is in [Output formats](./reference/output.md) and
+queries). How each export lays out its variants is in
+[Output formats](./reference/output.md) and
 [Exporting and integration](./exporting.mdx).

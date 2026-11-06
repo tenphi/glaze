@@ -57,11 +57,13 @@ glaze.formatHdr(
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `variant` | `ResolvedColorVariant` | — | A variant from `resolve()` or `glaze.glow()`. |
-| `hdrFormat` | `GlazeHdrFormat` | `'srgb-linear'` | The only format: `type GlazeHdrFormat = 'srgb-linear'`. |
+| `hdrFormat` | `GlazeHdrFormat` | `'srgb'` | `type GlazeHdrFormat = 'srgb' \| 'srgb-linear'`. |
 
-- Writes `color(srgb-linear R G B)`: the base's linear sRGB times `2^exposure`, 4 decimals, unclamped, so the brightest channel is above 1. Opaque: no alpha.
+- `'srgb'` writes extended sRGB, `color(srgb R G B)`: the sRGB curve continued past 1, so `1` is SDR white and the brightest channel is above it. Every string exporter writes this form, and DTCG's `hdr.value` carries the same channels.
+- `'srgb-linear'` writes the same color in linear light, `color(srgb-linear R G B)`: the base's linear sRGB times `2^exposure`.
+- Both use 4 decimals, don't clamp, and carry no alpha: the value is opaque.
 - Returns `undefined` for a variant without `hdr`.
-- Any other `hdrFormat` throws `glaze: unknown HDR format "oklch". Use 'srgb-linear'.` OKLCH lightness clamps at parse time, and `rgb()` / `hsl()` can't go past white.
+- Any other `hdrFormat` throws `glaze: unknown HDR format "oklch". Use 'srgb' or 'srgb-linear'.` OKLCH lightness clamps at parse time, and `rgb()` / `hsl()` can't go past white. Why extended sRGB: [Extended sRGB](../hdr.mdx#extended-srgb).
 
 ```ts
 import { glaze } from '@tenphi/glaze';
@@ -74,7 +76,9 @@ const v = glaze.glow({
 
 glaze.format(v); // 'oklch(1 0 0)' — SDR, pinned at white
 v.hdr; // → { h: 0, s: 0, t: 1, exposure: 0.5489… }
-glaze.formatHdr(v); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
+glaze.formatHdr(v); // 'color(srgb 1.1813 1.1813 1.1813)'
+glaze.formatHdr(v, 'srgb-linear');
+// → 'color(srgb-linear 1.4631 1.4631 1.4631)'
 
 const shade = glaze.shadow({ bg: '#ffffff', intensity: 6 });
 glaze.formatHdr(shade); // undefined
@@ -82,23 +86,33 @@ glaze.formatHdr(shade); // undefined
 
 `'#ffffff'` parses a hair below tone 100 (99.9999994), so the white pigment pins at α 1 and SDR is opaque white. A theme's `tone: 100` surface, or `bg: { h: 0, s: 0, t: 1 }`, is exact white: SDR stays transparent (α 0), and the HDR value is the same.
 
-To build the value yourself, for a native API that takes linear components, scale the base of `v` above and write it with [`formatSrgbLinear`](#format-writers):
+Theme output carries HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output).
+
+## `hdrToSrgb(hdr)` / `hdrToLinearSrgb(hdr)`
+
+The channels of an HDR value as numbers, for APIs that take channels instead of a CSS string.
 
 ```ts
-import {
-  okhstToOkhsl,
-  okhslToLinearSrgb,
-  formatSrgbLinear,
-} from '@tenphi/glaze';
-
-const { h, s, l } = okhstToOkhsl(v.hdr!);
-const gain = 2 ** v.hdr!.exposure;
-const rgb = okhslToLinearSrgb(h, s, l).map((c) => c * gain);
-formatSrgbLinear(rgb as [number, number, number]);
-// → 'color(srgb-linear 1.4631 1.4631 1.4631)'
+hdrToSrgb(hdr: ResolvedHdr): [number, number, number]
+hdrToLinearSrgb(hdr: ResolvedHdr): [number, number, number]
 ```
 
-Theme output carries HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output).
+| Function | Returns |
+| --- | --- |
+| `hdrToSrgb(hdr)` | Extended sRGB channels: the numbers in `glaze.formatHdr()`'s default `color(srgb …)`. A WebGPU `'srgb'` canvas, Apple's extended sRGB, and Android's `EXTENDED_SRGB` take them as they are. |
+| `hdrToLinearSrgb(hdr)` | Linear sRGB channels: the base's linear sRGB times `2^exposure`, the numbers in `color(srgb-linear …)`. |
+
+- `hdr` is a variant's [`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr), not the variant.
+- Neither clamps nor rounds. `1` is SDR white; the brightest channel is above it, and the others can stay below.
+- Write them as strings with [`formatSrgb` / `formatSrgbLinear`](#format-writers). Which platform takes which: [Where it shows](../hdr.mdx#where-it-shows).
+
+```ts
+import { hdrToSrgb, hdrToLinearSrgb } from '@tenphi/glaze';
+
+// v: the 12-tone glow on white above
+hdrToSrgb(v.hdr!); // [1.1812…, 1.1812…, 1.1812…]
+hdrToLinearSrgb(v.hdr!); // [1.4630…, 1.4630…, 1.4630…]
+```
 
 ## `glaze.shadow(input)` / `glaze.glow(input)`
 
@@ -121,7 +135,7 @@ glaze.glow(input: GlazeGlowInput): ResolvedColorVariant
 - The object factor is `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`, with `d = +1` for a shadow, `−1` for a glow, and `β = objectInfluence`.
 - There are no schemes here: call it once per surface you composite onto. Per-instance config overrides don't apply; only the global tuning does.
 - The result is `{ h, s, t, alpha }` with no `pastel` flag. Format it with `glaze.format()`.
-- Compositing is modeled the way browsers paint (`source-over` on gamma-encoded sRGB), and the pigment is an sRGB color, so the result itself can't go past sRGB white. With a `headroom` (from `tuning` or the global `glowTuning`), a glow whose step would pass white also returns [`hdr`](./color-definitions.md#hdr-values-resolvedhdr); format it with [`glaze.formatHdr()`](#glazeformathdrvariant-hdrformat).
+- Compositing is modeled the way browsers paint (`source-over` on gamma-encoded sRGB), and the pigment is an sRGB color, so the result itself can't go past sRGB white. With a `headroom` (from `tuning` or the global `glowTuning`), a glow whose step would pass white also returns [`hdr`](./color-definitions.md#hdr-values-resolvedhdr); format it with [`glaze.formatHdr()`](#glazeformathdrvariant-hdrformat), or read its channels with [`hdrToSrgb()`](#hdrtosrgbhdr--hdrtolinearsrgbhdr).
 - An out-of-reach step pins to the pigment's strongest composite and warns `glaze: glaze.glow() cannot reach a 5.0-tone step …`. A glow whose HDR value covers the step doesn't warn; one capped by its `headroom` warns `… even with 1 stop of headroom (reached 22.0). …` ([details](./configuration.md#shadow-or-glow-out-of-reach)).
 
 ```ts
@@ -223,7 +237,7 @@ APCA contrast is [`apcaContrast`](#apcacontrastytext-ybg) below.
 
 ### Format writers
 
-Write one OKHSL (or OKHST) color as a string. Every writer but `formatSrgbLinear` takes `h` on 0–360 and `s` / `l` / `t` on **0–1** — the scale every converter returns — and scales to percentages itself.
+Write one OKHSL (or OKHST) color as a string. Every writer but `formatSrgb` and `formatSrgbLinear` takes `h` on 0–360 and `s` / `l` / `t` on **0–1** — the scale every converter returns — and scales to percentages itself.
 
 | Function | Output |
 | --- | --- |
@@ -232,6 +246,7 @@ Write one OKHSL (or OKHST) color as a string. Every writer but `formatSrgbLinear
 | `formatRgb(h, s, l, pastel?)` | `rgb(R G B)`, channels 0–255 with up to 2 decimals |
 | `formatHsl(h, s, l, pastel?)` | `hsl(H S% L%)` |
 | `formatOklch(h, s, l, pastel?)` | `oklch(L C H)`, `L` / `C` to 4 decimals, `H` to 2 |
+| `formatSrgb([r, g, b])` | `color(srgb R G B)`, extended sRGB channels to 4 decimals, unclamped (below) |
 | `formatSrgbLinear([r, g, b])` | `color(srgb-linear R G B)`, linear channels to 4 decimals, unclamped (below) |
 
 ```ts
@@ -255,12 +270,14 @@ formatOklch(0, 0, 0.5); // 'oklch(0.5688 0 0)'
 - The writers emit no alpha. For a string with alpha, use [`glaze.format()`](#glazeformatvariant-format-pastel) on a variant.
 - A value above 1 means pre-2.0 percentage input: each writer warns once per process ([Percentage scale](./configuration.md#percentage-scale)) and still formats the value.
 
-`formatSrgbLinear(rgb)` is the odd one out: it takes **linear sRGB** channels, not OKHSL, and writes `color(srgb-linear R G B)` with 4 decimals. It doesn't clamp and doesn't warn above 1, because that is its job: `1` is SDR white and `2` one stop above it. It is the writer behind [`glaze.formatHdr()`](#glazeformathdrvariant-hdrformat).
+`formatSrgb(rgb)` and `formatSrgbLinear(rgb)` are the odd ones out: they take sRGB channels, not OKHSL. `formatSrgb` takes **extended sRGB** (gamma-encoded, the curve continued past 1) and writes `color(srgb R G B)`; `formatSrgbLinear` takes **linear sRGB** and writes `color(srgb-linear R G B)`. Both use 4 decimals and don't convert between the two. They don't clamp and don't warn above 1, because that is their job: `1` is SDR white, and one stop above it is `1.3533` extended or `2` linear. They are the writers behind [`glaze.formatHdr()`](#glazeformathdrvariant-hdrformat): `formatSrgb` for its default `'srgb'`, `formatSrgbLinear` for `'srgb-linear'`.
 
 ```ts
-import { formatSrgbLinear } from '@tenphi/glaze';
+import { formatSrgb, formatSrgbLinear } from '@tenphi/glaze';
 
+formatSrgb([1.3533, 1.3533, 1.3533]); // 'color(srgb 1.3533 1.3533 1.3533)'
 formatSrgbLinear([2, 2, 2]); // 'color(srgb-linear 2 2 2)'
+formatSrgb([1.2, 0.5, -0.1]); // 'color(srgb 1.2 0.5 -0.1)'
 formatSrgbLinear([1.2, 0.5, -0.1]); // 'color(srgb-linear 1.2 0.5 -0.1)'
 ```
 

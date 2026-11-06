@@ -434,7 +434,7 @@ interface GlowTuning extends LightingTuning {
 | `tint` | `0` | Pigment saturation (0–1) in the surface's hue. `0` is neutral black or white. Shows only with `reach` below `1`, because pure black and white have no hue. On a neutral surface (saturation at most `1e-4`, which covers every gray given as a value) the tint takes the object's hue when `hueBleed` is above `0`, and the pigment stays neutral otherwise. |
 | `reach` | `1` | Where the pigment sits: the fraction (0–1) of the way from the surface's tone to black (shadow) or white (glow). `1` is pure black or white, the most reach. Lower values let a `tint` show and cost reach. |
 | `hueBleed` | `0` | Pull (0–1) of the pigment hue from the surface's hue toward the object's (`fg`) hue. Needs `fg`, a `tint`, and `reach` below `1` to show. |
-| `headroom` | `0` | Glows only. Stops above SDR white a glow may use when its step crosses white: `1` allows up to 2× white's luminance, `2` up to 4×. A finite number ≥ 0; above 2 it clamps to 2 with a warning. On a shadow's tuning it throws. See [HDR values](#hdr-values-resolvedhdr) and [Glow headroom](./configuration.md#glow-headroom). |
+| `headroom` | `0` | Glows only. Stops above SDR white a glow may use when its step crosses white: `1` allows up to 2× white in each linear channel, `2` up to 4×. A finite number ≥ 0; above 2 it clamps to 2 with a warning. On a shadow's tuning it throws. See [HDR values](#hdr-values-resolvedhdr) and [Glow headroom](./configuration.md#glow-headroom). |
 
 `tint`, `reach`, and `hueBleed` are clamped to 0–1. A field that is set must be a finite number, or the tuning throws (`glaze: shadowTuning.reach must be a finite number (got NaN).`); a field set to `undefined` counts as unset. Each field resolves separately, later wins:
 
@@ -462,7 +462,7 @@ There is no opacity cap: when the step is reachable, it is exact. For a lighter 
 
 ### HDR values (`ResolvedHdr`)
 
-With a `headroom` above 0, a glow whose target tone (the surface's luminance tone + `intensity × k`) passes 100 gets an HDR value on its resolved variant, next to the unchanged SDR one:
+With a `headroom` above 0, a glow whose target tone (the surface's luminance tone + `intensity × k`) passes 100 while its SDR value is pinned at its brightest gets an HDR value on its resolved variant, next to the unchanged SDR one. What it is for and when it appears: [HDR glows](../hdr.mdx).
 
 ```ts
 interface ResolvedHdr {
@@ -474,11 +474,9 @@ interface ResolvedHdr {
 // ResolvedColorVariant.hdr?: ResolvedHdr
 ```
 
-- **Base.** What SDR paints at its brightest, taken opaque: the pigment at full opacity, or a white surface (tone 100) that no pigment can lift. The HDR color is the base's linear sRGB times `2^exposure`. `variant.t` stays at most 1.
-- **Exposure.** `log2(min(Y(T*) / Y(base), 2^headroom / max channel))`, with `T*` the target tone: the exact step when the headroom allows it, otherwise capped so no channel passes `2^headroom`, with a [warning](./configuration.md#shadow-or-glow-out-of-reach). A step the HDR value covers doesn't warn.
-- **`s` is never pastel.** The base can be any in-gamut composite, so `s` is standard OKHSL saturation even on a `pastel` variant.
-- **Absent elsewhere.** The `hdr` key is missing (not `undefined`) on regular colors, shadows, mixes, glows that stay below white, a glow whose pigment can't lift a non-white surface at all (`reach: 0` on a gray surface, say: SDR paints nothing, so there is nothing to expose; on a chromatic surface the `reach: 0` gray can be slightly brighter than the surface, pin at full opacity, and get an HDR value), and every glow at `headroom: 0`.
-- **Continuity.** A full-reach glow (the default `reach: 1`) is pinned at white, so its HDR value starts at white (`exposure` → 0) as the target passes 100. A glow with `reach` below 1 is pinned at its pigment, below white: just under 100 it stays short there and warns, and just past 100 it jumps to the exact step.
+- **Base.** What SDR paints at its brightest, taken opaque: the pigment at full opacity, or a white surface (tone 100) that no pigment can lift. `s` is standard OKHSL saturation, even on a `pastel` variant. `variant.t` stays at most 1.
+- **Exposure.** The HDR color is the base's linear sRGB times `2^exposure`, with `exposure = log2(min(Y(T*) / Y(base), 2^headroom / max channel))` and `T*` the target tone: the exact step when the headroom allows it, otherwise capped so no linear channel passes `2^headroom`, with a [warning](./configuration.md#shadow-or-glow-out-of-reach). A step the HDR value covers doesn't warn.
+- **Absent elsewhere.** The `hdr` key is missing (not `undefined`) on regular colors, shadows, mixes, glows that stay below white, glows whose pigment can't lift a non-white surface at all, and every glow at `headroom: 0`. The edge cases: [When a glow gets an HDR value](../hdr.mdx#when-a-glow-gets-an-hdr-value) and [Crossing white](../hdr.mdx#crossing-white).
 
 ```ts
 const theme = glaze(280, 80, { glowTuning: { headroom: 1 } });
@@ -491,11 +489,11 @@ const glow = theme.resolve().get('surface-glow')!;
 glaze.format(glow.light); // 'oklch(1 0 0 / 0)' — SDR can't lift white
 glow.light.hdr?.exposure; // 0.5489…
 glaze.formatHdr(glow.light);
-// → 'color(srgb-linear 1.4631 1.4631 1.4631)', tone 112
+// → 'color(srgb 1.1813 1.1813 1.1813)', tone 112
 glow.dark.hdr; // undefined — the dark surface leaves room below white
 ```
 
-Exporters emit HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output). What HDR glows are for: [HDR glows](../hdr.mdx). Formatting: [`glaze.formatHdr()`](./utilities.md#glazeformathdrvariant-hdrformat).
+[`glaze.formatHdr()`](./utilities.md#glazeformathdrvariant-hdrformat) writes it as extended `color(srgb R G B)`, and [`hdrToSrgb()` / `hdrToLinearSrgb()`](./utilities.md#hdrtosrgbhdr--hdrtolinearsrgbhdr) return its channels. Exporters emit it only with `modes.hdr`; see [HDR output](./output.md#hdr-output).
 
 ## `MixColorDef`
 

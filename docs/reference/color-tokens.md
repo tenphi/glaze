@@ -215,7 +215,7 @@ brand.tailwind({ name: 'brand' });
 
 - Every output that takes `format` defaults to `'oklch'`; `dtcg()` and `dtcgResolver()` take a `colorSpace` instead (`'srgb'` by default). `json()`, `css()`, and `tailwind()` accept only the native CSS formats (`'oklch'`, `'rgb'`, `'hsl'`) and throw on `'okhsl'` / `'okhst'`; `token()` and `tasty()` accept all five. See [Color formats](./output.md#color-formats).
 - `modes` and `states` default to the global config, as on themes. `css()` ignores `modes`. See [Output modes](./output.md#output-modes).
-- A token is never a glow, so it never carries an [HDR value](./output.md#hdr-output): `modes.hdr`, `states.hdr`, and `hdrSelector` change nothing, and `css()` has no `hdr` option.
+- A token is never a glow, so it never carries an [HDR value](../hdr.mdx): `modes.hdr`, `states.hdr`, and `hdrSelector` change nothing, and `css()` has no `hdr` option.
 - The output methods share their option types with themes, except four. `token()` and `tasty()` take `GlazeTokenOptions` — `theme.tasty()`'s options without `splitHue` and `name`. `css()` takes the `GlazeColorCssOptions` below. `tailwind()` and `dtcgResolver()` take `GlazeColorTailwindOptions` and `GlazeColorDtcgResolverOptions`: the theme types plus a required `name`. Full shapes are in [Output formats](./output.md).
 
 ### `GlazeColorCssOptions`

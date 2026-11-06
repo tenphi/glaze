@@ -82,10 +82,10 @@ The input to `glaze.configure()`. Every field is optional.
 | `darkDesaturation` | `number` | `0.1` | Fraction (0–1) of saturation removed in `dark` and `darkContrast`. Clamps to 0–1; non-finite numbers throw. See [Saturation](#saturation). |
 | `states.dark` | `string` | `'@media(prefers-color-scheme: dark)'` | State key for dark variants in [`tasty()`](./output.md#state-aliases) output. |
 | `states.highContrast` | `string` | `'@media(prefers-contrast: more)'` | State key for high-contrast variants in `tasty()` output. |
-| `states.hdr` | `string` | `'@media(dynamic-range: high)'` | State key for the HDR values of glows in `tasty()` output. Used only with `modes.hdr`. |
+| `states.hdr` | `string` | `'@media(dynamic-range: high)'` | State key for the HDR values of glows in `tasty()` output. Used only with `modes.hdr`. Experimental, like every CSS HDR tier. |
 | `modes.dark` | `boolean` | `true` | Emit dark variants. See [Output modes](./output.md#output-modes). |
 | `modes.highContrast` | `boolean` | `false` | Emit high-contrast variants. Independent of `contrastLevel`, except that a global level of `100` drops the tier (it would duplicate the normal one). |
-| `modes.hdr` | `boolean` | `false` | Emit the HDR values of glows past SDR white next to their SDR values, in every exporter. Off, the output is the same as with no `headroom` set. `css()` reads its own `hdr` option, which falls back to this. See [HDR output](./output.md#hdr-output). |
+| `modes.hdr` | `boolean` | `false` | Emit the HDR values of glows past SDR white next to their SDR values, in every exporter. Off, the output is the same as with no `headroom` set. `css()` reads its own `hdr` option, which falls back to this. The CSS tiers (`css()`, `tasty()`, `tailwind()`) are [experimental](../hdr.mdx#browsers), so prefer turning it on per call, such as `theme.dtcg({ modes: { hdr: true } })`. See [HDR output](./output.md#hdr-output). |
 | `shadowTuning` | `ShadowTuning` | — | Default tuning for every `shadow` color. A per-color `tuning` merges over it field by field. Fields and defaults: [`LightingTuning`](./color-definitions.md#lightingtuning). A `headroom` here throws. |
 | `glowTuning` | `GlowTuning` | — | Default tuning for every `glow` color. Same shape and merge rule, plus [`headroom`](#glow-headroom). |
 | `autoFlip` | `boolean` | `true` | Default for each color's `autoFlip`. When on, a contrast floor that can't be met on the requested side of the base may be met on the other side, and a tone delta that overshoots `[0, 100]` mirrors to the other side of its base. When off, only the requested direction is used: an unmet floor pins the tone to that direction's extreme (with a warning) and an overshooting tone delta clamps. Mix colors have no per-color `autoFlip` and always use this value. |
@@ -149,7 +149,7 @@ glaze.configure({ glowTuning: { headroom: 1 } });
 ```
 
 - **Where it's set.** Globally (`glowTuning`), per theme (the override's `glowTuning`; a `glaze.color()` token is never a glow), per color (a glow's `tuning`), or per call (`glaze.glow({ tuning })`). A glow's `tuning.headroom` merges over the global `glowTuning` field by field. An override's `glowTuning` replaces the global object as a whole, so `glaze(280, 80, { glowTuning: { tint: 0.1 } })` drops a global `headroom`, and so does a child's `glowTuning` in `extend()`.
-- **When it applies.** Only to a glow whose target tone (the surface's luminance tone + `intensity × k`) passes 100, and only where SDR is pinned at its brightest: the pigment at full opacity, or a white surface (tone 100) the pigment can't lift. Such a variant gains `hdr`, an opaque base plus a gain in stops; see [`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr). Every scheme uses the same headroom, high contrast included.
+- **When it applies.** Only to a glow whose target tone passes 100 while its SDR value is pinned at its brightest; the exact conditions are in [When a glow gets an HDR value](../hdr.mdx#when-a-glow-gets-an-hdr-value). Such a variant gains `hdr`, an opaque base plus a gain in stops; see [`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr). Every scheme uses the same headroom, high contrast included.
 - **Validation.** It must be a finite number ≥ 0; anything else throws. Above 2 it clamps to 2 with a [warning](#headroom-clamped), deduplicated per field and value and printed only once the whole `configure()` call, instance override, or color map has passed. A `headroom` on `shadowTuning`, a shadow's `tuning`, or `glaze.shadow()` throws: a shadow darkens toward black, and nothing goes below black.
 - **Export.** `export()` freezes `glowTuning` with the clamped headroom, and a glow's own `tuning.headroom` travels with its definition. Snapshots stay at version 2.
 - **Output.** The exporters emit HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output).
@@ -398,7 +398,7 @@ A tone delta that overshoots `[0, 100]` mirrors to the other side of its base wh
 | A regular color's `contrast` floor is out of reach | Pins to the extreme of the side searched first; [contrast unmet](#contrast-unmet) warning. |
 | A mix's `contrast` floor is out of reach | Pins to the end of the base → target range it searched; [mix contrast unmet](#mix-contrast-unmet) warning. |
 | A shadow / glow step is out of the pigment's reach | Pins to the pigment's strongest composite (or stays transparent if it can't move the surface at all); [lighting](#shadow-or-glow-out-of-reach) warning. A glow whose HDR value covers the step doesn't warn. |
-| A glow step past white that its `headroom` cap leaves short | The HDR value pins at the cap, `2^headroom` on the brightest channel; the HDR form of the [lighting](#shadow-or-glow-out-of-reach) warning. |
+| A glow step past white that its `headroom` cap leaves short | The HDR value pins at the cap, `2^headroom` on the brightest linear channel; the HDR form of the [lighting](#shadow-or-glow-out-of-reach) warning. |
 | A glow `headroom` above 2 | Clamps to 2; [headroom clamped](#headroom-clamped) warning. |
 | `contrast` and `opacity` on the same color | Resolves the floor for the opaque color; [contrast and opacity](#contrast-and-opacity) warning. |
 | A color string with an alpha component (`#rrggbbaa`, `rgb(… / a)`) where Glaze has no opacity field | Alpha dropped; [alpha dropped](#alpha-dropped) warning. |
@@ -485,7 +485,7 @@ glaze: glow "big" cannot reach a 30.0-tone step in light scheme even
 Lower the intensity or raise `headroom`.
 ```
 
-At `headroom: 2` the advice reads ``Lower the intensity; `headroom` is already at its 2-stop maximum.`` A glow whose pigment can't lift a non-white surface at all (`reach: 0` on a gray surface, say) gets no HDR value and keeps the first form. On a chromatic surface a `reach: 0` pigment is a gray at the surface's tone that can be slightly brighter than the surface: it then pins at full opacity and, past white, gets an HDR value like any pinned pigment.
+At `headroom: 2` the advice reads ``Lower the intensity; `headroom` is already at its 2-stop maximum.`` A glow without an HDR value, such as one whose pigment can't lift a non-white surface at all (`reach: 0` on a gray surface), keeps the first form; see [When a glow gets an HDR value](../hdr.mdx#when-a-glow-gets-an-hdr-value).
 
 ### Headroom clamped
 

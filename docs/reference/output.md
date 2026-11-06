@@ -96,7 +96,7 @@ The `format` option picks the color string syntax for `tokens()`, `tasty()`, `js
 | `'okhsl'` | `okhsl(H S% L%)` | `okhsl(H S% L% / A)` | Glaze's native space; not a CSS function. **[Tasty](https://tasty.style) only** (see the guard below). |
 | `'okhst'` | `okhst(H S% T%)` | `okhst(H S% T% / A)` | OKHSL with the [tone](../okhst.mdx) axis. **Tasty only.** |
 
-All values use the modern space-separated syntax and strip trailing zeros (`95`, not `95.0`). Alpha is printed to at most 4 decimals. A glow's HDR value ignores `format`: it is always `color(srgb-linear R G B)` (see [HDR strings](#hdr-strings)).
+All values use the modern space-separated syntax and strip trailing zeros (`95`, not `95.0`). Alpha is printed to at most 4 decimals. A glow's HDR value ignores `format`: it is always extended `color(srgb R G B)` (see [HDR strings](#hdr-strings)).
 
 ```ts
 theme.tokens().light.surface;
@@ -184,7 +184,7 @@ theme.tasty();
 | `modes` | `GlazeOutputModes` | Global config | Which variants to include, and whether to add HDR keys. |
 | `states.dark` | `string` | Global `states.dark` (`'@media(prefers-color-scheme: dark)'`) | State alias for the dark variant. |
 | `states.highContrast` | `string` | Global `states.highContrast` (`'@media(prefers-contrast: more)'`) | State alias for the light high-contrast variant. |
-| `states.hdr` | `string` | Global `states.hdr` (`'@media(dynamic-range: high)'`) | State alias for a glow's HDR value. Used only with `modes.hdr`. |
+| `states.hdr` | `string` | Global `states.hdr` (`'@media(dynamic-range: high)'`) | State alias for a glow's HDR value. Used only with `modes.hdr`. Experimental; see [HDR output](#hdr-output). |
 | `splitHue` | `boolean` | `false` | Emit hue as separate `$name-hue` tokens referenced with `var()`. Throws unless `format` is `'oklch'`. See [`splitHue`](#hue-channel-splitting-splithue). |
 | `name` | `string` | `'theme'` | Base name of the theme-level hue var (`$theme-hue` / `--theme-hue`). Used only with `splitHue`. `palette.tasty()` has no `name`: it uses each theme's name. |
 
@@ -273,7 +273,7 @@ theme.css();
 | `suffix` | `string` | `'-color'` | Appended to each property name. Pass `''` for bare names (`--surface`). With `splitHue`, a suffix that lands a value on a hue var (`'-hue'`) throws; see [Variable names](#variable-names). |
 | `splitHue` | `boolean` | `false` | Emit hue as separate `--*-hue` properties referenced with `var()`. Throws unless `format` is `'oklch'`. See [`splitHue`](#hue-channel-splitting-splithue). |
 | `name` | `string` | `'theme'` | Base name of the theme-level hue var (`--theme-hue`). Used only with `splitHue`. `palette.css()` has no `name`: it uses each theme's name. |
-| `hdr` | `boolean` | Global `modes.hdr` (`false`) | Add `result.hdr`, the HDR tier. See [HDR output](#hdr-in-each-exporter). |
+| `hdr` | `boolean` | Global `modes.hdr` (`false`) | Add `result.hdr`, the HDR tier. Experimental; see [HDR output](#hdr-output). |
 
 `GlazeCssResult` always has all four keys — `light`, `dark`, `lightContrast`, `darkContrast` — whatever `modes` says. A key is `''` when the theme has no colors. When HDR output is on, it also has `hdr`: a `GlazeCssSchemeBlocks` with the same four keys. Which selectors or media queries to wrap each string in is up to you; [Exporting and integration](../exporting.mdx) shows common setups.
 
@@ -452,7 +452,7 @@ A Tailwind CSS v4 `@theme` block (the light baseline) plus dark and high-contras
 | `namespace` | `string` | `'color-'` | Custom property namespace, forming `--<namespace><name>` (e.g. `--color-surface`). Named `namespace` so it doesn't clash with the palette's theme `prefix` option. |
 | `darkSelector` | `string` | `'.dark'` | Selector wrapping the dark overrides. An at-rule such as `'@media (prefers-color-scheme: dark)'` drives dark mode from the OS preference. |
 | `highContrastSelector` | `string` | `'.high-contrast'` | Selector wrapping the light high-contrast overrides. |
-| `hdrSelector` | `string` | `'@media (dynamic-range: high)'` | Selector wrapping the HDR overrides, emitted only with `modes.hdr`. See [HDR output](#hdr-in-each-exporter). |
+| `hdrSelector` | `string` | `'@media (dynamic-range: high)'` | Selector wrapping the HDR overrides, emitted only with `modes.hdr`. Experimental; see [HDR output](#hdr-output). |
 | `modes` | `GlazeOutputModes` | Global config | Which override blocks to include. The `@theme` block is always emitted when the theme has colors. |
 
 How the override blocks are built:
@@ -587,7 +587,7 @@ Rename the color, or pass a different `suffix` or `name`.
 | `from` literal color | Per-color var pinned to the color's resolved hue, so re-skinning the theme doesn't re-tint a literal brand color. |
 | `mode: 'static'` while the theme has a dark seed hue different from `hue` | Per-color var pinned to the resolved hue, so the color doesn't drift with the dark seed. |
 | `mode: 'static'` with a `darkHue` | Its light reference in both schemes: a static color has one hue, so its `darkHue` is ignored, as the resolver ignores it. |
-| Shadow, glow, and mix colors | Inline full `oklch()` value; they don't follow hue rotation. A glow's HDR value is a literal `color(srgb-linear …)`. |
+| Shadow, glow, and mix colors | Inline full `oklch()` value; they don't follow hue rotation. A glow's HDR value is a literal `color(srgb …)`. |
 | Achromatic in light (saturation 0) | Inline in every scheme: `oklch(L 0 0)`, or `oklch()` at its own hue in a scheme where it has chroma (a `darkSaturation`). No per-color var in any scheme. |
 
 The light variant decides whether a color is inline: every scheme renders with the color's light plan.
@@ -640,45 +640,39 @@ A shadow's or glow's alpha is solved for its `bg` surface, and a transparent mix
 
 ## HDR output
 
-A glow can go past SDR white. With `glowTuning.headroom` above 0 (stops above white), a glow whose target tone passes 100 while its SDR value is pinned at its brightest gets an HDR value next to its SDR one: `variant.hdr`, an opaque base plus an exposure in stops ([`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr)). When that happens and how the exposure is solved is covered in [HDR glows](../hdr.mdx); this section covers how the exporters write it.
+With `glowTuning.headroom` above 0 (stops above white), a glow whose target tone passes 100 while its SDR value is pinned at its brightest gets an HDR value next to its SDR one: `variant.hdr`, an opaque base plus an exposure in stops ([`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr)). When that happens and where it shows is covered in [HDR glows](../hdr.mdx); this section covers how the exporters write it.
 
-HDR output is opt-in. With `modes.hdr` off (the default), every exporter's output is byte-identical to SDR, even with a `headroom` set. Turn it on globally or per call:
+HDR output is opt-in. With `modes.hdr` off (the default), every exporter's output is byte-identical to SDR, even with a `headroom` set. Turn it on for the export that needs it rather than globally:
 
 ```ts
-glaze.configure({ modes: { hdr: true } });
-
-theme.tokens({ modes: { hdr: true } });
+theme.dtcg({ modes: { hdr: true } });
 // css() has no modes: its hdr option falls back to the global modes.hdr
 theme.css({ hdr: true });
+// For every export:
+glaze.configure({ modes: { hdr: true } });
 ```
 
-The examples below use this theme:
-
-```ts
-const glowing = glaze(280, 80, { glowTuning: { headroom: 1 } });
-glowing.colors({
-  surface: { tone: 100 },
-  'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
-  near: { tone: 95, saturation: 0, mode: 'static' },
-  'near-glow': { type: 'glow', bg: 'near', intensity: 12 },
-});
-```
-
-`surface-glow` lands 12 tones past white in `light` and `lightContrast`: SDR paints nothing (alpha 0), and the HDR value is white exposed by 0.549 stops, tone 112. In dark the surface sits at tone 9.25, so the glow is an ordinary overlay (alpha 0.1237) with no HDR value. `near-glow` is pinned at opaque white in every scheme and has an HDR value at tone 107 in all four.
-
-A white base keeps the surface's own `h` and `s`: `surface-glow` stores `{ h: 280, s: 0.8, t: 1 }`, which is still white. Check `t` before reading `s` as chroma.
+The data exports (`dtcg()`, `dtcgResolver()`, `json()`, `tokens()`) are what native apps and WebGPU code read. The CSS exports (`css()`'s `hdr` blocks, `tasty()`'s `states.hdr` keys, and `tailwind()`'s `hdrSelector` blocks) are experimental: no browser paints a CSS color past SDR white yet, and their shape may change, for example to CSS `hdr-color()`, once one does. See [Browsers](../hdr.mdx#browsers) for what browsers paint today, and [Fills, not overlays](../hdr.mdx#fills-not-overlays) for where that matters.
 
 ### HDR strings
 
-Every string exporter writes an HDR value as `color(srgb-linear R G B)`: the base's linear sRGB times `2^exposure`, 4 decimals, unclamped, with the brightest channel above 1. This holds whatever `format` is, and the value stays literal under `splitHue`. `oklch()` would clamp its lightness when parsed, and `rgb()` / `hsl()` stop at white.
+Every string exporter writes an HDR value as extended sRGB, `color(srgb R G B)`: the base's linear sRGB times `2^exposure`, encoded with the sRGB transfer curve continued past 1, so `1` is SDR white and `1.3533` one stop above it. Channels have 4 decimals and are unclamped, with the brightest above 1. This holds whatever `format` is, and the value stays literal under `splitHue`. `oklch()` would clamp its lightness when parsed, and `rgb()` / `hsl()` stop at white.
 
 ```ts
-const v = glowing.resolve().get('surface-glow')!.light;
-glaze.format(v); // 'oklch(1 0 0 / 0)'
-glaze.formatHdr(v); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
+const v = glaze.glow({
+  bg: '#ffffff',
+  intensity: 12,
+  tuning: { headroom: 1 },
+});
+
+glaze.formatHdr(v); // 'color(srgb 1.1813 1.1813 1.1813)'
+glaze.formatHdr(v, 'srgb-linear');
+// → 'color(srgb-linear 1.4631 1.4631 1.4631)'
 ```
 
-[`glaze.formatHdr()`](./utilities.md#glazeformathdrvariant-hdrformat) writes one variant's HDR value, and returns `undefined` for a variant without one.
+[`glaze.formatHdr()`](./utilities.md#glazeformathdrvariant-hdrformat) writes one variant's HDR value, and returns `undefined` for a variant without one. With `'srgb-linear'` it writes the same color in linear light; exporters always write `'srgb'`. For the channels as numbers, [`hdrToSrgb()` / `hdrToLinearSrgb()`](./utilities.md#hdrtosrgbhdr--hdrtolinearsrgbhdr) return the extended sRGB and the linear ones; [`formatSrgb` and `formatSrgbLinear`](./utilities.md#format-writers) write such channels as strings.
+
+A white base keeps its surface's `h` and `s`: in `glaze(280, 80, { glowTuning: { headroom: 1 } })`, a 12-tone glow on a `tone: 100` surface has `hdr` `{ h: 280, s: 0.8, t: 1, exposure: 0.5489… }`, which is still white. Check `t` before reading `s` as chroma.
 
 ### HDR in each exporter
 
@@ -693,122 +687,13 @@ glaze.formatHdr(v); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
 
 **Sparse** entries exist only for the variants that have an HDR value. **Dense** blocks hold every color with an HDR value in any emitted scheme, re-declared with its SDR value in a scheme that has none, so a dense block layered over the SDR ones can't leak a light HDR value into dark. Only the schemes `modes` emits count; `css()` counts all four.
 
-```ts
-glowing.tasty({ modes: { hdr: true } });
-// → {
-//   '#surface': { … },
-//   '#surface-glow': {
-//     '': 'oklch(1 0 0 / 0)',
-//     '@media(dynamic-range: high)':
-//       'color(srgb-linear 1.4631 1.4631 1.4631)',
-//     '@media(prefers-color-scheme: dark)': 'oklch(1 0 0 / 0.1237)',
-//   },
-//   '#near': { … },
-//   '#near-glow': {
-//     '': 'oklch(1 0 0)',
-//     '@media(dynamic-range: high)':
-//       'color(srgb-linear 1.2494 1.2494 1.2494)',
-//     '@media(prefers-color-scheme: dark)': 'oklch(1 0 0)',
-//     '@media(prefers-color-scheme: dark) & @media(dynamic-range: high)':
-//       'color(srgb-linear 1.2494 1.2494 1.2494)',
-//   },
-// }
+Order matters too. Wire each `css()` HDR block after the SDR blocks, under the same selector plus `(dynamic-range: high)`: in a dark HDR context both the light and the dark HDR blocks match, and the later dark one wins. `tailwind()` emits its blocks in that order, and `tasty()` emits its keys in the order [State aliases](#state-aliases) lists, so don't sort them.
 
-glowing.json({ modes: { hdr: true } })['surface-glow'];
-// → {
-//   light: 'oklch(1 0 0 / 0)',
-//   lightHdr: 'color(srgb-linear 1.4631 1.4631 1.4631)',
-//   dark: 'oklch(1 0 0 / 0.1237)',
-// }
-```
-
-Tasty gives later keys priority, so in a dark HDR context the dark key beats the light HDR one, and `surface-glow` stays an SDR overlay.
-
-`tokens()` and `css()` re-declare `surface-glow` in their dark HDR block with its SDR value:
-
-```ts
-glowing.tokens({ modes: { hdr: true } });
-// → {
-//   light: { …, 'surface-glow': 'oklch(1 0 0 / 0)', … },
-//   lightHdr: {
-//     'surface-glow': 'color(srgb-linear 1.4631 1.4631 1.4631)',
-//     'near-glow': 'color(srgb-linear 1.2494 1.2494 1.2494)',
-//   },
-//   dark: { … },
-//   darkHdr: {
-//     'surface-glow': 'oklch(1 0 0 / 0.1237)',
-//     'near-glow': 'color(srgb-linear 1.2494 1.2494 1.2494)',
-//   },
-// }
-
-const css = glowing.css({ hdr: true });
-css.hdr;
-// → {
-// light:
-//   '--surface-glow-color: color(srgb-linear 1.4631 1.4631 1.4631);\n' +
-//   '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
-// dark:
-//   '--surface-glow-color: oklch(1 0 0 / 0.1237);\n' +
-//   '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
-// lightContrast: '…', // the same as light
-// darkContrast:
-//   '--surface-glow-color: oklch(1 0 0 / 0.1603);\n' +
-//   '--near-glow-color: color(srgb-linear 1.2494 1.2494 1.2494);',
-// }
-```
-
-Wire each HDR block after the SDR blocks, under the same selector plus `(dynamic-range: high)`. In a dark HDR context both the light and the dark HDR blocks match; the dark one comes later and puts `surface-glow`'s SDR value back. [Exporting and integration](../exporting.mdx#hdr-output) shows the full stylesheet. `tailwind()` emits the blocks for you:
-
-```css
-/* glowing.tailwind({ modes: { hdr: true } }), after the SDR blocks */
-@media (dynamic-range: high) {
-  :root {
-    --color-surface-glow: color(srgb-linear 1.4631 1.4631 1.4631);
-    --color-near-glow: color(srgb-linear 1.2494 1.2494 1.2494);
-  }
-}
-
-@media (dynamic-range: high) {
-  .dark {
-    --color-surface-glow: oklch(1 0 0 / 0.1237);
-    --color-near-glow: color(srgb-linear 1.2494 1.2494 1.2494);
-  }
-}
-```
+[HDR glows](../hdr.mdx#output-is-opt-in) shows each export for a theme with two glows: [CSS blocks](../hdr.mdx#css-blocks), [Tasty keys](../hdr.mdx#tasty-keys), [Tailwind blocks](../hdr.mdx#tailwind-blocks), [JSON and tokens](../hdr.mdx#json-and-tokens), and [DTCG](../hdr.mdx#dtcg).
 
 ### DTCG `$extensions`
 
-`$value` stays the SDR color: DTCG color components stop at 1. With `modes.hdr`, a token whose variant has an HDR value gains `$extensions` after `$value`, in that scheme's document only:
-
-```ts
-glowing.dtcg({ modes: { hdr: true } }).light['surface-glow'];
-// → {
-//   $type: 'color',
-//   $value: {
-//     colorSpace: 'srgb',
-//     components: [1, 1, 1],
-//     hex: '#ffffff',
-//     alpha: 0,
-//   },
-//   $extensions: {
-//     'me.tenphi.glaze': {
-//       hdr: {
-//         exposure: 0.548987,
-//         tone: 112,
-//         base: {
-//           colorSpace: 'srgb',
-//           components: [1, 1, 1],
-//           hex: '#ffffff',
-//         },
-//         value: {
-//           colorSpace: 'srgb-linear',
-//           components: [1.463058, 1.463058, 1.463058],
-//         },
-//       },
-//     },
-//   },
-// }
-```
+`$value` stays the SDR color: DTCG color components stop at 1. With `modes.hdr`, a token whose variant has an HDR value gains `$extensions` after `$value`, in that scheme's document only. [DTCG](../hdr.mdx#dtcg) shows a full token.
 
 `GlazeDtcgExtensions` is `{ 'me.tenphi.glaze': { hdr: GlazeDtcgHdr } }`.
 
@@ -817,19 +702,13 @@ glowing.dtcg({ modes: { hdr: true } }).light['surface-glow'];
 | Field | Type | Description |
 | --- | --- | --- |
 | `exposure` | `number` | Gain over `base` in stops, rounded to 6 decimals. |
-| `tone` | `number` | Luminance tone of the HDR value, rounded to 4 decimals. Past 100 when the headroom covers the step (112 here). A saturated base capped by `headroom` can land below 100. |
+| `tone` | `number` | Luminance tone of the HDR value, rounded to 4 decimals. Past 100 when the headroom covers the step. A saturated base capped by `headroom` can land below 100. |
 | `base` | `DtcgSrgbColorValue` | The opaque base, what SDR paints at its brightest. Always sRGB with a `hex`, whatever `colorSpace`; never pastel; no `alpha`. |
-| `value` | `{ colorSpace: 'srgb-linear', components: [r, g, b] }` | The HDR color: `base` times `2^exposure` in linear sRGB, components rounded to 6 decimals. Only the brightest component is guaranteed above 1. |
+| `value` | `{ colorSpace: 'srgb', components: [r, g, b] }` | The HDR color, `base` times `2^exposure` in linear light, as extended sRGB: the same numbers as the [HDR string](#hdr-strings), to 6 decimals. Only the brightest component is guaranteed above 1. |
 
-Native code maps it directly: UIKit / AppKit `exposure` or SwiftUI `exposureAdjust(exposure)` on `base`, or Android `Color.pack()` with `value.components` in `LINEAR_EXTENDED_SRGB`. See [Exporting and integration](../exporting.mdx#hdr-output).
+Only DTCG carries `base` and `exposure`, which Apple's exposure initializers take; `json()` and `tokens()` carry the string, whose numbers are the extended sRGB channels. [Native apps](../hdr.mdx#native-apps) maps each field onto Apple, Android, and Windows APIs.
 
 ### Palettes and color tokens
 
 - Palette HDR entries follow the same prefixes, primary alias, and collision filtering as the SDR ones; see [HDR in palettes](./palette.md#hdr-in-palettes).
 - `glaze.color()` tokens are never glows, so they never carry an HDR value: `modes.hdr`, `states.hdr`, and `hdrSelector` change nothing, and `token.css()` has no `hdr` option.
-
-### Browser support
-
-As of late 2026, CSS can't reliably paint a color brighter than white. CSS Color 4 gamut-maps extended values; Chrome shows them only on a layer it shares with HDR image content; Safari matches `dynamic-range: high` on capable displays but clamps on purpose; Firefox has no CSS HDR; and no engine implements `color-hdr()`. `dynamic-range: high` reports what the display can do, not that HDR is on. So the `css()`, `tasty()`, and `tailwind()` tiers don't reliably paint past white in any browser today, and the planned standard keeps plain colors in SDR unless a `color-hdr()` wrapper opts them in, which Glaze doesn't emit. `json()` and DTCG feed native apps that draw HDR today, and a WebGPU canvas can paint past white; see [WebGPU](../hdr.mdx#webgpu).
-
-A clamped neutral HDR value is opaque white. Where SDR is already opaque white (`near-glow`) that changes nothing, but on a white surface SDR is transparent (`surface-glow`), and the clamped value covers whatever is under it. Use HDR glows for fills, edge highlights, and `box-shadow`, never for state layers drawn over labels.

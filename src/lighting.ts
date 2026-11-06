@@ -22,8 +22,8 @@
  * surface at all gets none and keeps the SDR shortfall warning. Since the
  * value lands the whole step, only a full-reach glow meets SDR at the boundary
  * (`exposure` → 0); one with `reach` below 1 jumps from its pigment to the
- * exact step. `hdrToLinearSrgb` turns a resolved HDR value back into linear
- * sRGB for the writers.
+ * exact step. `hdrToLinearSrgb` / `hdrToSrgb` turn a resolved HDR value back
+ * into linear or extended sRGB channels for the writers (both public).
  */
 
 import {
@@ -32,6 +32,7 @@ import {
   okhslToOklab,
   oklabToOkhsl,
   relativeLuminanceFromLinearRgb,
+  sRGBLinearToGamma,
   toDisplayGamma,
 } from './okhsl-color-math';
 import { clamp } from './hc-pair';
@@ -432,6 +433,18 @@ export function hdrToLinearSrgb(hdr: ResolvedHdr): [number, number, number] {
   const [r, g, b] = okhslToLinearSrgb(h, s, l);
   const m = 2 ** hdr.exposure;
   return [r * m, g * m, b * m];
+}
+
+/**
+ * Extended sRGB of a resolved HDR value: `hdrToLinearSrgb` through the sRGB
+ * transfer function, continued past 1 the way CSS and the platform
+ * extended-sRGB spaces continue it, unclamped. These are the channels of
+ * `color(srgb R G B)` (`glaze.formatHdr()`), and what a WebGPU `'srgb'`
+ * canvas, `CGColorSpace.extendedSRGB`, and Android's `EXTENDED_SRGB` take.
+ */
+export function hdrToSrgb(hdr: ResolvedHdr): [number, number, number] {
+  const [r, g, b] = hdrToLinearSrgb(hdr);
+  return [sRGBLinearToGamma(r), sRGBLinearToGamma(g), sRGBLinearToGamma(b)];
 }
 
 /**

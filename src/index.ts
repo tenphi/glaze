@@ -170,7 +170,11 @@ export {
   formatHsl,
   formatOkhst,
   formatOklch,
+  formatSrgb,
   formatSrgbLinear,
   srgbToHex,
   okhslToOklch,
 } from './okhsl-color-math';
+
+// HDR glow values as channels (linear, or extended sRGB past 1)
+export { hdrToLinearSrgb, hdrToSrgb } from './lighting';

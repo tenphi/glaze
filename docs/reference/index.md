@@ -23,7 +23,7 @@ The package ships ESM and CommonJS with full type declarations and has no runtim
 | [Palettes](./palette.md) | `glaze.palette()`, prefixes, collisions, the primary alias, `glaze.paletteFrom()`. |
 | [Output formats](./output.md) | Every output method and option, color formats, output modes, state aliases, `splitHue`, HDR output. |
 | [Configuration](./configuration.md) | `glaze.configure()` and every `GlazeConfig` field, per-instance overrides, validation, warnings. |
-| [Utilities](./utilities.md) | `glaze.format` / `glaze.formatHdr`, standalone `glaze.shadow` / `glaze.glow`, color math, tone utilities, the contrast solver, role helpers, guards. |
+| [Utilities](./utilities.md) | `glaze.format` / `glaze.formatHdr`, the HDR channel helpers, standalone `glaze.shadow` / `glaze.glow`, color math, tone utilities, the contrast solver, role helpers, guards. |
 
 ## `glaze` and its statics
 
@@ -77,7 +77,8 @@ Everything below is exported from `'@tenphi/glaze'` next to `glaze`. Apart from 
 | `toTone`, `fromTone`, `toneFromY`, `yFromTone`, `okhstToOkhsl`, `okhslToOkhst`, `variantToOkhsl`, `REF_EPS` | OKHST tone utilities | [Utilities](./utilities.md#okhst-tone-utilities); the model in [Tone and OKHST](../okhst.mdx) |
 | `okhslToLinearSrgb`, `okhslToSrgb`, `okhslToOklab`, `oklabToOkhsl`, `srgbToOkhsl`, `hslToSrgb`, `okhslToOklch`, `cuspLightness`, `parseHex`, `parseHexAlpha`, `srgbToHex`, `relativeLuminanceFromLinearRgb`, `contrastRatioFromLuminance`, `gamutClampedLuminance`, `apcaLuminanceFromLinearRgb` | Color math | [Utilities](./utilities.md#color-math) |
 | `formatOkhsl`, `formatOkhst`, `formatRgb`, `formatHsl`, `formatOklch` | Format writers (0–1 scale) | [Utilities](./utilities.md#format-writers) |
-| `formatSrgbLinear` | HDR writer: linear sRGB channels, unclamped, as `color(srgb-linear R G B)` | [Utilities](./utilities.md#format-writers); where it applies: [HDR strings](./output.md#hdr-strings) |
+| `formatSrgb`, `formatSrgbLinear` | HDR writers: extended or linear sRGB channels, unclamped, as `color(srgb R G B)` / `color(srgb-linear R G B)` | [Utilities](./utilities.md#format-writers); the format: [Extended sRGB](../hdr.mdx#extended-srgb) |
+| `hdrToSrgb`, `hdrToLinearSrgb` | HDR channels: a `ResolvedHdr` → extended or linear sRGB, unclamped | [Utilities](./utilities.md#hdrtosrgbhdr--hdrtolinearsrgbhdr) |
 
 ## Types
 
@@ -121,6 +122,7 @@ Glaze mixes a few numeric scales. Which one applies depends on where a value is 
 | Mix `value` | 0–100 | `MixColorDef.value` (0 = base, 100 = target). |
 | Resolved variant | `h` 0–360; `s`, `t`, `alpha` 0–1 | `ResolvedColorVariant`, the input to `glaze.format()`. Its optional `hdr` (`ResolvedHdr`) uses the same scales plus `exposure`. |
 | Headroom, exposure | Stops above SDR white; each stop doubles luminance. `headroom` 0–2. | `glowTuning.headroom` and a glow's `tuning.headroom`; `ResolvedHdr.exposure` and DTCG `exposure`. 1 stop past white is tone 121.98, 2 stops tone 144.34. |
+| HDR channels | Extended or linear sRGB, unclamped; `1` is SDR white. One stop above it is `1.3533` extended, `2` linear. | Extended: every exporter's HDR strings, DTCG `hdr.value`, `glaze.formatHdr()` by default, `hdrToSrgb`, `formatSrgb`. Linear: `glaze.formatHdr(v, 'srgb-linear')`, `hdrToLinearSrgb`, `formatSrgbLinear`. |
 | Value objects | `{ h, s, l }` and `{ h, s, t }`: `s`, `l`, `t` 0–1. `{ r, g, b }`: 0–255. `{ l, c, h }`: `L` and `C` 0–1, `H` degrees. | `from`, `glaze.color()`, `glaze.shadow()` / `glaze.glow()` inputs. |
 | Format writers and converters | `h` 0–360; `s`, `l`, `t` 0–1 | `formatOkhsl` … `formatOklch` and the color math functions. The format writers warn when they get 0–100 percentages (the pre-2.0 scale). |
 | Opacity, ratios | 0–1 | `opacity`, `darkDesaturation`, lighting `tint` / `reach` / `hueBleed`. |

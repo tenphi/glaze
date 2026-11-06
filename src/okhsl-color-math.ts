@@ -6,8 +6,8 @@
  * luminance `Ys` — both the exact functions the contrast solver uses, and
  * both public), strict hex parsing (`parseHex` / `parseHexAlpha` check every
  * digit), and multi-format output (okhsl, rgb, hsl, oklch, plus the
- * `color(srgb-linear …)` writer for HDR glow values, whose channels may exceed
- * 1).
+ * unclamped `color(srgb …)` / `color(srgb-linear …)` writers for HDR glow
+ * values, whose channels may exceed 1).
  */
 
 type Vec3 = [number, number, number];
@@ -924,11 +924,25 @@ export function formatOklch(
  * Format linear sRGB channels as a CSS `color(srgb-linear R G B)` string with
  * 4 decimals. Unlike the other writers it takes linear light, not OKHSL, and
  * does not clamp: a channel may exceed 1, which is how an HDR glow value
- * (`glaze.formatHdr()`) goes past SDR white — `1` is SDR white, `2` one stop
- * above it. Opaque only; HDR values carry no alpha.
+ * written with `glaze.formatHdr(v, 'srgb-linear')` goes past SDR white — `1`
+ * is SDR white, `2` one stop above it (the default extended form is
+ * `formatSrgb`). Opaque only; HDR values carry no alpha.
  */
 export function formatSrgbLinear(rgb: [number, number, number]): string {
   return `color(srgb-linear ${fmt(rgb[0], 4)} ${fmt(rgb[1], 4)} ${fmt(rgb[2], 4)})`;
+}
+
+/**
+ * Format extended sRGB channels — gamma-encoded, with the transfer function
+ * continued past 1 (`sRGBLinearToGamma` does) — as a CSS `color(srgb R G B)`
+ * string with 4 decimals. Like `formatSrgbLinear` it takes the channels of
+ * its own space and does not clamp, so an HDR glow value
+ * (`glaze.formatHdr()`) can pass SDR white: `1` is SDR white, about `1.3533`
+ * one stop above it. CSS reads it as the same color as the matching
+ * `color(srgb-linear …)`. Opaque only; HDR values carry no alpha.
+ */
+export function formatSrgb(rgb: [number, number, number]): string {
+  return `color(srgb ${fmt(rgb[0], 4)} ${fmt(rgb[1], 4)} ${fmt(rgb[2], 4)})`;
 }
 
 /**

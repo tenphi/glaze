@@ -13,9 +13,8 @@
 
 import { fmt, inkMap, resolveDemo, variantOf } from '../glaze-docs';
 import type { DemoTheme, Scheme } from '../glaze-docs';
-import { okhslToSrgb, variantToOkhsl } from '../../../src/index.ts';
+import { hdrToSrgb, okhslToSrgb, variantToOkhsl } from '../../../src/index.ts';
 import type { GlowColorDef } from '../../../src/index.ts';
-import { hdrToLinearSrgb } from '../../../src/lighting.ts';
 
 export interface HdrHaloOptions {
   /** The page the card sits on (the glow's `bg`). */
@@ -50,7 +49,7 @@ export function hdrHaloPreview(
     );
   }
   const def = demo.colors[options.glow] as GlowColorDef;
-  const hdr = hdrToLinearSrgb(glow.hdr).map((c) => fmt(c, 4));
+  const hdr = hdrToSrgb(glow.hdr).map((c) => fmt(c, 4));
   const pageVariant = variantOf(resolved, options.page, s);
   const { h, s: sat, l } = variantToOkhsl(pageVariant);
   const page = okhslToSrgb(h, sat, l, pageVariant.pastel ?? false).map((c) =>
@@ -97,14 +96,13 @@ canvas {
 .hdr canvas { visibility: visible; }
 .hdr .card { box-shadow: none; }`;
 
-  const javascript = `// ${options.glow}'s HDR value: linear sRGB, 1 = SDR white.
+  const javascript = `// ${options.glow}'s HDR value, as glaze.formatHdr() writes it:
+// extended sRGB, where 1 is SDR white. The canvas's 'srgb' color space takes
+// these numbers as they are.
 const HDR = [${hdr.join(', ')}];
-// The page under it, sRGB-encoded.
+// The page under it, in sRGB.
 const PAGE = [${page.join(', ')}];
 const BLUR = ${options.blur}, SPREAD = ${options.spread};
-
-// The canvas's 'srgb' color space takes sRGB-encoded values that run on past 1.
-const encode = (c) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
 
 const shader = \`
 struct Halo { color: vec4f, page: vec4f, rect: vec4f, blur: vec4f };
@@ -172,7 +170,7 @@ async function drawHalo() {
     canvas.width = Math.round(box.width * dpr);
     canvas.height = Math.round(box.height * dpr);
     device.queue.writeBuffer(uniforms, 0, new Float32Array([
-      ...HDR.map(encode), 1,
+      ...HDR, 1,
       ...PAGE, 1,
       (rect.left - box.left) * dpr, (rect.top - box.top) * dpr,
       rect.width * dpr, rect.height * dpr,

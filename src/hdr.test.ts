@@ -2,13 +2,20 @@ import { renderStyles } from '@tenphi/tasty/core';
 import type { Styles } from '@tenphi/tasty/core';
 import { glaze } from './glaze';
 import { contrastFraction, numberAt } from './hc-pair';
-import { computeLighting, resolveLightingTuning } from './lighting';
 import {
+  computeLighting,
+  hdrToLinearSrgb,
+  hdrToSrgb,
+  resolveLightingTuning,
+} from './lighting';
+import {
+  formatSrgb,
   formatSrgbLinear,
   okhslToLinearSrgb,
   okhslToSrgb,
   relativeLuminanceFromLinearRgb,
   sRGBGammaToLinear,
+  sRGBLinearToGamma,
 } from './okhsl-color-math';
 import { okhstToOkhsl, toneFromY, variantToOkhsl, yFromTone } from './okhst';
 import type {
@@ -379,7 +386,8 @@ describe('HDR glows', () => {
       });
       expect(v.alpha).toBe(1);
       expect(v.hdr!.exposure).toBeCloseTo(0.549, 3);
-      expect(glaze.formatHdr(v)).toBe(
+      expect(glaze.formatHdr(v)).toBe('color(srgb 1.1813 1.1813 1.1813)');
+      expect(glaze.formatHdr(v, 'srgb-linear')).toBe(
         'color(srgb-linear 1.4631 1.4631 1.4631)',
       );
     });
@@ -493,7 +501,9 @@ describe('HDR glows', () => {
 
       expect(v.hdr!.exposure).toBeCloseTo(1, 9);
       expect(hdrTone(v.hdr) - 100).toBeCloseTo(21.98, 2);
-      expect(glaze.formatHdr(v)).toBe('color(srgb-linear 2 2 2)');
+      expect(glaze.formatHdr(v, 'srgb-linear')).toBe(
+        'color(srgb-linear 2 2 2)',
+      );
 
       const result = computeLighting(
         'glow',
@@ -523,7 +533,9 @@ describe('HDR glows', () => {
       });
       const v = theme.resolve().get('max-glow')!.light;
       expect(v.hdr!.exposure).toBeCloseTo(2, 9);
-      expect(glaze.formatHdr(v)).toBe('color(srgb-linear 4 4 4)');
+      expect(glaze.formatHdr(v, 'srgb-linear')).toBe(
+        'color(srgb-linear 4 4 4)',
+      );
       expect(warnings('glow "max-glow"')[0]).toBe(
         'glaze: glow "max-glow" cannot reach a 60.0-tone step in light scheme ' +
           'even with 2 stops of headroom (reached 44.3). Lower the intensity; ' +
@@ -599,7 +611,7 @@ describe('HDR glows', () => {
     // The HDR value meets the SDR result — opaque white — at the boundary.
     expect(last!.alpha).toBe(1);
     expect(glaze.format(last!)).toBe('oklch(1 0 0)');
-    expect(glaze.formatHdr(last!)).toBe('color(srgb-linear 1 1 1)');
+    expect(glaze.formatHdr(last!)).toBe('color(srgb 1 1 1)');
   });
 
   it('jumps to the exact step past white when reach is below 1', () => {
@@ -1032,6 +1044,41 @@ describe('HDR glows', () => {
       );
     });
 
+    it('formatSrgb writes 4 decimals and goes past 1', () => {
+      expect(formatSrgb([1.181265, 1.2, 0.5])).toBe(
+        'color(srgb 1.1813 1.2 0.5)',
+      );
+      expect(formatSrgb([1.82479, 1.35326, 1])).toBe(
+        'color(srgb 1.8248 1.3533 1)',
+      );
+      expect(formatSrgb([-1e-9, 0, 1e-12])).toBe('color(srgb 0 0 0)');
+    });
+
+    it('hdrToSrgb continues the sRGB transfer function past 1', () => {
+      const v = glaze.glow({
+        bg: { h: 40, s: 0.6, t: 0.97 },
+        intensity: 12,
+        tuning: { headroom: 2, reach: 0.5, tint: 0.6 },
+      });
+      const linear = hdrToLinearSrgb(v.hdr!);
+      const srgb = hdrToSrgb(v.hdr!);
+      expect(Math.max(...srgb)).toBeGreaterThan(1);
+      srgb.forEach((c, i) => {
+        expect(c).toBeCloseTo(sRGBLinearToGamma(linear[i]), 12);
+        expect(sRGBGammaToLinear(c)).toBeCloseTo(linear[i], 12);
+      });
+      // One stop over white: the extended curve at 2.
+      const white = glaze.glow({
+        bg: '#ffffff',
+        intensity: 30,
+        tuning: { headroom: 1 },
+      });
+      expect(hdrToSrgb(white.hdr!)[0]).toBeCloseTo(
+        1.055 * 2 ** (1 / 2.4) - 0.055,
+        9,
+      );
+    });
+
     it('reproduces the design worked example', () => {
       const r = workedExample({ glowTuning: { headroom: 1 } });
       const surface = r.get('surface-glow')!;
@@ -1039,7 +1086,7 @@ describe('HDR glows', () => {
         expect(glaze.format(surface[scheme])).toBe('oklch(1 0 0 / 0)');
         expect(surface[scheme].hdr!.exposure).toBeCloseTo(0.549, 3);
         expect(glaze.formatHdr(surface[scheme])).toBe(
-          'color(srgb-linear 1.4631 1.4631 1.4631)',
+          'color(srgb 1.1813 1.1813 1.1813)',
         );
       }
       expect(glaze.format(surface.dark)).toBe('oklch(1 0 0 / 0.1237)');
@@ -1051,9 +1098,7 @@ describe('HDR glows', () => {
         const near = r.get('near-glow')![scheme];
         expect(glaze.format(near)).toBe('oklch(1 0 0)');
         expect(near.hdr!.exposure).toBeCloseTo(0.3212, 4);
-        expect(glaze.formatHdr(near)).toBe(
-          'color(srgb-linear 1.2494 1.2494 1.2494)',
-        );
+        expect(glaze.formatHdr(near)).toBe('color(srgb 1.1026 1.1026 1.1026)');
 
         const inverse = r.get('inverse-glow')![scheme];
         expect(glaze.format(inverse)).toBe('oklch(1 0 0 / 0.1155)');
@@ -1061,19 +1106,35 @@ describe('HDR glows', () => {
       }
     });
 
-    it('formatHdr ignores the SDR format and rejects unknown HDR formats', () => {
+    it('formatHdr writes one color in either space and rejects others', () => {
       const v = glaze.glow({
         bg: { h: 40, s: 0.6, t: 0.97 },
         intensity: 12,
         tuning: { headroom: 2, reach: 0.5, tint: 0.6 },
       });
-      expect(glaze.formatHdr(v, 'srgb-linear')).toBe(glaze.formatHdr(v));
+      const NUM = String.raw`\d+(\.\d{1,4})?`;
+      expect(glaze.formatHdr(v, 'srgb')).toBe(glaze.formatHdr(v));
       expect(glaze.formatHdr(v)).toMatch(
-        /^color\(srgb-linear \d+(\.\d{1,4})? \d+(\.\d{1,4})? \d+(\.\d{1,4})?\)$/,
+        new RegExp(`^color\\(srgb ${NUM} ${NUM} ${NUM}\\)$`),
       );
-      expect(() =>
-        glaze.formatHdr(v, 'oklch' as unknown as 'srgb-linear'),
-      ).toThrow('glaze: unknown HDR format "oklch". Use \'srgb-linear\'.');
+      expect(glaze.formatHdr(v, 'srgb-linear')).toMatch(
+        new RegExp(`^color\\(srgb-linear ${NUM} ${NUM} ${NUM}\\)$`),
+      );
+      // The two strings are the same color: decode one, compare the other.
+      const channels = (str: string): number[] =>
+        str
+          .slice(str.indexOf(' ') + 1, -1)
+          .split(' ')
+          .map(Number);
+      const gamma = channels(glaze.formatHdr(v)!);
+      const linear = channels(glaze.formatHdr(v, 'srgb-linear')!);
+      expect(Math.max(...gamma)).toBeGreaterThan(1);
+      gamma.forEach((c, i) => {
+        expect(sRGBGammaToLinear(c)).toBeCloseTo(linear[i], 3);
+      });
+      expect(() => glaze.formatHdr(v, 'oklch' as unknown as 'srgb')).toThrow(
+        "glaze: unknown HDR format \"oklch\". Use 'srgb' or 'srgb-linear'.",
+      );
       expect(glaze.formatHdr(glaze.shadow({ bg: '#fff', intensity: 4 }))).toBe(
         undefined,
       );
@@ -1110,8 +1171,8 @@ const HDR_GLOWS = ['surface-glow', 'near-glow', 'ink-glow', 'paper-glow'];
 
 const HDR_MODES = { modes: { dark: true, highContrast: true, hdr: true } };
 
-const WHITE_12 = 'color(srgb-linear 1.4631 1.4631 1.4631)';
-const NEAR_12 = 'color(srgb-linear 1.2494 1.2494 1.2494)';
+const WHITE_12 = 'color(srgb 1.1813 1.1813 1.1813)';
+const NEAR_12 = 'color(srgb 1.1026 1.1026 1.1026)';
 
 const DARK = '@media(prefers-color-scheme: dark)';
 const HC = '@media(prefers-contrast: more)';
@@ -1342,7 +1403,7 @@ describe('HDR exporters', () => {
         for (const [key, value] of Object.entries(split[`#${name}`])) {
           if (!key.includes(HDR)) continue;
           hdrKeys++;
-          expect(value).toMatch(/^color\(srgb-linear [\d. ]+\)$/);
+          expect(value).toMatch(/^color\(srgb [\d. ]+\)$/);
           expect(value).toBe(plain[`#${name}`][key]);
         }
       }
@@ -1350,7 +1411,7 @@ describe('HDR exporters', () => {
       expect(split['#surface-glow'][HDR]).toBe(WHITE_12);
     });
 
-    it('writes srgb-linear whatever the SDR format', () => {
+    it('writes extended srgb whatever the SDR format', () => {
       const light = exportTheme().resolve().get('surface-glow')!.light;
       for (const format of ['okhsl', 'okhst', 'rgb', 'hsl'] as const) {
         const tokens = exportTheme().tasty({ ...HDR_MODES, format });
@@ -1558,7 +1619,7 @@ describe('HDR exporters', () => {
           [...HDR_GLOWS, 'chip-glow'].map((name) => `--${name}`),
         );
         for (const line of lines) {
-          if (line.includes('srgb-linear')) continue;
+          if (line.includes('color(srgb ')) continue;
           expect(sdr).toContain(line);
         }
       }
@@ -1661,21 +1722,23 @@ describe('HDR exporters', () => {
       }
     });
 
-    it('writes exposure, tone, the sRGB base and the linear value', () => {
+    it('writes exposure, tone, the sRGB base and the extended value', () => {
       const doc = exportTheme().dtcg(HDR_MODES);
       expect(doc.light['surface-glow'].$extensions![EXT].hdr).toEqual({
         exposure: 0.548987,
         tone: 112,
         base: { colorSpace: 'srgb', components: [1, 1, 1], hex: '#ffffff' },
         value: {
-          colorSpace: 'srgb-linear',
-          components: [1.463058, 1.463058, 1.463058],
+          colorSpace: 'srgb',
+          components: [1.181265, 1.181265, 1.181265],
         },
       });
       const near = doc.dark!['near-glow'].$extensions![EXT].hdr;
       expect(near.exposure).toBeCloseTo(0.3212, 4);
       expect(near.tone).toBe(107);
-      expect(near.value.components).toEqual([1.249405, 1.249405, 1.249405]);
+      expect(near.value.components).toEqual([1.102565, 1.102565, 1.102565]);
+      // The components are the numbers of the CSS string.
+      expect(formatSrgb(near.value.components)).toBe(NEAR_12);
 
       // The base is sRGB whatever `colorSpace`; `$value` follows it.
       const oklch = exportTheme().dtcg({ ...HDR_MODES, colorSpace: 'oklch' });
@@ -1703,7 +1766,7 @@ describe('HDR exporters', () => {
       const gain = 2 ** hdr.exposure;
       hdr.base.components.forEach((c, i) => {
         expect(sRGBGammaToLinear(c) * gain).toBeCloseTo(
-          hdr.value.components[i],
+          sRGBGammaToLinear(hdr.value.components[i]),
           4,
         );
       });
@@ -1725,10 +1788,13 @@ describe('HDR exporters', () => {
         theme.dtcg(HDR_MODES).light['chip-glow'].$extensions![EXT].hdr;
       expect(hdr.exposure).toBeCloseTo(0.1, 5);
       expect(hdr.tone).toBeLessThan(100);
-      expect(Math.max(...hdr.value.components)).toBeCloseTo(2 ** 0.1, 5);
+      expect(sRGBGammaToLinear(Math.max(...hdr.value.components))).toBeCloseTo(
+        2 ** 0.1,
+        5,
+      );
       expect(Math.min(...hdr.value.components)).toBeLessThan(1);
       expect(theme.json(HDR_MODES)['chip-glow'].lightHdr).toBe(
-        'color(srgb-linear 1.0718 0.8728 0.8389)',
+        'color(srgb 1.0309 0.9418 0.9256)',
       );
     });
 

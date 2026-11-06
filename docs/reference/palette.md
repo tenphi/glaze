@@ -408,7 +408,7 @@ glaze
 
 ## HDR in palettes
 
-With `modes.hdr` (for `css()`, its `hdr` option), palette output carries the HDR values of glows past SDR white, in the [shapes `theme` output uses](./output.md#hdr-in-each-exporter):
+With `modes.hdr` (for `css()`, its `hdr` option), palette output carries the [HDR values](../hdr.mdx) of glows past SDR white, in the [shapes `theme` output uses](./output.md#hdr-in-each-exporter):
 
 - HDR entries are built from the same prefixed, collision-filtered maps as the SDR ones, plus the primary alias pass. Prefix maps, `primary: false`, and first-write-wins collisions apply unchanged: a token skipped as a collision loses its HDR entry too.
 - The dense blocks of `tokens()`, `css()`, and `tailwind()` span the whole palette: every token with an HDR value in any emitted scheme, from any theme.
@@ -428,8 +428,8 @@ const lit = glaze.palette(
 
 lit.tokens({ modes: { hdr: true } }).lightHdr;
 // → {
-//   'brand-surface-glow': 'color(srgb-linear 1.4631 1.4631 1.4631)',
-//   'surface-glow': 'color(srgb-linear 1.4631 1.4631 1.4631)',
-//   'danger-surface-glow': 'color(srgb-linear 1.4631 1.4631 1.4631)',
+//   'brand-surface-glow': 'color(srgb 1.1813 1.1813 1.1813)',
+//   'surface-glow': 'color(srgb 1.1813 1.1813 1.1813)',
+//   'danger-surface-glow': 'color(srgb 1.1813 1.1813 1.1813)',
 // }
 ```

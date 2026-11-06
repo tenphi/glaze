@@ -317,21 +317,21 @@ glaze.format = function format(
 
 /**
  * Format a variant's HDR value — set on a glow whose step crosses SDR white
- * with `headroom` above 0 — as `color(srgb-linear R G B)`, with channels that
- * may exceed 1. Returns `undefined` for a variant without one. Only
- * `'srgb-linear'` is supported: OKLCH lightness clamps at parse time and
- * `rgb()` / `hsl()` cannot go past white.
+ * with `headroom` above 0 — as extended `color(srgb R G B)`, with channels
+ * that may exceed 1 (`1` is SDR white), or as the same color in linear light
+ * with `'srgb-linear'`. Returns `undefined` for a variant without one.
  *
  * @example
  * ```ts
  * const v = glaze.glow({ bg: '#ffffff', intensity: 12, tuning: { headroom: 1 } });
- * glaze.format(v);    // SDR: 'oklch(1 0 0)'
- * glaze.formatHdr(v); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
+ * glaze.format(v);                   // SDR: 'oklch(1 0 0)'
+ * glaze.formatHdr(v);                // 'color(srgb 1.1813 1.1813 1.1813)'
+ * glaze.formatHdr(v, 'srgb-linear'); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
  * ```
  */
 glaze.formatHdr = function formatHdr(
   variant: ResolvedColorVariant,
-  hdrFormat: GlazeHdrFormat = 'srgb-linear',
+  hdrFormat: GlazeHdrFormat = 'srgb',
 ): string | undefined {
   return formatHdrVariant(variant, hdrFormat);
 };

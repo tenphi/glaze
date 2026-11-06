@@ -95,12 +95,20 @@ export type ToneValue = number | RelativeValue | ExtremeValue;
 export type GlazeColorFormat = 'okhsl' | 'okhst' | 'rgb' | 'hsl' | 'oklch';
 
 /**
- * Output format for an HDR glow value (`glaze.formatHdr()`). Only
- * `'srgb-linear'` — `color(srgb-linear R G B)` with channels that may exceed
- * 1 — since OKLCH lightness clamps at parse time and `rgb()` / `hsl()` cannot
- * go past white.
+ * Output format for an HDR glow value (`glaze.formatHdr()`), its brightest
+ * channel past 1 (SDR white):
+ * - `'srgb'` (default, and what every exporter writes) — extended
+ *   `color(srgb R G B)`: the sRGB transfer function continued past 1, the
+ *   channels a WebGPU `'srgb'` canvas and the platform extended-sRGB color
+ *   spaces take as they are.
+ * - `'srgb-linear'` — `color(srgb-linear R G B)`: the same color in linear
+ *   light, for consumers that take linear channels.
+ *
+ * No other form: OKLCH lightness clamps at parse time, `rgb()` / `hsl()`
+ * cannot go past white, and the `rec2100-*` spaces would tie the value to an
+ * absolute reference white it doesn't need.
  */
-export type GlazeHdrFormat = 'srgb-linear';
+export type GlazeHdrFormat = 'srgb' | 'srgb-linear';
 
 /**
  * Controls which scheme variants are generated in the export.
@@ -126,10 +134,16 @@ export interface GlazeOutputModes {
    *
    * When on, each exporter adds the HDR values next to the SDR ones it
    * already emits (only for the scheme variants the other modes include),
-   * always written as `color(srgb-linear R G B)`: Tasty `hdr` state keys,
+   * always written as extended `color(srgb R G B)`: Tasty `hdr` state keys,
    * `json()` `lightHdr` / `darkHdr` / … keys, `tokens()` `lightHdr` / … maps,
    * Tailwind blocks under `hdrSelector`, DTCG `$extensions`. `css()` reads
    * its own `hdr` option, which falls back to this.
+   *
+   * The data tiers (DTCG, `json()`, `tokens()`) are what native apps and
+   * WebGPU canvases read. The CSS-family tiers (Tasty, `css()`, Tailwind) are
+   * experimental: no browser paints a CSS color past SDR white yet. Prefer
+   * turning this on per call (`theme.dtcg({ modes: { hdr: true } })`) over
+   * globally.
    */
   hdr?: boolean;
 }
@@ -358,7 +372,7 @@ export interface GlowTuning extends LightingTuning {
    * reach" warning. On a chromatic surface a `reach: 0` gray can measure
    * slightly brighter than the surface and pins at full opacity instead.
    * Nothing about the SDR variant changes. The gain lands the exact step when
-   * the headroom allows it; the brightest channel caps at `2^headroom`.
+   * the headroom allows it; the brightest linear channel caps at `2^headroom`.
    * High-contrast schemes use the same headroom.
    *
    * The HDR value lands the whole step, not just the part past white. A
@@ -563,7 +577,8 @@ export interface ResolvedColorVariant {
  * The HDR value of a glow past SDR white: an opaque base plus a gain. The base
  * is what SDR paints at its brightest — the glow's pigment at full opacity, or
  * the white surface it cannot lift — and the HDR color is that base's linear
- * sRGB times `2^exposure`. Format it with `glaze.formatHdr()`.
+ * sRGB times `2^exposure`. Format it with `glaze.formatHdr()`, or read its
+ * channels with `hdrToSrgb()` / `hdrToLinearSrgb()`.
  *
  * Stored in OKHST like the variant. `s` is always standard (non-pastel)
  * OKHSL saturation, whatever the variant's `pastel`, since the base is an
@@ -621,7 +636,8 @@ export interface GlazeConfig {
    * (`'@media(prefers-color-scheme: dark)'` / `'@media(prefers-contrast: more)'`
    * / `'@media(dynamic-range: high)'`) so tokens react to the OS preference
    * and the display without registering custom states. `hdr` keys an HDR
-   * glow value and is used only with `modes.hdr`.
+   * glow value and is used only with `modes.hdr` (experimental, see
+   * `GlazeOutputModes.hdr`).
    */
   states?: {
     dark?: string;
@@ -1324,8 +1340,8 @@ export interface GlazeTheme {
    *
    * With `modes.hdr`, each scheme map is followed by a dense `<scheme>Hdr`
    * map (`lightHdr`, `darkHdr`, …): every glow with an HDR value in any
-   * emitted scheme, as `color(srgb-linear …)`, or its SDR value where that
-   * scheme has none.
+   * emitted scheme, as extended `color(srgb …)`, or its SDR value where
+   * that scheme has none.
    */
   tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
 
@@ -1454,6 +1470,9 @@ export interface GlazeCssOptions {
    * Add the HDR tier as `result.hdr` (see {@link GlazeCssResult.hdr}).
    * Default: the global `modes.hdr` (false). `css()` has no `modes` — it
    * always emits all four schemes — so this is its HDR switch.
+   * @experimental No browser paints a CSS color past SDR white yet, so this
+   * tier looks like SDR at best today, and its shape may change (for example
+   * to CSS `hdr-color()`) once one does.
    */
   hdr?: boolean;
 }
@@ -1472,7 +1491,7 @@ export interface GlazeCssResult extends GlazeCssSchemeBlocks {
    * The HDR tier, present when HDR output is on — the `hdr` option, which
    * defaults to the global `modes.hdr`: one block per scheme,
    * each re-declaring every color that has an HDR value in any scheme — its
-   * HDR value (`color(srgb-linear R G B)`) where that scheme has one, and
+   * HDR value (extended `color(srgb R G B)`) where that scheme has one, and
    * the scheme's SDR declaration where it has none. The blocks are dense so
    * a light HDR value can never leak into dark: wire each one after the SDR
    * blocks, under the same selector plus `(dynamic-range: high)`. Every block
@@ -1521,9 +1540,11 @@ export type DtcgColorValue = DtcgSrgbColorValue | DtcgOklchColorValue;
 /**
  * The HDR value of a glow past SDR white, carried in a DTCG token's
  * `$extensions['me.tenphi.glaze'].hdr` (`$value` stays the SDR color, since
- * DTCG color components stop at 1). Maps onto native APIs: UIKit / AppKit
- * `exposure`, SwiftUI `exposureAdjust(exposure)` on `base`, or Android
- * `Color.pack(…components, LINEAR_EXTENDED_SRGB)` from `value`.
+ * DTCG color components stop at 1). Maps onto native APIs: UIKit
+ * `UIColor(red:green:blue:alpha:exposure:)` (AppKit: its `NSColor` twin) from
+ * `base` and `exposure`, or Android
+ * `Color.pack(r, g, b, 1f, ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))`
+ * from `value`.
  */
 export interface GlazeDtcgHdr {
   /** Gain over `base` in stops (`log2` of the linear factor), above 0. */
@@ -1537,11 +1558,12 @@ export interface GlazeDtcgHdr {
   /** The opaque base (what SDR paints), as a DTCG sRGB color. */
   base: DtcgSrgbColorValue;
   /**
-   * The HDR color: linear sRGB `base × 2^exposure`, its brightest channel
+   * The HDR color, `base × 2^exposure` in linear light, as extended sRGB
+   * components (the numbers of `glaze.formatHdr()`): its brightest channel
    * above 1 (the others may stay below).
    */
   value: {
-    colorSpace: 'srgb-linear';
+    colorSpace: 'srgb';
     components: [number, number, number];
   };
 }
@@ -1722,6 +1744,9 @@ export interface GlazeTailwindOptions {
    * where the scheme has none) and is scoped by this selector alone (light),
    * combined with `darkSelector` (dark), with `highContrastSelector` (light
    * high contrast), or with both.
+   * @experimental No browser paints a CSS color past SDR white yet, so this
+   * tier looks like SDR at best today, and its shape may change (for example
+   * to CSS `hdr-color()`) once one does.
    */
   hdrSelector?: string;
 }
@@ -1801,6 +1826,9 @@ export interface GlazePaletteCssOptions extends GlazePaletteExportOptions {
   /**
    * Add the HDR tier as `result.hdr` (see {@link GlazeCssResult.hdr}).
    * Default: the global `modes.hdr` (false).
+   * @experimental No browser paints a CSS color past SDR white yet, so this
+   * tier looks like SDR at best today, and its shape may change (for example
+   * to CSS `hdr-color()`) once one does.
    */
   hdr?: boolean;
 }

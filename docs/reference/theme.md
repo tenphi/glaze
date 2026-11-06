@@ -319,14 +319,14 @@ Each method resolves the theme (cached) and formats the result. Full options and
 
 | Method | Returns |
 | --- | --- |
-| [`theme.tokens(options?)`](./output.md#tokensoptions) | Flat token map grouped by scheme variant: `{ light: { name: value }, dark: {…} }`. With HDR on, each scheme is followed by its `lightHdr` / `darkHdr` / … map. |
-| [`theme.tasty(options?)`](./output.md#tastyoptions) | [Tasty](https://tasty.style) style-to-state bindings: `{ '#name': { '': value, '<dark state>': value } }`. With HDR on, a glow's HDR value adds a key right after its SDR key: `states.hdr`, joined with the scheme's own state outside light. |
-| [`theme.json(options?)`](./output.md#jsonoptions) | Per-color JSON: `{ name: { light: value, dark: value } }`. With HDR on, a glow gains `lightHdr` / `darkHdr` / … keys where it has an HDR value. |
-| [`theme.css(options?)`](./output.md#cssoptions) | CSS custom property declarations, one string per variant (`GlazeCssResult`). With HDR on, also `hdr: { light, dark, lightContrast, darkContrast }`. |
-| [`theme.dtcg(options?)`](./output.md#dtcgoptions) | One W3C DTCG token document per scheme variant. With HDR on, `$value` stays SDR and a glow's HDR value goes in `$extensions['me.tenphi.glaze'].hdr`. |
-| [`theme.dtcgResolver(options?)`](./output.md#dtcgresolveroptions) | One DTCG Resolver-Module document holding every scheme variant, with the same `$extensions`. |
-| [`theme.tailwind(options?)`](./output.md#tailwindoptions) | A Tailwind CSS v4 `@theme` block plus dark / high-contrast overrides, as one CSS string. With HDR on, HDR blocks follow under `hdrSelector`. |
+| [`theme.tokens(options?)`](./output.md#tokensoptions) | Flat token map grouped by scheme variant: `{ light: { name: value }, dark: {…} }`. |
+| [`theme.tasty(options?)`](./output.md#tastyoptions) | [Tasty](https://tasty.style) style-to-state bindings: `{ '#name': { '': value, '<dark state>': value } }`. |
+| [`theme.json(options?)`](./output.md#jsonoptions) | Per-color JSON: `{ name: { light: value, dark: value } }`. |
+| [`theme.css(options?)`](./output.md#cssoptions) | CSS custom property declarations, one string per variant (`GlazeCssResult`). |
+| [`theme.dtcg(options?)`](./output.md#dtcgoptions) | One W3C DTCG token document per scheme variant. |
+| [`theme.dtcgResolver(options?)`](./output.md#dtcgresolveroptions) | One DTCG Resolver-Module document holding every scheme variant. |
+| [`theme.tailwind(options?)`](./output.md#tailwindoptions) | A Tailwind CSS v4 `@theme` block plus dark / high-contrast overrides, as one CSS string. |
 
-HDR is on with `modes.hdr` (for `css()`, its own `hdr` option, which defaults to `modes.hdr`). It only adds entries for glows that carry an HDR value ([`glowTuning.headroom`](./configuration.md#glow-headroom)). The HDR value itself is always written as `color(srgb-linear R G B)`, and the dense `tokens()`, `css()`, and `tailwind()` blocks repeat such a glow's SDR value in a scheme where it has none. Off, every method's output is the same as with no headroom set. Shapes and wiring: [HDR output](./output.md#hdr-output).
+With `modes.hdr` (for `css()`, its own `hdr` option, which defaults to `modes.hdr`), each method also writes the HDR values of glows past SDR white ([`glowTuning.headroom`](./configuration.md#glow-headroom)): `tokens()` a `<scheme>Hdr` map after each scheme, `tasty()` a `states.hdr` key after each SDR key that has one, `json()` `<scheme>Hdr` keys, `css()` `result.hdr`, `dtcg()` and `dtcgResolver()` `$extensions['me.tenphi.glaze'].hdr` (`$value` stays SDR), and `tailwind()` blocks under `hdrSelector`. HDR strings are extended `color(srgb R G B)`, and the `css()`, `tasty()`, and `tailwind()` tiers are experimental. Off, every method's output is the same as with no headroom set. Shapes: [HDR output](./output.md#hdr-output); what each export is for: [HDR glows](../hdr.mdx#output-is-opt-in).
 
 To combine several themes into one token namespace, use a [palette](./palette.md).

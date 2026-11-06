@@ -2,8 +2,8 @@
  * Output formatting for resolved color maps.
  *
  * Owns the CSS-string formatter dispatch table (`okhsl` / `rgb` / `hsl` /
- * `oklch`), the HDR glow writer (`formatHdrVariant`, `color(srgb-linear …)`),
- * and the token-map shapes Glaze emits:
+ * `oklch`), the HDR glow writer (`formatHdrVariant`: extended `color(srgb …)`,
+ * or `color(srgb-linear …)` on request), and the token-map shapes Glaze emits:
  * - `buildTokenMap` — Tasty style-to-state bindings (`#name` keys, state aliases).
  * - `buildFlatTokenMap` — `{ light, dark, ... }` per-variant maps.
  * - `buildJsonMap` — `{ name: { light, dark, ... } }` per-color JSON.
@@ -14,7 +14,8 @@
  *
  * The HDR tier (`variant.hdr`, a glow past SDR white) is emitted only with
  * `modes.hdr` (`css()`: its `hdr` option), and always as a literal
- * `color(srgb-linear R G B)` — whatever `format`, even under `splitHue`.
+ * `color(srgb R G B)` with channels past 1 — whatever `format`, even under
+ * `splitHue`.
  * Without it every shape is byte-identical to SDR. Each shape carries it the
  * way its consumer composes values:
  * - Tasty: a sparse `hdr` state key after each SDR key that has one (`''`,
@@ -41,14 +42,16 @@ import {
   formatOkhst,
   formatOklch,
   formatRgb,
+  formatSrgb,
   formatSrgbLinear,
   okhslToOklch,
   okhslToSrgb,
   relativeLuminanceFromLinearRgb,
+  sRGBLinearToGamma,
   srgbToHex,
 } from './okhsl-color-math';
 import { okhstToOkhsl, toneFromY, variantToOkhsl } from './okhst';
-import { hdrToLinearSrgb } from './lighting';
+import { hdrToLinearSrgb, hdrToSrgb } from './lighting';
 import { getConfig } from './config';
 import { hcMirrorsNormal } from './hc-pair';
 import type {
@@ -164,22 +167,26 @@ export function formatVariant(
 
 /**
  * Format a variant's HDR value (`variant.hdr`, set on a glow past white with
- * `headroom`) as `color(srgb-linear R G B)`, or `undefined` when it has none.
- * Always that form, whatever the SDR format: OKLCH lightness clamps at parse
- * time and `rgb()` / `hsl()` cannot pass white. Emitted as a literal, never
- * with a split hue.
+ * `headroom`) as extended `color(srgb R G B)` (default) or
+ * `color(srgb-linear R G B)` — the same color, with the brightest channel
+ * past 1 — or `undefined` when it has none. One of these whatever the SDR
+ * format: OKLCH lightness clamps at parse time and `rgb()` / `hsl()` cannot
+ * pass white. Emitted as a literal, never with a split hue.
  */
 export function formatHdrVariant(
   v: ResolvedColorVariant,
-  format: GlazeHdrFormat = 'srgb-linear',
+  format: GlazeHdrFormat = 'srgb',
 ): string | undefined {
-  if (format !== 'srgb-linear') {
+  if (format !== 'srgb' && format !== 'srgb-linear') {
     throw new Error(
-      `glaze: unknown HDR format ${JSON.stringify(format)}. Use 'srgb-linear'.`,
+      `glaze: unknown HDR format ${JSON.stringify(format)}. ` +
+        `Use 'srgb' or 'srgb-linear'.`,
     );
   }
   if (v.hdr === undefined) return undefined;
-  return formatSrgbLinear(hdrToLinearSrgb(v.hdr));
+  return format === 'srgb'
+    ? formatSrgb(hdrToSrgb(v.hdr))
+    : formatSrgbLinear(hdrToLinearSrgb(v.hdr));
 }
 
 /**
@@ -532,8 +539,8 @@ const DTCG_EXTENSION_NAMESPACE = 'me.tenphi.glaze';
  * The DTCG form of an HDR value: `exposure` in stops, the luminance `tone`
  * it lands (past 100 unless `headroom` caps a saturated base short of it), the
  * opaque `base` as a DTCG sRGB color (always sRGB, whatever `colorSpace`, and
- * never pastel — the base is standard OKHSL), and the HDR color as linear sRGB
- * components, the brightest above 1.
+ * never pastel — the base is standard OKHSL), and the HDR color as extended
+ * sRGB components (the numbers of `glaze.formatHdr()`), the brightest above 1.
  */
 function dtcgHdrValue(hdr: ResolvedHdr): GlazeDtcgHdr {
   const linear = hdrToLinearSrgb(hdr);
@@ -543,11 +550,11 @@ function dtcgHdrValue(hdr: ResolvedHdr): GlazeDtcgHdr {
     tone: roundTo(toneFromY(relativeLuminanceFromLinearRgb(linear)), 4),
     base: dtcgSrgbValue(h, s, l, false),
     value: {
-      colorSpace: 'srgb-linear',
+      colorSpace: 'srgb',
       components: [
-        roundTo(linear[0], 6),
-        roundTo(linear[1], 6),
-        roundTo(linear[2], 6),
+        roundTo(sRGBLinearToGamma(linear[0]), 6),
+        roundTo(sRGBLinearToGamma(linear[1]), 6),
+        roundTo(sRGBLinearToGamma(linear[2]), 6),
       ],
     },
   };
