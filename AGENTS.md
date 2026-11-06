@@ -15,7 +15,6 @@ glaze/
 ├── src/                       Source
 ├── docs/                      Long-form docs: concepts, guides, reference (md/mdx, rendered by the site)
 ├── docs-site/                 Site-only files: home page + live-example components
-├── playground/                Interactive playground (Vite)
 ├── assets/                    Logo + brand assets
 ├── scripts/                   Repo helpers
 ├── README.md                  Compact intro
@@ -78,7 +77,7 @@ live examples; reference pages are plain Markdown.
 | File | Description |
 |---|---|
 | [docs/getting-started.mdx](docs/getting-started.mdx) | Install, a first theme built step by step, four schemes, and export. |
-| [docs/okhst.mdx](docs/okhst.mdx) | The OKHST color model spec — tone math, `REF_EPS`, tone above 100 (HDR), the T↔L invariant, the scheme pipeline, calibrated window defaults, the contrast metric, and the APCA verification step. Source of truth for the color model. |
+| [docs/okhst.mdx](docs/okhst.mdx) | The OKHST color model spec — tone math, `REF_EPS`, tone above 100 (HDR), the T↔L invariant, the scheme pipeline, calibrated window defaults, the contrast metric, and the APCA verification step. Source of truth for the color model. Also hosts the ramp explorer (a Cookbook `Preview` built by `docs-site/components/okhst/ramp-explorer.ts`), which replaced the standalone playground; `astro.config.ts` redirects `/playground` to it. |
 | [docs/schemes.mdx](docs/schemes.mdx) | Light, dark, and high contrast: inversion + tone windows, adaptation modes, dark seed, HC pairs, the manual contrast level. |
 | [docs/contrast.mdx](docs/contrast.mdx) | Contrast solving: WCAG / APCA floors, roles and polarity, `autoFlip`, HC escalation, warnings. |
 | [docs/shadows-and-glows.mdx](docs/shadows-and-glows.mdx) | `shadow` / `glow`: exact tone steps, object influence, state layers, elevation, tuning. SDR only; it links to the HDR page once. |
@@ -93,8 +92,9 @@ live examples; reference pages are plain Markdown.
 
 | File | Description |
 |---|---|
-| [docs-site/index.mdx](docs-site/index.mdx) | Home page. |
-| [docs-site/components/](docs-site/components/README.md) | Live-example components (`Example`, `Swatches`, `UiPreview`, `SchemeGrid`, `ToneRamp`, page-specific folders). They resolve themes from `src/` at build time and pass colors through Tasty `styles` — Cookbook rejects `style` attributes and non-Tasty CSS. See the folder's README before adding one. |
+| [docs-site/index.mdx](docs-site/index.mdx) | Home page. Opens with the theme playground: a Cookbook `Preview` built by `docs-site/components/home/theme-playground.ts` that re-solves the `UiPreview` card's theme in the browser as the reader moves hue, saturation, and contrast-level sliders. |
+| [docs-site/components/](docs-site/components/README.md) | Live-example components (`Example`, `Swatches`, `UiPreview`, `SchemeGrid`, `ToneRamp`, page-specific folders). They resolve themes from `src/` at build time and pass colors through Tasty `styles` — Cookbook rejects `style` attributes and non-Tasty CSS. `glaze-preview.ts` holds what the `Preview` frames that run Glaze share. See the folder's README before adding one. |
+| [docs-site/demo-bundle.ts](docs-site/demo-bundle.ts) | Astro integration that builds `src/index.ts` into `public/demo/glaze.iife.js` (a `Glaze` global; generated and git-ignored) when the site starts or builds, and again in dev on a source change. A `Preview` that runs Glaze inlines it through `scripts`. |
 
 ## Commands
 
@@ -113,8 +113,7 @@ live examples; reference pages are plain Markdown.
 | `pnpm changeset` | Create a changeset entry. |
 | `pnpm release` | Build and publish (used by CI). |
 | `pnpm docs` | Docs site dev server (Astro + Cookbook). |
-| `pnpm build:docs` | Build the docs site into `dist/` (overwrites the library build there). |
-| `pnpm build:site` | Docs site + playground, as deployed to GitHub Pages. |
+| `pnpm build:docs` | Build the docs site into `dist/` (overwrites the library build there), as deployed to GitHub Pages. |
 | `pnpm docs:doctor` | Cookbook configuration / content checks. |
 
 ## Stack

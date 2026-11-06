@@ -38,7 +38,7 @@ npm package even though the components don't render there.
 | `Swatches.tsx` | A grid of named swatches with each color's tone (and α). Translucent colors (shadow, glow, transparent mix) are drawn over the color they composite onto. | Theme props · `show` (names, in order) · `scheme` (`'auto'` or a scheme) · `value`: `'tone'` / `'css'` / `'none'` · `on` (fill the panel behind the grid with this color) · `caption` |
 | `UiPreview.tsx` | A small product card (page, card, text, link, button, card shadow). | Theme props (defaults to `UI_DEMO`) · `roles` (map `page`, `card`, `border`, `text`, `textSoft`, `link`, `accent`, `accentLabel`, `shadow` to color names) · `scheme` |
 | `SchemeGrid.tsx` | One theme in all four schemes, each on its own static background. | Theme props · `kind`: `'ui'` (default) or `'swatches'` · `schemes` · `show` · `roles` · `caption` |
-| `ToneRamp.tsx` | Evenly spaced steps along tone (or OKHSL lightness) with the WCAG ratio between neighbors. Static. | `hue`, `saturation` (0–100), `steps`, `axis`: `'tone'` / `'lightness'`, `contrast`, `caption` |
+| `ToneRamp.tsx` | Evenly spaced steps along tone (or OKHSL lightness), joined edge to edge, with the WCAG ratio between neighbors. Static. | `hue`, `saturation` (0–100), `steps`, `axis`: `'tone'` / `'lightness'`, `contrast`, `caption` |
 | `SchemeValue.tsx` | Text that differs per scheme (a measured value), shown for the active scheme. | `values` (per scheme), `scheme` |
 
 `demo-themes.ts` exports `UI_DEMO` / `UI_COLORS` / `UI_ROLES`: the product UI
@@ -60,6 +60,30 @@ them from `primitives.tsx` and the helpers in `glaze-docs.ts`:
 - `wcagContrast(a, b)`, `apcaLc(text, bg)`, `toneOf(v)`, `inkFor(v)`,
   `fmt(n, digits)` for measurements and labels.
 - `themeSource(theme)` / `literal(value)` to print the code behind an example.
+
+### Previews that run code
+
+A Cookbook `Preview` is a sandboxed frame with its own HTML, CSS, and
+JavaScript — the one place a page may run scripts. Build its source in a
+generator that returns `PreviewSource` (`glaze-docs.ts`) and spread it into
+`<Preview title="…" {...source} />`; the site hides the source disclosure.
+
+- `shadows-and-glows/hdr-preview.ts` resolves at build time and writes the
+  values into the source as literals.
+- `home/theme-playground.ts` (the home page's card) and
+  `okhst/ramp-explorer.ts` run Glaze in the frame. They pass `GLAZE_SCRIPT`
+  as `scripts` — the browser bundle `docs-site/demo-bundle.ts` builds — and
+  call the `Glaze` global. `glaze-preview.ts` holds what they share: the
+  script path, `previewBaseCss()` (the frame's colors from `UI_DEMO` in light
+  and dark, and its control styles), and the `GlazePreviewSource` type, whose
+  `height` each generator sets to its frame's height on a desktop-width page,
+  so the frame doesn't grow on load there. Each such preview inlines the whole
+  bundle (about 27 KB gzipped) into its page, so keep it to one per page.
+
+Inside the frame, plain CSS and `<style>` are fine. The frame can't see the
+site's fonts, its high-contrast choice, or its links, and has no clipboard;
+Chromium passes the site's light or dark appearance through
+`prefers-color-scheme`.
 
 Primitives: `Figure` (outer frame + caption; marks the subtree
 `data-not-content` so prose styles stay out), `Panel`, `Grid`, `Strip`,

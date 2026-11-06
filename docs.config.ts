@@ -13,13 +13,6 @@ export default defineDocsConfig({
       source: './assets/glaze.svg',
       background: '#765b7e',
     },
-    headerLinks: [
-      {
-        label: 'Playground',
-        link: 'https://glaze.tenphi.me/playground/',
-        variant: 'primary',
-      },
-    ],
   },
   editLink: {
     baseUrl: 'https://github.com/tenphi/glaze/edit/main/',
@@ -97,9 +90,10 @@ export default defineDocsConfig({
       CodeGroup: { Caption: { hide: true } },
       /*
         Previews here are live demos whose source is generated from a Glaze
-        theme; the page shows the code that matters next to them.
+        theme; the page shows the code that matters next to them. Each demo
+        paints its own page, so the frame fills the preview edge to edge.
       */
-      Preview: { Code: { hide: true } },
+      Preview: { Code: { hide: true }, Stage: { padding: '0' } },
       /*
         Reference headings are method signatures in code (`dtcgResolver(…)`)
         that can't wrap on a phone and would widen the page.
@@ -109,7 +103,7 @@ export default defineDocsConfig({
         Visual: {
           inlineSize: {
             '': 'min(100%, 19rem)',
-            '@mobile': 'clamp(10rem, 45vw, 14rem)',
+            '@mobile': 'clamp(7rem, 30vw, 9rem)',
           },
         },
       },

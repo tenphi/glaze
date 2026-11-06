@@ -1,14 +1,14 @@
 /**
  * A ramp of evenly spaced steps for one hue/saturation, along OKHST tone
  * (`axis="tone"`, default) or along OKHSL lightness, labelled with each step's
- * value. A row underneath gives the WCAG contrast between each pair of
- * neighbors. Static colors: the ramp shows the color space itself, not a
- * scheme.
+ * value. The steps touch, so each edge between neighbors shows the contrast
+ * step itself; a row underneath gives its WCAG ratio. Static colors: the ramp
+ * shows the color space itself, not a scheme.
  */
 
 import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
-import { Figure, Strip } from './primitives';
+import { Figure } from './primitives';
 import { fmt, inkForLuminance } from './glaze-docs';
 import {
   contrastRatioFromLuminance,
@@ -19,15 +19,25 @@ import {
   toTone,
 } from '../../src/index.ts';
 
+/** The steps, joined edge to edge in one frame. */
+const Ramp = tasty({
+  styles: {
+    display: 'grid',
+    gridAutoFlow: 'column',
+    gridAutoColumns: 'minmax(0, 1fr)',
+    overflow: 'clip',
+    radius: '0.5r',
+    // Keeps the black and white ends visible on a page of the same color.
+    border: '1bw solid #border',
+  },
+});
+
 const Step = tasty({
   styles: {
     display: 'grid',
     alignContent: 'end',
     minHeight: '4.5rem',
     padding: '0.5x',
-    radius: '0.5r',
-    // Keeps the end swatches visible on a page of the same color.
-    border: '1bw solid #border',
   },
 });
 
@@ -84,7 +94,7 @@ export default function ToneRamp(props: ToneRampProps) {
 
   return (
     <Figure caption={props.caption}>
-      <Strip>
+      <Ramp>
         {cells.map((cell, i) => {
           const ink = inkForLuminance(cell.y);
           return (
@@ -96,7 +106,7 @@ export default function ToneRamp(props: ToneRampProps) {
             </Step>
           );
         })}
-      </Strip>
+      </Ramp>
       {props.contrast === false ? null : (
         <Ratios aria-label="WCAG contrast between neighboring steps">
           <Offset />

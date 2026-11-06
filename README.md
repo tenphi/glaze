@@ -5,7 +5,7 @@
 <h1 align="center">Glaze</h1>
 
 <p align="center">
-  OKHST-based color theme generator with WCAG and APCA contrast solving
+  <a href="https://github.com/tenphi/okhst">OKHST</a>-based color theme generator with WCAG and APCA contrast solving
 </p>
 
 <p align="center">
@@ -167,9 +167,9 @@ same pages live in [`docs/`](docs):
   [migration and upgrading](docs/migration.md) (including Glaze 2 → 3).
 - The [API reference](docs/reference/index.md) for every method, option, and
   type.
-- Explore the tone axis in the [interactive playground](https://glaze.tenphi.me/playground/),
-  or read the [full OKHST specification](https://github.com/tenphi/okhst) for
-  its math.
+- Explore the tone axis in the
+  [ramp explorer](https://glaze.tenphi.me/okhst/#ramp-explorer), or read the
+  [full OKHST specification](https://github.com/tenphi/okhst) for its math.
 - [`AGENTS.md`](https://github.com/tenphi/glaze/blob/main/AGENTS.md) — source-tree orientation for contributors.
 
 ## License

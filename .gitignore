@@ -37,5 +37,8 @@ vite.config.ts.timestamp-*
 # Astro
 .astro/
 
+# Generated Glaze bundle for docs previews (docs-site/demo-bundle.ts)
+public/demo/
+
 # Package tarballs
 *.tgz

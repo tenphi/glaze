@@ -4,33 +4,47 @@ description: Generate accessible light, dark, and high-contrast color themes fro
 template: splash
 hero:
   title: Accessible color systems from one seed.
-  tagline: Generate light, dark, and high-contrast themes with OKHST, WCAG, and APCA—then export them for applications, design tools, and the web.
+  tagline: Describe each color as a tone step from another, with a WCAG or APCA contrast floor. Glaze solves light, dark, and high-contrast themes to those floors, and warns when one is out of reach.
   image:
     file: ../assets/glaze.svg
   actions:
     - text: Get started
       link: /getting-started
       variant: primary
-    - text: Open the playground
-      link: https://glaze.tenphi.me/playground/
+    - text: View on GitHub
+      link: https://github.com/tenphi/glaze
       variant: secondary
 ---
 
-import { Card, CardGrid, CodeGroup } from '@tenphi/cookbook/components';
+import { Card, CardGrid, CodeGroup, Preview } from '@tenphi/cookbook/components';
 import Example from './components/Example.astro';
 import SchemeGrid from './components/SchemeGrid.tsx';
 import ToneRamp from './components/ToneRamp.tsx';
-import UiPreview from './components/UiPreview.tsx';
 import ContrastSamples from './components/home/ContrastSamples.tsx';
 import ExportShowcase from './components/home/ExportShowcase.astro';
 import LightingStrip from './components/home/LightingStrip.tsx';
+import { themePlayground } from './components/home/theme-playground.ts';
 
-<UiPreview />
+export const playground = themePlayground();
+
+<Preview title="Try it: hue, saturation, and contrast level" {...playground} />
 
 Every color on this card — page, card, border, text, link, button, and shadow —
-comes from one Glaze theme seeded with hue 280 and saturation 80. Switch the
-site's appearance between light, dark, and high contrast: the card shows the
-variant Glaze resolved for each scheme.
+comes from one Glaze theme of nine color definitions, solved in your browser as
+you move the sliders. Hue and saturation recolor the card, but the body text,
+link, and button never drop below their WCAG AA floor of 4.5:1. The contrast
+level raises the floors toward the theme's high-contrast tier, which it reaches
+at 100.
+
+## Four schemes from one definition
+
+Light, dark, light high-contrast, and dark high-contrast variants share one
+model. Dark mode inverts tone (`100 − t`) and fits it into a dark tone window,
+so the relationships between colors survive the switch — there is no second
+palette to maintain. High-contrast variants use the full tone range and the
+raised contrast floors.
+
+<SchemeGrid caption="The card from the top of this page at its starting seed (hue 280, saturation 80), in each scheme on its own background." />
 
 ## Color relationships, not color tables
 
@@ -38,28 +52,29 @@ Glaze turns a hue and saturation seed into a complete palette. Instead of
 picking every color, you say how each color relates to the others. A **root**
 color places itself with an absolute tone. A **dependent** color names a `base`
 and sits a signed tone delta away from it, optionally with a contrast floor.
-Glaze resolves the actual colors for every scheme.
+Glaze resolves the actual colors for every scheme. Here are four of the card's
+nine colors:
 
 <Example
   hue={280}
   saturation={80}
   colors={{
-    surface: { tone: 97, saturation: 0.15 },
-    'surface-2': { base: 'surface', tone: '-4', saturation: 0.2 },
-    border: { base: 'surface', tone: '-10', saturation: 0.2 },
-    'surface-text': {
-      base: 'surface',
+    surface: { tone: 100, saturation: 0.1 },
+    card: { base: 'surface', tone: '-3', saturation: 0.15 },
+    border: { base: 'card', tone: ['-12', '-24'], saturation: 0.2 },
+    'text-soft': {
+      base: 'card',
       tone: '-1',
-      saturation: 0.4,
-      contrast: 'AAA',
+      saturation: 0.3,
+      contrast: 'AA',
     },
   }}
 />
 
-In dark mode the tone scale inverts, so `surface-2` and `border` step lighter
+In dark mode the tone scale inverts, so `card` and `border` step lighter
 instead of darker, in the same order. The dark tone window scales the steps
-down a little (about 3.5 and 8.7 tones here); the high-contrast variants keep
-the exact 4 and 10. See
+down a little (about 2.6 and 10.4 tones here). The high-contrast variants keep
+the exact 3, and `border` takes the second value of its pair, 24. See
 [how relative tone adapts](../docs/schemes.mdx#how-relative-tone-adapts).
 
 ## Contrast-aware by construction
@@ -109,22 +124,12 @@ In high contrast, a floor without an explicit high-contrast value rises a tier:
 `'AA'` becomes `'AAA'` and an APCA target gains 15 Lc. A numeric WCAG ratio
 stays as written.
 
-## Four schemes from one definition
-
-Light, dark, light high-contrast, and dark high-contrast variants share one
-model. Dark mode inverts tone (`100 − t`) and fits it into a dark tone window,
-so the relationships you define survive the switch — there is no second palette
-to maintain. High-contrast variants use the full tone range and the raised
-contrast floors.
-
-<SchemeGrid caption="The product card from the top of this page, rendered in each scheme on its own background." />
-
 ## A tone axis built for contrast
 
-Glaze works in OKHST: OKHSL with lightness replaced by **tone**, an axis shaped
-by WCAG luminance. Equal tone steps are equal contrast steps for neutrals and an
-approximation for chromatic colors, so a delta like `'-8'` means the same
-visible distance anywhere on the scale.
+Glaze works in [OKHST](https://github.com/tenphi/okhst): OKHSL with lightness
+replaced by **tone**, an axis shaped by WCAG luminance. Equal tone steps are
+equal contrast steps for neutrals and an approximation for chromatic colors, so
+a delta like `'-8'` means the same visible distance anywhere on the scale.
 
 <ToneRamp
   hue={280}
@@ -147,11 +152,11 @@ browser composites them the surface lands exactly `intensity` tones darker or
 lighter: on light, dark, and chromatic surfaces alike, as long as the surface
 has room for the step. A shadow can't go past black and a glow can't go past
 white in SDR, so an out-of-reach step gets as close as it can and logs a
-console warning: the card shadow at the top of this page disappears in dark
-high contrast, where the page is already black (see
-[unreachable steps](../docs/shadows-and-glows.mdx#unreachable-steps)). An
-optional object color (`fg`) deepens or softens the step the way bounce light
-does.
+console warning (see
+[unreachable steps](../docs/shadows-and-glows.mdx#unreachable-steps)). To see
+one, set the card at the top of this page to Dark and drag its contrast level to
+100: the page turns black and the card shadow disappears. An optional object
+color (`fg`) deepens or softens the step the way bounce light does.
 
 <LightingStrip
   kind="shadow"
@@ -206,7 +211,8 @@ browsers, and edge runtimes.
 
 - **Manual contrast level.** Put the normal palette on a 0–100 slider toward
   high contrast. Every level in between is solved, not approximated, and the
-  high-contrast tier stays available on top. See
+  high-contrast tier stays available on top. It's the Contrast level slider on
+  the card at the top of this page. See
   [manual contrast level](../docs/schemes.mdx#manual-contrast-level).
 - **Dark seed and per-color hue.** Give dark schemes their own hue and
   saturation seed, or shift one color's hue absolutely or relative to the seed.
@@ -318,7 +324,7 @@ except it.
 </CardGrid>
 
 Explore the tone axis in the
-[interactive playground](https://glaze.tenphi.me/playground/), read the
+[ramp explorer](../docs/okhst.mdx#ramp-explorer), read the
 [full OKHST specification](https://github.com/tenphi/okhst) for the math behind
 it, or see
 [AGENTS.md](https://github.com/tenphi/glaze/blob/main/AGENTS.md) for a tour of

@@ -12,7 +12,7 @@
  */
 
 import { fmt, inkMap, resolveDemo, variantOf } from '../glaze-docs';
-import type { DemoTheme, Scheme } from '../glaze-docs';
+import type { DemoTheme, PreviewSource, Scheme } from '../glaze-docs';
 import { hdrToSrgb, okhslToSrgb, variantToOkhsl } from '../../../src/index.ts';
 import type { GlowColorDef } from '../../../src/index.ts';
 
@@ -28,12 +28,6 @@ export interface HdrHaloOptions {
   spread: number;
   /** The scheme to render. Default `light`. */
   scheme?: Scheme;
-}
-
-export interface PreviewSource {
-  html: string;
-  css: string;
-  javascript: string;
 }
 
 export function hdrHaloPreview(

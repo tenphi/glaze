@@ -3,12 +3,16 @@ title: Tone and OKHST
 description: The contrast-uniform tone axis Glaze authors every color on, its math and guarantees, and how a tone becomes a rendered color in each scheme.
 ---
 
+import { Preview } from '@tenphi/cookbook/components';
 import Example from '../docs-site/components/Example.astro';
 import ToneRamp from '../docs-site/components/ToneRamp.tsx';
 import ToneDrift from '../docs-site/components/okhst/ToneDrift.tsx';
 import SchemeRamp from '../docs-site/components/okhst/SchemeRamp.tsx';
 import ToneLadder from '../docs-site/components/okhst/ToneLadder.tsx';
 import FloorCompare from '../docs-site/components/okhst/FloorCompare.tsx';
+import { rampExplorer } from '../docs-site/components/okhst/ramp-explorer.ts';
+
+export const ramp = rampExplorer();
 
 Glaze places every color in [OKHST](https://github.com/tenphi/okhst): OKHSL's
 hue and saturation, with the lightness axis replaced by **tone** — a 0–100
@@ -54,6 +58,17 @@ subtraction (`100 - t`) instead of a fitted curve.
   axis="lightness"
   caption="The same eleven steps evenly spaced in OKHSL lightness. They look even, but the ratio between neighbors runs from 1.16:1 at the dark end up to 1.46:1 and back down to 1.29:1."
 />
+
+### Ramp explorer
+
+Build a ramp for any hue and saturation, spaced in tone or in OKHSL lightness.
+A gray tone ramp keeps the same ratio between every pair of neighbors. A
+saturated one stays close: hue 280 at saturation 80 runs from 1.32:1 to 1.38:1
+in tone, against 1.14:1 to 1.46:1 in lightness (see
+[chromatic drift](#uniform-in-lightness-not-luminance)). Open **Values** to copy
+each step as hex and `oklch()`.
+
+<Preview title="Try it: a ramp in tone or in lightness" {...ramp} />
 
 ## The tone transfer
 

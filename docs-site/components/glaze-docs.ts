@@ -66,6 +66,13 @@ export const SCHEME_STATES: Record<Scheme, string> = {
 /** One color as CSS strings, per scheme. */
 export type SchemeColors = Record<Scheme, string>;
 
+/** A Cookbook `Preview`'s source, as a generator builds it for a page. */
+export interface PreviewSource {
+  html: string;
+  css: string;
+  javascript: string;
+}
+
 /** The seed + color map of a demo theme, as an MDX page passes it in props. */
 export interface DemoTheme {
   hue: number;
