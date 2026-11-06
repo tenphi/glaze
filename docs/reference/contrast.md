@@ -189,6 +189,8 @@ The interpolated values go through the ordinary resolve, so a contrast floor at 
 
 They feed the two normal passes only. The high-contrast passes ignore the level and resolve exactly as in `'auto'` mode.
 
+A shadow / glow step that the level puts out of reach pins to its strongest composite as usual, but at any level other than `0` it warns only when it is out of reach in both `light` and `dark` (the same rule as in the high-contrast passes). See [When Glaze moves the surface](../shadows-and-glows.mdx#when-glaze-moves-the-surface).
+
 Hue, saturation, `darkDesaturation`, `opacity`, and `pastel` don't vary with high contrast, so the level doesn't change them.
 
 ### Un-interpolable tone pairs switch at 50

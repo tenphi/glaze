@@ -487,7 +487,7 @@ describe('HDR glows', () => {
   });
 
   describe('headroom cap', () => {
-    it('caps the brightest channel at 2^headroom and warns once per scheme', () => {
+    it('caps the brightest channel at 2^headroom and warns once', () => {
       const resolveCapped = () => {
         const theme = glaze(0, 0, { glowTuning: { headroom: 1 } });
         theme.colors({
@@ -515,14 +515,41 @@ describe('HDR glows', () => {
       );
       expect(result.hdr!.reached).toBeCloseTo(21.98, 2);
 
+      // Light only, once across two resolves. Light high contrast is capped
+      // the same way, but there the paper is a surface Glaze moved, and the
+      // step fits dark high contrast, so that pass pins without a warning.
       expect(warnings('glow "cap-glow"')).toEqual([
         'glaze: glow "cap-glow" cannot reach a 30.0-tone step in light scheme ' +
           'even with 1 stop of headroom (reached 22.0). Lower the intensity ' +
           'or raise `headroom`.',
-        'glaze: glow "cap-glow" cannot reach a 30.0-tone step in lightContrast ' +
-          'scheme even with 1 stop of headroom (reached 22.0). Lower the ' +
-          'intensity or raise `headroom`.',
       ]);
+    });
+
+    it('warns from the passes Glaze moves when the cap binds in light and dark', () => {
+      // A static white surface stays white in every scheme, so the headroom
+      // cap leaves the step short in light and dark alike: the level's passes
+      // and the high-contrast ones warn too, each with the headroom message.
+      const theme = glaze(0, 0, {
+        glowTuning: { headroom: 1 },
+        contrastLevel: 50,
+      });
+      theme.colors({
+        paper: { tone: 100, mode: 'static' },
+        'level-cap-glow': { type: 'glow', bg: 'paper', intensity: 30 },
+      });
+      const r = theme.resolve();
+      expect(r.get('level-cap-glow')!.dark.hdr!.exposure).toBeCloseTo(1, 9);
+
+      const logged = warnings('glow "level-cap-glow"');
+      expect(logged.map((m) => m.match(/in (\w+) scheme/)![1])).toEqual([
+        'light',
+        'lightContrast',
+        'dark',
+        'darkContrast',
+      ]);
+      for (const m of logged) {
+        expect(m).toContain('even with 1 stop of headroom (reached 22.0)');
+      }
     });
 
     it('says so when the headroom is already at its maximum', () => {

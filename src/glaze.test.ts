@@ -3571,10 +3571,11 @@ describe('glaze', () => {
           const calls = spy.mock.calls
             .map((c) => String(c[0]))
             .filter((m) => m.includes('glow "paper-glow" cannot reach'));
-          // Light and light high contrast, each once despite two resolves.
-          expect(calls).toHaveLength(2);
+          // Light only, once despite two resolves. The paper is white in light
+          // high contrast too, but the glow fits dark high contrast, so that
+          // pass — a scheme whose surfaces Glaze moves — pins without a warning.
+          expect(calls).toHaveLength(1);
           expect(calls[0]).toContain('in light scheme');
-          expect(calls[1]).toContain('in lightContrast scheme');
         } finally {
           spy.mockRestore();
         }
@@ -3596,6 +3597,185 @@ describe('glaze', () => {
         } finally {
           spy.mockRestore();
         }
+      });
+    });
+
+    // High contrast bypasses the tone windows and a manual level widens them,
+    // so in those passes Glaze itself moves a white page toward black. A step
+    // that no longer fits there still pins, but warns only when it falls short
+    // in light and dark alike.
+    describe('unreachable steps on surfaces Glaze moves', () => {
+      /** Every "cannot reach" warning `run` logs, in order. */
+      function reachWarnings(run: () => void): string[] {
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          run();
+          return spy.mock.calls
+            .map((c) => String(c[0]))
+            .filter((m) => m.includes('cannot reach'));
+        } finally {
+          spy.mockRestore();
+        }
+      }
+
+      /** A white page with one shadow on it, at an optional contrast level. */
+      function page(
+        name: string,
+        intensity: number | [number, number],
+        contrastLevel?: number,
+      ) {
+        const theme = glaze(
+          280,
+          10,
+          contrastLevel === undefined ? undefined : { contrastLevel },
+        );
+        theme.colors({
+          surface: { tone: 100 },
+          [name]: { type: 'shadow', bg: 'surface', intensity },
+        });
+        return theme.resolve();
+      }
+
+      it('pins a shadow the level fades to 0 without warning at any level', () => {
+        // The dark page nears black faster than the step fades: at level 50 it
+        // sits at about tone 3.15 against a 4-tone step.
+        const logged = reachWarnings(() => {
+          for (let level = 0; level <= 100; level++) {
+            page('faded-page-shadow', [8, 0], level);
+          }
+        });
+        expect(logged).toEqual([]);
+
+        const r = page('faded-page-shadow', [8, 0], 50);
+        const darkPage = r.get('surface')!.dark.t * 100;
+        expect(darkPage).toBeLessThan(4);
+        // Same pinned solve as before: opaque black, the darkest composite.
+        expect(r.get('faded-page-shadow')!.dark).toMatchObject({
+          t: 0,
+          alpha: 1,
+        });
+        // Light has room, so the interpolated step is exact there.
+        expect(stepIn(r, 'faded-page-shadow', 'surface', 'light')).toBeCloseTo(
+          4,
+          4,
+        );
+      });
+
+      it('pins a shadow on the black dark high-contrast page without warning', () => {
+        const logged = reachWarnings(() => {
+          for (const level of [undefined, 25, 50, 75, 100]) {
+            const theme = glaze(
+              280,
+              80,
+              level === undefined ? undefined : { contrastLevel: level },
+            );
+            theme.colors({
+              surface: { tone: 97 },
+              card: { tone: 100 },
+              'hc-card-shadow': {
+                type: 'shadow',
+                bg: 'surface',
+                fg: 'card',
+                intensity: 8,
+              },
+              'hc-surface-hover': {
+                type: 'shadow',
+                bg: 'surface',
+                intensity: 5,
+              },
+              'hc-deep-shadow': {
+                type: 'shadow',
+                bg: 'surface',
+                intensity: [8, 14],
+              },
+            });
+            theme.resolve();
+          }
+        });
+        expect(logged).toEqual([]);
+
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { tone: 97 },
+          'hc-pinned-shadow': { type: 'shadow', bg: 'surface', intensity: 8 },
+        });
+        const r = theme.resolve();
+        const darkHCPage = r.get('surface')!.darkContrast.t * 100;
+        expect(darkHCPage).toBeCloseTo(3, 0);
+        // Pinned to opaque black there, the darkest composite.
+        expect(r.get('hc-pinned-shadow')!.darkContrast).toMatchObject({
+          t: 0,
+          alpha: 1,
+        });
+        expect(
+          stepIn(r, 'hc-pinned-shadow', 'surface', 'lightContrast'),
+        ).toBeCloseTo(8, 4);
+      });
+
+      it('still warns at the authored windows, in auto mode and at level 0', () => {
+        // The default dark page sits at tone 9.25: no room for 12 tones.
+        for (const [label, level] of [
+          ['auto', undefined],
+          ['level 0', 0],
+        ] as const) {
+          const logged = reachWarnings(() =>
+            page(`authored-deep-shadow-${label}`, 12, level),
+          );
+          expect(logged).toHaveLength(1);
+          expect(logged[0]).toContain(
+            `shadow "authored-deep-shadow-${label}" cannot reach a 12.0-tone ` +
+              'step in dark scheme (reached 9.2 at full strength)',
+          );
+        }
+        // At level 50 the same step fits light, so dark pins quietly.
+        expect(
+          reachWarnings(() => page('authored-deep-shadow-50', 12, 50)),
+        ).toEqual([]);
+      });
+
+      it('warns in both schemes when the step fits neither', () => {
+        // A fixed near-black fill has little room in every scheme, so its
+        // high-contrast entry is too deep for it in light and dark alike.
+        const fill = (name: string, contrastLevel?: number) => {
+          const theme = glaze(
+            280,
+            80,
+            contrastLevel === undefined ? undefined : { contrastLevel },
+          );
+          theme.colors({
+            tip: { tone: 6, mode: 'fixed' },
+            [name]: { type: 'shadow', bg: 'tip', intensity: [4, 14] },
+          });
+          return theme.resolve();
+        };
+        const schemes = (logged: string[]) =>
+          logged.map((m) => m.match(/in (\w+) scheme/)![1]);
+
+        expect(schemes(reachWarnings(() => fill('tip-shadow-auto')))).toEqual([
+          'lightContrast',
+          'darkContrast',
+        ]);
+        expect(schemes(reachWarnings(() => fill('tip-shadow-50', 50)))).toEqual(
+          ['light', 'lightContrast', 'dark', 'darkContrast'],
+        );
+        // Level 100 resolves only the normal passes, which are the
+        // high-contrast ones.
+        expect(
+          schemes(reachWarnings(() => fill('tip-shadow-100', 100))),
+        ).toEqual(['light', 'dark']);
+
+        // The warnings don't change the solve: still pinned at full strength.
+        const r = fill('tip-shadow-auto');
+        expect(r.get('tip-shadow-auto')!.darkContrast.alpha).toBe(1);
+      });
+
+      it('pairs light with dark at level 100, where they are the high-contrast passes', () => {
+        // A white page is black in dark at level 100, but the step fits light.
+        expect(
+          reachWarnings(() => page('full-level-shadow', [8, 14], 100)),
+        ).toEqual([]);
       });
     });
 

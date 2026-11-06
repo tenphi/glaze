@@ -183,18 +183,10 @@ function solve() {
   const { hue, saturation, level } = seed();
   const theme = glaze(hue, saturation, level ? { contrastLevel: level } : undefined);
   theme.colors(COLORS);
-  // Near the high-contrast tier the dark page is close to black, so the card
-  // shadow can't reach its step, and Glaze warns once for every new level.
-  const warn = console.warn;
-  console.warn = () => {};
-  try {
-    solved = {
-      css: theme.json({ format: 'rgb', modes: { dark: true, highContrast: false } }),
-      variants: theme.resolve(),
-    };
-  } finally {
-    console.warn = warn;
-  }
+  solved = {
+    css: theme.json({ format: 'rgb', modes: { dark: true, highContrast: false } }),
+    variants: theme.resolve(),
+  };
   $('hue-value').textContent = hue + '°';
   $('saturation-value').textContent = saturation;
   $('level-value').textContent = level;

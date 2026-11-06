@@ -2,9 +2,14 @@
  * Resolve-time warning dispatcher: unmet contrast floors (regular colors and
  * mixes), chromatic contrast drift, out-of-reach shadow / glow steps (SDR, and
  * HDR glows whose headroom cap falls short), and a glow `headroom` clamped to
- * its 2-stop maximum. A validator that checks more fields after a clamp queues
- * that warning (`DeferredWarnings`) and sends it with `flushWarnings` only once
- * the whole input has passed.
+ * its 2-stop maximum. Which scheme passes report a shadow / glow shortfall is
+ * the resolver's call: it holds one from a pass where Glaze moved the surface
+ * (high contrast, a manual level) and reports it only when the step falls
+ * short in both light and dark (`lightingFallsShort` is the shared check).
+ *
+ * A validator that checks more fields after a clamp queues that warning
+ * (`DeferredWarnings`) and sends it with `flushWarnings` only once the whole
+ * input has passed.
  *
  * Tokens memoize their resolution, but a long-lived process (e.g. a dev
  * server with HMR) can re-resolve the same theme many times. The cache
@@ -172,6 +177,20 @@ export function warnContrastDrift(
 /** Tone slack before an out-of-reach shadow / glow step is worth a warning. */
 const LIGHTING_WARN_SLACK = 0.05;
 
+/** Whether a composite that lands `reached` tones away misses `step`. */
+function missesStep(step: number, reached: number): boolean {
+  return reached < step - LIGHTING_WARN_SLACK;
+}
+
+/**
+ * Whether a shadow / glow solve lands short of its step by more than the
+ * warning slack — through its HDR value when it has one, as
+ * {@link warnLightingShortfall} measures it.
+ */
+export function lightingFallsShort(result: LightingResult): boolean {
+  return missesStep(result.step, result.hdr?.reached ?? result.reached);
+}
+
 /**
  * Warn when a `shadow` / `glow` step is out of reach of its pigment — a glow
  * on white, a deep shadow on near-black — so the composite pins to the
@@ -185,7 +204,7 @@ export function warnLightingUnreachable(
   step: number,
   reached: number,
 ): void {
-  if (reached >= step - LIGHTING_WARN_SLACK) return;
+  if (!missesStep(step, reached)) return;
 
   const label = scheme
     ? schemeLabel(scheme.isDark, scheme.isHighContrast)
@@ -229,7 +248,7 @@ export function warnHdrUnreachable(
   reached: number,
   headroom: number,
 ): void {
-  if (reached >= step - LIGHTING_WARN_SLACK) return;
+  if (!missesStep(step, reached)) return;
 
   const label = scheme
     ? schemeLabel(scheme.isDark, scheme.isHighContrast)

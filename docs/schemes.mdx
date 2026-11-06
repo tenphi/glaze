@@ -569,6 +569,14 @@ The interpolated values go through the ordinary resolve, so a contrast floor is
 **solved** at every level, not approximated. Hue, saturation,
 `darkDesaturation`, `opacity`, and `pastel` don't change with the level.
 
+Shadows and glows are solved at every level too, but the widening windows move
+a page toward black or white faster than an interpolated `intensity` fades. A
+shadow with `intensity: [8, 0]` on a white page asks for 4 tones at level 50,
+where the dark page sits at about tone 3.15. Such a step pins to its strongest
+composite, as it would anywhere, and warns only when it is out of reach in
+light and dark alike; see
+[When Glaze moves the surface](./shadows-and-glows.mdx#when-glaze-moves-the-surface).
+
 Level `0` reproduces `'auto'` and level `100` reproduces the high-contrast
 output, bit for bit. The high-contrast tier itself ignores the level:
 `lightContrast` / `darkContrast` stay the true high-contrast resolution, so a

@@ -40,6 +40,12 @@
  * `hdr` — its opaque base in OKHST plus an exposure in stops — and swaps the
  * SDR shortfall warning for one that fires only when the headroom cap falls
  * short. HDR values never feed another color: nothing may build on a glow.
+ * A shadow / glow that falls short warns at once in the passes at the authored
+ * windows (normal, in `'auto'` or at level 0). In the passes where Glaze moves
+ * surfaces itself — high contrast, and any other manual level — the shortfall
+ * is held until the pass's light / dark twin is solved, and warns only when the
+ * step falls short in both (`warnMovedLightingShortfalls`); either way the
+ * variant is the same pinned solve.
  *
  * Every function receives a single `GlazeConfigResolved` so the full
  * per-instance config (including overrides) is available without
@@ -89,6 +95,7 @@ import {
   resolveLightingTuning,
   toResolvedHdr,
 } from './lighting';
+import type { LightingKind, LightingResult } from './lighting';
 import {
   REF_EPS,
   fromTone,
@@ -106,6 +113,7 @@ import {
 import { extractOkhslFromValue } from './color-value';
 import { hasAbsoluteTone, topoSort, validateColorDefs } from './validation';
 import {
+  lightingFallsShort,
   warnContrastUnmet,
   warnContrastDrift,
   warnLightingShortfall,
@@ -213,6 +221,22 @@ export interface ResolveContext extends GlazeThemeSeed {
   anchors: [Map<string, DarkAnchor>, Map<string, DarkAnchor>];
   /** Dark-delta anchors of external bases, supplied by their own tokens. */
   externalAnchors?: Map<string, DarkAnchorHook>;
+  /**
+   * Shadow / glow solves that fell short in a pass where Glaze moved the
+   * surfaces itself (`isAuthoredPass` is false), held until light and dark
+   * are both solved (`warnMovedLightingShortfalls`).
+   */
+  lightingShortfalls: LightingShortfall[];
+}
+
+/** A shadow / glow solve that fell short, kept for its deferred warning. */
+interface LightingShortfall {
+  name: string;
+  kind: LightingKind;
+  isDark: boolean;
+  isHighContrast: boolean;
+  result: LightingResult;
+  headroom: number;
 }
 
 /** The part of a `ResolveContext` that `darkAnchor` reads. */
@@ -1042,7 +1066,10 @@ function resolveColorForScheme(
  * exactly `intensity × k` tones darker / lighter. `bg` and `fg` are read per
  * scheme, so the object factor `k` adapts on its own in dark and high contrast.
  * A glow past white with `headroom` gets `hdr` (base in OKHST + exposure); the
- * same headroom applies in every scheme, high contrast included.
+ * same headroom applies in every scheme, high contrast included. A step out of
+ * reach pins to the pigment's strongest composite in every pass; whether it
+ * warns now or is held for `warnMovedLightingShortfalls` depends on the pass
+ * (`isAuthoredPass`).
  */
 function resolveLightingForScheme(
   name: string,
@@ -1074,13 +1101,25 @@ function resolveLightingForScheme(
     tuning,
     pastel,
   );
-  warnLightingShortfall(
-    def.type,
-    name,
-    { isDark, isHighContrast },
-    result,
-    tuning.headroom,
-  );
+
+  if (isAuthoredPass(isHighContrast, ctx.config)) {
+    warnLightingShortfall(
+      def.type,
+      name,
+      { isDark, isHighContrast },
+      result,
+      tuning.headroom,
+    );
+  } else if (lightingFallsShort(result)) {
+    ctx.lightingShortfalls.push({
+      name,
+      kind: def.type,
+      isDark,
+      isHighContrast,
+      result,
+      headroom: tuning.headroom,
+    });
+  }
 
   const variant: ResolvedColorVariant = {
     ...toToneVariant({
@@ -1093,6 +1132,59 @@ function resolveLightingForScheme(
   };
   if (result.hdr) variant.hdr = toResolvedHdr(result.hdr);
   return variant;
+}
+
+/**
+ * Whether this pass places every surface where the authored tone windows put
+ * it: a normal pass in `'auto'` or at level 0. A high-contrast pass bypasses
+ * the windows, and any other manual level widens them, so there Glaze itself
+ * moves surfaces toward black and white — a white page, say, becomes black in
+ * dark high contrast.
+ */
+function isAuthoredPass(
+  isHighContrast: boolean,
+  config: GlazeConfigResolved,
+): boolean {
+  if (isHighContrast) return false;
+  const f = contrastFraction(config);
+  return f === undefined || f === 0;
+}
+
+/**
+ * Warn for the shortfalls held from the passes where Glaze moved the surfaces
+ * (see `isAuthoredPass`), now that both schemes of each tier are solved. A
+ * step that falls short in only one of light / dark fits the other scheme's
+ * surface, so the scheme's move, not the authored step, put it out of reach:
+ * it stays pinned at full strength without a warning. A step that falls short
+ * in both is too big for its surface, and each scheme warns. At level 100 the
+ * normal passes are the high-contrast ones and pair up the same way.
+ */
+function warnMovedLightingShortfalls(shortfalls: LightingShortfall[]): void {
+  const pass = (isDark: boolean, isHighContrast: boolean): ResolvedField =>
+    isHighContrast
+      ? isDark
+        ? 'darkContrast'
+        : 'lightContrast'
+      : isDark
+        ? 'dark'
+        : 'light';
+  const shortIn = new Map<string, Set<ResolvedField>>();
+  for (const s of shortfalls) {
+    const passes = shortIn.get(s.name) ?? new Set<ResolvedField>();
+    passes.add(pass(s.isDark, s.isHighContrast));
+    shortIn.set(s.name, passes);
+  }
+  for (const s of shortfalls) {
+    const other = pass(!s.isDark, s.isHighContrast);
+    if (!shortIn.get(s.name)!.has(other)) continue;
+    warnLightingShortfall(
+      s.kind,
+      s.name,
+      { isDark: s.isDark, isHighContrast: s.isHighContrast },
+      s.result,
+      s.headroom,
+    );
+  }
 }
 
 function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {
@@ -1449,6 +1541,7 @@ export function resolveAllColors(
     unmet: new Set(),
     anchors: [new Map(), new Map()],
     externalAnchors,
+    lightingShortfalls: [],
   };
 
   // Pre-seed externally-resolved bases. The per-pass loops iterate only
@@ -1505,6 +1598,7 @@ export function resolveAllColors(
     });
   }
 
+  warnMovedLightingShortfalls(ctx.lightingShortfalls);
   verifyContrastDrift(order, defs, result, config, ctx.unmet);
 
   return result;
