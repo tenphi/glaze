@@ -61,7 +61,7 @@ export default defineDocsConfig({
       },
       {
         label: 'Guides',
-        items: ['/methodology', '/exporting', '/migration'],
+        items: ['/methodology', '/exporting', '/hdr', '/migration'],
       },
       {
         label: 'Reference',
@@ -95,6 +95,11 @@ export default defineDocsConfig({
         caption under it repeats what the tab already says.
       */
       CodeGroup: { Caption: { hide: true } },
+      /*
+        Previews here are live demos whose source is generated from a Glaze
+        theme; the page shows the code that matters next to them.
+      */
+      Preview: { Code: { hide: true } },
       /*
         Reference headings are method signatures in code (`dtcgResolver(…)`)
         that can't wrap on a phone and would widen the page.

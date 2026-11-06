@@ -142,7 +142,7 @@ Windows are validated where they enter: by `configure()` on the spot, and for a 
 
 ## Glow headroom
 
-`glowTuning.headroom` lets a glow go past SDR white. It counts stops above white, doublings of white's luminance: `1` allows up to 2× white (tone 121.98), `2` up to 4× (tone 144.34). At the default `0` nothing changes and no variant carries an HDR value. What an HDR glow is for, and where browsers stand: [HDR glows](../shadows-and-glows.mdx#hdr-glows).
+`glowTuning.headroom` lets a glow go past SDR white. It counts stops above white, doublings of white's luminance: `1` allows up to 2× white (tone 121.98), `2` up to 4× (tone 144.34). At the default `0` nothing changes and no variant carries an HDR value. What an HDR glow is for, and where browsers stand: [HDR glows](../hdr.mdx).
 
 ```ts
 glaze.configure({ glowTuning: { headroom: 1 } });

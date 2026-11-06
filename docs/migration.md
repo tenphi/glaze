@@ -222,7 +222,7 @@ variant gets an `hdr` value only with a `headroom` above 0
 (`glowTuning.headroom`, or a glow's own `tuning.headroom`; the default is 0),
 and exports carry it only with `modes.hdr` (default `false`), or for `css()`
 its `hdr` option. At the defaults nothing changes. See
-[HDR glows](./shadows-and-glows.mdx#hdr-glows) and
+[HDR glows](./hdr.mdx) and
 [HDR output](./exporting.mdx#hdr-output).
 
 ### 3.0 — even dark steps for tone deltas

@@ -640,7 +640,7 @@ A shadow's or glow's alpha is solved for its `bg` surface, and a transparent mix
 
 ## HDR output
 
-A glow can go past SDR white. With `glowTuning.headroom` above 0 (stops above white), a glow whose target tone passes 100 while its SDR value is pinned at its brightest gets an HDR value next to its SDR one: `variant.hdr`, an opaque base plus an exposure in stops ([`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr)). When that happens and how the exposure is solved is covered in [HDR glows](../shadows-and-glows.mdx#hdr-glows); this section covers how the exporters write it.
+A glow can go past SDR white. With `glowTuning.headroom` above 0 (stops above white), a glow whose target tone passes 100 while its SDR value is pinned at its brightest gets an HDR value next to its SDR one: `variant.hdr`, an opaque base plus an exposure in stops ([`ResolvedHdr`](./color-definitions.md#hdr-values-resolvedhdr)). When that happens and how the exposure is solved is covered in [HDR glows](../hdr.mdx); this section covers how the exporters write it.
 
 HDR output is opt-in. With `modes.hdr` off (the default), every exporter's output is byte-identical to SDR, even with a `headroom` set. Turn it on globally or per call:
 
@@ -830,6 +830,6 @@ Native code maps it directly: UIKit / AppKit `exposure` or SwiftUI `exposureAdju
 
 ### Browser support
 
-As of late 2026, CSS can't reliably paint a color brighter than white. CSS Color 4 gamut-maps extended values; Chrome shows them only on a layer it shares with HDR image content; Safari matches `dynamic-range: high` on capable displays but clamps on purpose; Firefox has no CSS HDR; and no engine implements `color-hdr()`. `dynamic-range: high` reports what the display can do, not that HDR is on. So the `css()`, `tasty()`, and `tailwind()` tiers don't reliably paint past white in any browser today, and the planned standard keeps plain colors in SDR unless a `color-hdr()` wrapper opts them in, which Glaze doesn't emit. `json()` and DTCG feed native apps that draw HDR today.
+As of late 2026, CSS can't reliably paint a color brighter than white. CSS Color 4 gamut-maps extended values; Chrome shows them only on a layer it shares with HDR image content; Safari matches `dynamic-range: high` on capable displays but clamps on purpose; Firefox has no CSS HDR; and no engine implements `color-hdr()`. `dynamic-range: high` reports what the display can do, not that HDR is on. So the `css()`, `tasty()`, and `tailwind()` tiers don't reliably paint past white in any browser today, and the planned standard keeps plain colors in SDR unless a `color-hdr()` wrapper opts them in, which Glaze doesn't emit. `json()` and DTCG feed native apps that draw HDR today, and a WebGPU canvas can paint past white; see [WebGPU](../hdr.mdx#webgpu).
 
 A clamped neutral HDR value is opaque white. Where SDR is already opaque white (`near-glow`) that changes nothing, but on a white surface SDR is transparent (`surface-glow`), and the clamped value covers whatever is under it. Use HDR glows for fills, edge highlights, and `box-shadow`, never for state layers drawn over labels.

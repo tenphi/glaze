@@ -81,7 +81,8 @@ live examples; reference pages are plain Markdown.
 | [docs/okhst.mdx](docs/okhst.mdx) | The OKHST color model spec — tone math, `REF_EPS`, tone above 100 (HDR), the T↔L invariant, the scheme pipeline, calibrated window defaults, the contrast metric, and the APCA verification step. Source of truth for the color model. |
 | [docs/schemes.mdx](docs/schemes.mdx) | Light, dark, and high contrast: inversion + tone windows, adaptation modes, dark seed, HC pairs, the manual contrast level. |
 | [docs/contrast.mdx](docs/contrast.mdx) | Contrast solving: WCAG / APCA floors, roles and polarity, `autoFlip`, HC escalation, warnings. |
-| [docs/shadows-and-glows.mdx](docs/shadows-and-glows.mdx) | `shadow` / `glow`: exact tone steps, object influence, state layers, elevation, tuning, HDR glows (`headroom`). |
+| [docs/shadows-and-glows.mdx](docs/shadows-and-glows.mdx) | `shadow` / `glow`: exact tone steps, object influence, state layers, elevation, tuning. SDR only; it links to the HDR page once. |
+| [docs/hdr.mdx](docs/hdr.mdx) | HDR glows (`headroom`): when a glow gets an HDR value, opting in, browsers and native apps, and a WebGPU showcase (a Cookbook `Preview` built by `docs-site/components/shadows-and-glows/hdr-preview.ts`). The one page for HDR. |
 | [docs/mixes.mdx](docs/mixes.mdx) | Opaque and transparent mixes, blend spaces, contrast on mixes. |
 | [docs/methodology.mdx](docs/methodology.mdx) | Palette design methodology — building a complete palette step by step, with the palette shown live as it grows. |
 | [docs/exporting.mdx](docs/exporting.mdx) | Choosing an export shape, wiring tokens into [Tasty](https://tasty.style) / CSS / JSON / DTCG / Tailwind, prefix maps, the `primary` alias, `splitHue`, and the opt-in HDR tier. |

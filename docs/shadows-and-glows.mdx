@@ -11,7 +11,6 @@ import CardShadows from '../docs-site/components/shadows-and-glows/CardShadows.t
 import ElevationLadder from '../docs-site/components/shadows-and-glows/ElevationLadder.tsx';
 import TintedPigment from '../docs-site/components/shadows-and-glows/TintedPigment.tsx';
 import Unreachable from '../docs-site/components/shadows-and-glows/Unreachable.tsx';
-import HdrGlows from '../docs-site/components/shadows-and-glows/HdrGlows.tsx';
 
 export const stateTheme = {
   hue: 280,
@@ -50,20 +49,6 @@ export const elevationTheme = {
     'elevation-1': { type: 'glow', bg: 'surface', intensity: 3 },
     'elevation-2': { type: 'glow', bg: 'surface', intensity: 5 },
     'elevation-3': { type: 'glow', bg: 'surface', intensity: 7 },
-  },
-};
-
-export const hdrTheme = {
-  hue: 280,
-  saturation: 80,
-  config: { glowTuning: { headroom: 1 } },
-  colors: {
-    surface: { tone: 100 },
-    'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
-    near: { tone: 95, saturation: 0, mode: 'static' },
-    'near-glow': { type: 'glow', bg: 'near', intensity: 12 },
-    inverse: { tone: 12, saturation: 0, mode: 'static' },
-    'inverse-glow': { type: 'glow', bg: 'inverse', intensity: 12 },
   },
 };
 
@@ -358,10 +343,6 @@ below tone 100, so its glow pins to opaque white instead, which paints the
 same over it. Give glows a surface with room in every scheme, like the
 tone-92 surface here.
 
-[HDR headroom](#hdr-glows) changes nothing below white. This ladder tops out
-at tone 99.4 (light), so it resolves the same with or without it. Only a glow
-whose step passes white, like one on that white surface, gets an HDR value.
-
 ## Tinted pigment
 
 The pigment is pure black or pure white by default, so the surface keeps its
@@ -398,8 +379,7 @@ glaze.configure({
 
 `shadowTuning` and `glowTuning` set the tuning globally (or per theme or token
 through the config override); a per-color `tuning` merges over them field by
-field. Both take these `LightingTuning` fields, and `glowTuning` adds
-[`headroom`](#headroom); defaults are in
+field. Both take these `LightingTuning` fields; defaults are in
 [Color definitions](./reference/color-definitions.md#lightingtuning) and
 [Configuration](./reference/configuration.md#glazeconfig).
 
@@ -465,196 +445,8 @@ bypasses the tone window, so a page that is white in light mode becomes black
 there and every shadow on it pins and warns. A tone-97 page sits at tone 3,
 which leaves room for less than 3 tones.
 
-With [HDR headroom](#hdr-glows), a glow whose target passes white gets an HDR
-value that lands the step, and this warning no longer fires for it. Only the
-headroom cap can leave such a step short, and that logs its own warning. A
-30-tone glow on white with 1 stop of headroom:
-
-```text
-glaze: glow "surface-flare" cannot reach a 30.0-tone step in light
-  scheme even with 1 stop of headroom (reached 22.0).
-Lower the intensity or raise `headroom`.
-```
-
-At the 2-stop maximum the second sentence reads "Lower the intensity;
-`headroom` is already at its 2-stop maximum." A glow without an HDR value
-keeps the SDR warning above.
-
-## HDR glows
-
-A glow can't go past white in SDR, but an HDR display can show brighter than
-white. Set `glowTuning.headroom`, and a glow whose step would pass white also
-resolves an HDR value: an opaque exposure of what SDR already paints there.
-The SDR value doesn't change, and exporters add the HDR one only when you
-[opt in](#output-is-opt-in).
-
-### When a glow gets an HDR value
-
-[Tone runs on past 100](./okhst.mdx#tone-above-100) on the same curve: one
-stop above SDR white (`Y` 2) is tone 121.98, two stops (`Y` 4) tone 144.34,
-and 12 tones past white is the same `Y + 0.05` ratio as a 12-tone step
-anywhere. WCAG and APCA end at white, so Glaze makes no contrast claim above
-100. A glow can't be a `bg`, `fg`, `base`, or mix input, so an HDR value never
-reaches the contrast solver.
-
-A glow gets an HDR value when three things hold: its `headroom` is above 0,
-its target tone (the surface's luminance tone plus `intensity × k`) passes
-100, and SDR is pinned at its brightest. That means the pigment at full
-opacity, or a white surface (tone 100) at opacity 0, since no pigment can lift
-it. Below white nothing changes, dark-scheme glows included. A pigment that
-can't lift a non-white surface at all (`reach: 0` on a gray surface, say)
-paints nothing in SDR, gets no HDR value, and keeps the SDR warning. On a
-chromatic surface a `reach: 0` pigment, a gray at the surface's tone, can be
-slightly brighter than the surface: it then pins at full opacity and, past
-white, gets an HDR value like any pinned pigment.
-
-The resolved variant gains `hdr: { h, s, t, exposure }`. The base (`h`, `s`,
-`t`) is the opaque color SDR paints, with a standard (never pastel) OKHSL
-saturation. The HDR value is that base times `2^exposure`, the gain that lands
-the target tone exactly; `variant.t` itself stays at most 1. The value is
-opaque on purpose: it stays exact whichever way a browser composites, and it
-maps one to one onto native exposure APIs.
-
-### Headroom
-
-`headroom` counts stops above SDR white, the doublings of its luminance. It
-defaults to 0 (no HDR anywhere) and must be a finite number ≥ 0, or Glaze
-throws. Set it globally (`glaze.configure({ glowTuning: { headroom: 1 } })`),
-in a theme's config override, on one glow's `tuning`, or on
-`glaze.glow()`. A glow's `tuning` merges over `glowTuning` field by field. A
-theme's own `glowTuning` replaces the global one whole, and so does a later
-`glaze.configure({ glowTuning })`, so pass every field you want kept:
-`glaze.configure({ glowTuning: { objectInfluence: 0.6, headroom: 1 } })`. A
-`headroom` on a shadow throws: nothing goes below black.
-
-Values above 2 clamp to 2. The warning fires once per field and value, and
-only after the whole input has validated:
-
-```text
-glaze: glowTuning.headroom 4 is above the 2-stop maximum; using 2.
-Headroom counts stops (doublings of SDR white's luminance), not a
-  ratio: 1 stop is 2× white, 2 stops 4×.
-```
-
-The gain is capped per channel, because displays clip per channel: no channel
-of the HDR value passes `2^headroom`. On a neutral glow that caps luminance: a
-30-tone glow on white with 1 stop of headroom ends at
-`color(srgb-linear 2 2 2)`, tone 121.98, and warns (see
-[Unreachable steps](#unreachable-steps)). A saturated base hits the cap on its
-brightest channel first, so its HDR tone can stay below 100.
-
-A display shows only as much as its current headroom allows and clips the
-rest, and a page can't read that number. Apple quotes about 2× (1 stop) for
-ordinary Mac and iPad displays, so 1 stop is a sensible ceiling for UI.
-
-### Worked example
-
-Three 12-tone glows: one on a white `auto` surface, one on a light gray, and
-one on a dark gray.
-
-<Example
-  {...hdrTheme}
-  visual="none"
-  after={
-    "const glow = theme.resolve().get('surface-glow')!.light;\n" +
-    'glaze.formatHdr(glow);\n' +
-    "// → 'color(srgb-linear 1.4631 1.4631 1.4631)'"
-  }
-/>
-
-<HdrGlows
-  {...hdrTheme}
-  glows={['surface-glow', 'near-glow', 'inverse-glow']}
-  caption="Each glow over its surface, in your current scheme. The patch is the SDR result this page paints: the step it reached, the step asked, and its opacity. Below it: the HDR value's tone, its exposure, and its srgb-linear channels, or the target tone that stayed below white. This site renders SDR only."
-/>
-
-The same numbers in every scheme:
-
-| Glow | SDR | HDR |
-| --- | --- | --- |
-| `surface-glow`, light and light HC | White at α 0 | Linear 1.4631 per channel, 0.549 stops, tone 112 |
-| `surface-glow`, dark and dark HC | White at α 0.1237 (α 0.1603 in dark HC) | None: the dark surface has room |
-| `near-glow`, all four | Opaque white, 5 of 12 tones | Linear 1.2494 per channel, 0.321 stops, tone 107 |
-| `inverse-glow`, all four | White at α 0.1155 | None: the target is tone 24 |
-
-`near-glow` shows the split: SDR pins it to opaque white 7 tones short, and
-its HDR value lands those 7. In dark, `surface` sits at tone 9.25 (luminance
-tone 8.5, so the glow's target is tone 20.5), and `surface-glow` is an
-ordinary translucent glow there.
-
-### Crossing white
-
-A full-reach glow meets SDR at the boundary. On a tone-95 surface a 4.9-tone
-glow is white at α 0.9794 and a 5-tone glow is opaque white, both without an
-HDR value. At 5.1 tones it adds `color(srgb-linear 1.0032 1.0032 1.0032)`,
-0.0046 stops.
-
-A glow with `reach` below 1 doesn't meet it. Its pigment sits below white, so
-it stays short and warns until its target passes 100, then its HDR value lands
-the whole step at once. A `reach: 0.5` glow on a tone-90 surface paints
-tone 95 for any step from 5 to 10. Past 10, its HDR value jumps straight to
-tone 100 (0.2315 stops over the pigment). Keep `reach` at 1 on a glow that
-may cross white.
-
-### Output is opt-in
-
-Resolving fills in `variant.hdr` whenever headroom allows, and
-`glaze.formatHdr(variant)` writes it as `color(srgb-linear R G B)`. Exporters
-leave it out until you turn on `modes.hdr`: globally with
-`glaze.configure({ modes: { hdr: true } })`, or per call (`css()` takes
-`hdr: true`). Until then every export is byte-identical, headroom or not.
-
-HDR strings are always `color(srgb-linear …)`, whatever `format` you pass:
-CSS clamps `oklch()` lightness at 1, and `rgb()` / `hsl()` can't go past
-white. How each format carries them, and how to wire the CSS, is in
-[HDR output](./exporting.mdx#hdr-output).
-
-### Browsers and native apps
-
-As of November 2026, no browser reliably paints a CSS color brighter than
-white:
-
-| Engine or spec | What `color(srgb-linear 1.4631 1.4631 1.4631)` paints |
-| --- | --- |
-| CSS Color 4 | SDR white. Values past 1 are valid but gamut-mapped into range for display. |
-| Chrome, Edge | Brighter than white only when it shares a composited layer with HDR image content; SDR white elsewhere. The CSS Working Group intends to remove that path. |
-| Safari | SDR white. WebKit clamps extended colors on purpose, though `dynamic-range: high` matches on HDR-capable devices. |
-| Firefox | SDR white. No CSS HDR. |
-| CSS Color HDR (draft) | Defines `color-hdr()`, which blends colors given at different headroom stops (in practice an SDR and an HDR one), weighted by the display's headroom. No engine implements it. |
-
-`@media (dynamic-range: high)` reports what the device can do, not that HDR is
-on: Low Power Mode and the brightness setting change that. And the CSS
-Working Group's direction keeps plain colors such as these in SDR unless they
-opt in through `color-hdr()`, which Glaze doesn't emit yet. So don't count on
-the CSS output to paint past white, today or under the planned standard.
-
-Native apps can draw these colors today, and the JSON and DTCG exports carry
-what they take. UIKit and AppKit (iOS and macOS 26) take the base plus
-`exposure` in stops (`UIColor(red:green:blue:alpha:exposure:)` and its
-`NSColor` twin); so does SwiftUI (`exposureAdjust(_:)`). Android takes the
-linear channels as a `LINEAR_EXTENDED_SRGB` color in an HDR window.
-[DTCG and native apps](./exporting.mdx#dtcg-and-native-apps) maps each field.
-
-### Fills, not overlays
-
-Where the HDR value clamps, which today is most places, it paints an opaque
-color: white, for a neutral glow. That matches SDR wherever SDR is already
-opaque (`near-glow`). On a tone-100 surface it doesn't: SDR is transparent
-there, and the clamped value covers anything drawn between the surface and the
-glow.
-Use HDR glows for fills (a card's or button's own background), edge
-highlights, and `box-shadow` colors, never for a state layer drawn over a
-label.
-
-### Power and accessibility
-
-- HDR is an enhancement. The design must work in SDR, and it does: the SDR
-  value is what every other display already shows.
-- Don't animate or flash HDR values. A pulsing glow past white is a large
-  luminance swing, and HDR flash thresholds now appear in the WCAG 2.3.1
-  Understanding draft and ITU-R BT.1702-3.
-- Brighter-than-white pixels cost power, and systems fall back to SDR to save
-  it (iOS Low Power Mode does). Keep headroom low and HDR areas small.
+On a display that can show brighter than white, a glow can also go past white:
+see [HDR glows](./hdr.mdx).
 
 ## High contrast
 
@@ -712,19 +504,7 @@ const lift = glaze.glow({ bg: '#1e1e22', fg: '#3a3a44', intensity: 4 });
 ```
 
 Both accept an optional `tuning` that merges over the global `shadowTuning` /
-`glowTuning`. With a `headroom` there, `glaze.glow()` also returns
-[`hdr`](#hdr-glows) when its step passes white:
-
-```ts
-const flare = glaze.glow({
-  bg: '#ffffff',
-  intensity: 12,
-  tuning: { headroom: 1 },
-});
-
-glaze.formatHdr(flare);
-// → 'color(srgb-linear 1.4631 1.4631 1.4631)'
-```
+`glowTuning`.
 
 The full input table is in
 [Utilities](./reference/utilities.md#glazeshadowinput--glazeglowinput).

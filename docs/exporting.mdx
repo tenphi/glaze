@@ -76,7 +76,7 @@ A few options cut across the shapes:
   `$value` objects, not CSS strings, so they ignore `format`. Use `colorSpace`
   instead: `'srgb'` (the default) or `'oklch'`.
 - **HDR.** `modes: { hdr: true }` (`css({ hdr: true })` for `css()`) adds the
-  values of [HDR glows](./shadows-and-glows.mdx#hdr-glows) next to the SDR
+  values of [HDR glows](./hdr.mdx) next to the SDR
   ones. It is off by default; see [HDR output](#hdr-output).
 
 Here is one theme and the CSS custom properties `theme.css()` emits for it.
@@ -628,7 +628,7 @@ inline, are in the
 
 ## HDR output
 
-[HDR glows](./shadows-and-glows.mdx#hdr-glows) carry a second value for
+[HDR glows](./hdr.mdx) carry a second value for
 displays that can show brighter than white. Every export leaves it out until
 you turn on `modes.hdr`. Then each format adds it next to the SDR value it
 already emits, for the schemes the other `modes` include. The examples below
@@ -658,8 +658,9 @@ stay literal under `splitHue`. Palettes apply prefixes, the `primary` alias,
 and collision filtering to them like any other entry. `glaze.color()` tokens
 are never glows, so the HDR options don't change their output.
 
-No browser reliably paints these values past white yet
-([Browsers and native apps](./shadows-and-glows.mdx#browsers-and-native-apps)).
+No browser reliably paints these values past white in CSS yet
+([Browsers and native apps](./hdr.mdx#browsers-and-native-apps)); a
+[WebGPU canvas](./hdr.mdx#webgpu) can.
 Safari, and Chrome outside layers that hold HDR images, match
 `dynamic-range: high` on HDR-capable displays and clamp the value, so a
 neutral HDR glow paints opaque white there. That matches SDR for `near-glow`,
@@ -667,7 +668,7 @@ which is already opaque white, but `surface-glow` is transparent in SDR, so
 its clamped value covers anything drawn between the surface and the glow.
 Wire the CSS, Tasty, and Tailwind tiers only for glows used as fills, edge
 highlights, or `box-shadow` colors
-([Fills, not overlays](./shadows-and-glows.mdx#fills-not-overlays)). JSON and
+([Fills, not overlays](./hdr.mdx#fills-not-overlays)). JSON and
 DTCG feed native apps, which draw HDR today.
 
 ### CSS blocks

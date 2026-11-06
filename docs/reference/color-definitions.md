@@ -495,7 +495,7 @@ glaze.formatHdr(glow.light);
 glow.dark.hdr; // undefined — the dark surface leaves room below white
 ```
 
-Exporters emit HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output). What HDR glows are for: [HDR glows](../shadows-and-glows.mdx#hdr-glows). Formatting: [`glaze.formatHdr()`](./utilities.md#glazeformathdrvariant-hdrformat).
+Exporters emit HDR values only with `modes.hdr`; see [HDR output](./output.md#hdr-output). What HDR glows are for: [HDR glows](../hdr.mdx). Formatting: [`glaze.formatHdr()`](./utilities.md#glazeformathdrvariant-hdrformat).
 
 ## `MixColorDef`
 
