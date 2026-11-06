@@ -673,13 +673,15 @@ in high contrast.
   `surface-2`, sits at tone 98 in light but about 11 in dark and 2 in dark
   high contrast, so `shadow-lg` falls just short of its step in dark, and in
   dark high contrast all three pin at full opacity and still land only about 2
-  tones down. Glaze warns for each step it cannot reach. Every color resolves
-  in all four schemes, so not binding a shadow in dark only keeps the pinned
-  value off screen; the warning fires anyway. The fix is a lower `intensity`,
-  or a surface with room below it in every scheme. For elevation
-  in dark, reach for [glows](./shadows-and-glows.mdx#dark-mode-elevation)
-  instead. This palette keeps its near-white page, so these warnings are
-  expected.
+  tones down. Glaze warns for the dark step it cannot reach: every color
+  resolves in all four schemes, so not binding a shadow in dark only keeps the
+  pinned value off screen. Dark high contrast stays quiet, because there Glaze
+  moved the page itself and the steps fit light high contrast
+  ([When Glaze moves the surface](./shadows-and-glows.mdx#when-glaze-moves-the-surface)).
+  The fix is a lower `intensity`, or a surface with room below it in every
+  scheme. For elevation in dark, reach for
+  [glows](./shadows-and-glows.mdx#dark-mode-elevation) instead. This palette
+  keeps its near-white page, so the `shadow-lg` warning is expected.
 </Callout>
 
 ### State layers
@@ -713,7 +715,8 @@ tones but a tone-10 surface by about 1
 ([The same step on every surface](./shadows-and-glows.mdx#the-same-step-on-every-surface)
 compares the two). The same limit applies, though: in dark high
 contrast `surface` sits at tone 0, so `surface-hover` has nothing to darken
-there and resolves transparent, with a warning.
+there and resolves transparent. It fits light high contrast, so Glaze doesn't
+warn.
 
 Glows are the mirror, for dark-mode elevation and edge highlights. A glow needs
 room above its surface, so a glow on a white light-mode surface has nothing to

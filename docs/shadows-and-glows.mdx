@@ -86,10 +86,10 @@ theme.colors({
 });
 ```
 
-Resolving this sample logs two warnings. In dark high contrast the `auto`
+This sample resolves without warnings. In dark high contrast the `auto`
 surface sits at tone 3, so `card-shadow` and `surface-hover` can't darken it by
-their full step: they pin to black and warn, even when you don't emit
-high-contrast tokens. See [Unreachable steps](#unreachable-steps).
+their full step and pin to black there. Light high contrast has room for both,
+so Glaze doesn't warn. See [Unreachable steps](#unreachable-steps).
 
 Every field is listed in
 [Color definitions](./reference/color-definitions.md#shadowcolordef--glowcolordef);
@@ -165,8 +165,8 @@ each scheme: for example, `shadow` for light-mode cards and `glow` for
 dark-mode elevation. When one component needs a darkening layer in light mode
 and a lightening one in dark mode, emit both tokens and wire each in the
 scheme it belongs to. Both still resolve in all four schemes, so each one warns
-wherever its surface has no room, including schemes where you don't use it
-([Unreachable steps](#unreachable-steps)).
+where its surface has no room in your light or dark scheme, even if you don't
+use it there ([Unreachable steps](#unreachable-steps)).
 
 `bg` and `fg` are read per scheme, so the solved opacity adapts on its own as
 the surface moves in dark and high contrast. See
@@ -282,10 +282,11 @@ The accent fill uses `mode: 'fixed'`, so it stays a mid tone in every scheme
 and its layers land the same steps everywhere. The dark fill uses glows, so
 its states lighten it. The neutral `surface` follows the scheme: in dark high
 contrast it becomes black, and a shadow has nothing left to darken, so
-`surface-hover` and `surface-pressed` stay fully transparent and warn (the
-figure shows what they reached; see [Unreachable steps](#unreachable-steps)).
-A glow on this surface fails the other way: it warns in the light schemes,
-where the surface is white. No overlay fits a surface that spans the whole
+`surface-hover` and `surface-pressed` stay fully transparent (the figure shows
+what they reached). They fit light high contrast, so they don't warn; see
+[Unreachable steps](#unreachable-steps). A glow on this surface fails the other
+way: it can't lighten the white surface of the light schemes, and warns in
+light. No overlay fits a surface that spans the whole
 tone range. For a state that darkens in light schemes and lightens in dark
 ones, use a regular color relative to the surface, such as
 `{ base: 'surface', tone: '-4' }`, which flips with the scheme.
@@ -440,10 +441,37 @@ value off the screen.
 
 To fix it, lower `intensity`, or give the overlay a surface with room in
 every scheme. A tuned-down `reach` also costs room; raise it back toward 1.
-Otherwise, expect the warning. Watch dark high contrast in particular: it
-bypasses the tone window, so a page that is white in light mode becomes black
-there and every shadow on it pins and warns. A tone-97 page sits at tone 3,
-which leaves room for less than 3 tones.
+Otherwise, expect the warning.
+
+### When Glaze moves the surface
+
+Your tone windows place the surfaces of the light and dark schemes. Two things
+move them further on their own:
+
+- **High contrast** bypasses the windows, so a page that is white in light mode
+  becomes black in dark high contrast. A tone-97 page sits at tone 3 there,
+  which leaves room for less than 3 tones.
+- **A manual [contrast level](./schemes.mdx#manual-contrast-level)** widens the
+  windows toward the full range, and the dark page nears black faster than an
+  interpolated `intensity` fades. On the default windows, the dark page sits
+  at tone 9.25 at level 0 and about 3.15 at level 50, so `intensity: [8, 0]`
+  asks for 4 tones there.
+
+No `intensity` fits every level and both high-contrast schemes, because one
+high-contrast entry serves a white page in light and a black one in dark. So
+in these passes the step still pins to the pigment's strongest composite, but
+Glaze warns only when it is out of reach in light and dark alike: then the step
+itself is too big for its surface. When the other scheme has room, the pin is
+quiet. In the passes your windows place (`contrastLevel` `'auto'` or `0`, not
+high contrast), every shortfall warns as above.
+
+| Pass | A step out of reach |
+| --- | --- |
+| `light` / `dark`, at `'auto'` or level `0` | Pins and warns. |
+| `light` / `dark` at any other level, `lightContrast` / `darkContrast` | Pins; warns only when it is out of reach in both light and dark of that pair. |
+
+At level `100` the `light` / `dark` passes are the high-contrast ones and pair
+up the same way.
 
 On a display that can show brighter than white, a glow can also go past white:
 see [HDR glows](./hdr.mdx).
@@ -466,6 +494,9 @@ theme.colors({
 
 With a manual contrast level, the pair is interpolated like every other pair.
 See [high-contrast pairs and the contrast level](./reference/contrast.md#manual-contrast-level).
+A step the level or high contrast puts out of reach pins quietly unless it is
+out of reach in light and dark alike; see
+[When Glaze moves the surface](#when-glaze-moves-the-surface).
 
 ## Fixed opacity
 

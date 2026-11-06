@@ -397,7 +397,7 @@ A tone delta that overshoots `[0, 100]` mirrors to the other side of its base wh
 | --- | --- |
 | A regular color's `contrast` floor is out of reach | Pins to the extreme of the side searched first; [contrast unmet](#contrast-unmet) warning. |
 | A mix's `contrast` floor is out of reach | Pins to the end of the base → target range it searched; [mix contrast unmet](#mix-contrast-unmet) warning. |
-| A shadow / glow step is out of the pigment's reach | Pins to the pigment's strongest composite (or stays transparent if it can't move the surface at all); [lighting](#shadow-or-glow-out-of-reach) warning. A glow whose HDR value covers the step doesn't warn. |
+| A shadow / glow step is out of the pigment's reach | Pins to the pigment's strongest composite (or stays transparent if it can't move the surface at all); [lighting](#shadow-or-glow-out-of-reach) warning. A glow whose HDR value covers the step doesn't warn. In high contrast and at a `contrastLevel` other than `0`, only a step out of reach in both light and dark warns. |
 | A glow step past white that its `headroom` cap leaves short | The HDR value pins at the cap, `2^headroom` on the brightest linear channel; the HDR form of the [lighting](#shadow-or-glow-out-of-reach) warning. |
 | A glow `headroom` above 2 | Clamps to 2; [headroom clamped](#headroom-clamped) warning. |
 | `contrast` and `opacity` on the same color | Resolves the floor for the opaque color; [contrast and opacity](#contrast-and-opacity) warning. |
@@ -414,7 +414,7 @@ Glaze reports problems it can recover from through `console.warn`, always prefix
 | [Contrast unmet](#contrast-unmet) | The solver can't reach a regular color's floor in a scheme. | Yes |
 | [Mix contrast unmet](#mix-contrast-unmet) | The solver can't reach a mix's floor in a scheme. | Yes |
 | [Contrast drift](#contrast-drift) | A chromatic color the solver reported as meeting its floor measures under it after resolution. | Yes |
-| [Shadow or glow out of reach](#shadow-or-glow-out-of-reach) | A `shadow` / `glow` step exceeds what its pigment can do, or a glow's `headroom` cap leaves its step short. | Yes |
+| [Shadow or glow out of reach](#shadow-or-glow-out-of-reach) | A `shadow` / `glow` step exceeds what its pigment can do, or a glow's `headroom` cap leaves its step short. In high contrast and at a `contrastLevel` other than `0`: only when that holds in both light and dark. | Yes |
 | [Headroom clamped](#headroom-clamped) | A glow `headroom` above 2 is clamped. | Yes |
 | [Contrast and opacity](#contrast-and-opacity) | A regular color has both `contrast` and `opacity`. | No — once per resolve |
 | [Alpha dropped](#alpha-dropped) | A color value carries alpha that Glaze discards. | Once per color string |
@@ -476,6 +476,11 @@ Lower the intensity, move the surface away from white, or raise a
 ```
 
 Fires when the composite lands more than 0.05 tones short of `intensity × k`. The standalone functions name themselves instead of a color and omit the scheme: `glaze: glaze.glow() cannot reach a 5.0-tone step (reached 0.0 at full strength). …`. A shadow's message suggests moving the surface away from black. See [Unreachable steps](../shadows-and-glows.mdx#unreachable-steps).
+
+Which schemes can fire it:
+
+- `light` / `dark` at `contrastLevel` `'auto'` or `0`: every shortfall, as soon as that scheme resolves.
+- `lightContrast` / `darkContrast`, and `light` / `dark` at any other level: only when the same pair falls short in both light and dark (`lightContrast` and `darkContrast`, or `light` and `dark` at that level). These passes move surfaces past the authored windows — high contrast bypasses them, a level widens them — so a white page becomes black in `darkContrast` and no step fits it. One that fits the other scheme pins without a warning. These are checked after all four schemes resolve. See [When Glaze moves the surface](../shadows-and-glows.mdx#when-glaze-moves-the-surface).
 
 With a [`headroom`](#glow-headroom), a glow whose HDR value covers the step prints nothing. One the cap leaves short gets this form instead, here for a 30-tone glow on a tone-100 surface at `headroom: 1`:
 
