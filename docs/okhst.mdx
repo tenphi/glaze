@@ -1,0 +1,677 @@
+---
+title: Tone and OKHST
+description: The contrast-uniform tone axis Glaze authors every color on, its math and guarantees, and how a tone becomes a rendered color in each scheme.
+---
+
+import Example from '../docs-site/components/Example.astro';
+import ToneRamp from '../docs-site/components/ToneRamp.tsx';
+import ToneDrift from '../docs-site/components/okhst/ToneDrift.tsx';
+import SchemeRamp from '../docs-site/components/okhst/SchemeRamp.tsx';
+import ToneLadder from '../docs-site/components/okhst/ToneLadder.tsx';
+import FloorCompare from '../docs-site/components/okhst/FloorCompare.tsx';
+
+Glaze places every color in [OKHST](https://github.com/tenphi/okhst): OKHSL's
+hue and saturation, with the lightness axis replaced by **tone** — a 0–100
+axis shaped so that equal tone steps give equal WCAG contrast. This page is the
+reference for the color model as Glaze applies it: the transfer math, what tone
+does and does not guarantee, and how an authored tone becomes a rendered color
+in each scheme. The [OKHST repository](https://github.com/tenphi/okhst) is the
+canonical specification of the color space itself: transfer functions,
+derivation, and invariants.
+
+To build a palette on this model, continue to
+[Designing a palette](./methodology.mdx). Every option and utility named here is
+listed in the [API reference](./reference/index.md).
+
+## OKHSL with a tone axis
+
+OKHST keeps OKHSL's hue (`h`, 0–360) and saturation (`s`) verbatim and swaps
+the third coordinate:
+
+| Space | Coordinates | Third coordinate                                      |
+| ----- | ----------- | ----------------------------------------------------- |
+| OKHSL | `h, s, l`   | `l`: perceptual lightness (toe-adjusted OKLab `L`)    |
+| OKHST | `h, s, t`   | `t`: tone, a normalized logarithm of luminance        |
+
+You author tone on a 0–100 scale (`tone: 97`). Resolved variants and the
+`{ h, s, t }` input object carry it on 0–1, like saturation (hue stays 0–360).
+
+OKHSL lightness is perceptually even, but equal lightness steps produce uneven
+contrast: the ratio between neighbors changes along the axis. Tone is shaped so
+equal steps produce equal WCAG contrast. Two things follow: a ramp authored in
+tone is a contrast-even ladder for free, and dark-mode inversion is a single
+subtraction (`100 - t`) instead of a fitted curve.
+
+### Equal tone steps, equal contrast
+
+<ToneRamp
+  saturation={0}
+  caption="Eleven neutral steps, evenly spaced in tone. The row underneath is the WCAG ratio between neighbors: 1.36:1 at every step."
+/>
+
+<ToneRamp
+  saturation={0}
+  axis="lightness"
+  caption="The same eleven steps evenly spaced in OKHSL lightness. They look even, but the ratio between neighbors runs from 1.16:1 at the dark end up to 1.46:1 and back down to 1.29:1."
+/>
+
+## The tone transfer
+
+For a gray (`s = 0`) at OKHSL lightness `l`, luminance has a closed form through
+the OKHSL toe and the OKLab cube:
+
+```text
+Y = toeInv(l)^3     // OKLab L = toeInv(l), cubed
+l = toe(cbrt(Y))    // exact inverse
+```
+
+Tone is a normalized natural logarithm of `Y`, offset by a small `eps`:
+
+```text
+D = ln(1 + eps) - ln(eps)
+
+toneFromY(Y, eps) = 100 * (ln(Y + eps) - ln(eps)) / D
+yFromTone(T, eps) = exp(T / 100 * D + ln(eps)) - eps
+```
+
+`toTone(l)` and `fromTone(t)` compose these with the gray luminance above, so
+they convert between OKHSL lightness (0–1) and tone (0–100) directly. The two
+directions are exact analytic inverses: a round trip is lossless to
+floating-point precision. `toneFromY(0)` is 0 and `toneFromY(1)` is 100 for any
+`eps`, so tone is always a clean 0–100 scale.
+
+### Why `eps` is 0.05
+
+WCAG 2 contrast is `(Y_hi + 0.05) / (Y_lo + 0.05)`. With `eps = 0.05`, tone is a
+normalized `ln(Y + 0.05)`, so a fixed tone difference is a fixed ratio of
+`Y + 0.05` — a fixed WCAG contrast — wherever it sits on the scale. Since
+`ln(1.05) - ln(0.05) = ln(21)`:
+
+```text
+ratio(T2, T1) = (Y2 + 0.05) / (Y1 + 0.05)
+              = exp((T2 - T1) / 100 * ln(21))
+              = 21 ^ ((T2 - T1) / 100)
+```
+
+The whole scale is 21:1, black to white, and every 10 tones multiply contrast by
+`21 ^ 0.1`, about 1.36. For neutrals:
+
+| Tone | Contrast vs. black |
+| ---: | -----------------: |
+|   10 |             1.36:1 |
+|   20 |             1.84:1 |
+|   30 |             2.49:1 |
+|   40 |             3.38:1 |
+|   50 |             4.58:1 |
+|   60 |             6.21:1 |
+|   70 |             8.42:1 |
+|   80 |            11.42:1 |
+|   90 |            15.49:1 |
+|  100 |               21:1 |
+
+Inverted, the tone distance between two neutrals for a target ratio `R` is
+`100 * ln(R) / ln(21)`:
+
+| Ratio                  | Tone distance |
+| ---------------------- | ------------: |
+| 3:1 (`'AA-large'`)     |         36.08 |
+| 4.5:1 (`'AA'`)         |         49.40 |
+| 7:1 (`'AAA'`)          |         63.92 |
+
+These distances are exact for neutrals only;
+[Same tone, same lightness](#same-tone-same-lightness) explains why.
+
+### Tone above 100
+
+The transfer has no ceiling: `toneFromY` keeps counting past SDR white
+(`Y = 1`), so tone runs on past 100.
+
+| Luminance `Y` | Stops above white |   Tone |
+| ------------: | ----------------: | -----: |
+|             1 |                 0 |    100 |
+|             2 |                 1 | 121.98 |
+|             4 |                 2 | 144.34 |
+
+Each stop, a doubling of `Y`, adds about 22 tones. The scale is still a
+logarithm of `Y + 0.05`, so equal tone steps past 100 are still equal ratios of
+`Y + 0.05`: 12 tones past white (`Y` 1.4631, tone 112) is the same ratio as a
+12-tone step anywhere else. Contrast does not carry over. WCAG and APCA are
+defined only up to SDR white, so a tone past 100 has no contrast meaning, and
+the contrast solver never searches there.
+
+Only [HDR glows](./hdr.mdx) go past 100, in an HDR value kept next to the SDR
+one; a resolved variant's own `t` stays within 0–1.
+
+## Same tone, same lightness
+
+`okhstToOkhsl({ h, s, t })` passes `h` and `s` through unchanged and sets
+`l = fromTone(100 * t)`. `fromTone` depends on the tone (and `eps`) alone, and OKHSL's
+`l → L` map has no hue or saturation term: `h` and `s` enter only the chroma
+math. That gives OKHST its core invariant:
+
+> A given tone yields the same OKHSL lightness for every hue and saturation.
+
+OKHST inherits OKHSL's gamut and reversibility exactly: every `(h, s, t)` is
+realizable and round-trips.
+
+### Uniform in lightness, not luminance
+
+The invariant is about lightness. Equal tone gives equal WCAG and APCA contrast
+only for grays: a saturated red and a saturated green at the same tone share an
+OKHSL lightness but differ in real luminance `Y`, because hue, saturation, and
+gamut mapping all change the final sRGB values. This **chromatic drift** is the
+one approximation in the model.
+
+<ToneDrift
+  rows={[
+    { hue: 0, saturation: 0, label: 'Neutral' },
+    { hue: 25, saturation: 100 },
+    { hue: 25, saturation: 50 },
+    { hue: 110, saturation: 100 },
+    { hue: 150, saturation: 100 },
+    { hue: 300, saturation: 100 },
+  ]}
+  caption="Each column is drawn at the authored tone above it. The label in each cell is its measured tone: the tone of the gray with the same luminance. Neutrals match exactly; chromatic colors drift, and less so at lower saturation."
+/>
+
+At full saturation, the rows above read up to 5.6 tones darker than their tone
+(hue 300, purple) and 4.1 darker (hue 25, red), up to 2.7 tones lighter
+(hue 150, green), and within a tone for yellow (hue 110). Across all hues the
+extremes are 5.6 tones darker, near hue 300, and 2.9 lighter, near hue 143.
+Drift shrinks with saturation: hue 25 at tone 50 reads 3.9 tones dark at full
+saturation and 1.6 at half.
+
+That splits the work between two tools:
+
+- Use **tone deltas** for visual spacing within ramps and between related UI
+  colors. The spacing stays even and ordered for every hue.
+- Use **`contrast`** when a rendered color must meet a measured WCAG or APCA
+  floor. The solver is the one deliberate exception to the invariant: it moves a
+  color's tone per hue and saturation until the measured floor is met. See
+  [Contrast floors](#contrast-floors-and-verification).
+
+## Tone windows
+
+Each scheme renders authored tone into a **tone window**, configured by
+`lightTone` and `darkTone`:
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+glaze.configure({
+  lightTone: [10, 100],
+  darkTone: [15, 95],
+});
+```
+
+The window's `lo` and `hi` are **OKHSL-lightness** boundaries (0–100). Glaze
+converts them to tone, positions the authored tone linearly in that tone
+interval, converts the result back to lightness with the window's `eps`, and
+stores it as canonical tone:
+
+```text
+loT = toTone(lo / 100, eps)
+hiT = toTone(hi / 100, eps)
+l   = fromTone(loT + (T / 100) * (hiT - loT), eps)
+t   = toTone(l) / 100            // canonical tone (0–1), REF_EPS
+```
+
+A window takes three forms:
+
+| Form              | Meaning                                                                         |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `[lo, hi]`        | Boundaries at the reference `eps`. The common form.                             |
+| `{ lo, hi, eps }` | Boundaries plus a render curvature for this scheme. Advanced.                   |
+| `false`           | The full range `[0, 100]` at the reference `eps`: no boundaries, same tone curve. |
+
+Endpoints clamp to 0–100. A value that is none of the three forms (`null`
+included), a window with `lo` above `hi` or a non-finite endpoint, and an `eps`
+outside `(0, 1e6]` all throw instead of quietly inverting or breaking the
+scale. The `eps` cap is numerical: the transfer divides by
+`ln(1 + eps) - ln(eps)`, which loses precision as `eps` grows and cancels to 0
+(`NaN` tones) from about 1e15, while past about 1e3 the curve is already linear
+in luminance. The rules are in
+[Configuration](./reference/configuration.md#tone-windows).
+
+### Calibrated defaults
+
+|            | `lightTone` | `darkTone` |
+| ---------- | ----------: | ---------: |
+| `lo`       |          10 |         15 |
+| `hi`       |         100 |         95 |
+| `eps`      |        0.05 |       0.05 |
+| Tone range |    4.95–100 |  9.25–95.9 |
+
+The floors keep mapped tones off pure black in both schemes (OKHSL lightness 10
+in light, 15 in dark), and the dark ceiling keeps them short of white at
+lightness 95. `eps` is pinned to the reference 0.05 so the axis stays
+WCAG-uniform inside the window. Because the remap is linear in tone, it scales
+distances between absolute tones uniformly: about 95% of the authored distance
+in light and 86.6% in dark.
+
+<SchemeRamp
+  caption="Authored tones 0 to 100 (mode 'auto') resolved in every scheme. Each label is the tone Glaze stores. Light compresses into 4.95–100; dark inverts, then compresses into 9.25–95.9; high contrast uses the full range."
+/>
+
+### High contrast uses the full range
+
+High-contrast variants run the same math with the window forced to the full
+range `[0, 100]`, keeping the window's `eps`. There is no separate high-contrast
+curve and no fitted dark curve.
+
+### Manual contrast level
+
+A [manual contrast level](./reference/contrast.md#manual-contrast-level) generalizes that bypass
+continuously. With `contrastLevel: L` and `f = L / 100`, each boundary moves
+toward the full range instead of jumping to it:
+
+```text
+lo(f) = lo + (0   - lo) * f
+hi(f) = hi + (100 - hi) * f
+```
+
+The light default walks `[10, 100] → [0, 100]` and the dark default
+`[15, 95] → [0, 100]`; at level 50 they are `[5, 100]` (tone 1.63–100) and
+`[7.5, 97.5]` (tone 3.15–97.97). The render `eps` is not interpolated, and a
+`false` window is already the full range, so it is level-invariant.
+
+The continuous form applies to the normal variants only. High-contrast variants
+are already at the full range, so the level does not widen them further: the
+bypass is what keeps the high-contrast tier independent of the level. The level
+itself is covered in
+[Light, dark, and high contrast](./schemes.mdx#manual-contrast-level).
+
+## Reference and render epsilon
+
+Two `eps` values play separate roles:
+
+- **Reference eps** — `REF_EPS = 0.05`, fixed. It defines the OKHST color
+  space and Glaze's canonical tone. `okhst()` input, `{ h, s, t }` input, the
+  stored `ResolvedColorVariant.t`, tone deltas, and the contrast solver all use
+  it, which keeps tone comparable between schemes.
+- **Render eps** — the `eps` of an object tone window. A per-scheme curvature
+  control that only changes how authored tone maps through that scheme's
+  window. It defaults to the reference value, so by default the two coincide.
+
+When a window's `eps` differs from the reference, Glaze maps with it to land a
+final OKHSL lightness, then stores `toTone(l, REF_EPS)`, so deltas and contrast
+calculations stay on the reference scale. For example,
+`lightTone: { lo: 10, hi: 100, eps: 0.2 }` stores authored tone 50 at 63.89
+instead of 52.47: mid tones bend lighter. Most palettes should keep the default.
+
+## The scheme pipeline
+
+A regular color's tone goes through one pipeline per scheme:
+
+```text
+authored tone T (0–100)
+  -> adaptation mode
+       auto + dark    invert: T' = 100 - T
+       light / fixed  keep:   T' = T
+       static         identity; skip the window
+  -> remap into the scheme's tone window (full range for high contrast)
+  -> render curvature (window eps) -> OKHSL lightness l
+  -> store canonical tone t = toTone(l, REF_EPS) / 100
+       // variant { h, s, t, alpha }, t on 0–1
+  -> at the rendering edge only:
+       fromTone(100 * t) -> l -> sRGB / luminance
+optional: a contrast floor searches tone and overrides t
+```
+
+### Adaptation modes
+
+The first step is the color's `mode`. Use `auto` for surfaces and foregrounds
+that should trade places between light and dark, `fixed` for brand fills and
+inverse surfaces that should stay on the same side of the scale, and `static`
+for colors that must not adapt.
+[Light, dark, and high contrast](./schemes.mdx#adaptation-modes) has the full
+table and shows each mode side by side.
+
+**Dark tone inversion is not `autoFlip`.** Inversion is ordinary scheme
+adaptation, controlled by `mode`. `autoFlip` solves a different, local problem:
+it may mirror a tone delta that overshoots `[0, 100]` to the other side of its
+base, or let the contrast solver try the opposite side of a base.
+
+### Hue and saturation pass through
+
+Tone is the only channel OKHST adapts across schemes; `h` and `s` are authoring
+inputs that pass through the tone transfer untouched. The one automatic
+adjustment is `darkDesaturation`, which dark schemes apply to every color except
+`static` ones. A theme, or a single color, can seed a different hue and
+saturation for the dark schemes with `darkHue` / `darkSaturation`; those pick the
+`h` and `s` that enter the pipeline and never change how tone is transferred.
+An authored dark saturation replaces the `darkDesaturation` step instead of
+stacking with it: a color's own `darkSaturation` always does, and the theme's
+seed does for every color that reads it. A `from` color with no `saturation` of
+its own starts from the literal's saturation rather than the seed, so it keeps
+the step. `static` colors ignore all of it. The rules are in
+[Light, dark, and high contrast](./schemes.mdx#dark-seed) and
+[Color definitions](./reference/color-definitions.md#dark-seed-darkhue--darksaturation).
+
+## Tone values
+
+A color's `tone` takes one of three kinds of value. The full syntax, including
+`[normal, highContrast]` pairs, is in
+[Color definitions](./reference/color-definitions.md#tone-values).
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+const theme = glaze(280, 30);
+
+theme.colors({
+  surface: { tone: 97 }, // absolute
+  border: { base: 'surface', tone: '-8' }, // tone delta
+  deep: { tone: 'min' }, // extreme
+  ink: { base: 'surface', tone: 'min' }, // extreme anchored to a base
+});
+```
+
+### Absolute tone
+
+A number places a color on the 0–100 scale independently of every other color.
+Each scheme maps it through the pipeline above, so the stored tone is not the
+authored one: `surface: { tone: 97 }` is stored as 97.15 in light and, inverted
+to 3 and mapped into the dark window, as 11.85 in dark. A dependent color (one
+with a `base`) can still take an absolute tone; it is then mapped on its own and
+the base only matters to a `contrast` floor.
+
+### Tone deltas
+
+A signed string is a **tone delta**: the signed difference between a dependent
+color and its base.
+
+```ts
+border: { base: 'surface', tone: '-8' }
+```
+
+How the delta travels depends on the dependent color's `mode`:
+
+- **`fixed` and `static` in every scheme, and `auto` in the light schemes:**
+  the delta is applied to the base's resolved tone in that scheme, sign
+  preserved. It is an exact tone step, so for neutrals it is an exact contrast
+  step.
+- **`auto` in the dark schemes:** the delta is added to the base's **anchor**
+  — where the base sits on the authored scale, the tone its own dark variant is
+  the inversion of — and the result is inverted and mapped through the dark
+  window like an absolute tone. Order and direction carry over — text that
+  sits below its surface in light sits above it in dark.
+
+The anchor depends on how the base got its tone, and the same rules hold in
+both dark passes:
+
+- An `auto` base placed by a tone (a number, a `from` color, an extreme with
+  no base) anchors at its authored tone, and an `auto` tone delta at its base's
+  anchor plus the delta, so a chain steps evenly. An `auto` color with no
+  `tone` or `contrast` of its own anchors at its base's anchor.
+- Any other base, whose dark tone is not the inversion of an authored one — a
+  `fixed` or `static` color, an `auto` contrast-solved color, an `auto` extreme
+  on a base, a mix — anchors at its own dark tone read back through the dark
+  window (the window remap run backwards, then un-inverted), so a dependent
+  follows where the base lands in dark.
+
+On every base, the step is then the dark window's scale times the delta at the
+reference dark `eps`, 86.6% of the authored delta at the default windows. A
+tone-50 base steps `'+4'` to −3.5 and `'-4'` to +3.5, and a `'-4'` hover on an
+AAA-solved button steps +3.5 too. A custom dark `eps` bends the dark window's
+curve, so a dark delta lands where the same authored tone would instead of at a
+fixed scale. In dark high contrast the window is the full range, so at the
+reference dark `eps` the step is exact, only mirrored, wherever it fits on the
+scale (limits below). The anchor is the authored position, not the base's light
+high-contrast tone, so a custom light `eps`, which moves that tone (lighter
+above the reference 0.05, darker below), doesn't change the step away from the
+ends.
+
+Order carries over only when the base inverts too. An `auto` delta on a
+`fixed` or `static` base inverts on its own while the base does not (it keeps
+its side, or, as a `fixed` delta, rides its own base into dark), so it mirrors
+to the other side of the base in dark: a `'+30'` label on a `fixed` tone-52
+fill sits 30 tones above it in light and 26.0 below it in dark. Make such a
+dependent `fixed` as well when it should keep its side.
+
+If `base + delta` overshoots `[0, 100]`, `autoFlip` (on by default) mirrors the
+delta to the other side of the base; if the mirror overshoots too, or `autoFlip`
+is off, the delta clamps on its authored side. Under `auto` the flip is decided
+on the light tones, and dark mirrors the side light took. Dark then steps on
+the authored scale, which adds two limits there:
+
+- A step that fits from the base's light tone can still run past 0 or 100
+  from the anchor. In dark it then stops at the dark window's edge. The light
+  window lifts authored tone 0 to 4.95, so an `auto` base placed by a tone
+  meets this at the bottom: `'-4'` steps about +1.7 on a tone-2 base and not
+  at all on a tone-0 one. A base anchored at its own dark tone can meet it at
+  either end. In `glaze(280, 40)`, `contrast: 12` text on a tone-97 surface
+  sits at 15.6 in light but anchors at 2.7, so a `'-4'` hover on it steps
+  +2.3 in dark, not +3.5.
+- An anchor past the dark window — a base a contrast floor or an extreme pushed
+  beyond its edge, or a `fixed` delta riding its base there — is stepped from
+  where it sits. A step back toward the window moves by the full scaled delta;
+  one further out stops at the window edge or the base, whichever is further
+  out.
+
+High contrast's windows are the full range, and at the reference light `eps`
+the light one is the identity, so an `auto` base placed by a tone flips the
+same way in both high-contrast schemes and its step fits. The first limit
+still applies there under a custom light `eps`, and to a base anchored at its
+own dark tone.
+
+### Extremes: `'max'` and `'min'`
+
+`'max'` is author tone 100 and `'min'` is author tone 0. They select the
+corresponding end of the scheme without a magic number.
+
+- **Without a base,** an extreme flows through the pipeline like any absolute
+  tone: it lands on the window edge and, under `auto`, inverts in dark — `'min'`
+  is the darkest color in light and the lightest in dark. Use `fixed` to keep the
+  same end without inverting, or `static` to pin one tone everywhere.
+- **With a base,** the dark scheme takes a different path. The windows are
+  asymmetric, so running the extreme through the dark window would squeeze the
+  span between it and its base and cost contrast. Instead Glaze measures the
+  tone shift the light scheme produced between the base and the extreme, then
+  replays it against the base's resolved dark tone: mirrored under `auto` (both
+  ends invert), same-signed under `fixed`. Only `[0, 100]` clamping applies, so
+  the color may render past the dark window's edge — on purpose, since you asked
+  for the extreme. When the shift does not fit, the color pins at tone 100 or 0.
+  `static` colors are unaffected. High-contrast variants follow the same rule,
+  but their window is already the full range, so the replay matches the plain
+  mapping unless the base itself sits asymmetrically across schemes. With a
+  `contrast` floor, an anchored extreme's starting tone is not clamped back
+  into the scheme window.
+
+```ts
+const neutral = glaze(0, 0);
+
+neutral.colors({
+  bg: { tone: 60 },
+  fg: { base: 'bg', tone: 'max' },
+});
+// light: bg 62.0, fg 100.0 (shift +38.0, 3.18:1)
+// dark:  bg 43.9, fg 5.9   (shift -38.0, 3.18:1)
+```
+
+A root `tone: 'max'` in the same theme lands at the dark window's edge,
+tone 9.25, and drops to 2.87:1 against `bg` in dark.
+
+### All three, light to dark
+
+<Example
+  hue={280}
+  saturation={30}
+  colors={{
+    surface: { tone: 97 },
+    border: { base: 'surface', tone: '-8' },
+    text: { base: 'surface', tone: '-60' },
+    deep: { tone: 'min' },
+    ink: { base: 'surface', tone: 'min' },
+  }}
+  visual="none"
+/>
+
+<ToneLadder
+  hue={280}
+  saturation={30}
+  colors={{
+    surface: { tone: 97 },
+    border: { base: 'surface', tone: '-8' },
+    text: { base: 'surface', tone: '-60' },
+    deep: { tone: 'min' },
+    ink: { base: 'surface', tone: 'min' },
+  }}
+  base="surface"
+  schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
+  caption="Each chip shows the stored tone, the tone difference from surface, and the measured WCAG ratio against it. In dark, the deltas shrink with the window (−8 becomes +6.9, −60 becomes +52.0), deep stops at the window edge, and ink replays its full light span past it, clamped at 100. In high contrast the window is the full range and the deltas are exact."
+/>
+
+The `text` color above has no contrast floor, so its ratio follows its tone
+step: 6.29:1 in light and 4.85:1 in dark. Add `contrast` when the measured
+ratio matters.
+
+## Contrast floors and verification
+
+Tone is the contrast solver's search axis because it is contrast-uniform: the
+search converges quickly and WCAG gets a closed-form first probe. But Glaze
+never assumes a chromatic color has the luminance of the gray at its tone. It
+measures the real color.
+
+`contrast` takes one spec with a pluggable metric: a WCAG ratio (a bare number,
+a preset such as `'AA'`, or `{ wcag }`) or an APCA Lc target (`{ apca }`).
+Forms, presets, roles, and high-contrast escalation are covered in
+[Contrast solving](./contrast.mdx) and
+[Contrast and high contrast](./reference/contrast.md).
+
+### How a floor is solved
+
+For a color with `base` and `contrast`, in each scheme Glaze:
+
+1. resolves the base and the color's preferred tone for that scheme, clamped
+   into the scheme's tone window (anchored extremes excepted);
+2. measures the requested WCAG ratio or APCA Lc at the preferred tone, using the
+   color's real hue and saturation — if it already clears the floor with a
+   small margin (×1.01 for a WCAG ratio, +0.5 Lc for APCA, to absorb rounding
+   in the output formats), the tone is kept (`contrast` is a floor, not a
+   target); a preferred tone that clears the floor but not the margin is also
+   kept, and counts as met, when no searched side meets the floor (white text
+   at tone 100 has nowhere further to go);
+3. otherwise searches tone. For WCAG the search first measures the gray tone
+   whose luminance hits the ratio exactly — `Y = R * (Y_base + 0.05) - 0.05`
+   on the lighter side, `(Y_base + 0.05) / R - 0.05` on the darker — which
+   only narrows where the binary search against the measured chromatic
+   luminance looks, so a chromatic color still lands on its own crossing. For
+   APCA it binary-searches against the Lc target directly. The search covers
+   the full 0–100 range, so a demanding floor can push a color past the
+   window, and it aims for the same margin past the target;
+4. warns when the target is physically unreachable in the scheme.
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+const theme = glaze(150, 90);
+
+theme.colors({
+  surface: { tone: 97, saturation: 0 },
+  // 49.4 tones below the surface: exactly 4.5:1 for a neutral
+  'step-text': { base: 'surface', tone: '-49.4' },
+  // Same starting tone, but the solver measures the real color
+  'floor-text': { base: 'surface', tone: '-49.4', contrast: 'AA' },
+});
+```
+
+<FloorCompare
+  hues={[25, 110, 150, 265, 320]}
+  caption="Light scheme. Each row is one hue at the neutral AA distance below a neutral surface, without and with contrast: 'AA'. Hues that read lighter than their tone fall short and are moved darker; hues that read darker already pass and keep their tone. The neutral is nudged just past 4.5:1 by the search overshoot."
+/>
+
+### APCA
+
+`apcaContrast(yText, yBg)` implements APCA-W3 0.1.9 (simplified SAPC): a
+soft clamp for low luminances and separate exponents for normal and reverse
+polarity, returning a signed Lc whose magnitude the solver compares with the
+target. Its inputs are APCA **screen luminances** over the gamma-encoded sRGB
+channels, not WCAG relative luminance:
+
+```text
+Ys = 0.2126 * R^2.4 + 0.7152 * G^2.4 + 0.0722 * B^2.4
+```
+
+The soft-clamp constants are calibrated against `Ys`, so the solver feeds APCA
+that basis. The function it uses is exported as
+[`apcaLuminanceFromLinearRgb`](./reference/utilities.md#luminance-and-contrast),
+so `apcaContrast` over its output reproduces the solver's own Lc. The
+implementation omits APCA's font-size lookup that maps an Lc to
+a usable text size.
+
+### The drift check
+
+After all four scheme passes, Glaze verifies every color that has a `base` and
+a `contrast` floor. It re-measures the color against its base in each scheme, in
+the floor's own metric (APCA screen luminance for APCA, WCAG luminance for
+WCAG) and with each variant's own `pastel` flag, and emits a `console.warn` when
+the result drifts below the target by more than a small slack: 2% of a WCAG
+ratio, or 1.5 Lc. It skips a scheme where the solver couldn't reach the floor,
+which already has the solver's "cannot meet" warning with the same measured
+value, and an achromatic color (saturation 0), whose luminance is exactly its
+tone's. Because the solver already measures the real chromatic color, a floor
+it meets passes this check, so in practice the advisory stays silent; it
+remains as a safety net for the chromatic approximation. Warnings are
+deduplicated through a 256-key session cache that starts over when full. Both
+warnings are listed in [Configuration](./reference/configuration.md#warnings).
+
+## Input and output
+
+Glaze parses OKHST wherever it takes a color value — `glaze.color()`, a color
+definition's `from`, and the `bg` / `fg` of the standalone `glaze.shadow()` /
+`glaze.glow()`:
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+glaze.color('okhst(152 95% 70%)');
+glaze.color({ h: 152, s: 0.95, t: 0.7 });
+```
+
+Both value forms reproduce the color exactly in the light scheme. The
+structured form `glaze.color({ hue: 152, saturation: 95, tone: 70 })` is
+different: its `tone` is an authored tone on the 0–100 scale, mapped through the
+light window like a theme color, so it renders at tone 71.48. See
+[Color tokens](./reference/color-tokens.md#glazecolorinput).
+
+There is no native CSS `okhst()` function, so native exports use `oklch`,
+`rgb`, or `hsl`. [Tasty](https://tasty.style) can consume Glaze's custom
+serialization, so `tasty()` accepts `format: 'okhst'`, as does `glaze.format()`
+for a single variant. `tokens()`, `json()`, `css()`, and `tailwind()` throw and
+name a native format instead; the DTCG exports pick a color space of their own.
+
+```ts
+const theme = glaze(280, 30);
+
+theme.colors({ surface: { tone: 97 } });
+theme.tasty({ format: 'okhst' });
+// {
+//   '#surface': {
+//     '': 'okhst(280 30% 97.15%)',
+//     '@media(prefers-color-scheme: dark)': 'okhst(280 27% 11.85%)',
+//   },
+// }
+```
+
+The color formats are listed in
+[Output formats](./reference/output.md#color-formats); `toTone`, `fromTone`,
+`toneFromY`, `yFromTone`, `okhstToOkhsl`, `okhslToOkhst`, `variantToOkhsl`, and
+`REF_EPS` are exported for your own math (see
+[Utilities](./reference/utilities.md#okhst-tone-utilities)).
+
+## Bringing existing colors into Glaze
+
+When you move raw CSS colors or design tokens into Glaze, preserve the source
+colors first: `glaze.fromHex()` and `glaze.fromRgb()` seed a theme from a
+color, `glaze.color()` takes any color value, and a color definition's `from`
+places a literal color inside a theme. Then replace one-off values with root
+tones, tone deltas, and contrast floors as the relationships become clear.
+
+To carry an OKHSL lightness `L` (0–100) over as a tone, convert it with
+`toTone(L / 100)`; the two are not the same number. That tone is still an
+authored tone, so the light window remaps it and it renders slightly lighter:
+`L` 20 becomes tone 14.36 and renders at lightness 23.8. To keep a source color
+exact in light, place it with `from`, which skips the light window, or turn the
+window off with `lightTone: false`. The full workflow is in
+[Migration and upgrading](./migration.md#migrating-from-an-existing-color-system).

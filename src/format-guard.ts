@@ -28,9 +28,12 @@ export function assertNativeFormat(
 
 type SchemeField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
 
+/** The modes `assertAllPastel` reads: which schemes are emitted. */
+type SchemeModes = Required<Pick<GlazeOutputModes, 'dark' | 'highContrast'>>;
+
 const SCHEME_FIELDS: {
   field: SchemeField;
-  modes: (modes: Required<GlazeOutputModes>) => boolean;
+  modes: (modes: SchemeModes) => boolean;
 }[] = [
   { field: 'light', modes: () => true },
   { field: 'dark', modes: (m) => m.dark },
@@ -48,7 +51,7 @@ const SCHEME_FIELDS: {
  */
 export function assertAllPastel(
   resolved: Map<string, ResolvedColor>,
-  modes: Required<GlazeOutputModes>,
+  modes: SchemeModes,
 ): void {
   const nonPastel: string[] = [];
 

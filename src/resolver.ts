@@ -8,13 +8,38 @@
  * passes bypass the level entirely, so the high-contrast slots are the same
  * values `'auto'` resolves. At level 100 the normal passes already are the
  * high-contrast ones, so the solver drops to two passes (light → dark) and
- * mirrors the slots. Owns the per-scheme resolve helpers for regular, shadow,
- * and mix color defs.
+ * mirrors the slots. Owns the per-scheme resolve helpers for regular, shadow /
+ * glow, and mix color defs.
+ *
+ * In dark, an `auto` tone delta (`'+N'` / `'-N'`) steps from where its base
+ * sits on the authored scale in that pass (`darkAnchor`, memoized per pass):
+ * the authored tone for an `auto` base placed by a tone or a chain of `auto`
+ * deltas, or — for a base whose dark tone is not an inverted authored one: a
+ * `fixed` / `static` color, or one solved, mixed, or replayed (an `auto`
+ * extreme) — its own dark tone taken back through the dark window. So a dark
+ * delta lands where the same authored tone would, on every base: the dark
+ * window's scale times the delta at the reference dark eps (exact in high
+ * contrast), along the dark window's own curve under a custom one, mirrored
+ * around wherever the base sits even when the base itself doesn't invert. The
+ * flip is still decided on the base's light tone, so
+ * dark mirrors the side light took, and a step that runs off the authored
+ * scale from its anchor (past 0 or 100) stops at the dark window's edge — at
+ * either end, for a base anchored at its own dark tone. A base sitting past the
+ * window (pushed by a contrast floor or an extreme, or placed there as a fixed
+ * / static color) is stepped from where it sits, and a step pointing further
+ * out stops at the base (`stepFromAnchor`). External
+ * `glaze.color()` bases supply their own anchor (`darkAnchorOf`).
  *
  * Variants are stored in OKHST: `h` / `s` are OKHSL hue/saturation and
  * `t` is the canonical contrast-uniform tone (0–1, reference eps). The
  * resolver works in tone for regular colors and converts to/from OKHSL
- * lightness only at the mix/shadow and luminance edges.
+ * lightness only at the mix / shadow / glow and luminance edges. A mix reads
+ * a base or target under another `pastel` flag in its own gamut, through the
+ * color that endpoint paints, and measures its contrast floor on the color it
+ * emits. A glow whose step crosses white with `headroom` above 0 also carries
+ * `hdr` — its opaque base in OKHST plus an exposure in stops — and swaps the
+ * SDR shortfall warning for one that fires only when the headroom cap falls
+ * short. HDR values never feed another color: nothing may build on a glow.
  *
  * Every function receives a single `GlazeConfigResolved` so the full
  * per-instance config (including overrides) is available without
@@ -22,15 +47,18 @@
  */
 
 import {
+  compositeOverGamma,
   okhslToLinearSrgb,
-  sRGBGammaToLinear,
-  sRGBLinearToGamma,
+  okhslToOklab,
+  oklabToOkhsl,
   srgbToOkhsl,
+  toDisplayGamma,
 } from './okhsl-color-math';
 import {
   findToneForContrast,
   findValueForMixContrast,
   metricLuminance,
+  metricScore,
   resolveContrastForLevel,
   resolveContrastForMode,
 } from './contrast-solver';
@@ -54,24 +82,35 @@ import {
   roleToPolarity,
 } from './roles';
 import {
-  computeShadow,
   circularLerp,
+  computeLighting,
+  isLightingDef,
   isMixDef,
-  isShadowDef,
-  resolveShadowTuning,
-} from './shadow';
+  resolveLightingTuning,
+  toResolvedHdr,
+} from './lighting';
 import {
+  REF_EPS,
   fromTone,
+  mapDarkToneUnclamped,
   mapSaturationDark,
   mapToneForScheme,
+  normalizeToneWindow,
   okhslToOkhst,
+  sameDarkWindow,
   schemeToneRange,
   toTone,
+  unmapDarkTone,
   variantToOkhsl,
 } from './okhst';
 import { extractOkhslFromValue } from './color-value';
 import { hasAbsoluteTone, topoSort, validateColorDefs } from './validation';
-import { warnContrastUnmet, warnContrastDrift } from './warnings';
+import {
+  warnContrastUnmet,
+  warnContrastDrift,
+  warnLightingShortfall,
+  warnMixContrastUnmet,
+} from './warnings';
 import type {
   AdaptationMode,
   ColorDef,
@@ -79,6 +118,7 @@ import type {
   ContrastSpec,
   GlazeConfigResolved,
   GlazeThemeSeed,
+  GlowColorDef,
   HCPair,
   MixColorDef,
   RegularColorDef,
@@ -89,6 +129,74 @@ import type {
   ToneValue,
 } from './types';
 
+/** Where a color sits on the authored scale in one pass (see `darkAnchor`). */
+interface DarkAnchor {
+  /**
+   * The anchor tone (0–100; a color sitting past the dark window — solved,
+   * replayed, or a fixed / static color — leaves it).
+   */
+  tone: number;
+  /**
+   * The tone comes from the light side alone — an `auto` tone or a chain of
+   * `auto` deltas on one — so it equals the light tone wherever the light
+   * window is the identity.
+   */
+  lightSide: boolean;
+}
+
+/**
+ * Defs anchored at their authored tone whatever their mode (see `darkAnchor`).
+ * A `glaze.color()` token's hidden seed is `static` only so that its token's
+ * `contrast` floor measures against the literal input; a delta on it still
+ * steps in dark like one on an `auto` color authored at that tone.
+ */
+const authoredToneAnchors = new WeakSet<ColorDef>();
+
+/**
+ * Anchor `def` at its authored tone in dark, whatever its mode (internal, for
+ * a token's hidden seed; see `authoredToneAnchors`).
+ */
+export function anchorAtAuthoredTone<T extends ColorDef>(def: T): T {
+  authoredToneAnchors.add(def);
+  return def;
+}
+
+/**
+ * The base of a tone-less, contrast-less `auto` color, which takes its base's
+ * dark anchor as is; `undefined` for any other def.
+ */
+function aliasBaseOf(def: ColorDef | undefined): string | undefined {
+  if (def === undefined || isMixDef(def) || isLightingDef(def)) {
+    return undefined;
+  }
+  const regDef = def as RegularColorDef;
+  if (
+    (regDef.mode ?? 'auto') !== 'auto' ||
+    regDef.contrast !== undefined ||
+    regDef.tone !== undefined ||
+    regDef.from !== undefined
+  ) {
+    return undefined;
+  }
+  return regDef.base;
+}
+
+/**
+ * An external base's dark-delta anchor for one pass, read in the base's own
+ * resolve context (see `darkAnchorOf`), with the config it was read under.
+ */
+export interface ExternalDarkAnchor {
+  tone: number;
+  /** The base's effective config, whose dark window placed the base. */
+  config: GlazeConfigResolved;
+}
+
+/**
+ * An external base's dark-delta anchor for one pass, supplied by the base's
+ * own `glaze.color()` token (internal).
+ */
+export type DarkAnchorHook = (isHighContrast: boolean) => ExternalDarkAnchor;
+
 export interface ResolveContext extends GlazeThemeSeed {
   defs: ColorMap;
   resolved: Map<string, ResolvedColor>;
@@ -96,11 +204,26 @@ export interface ResolveContext extends GlazeThemeSeed {
   config: GlazeConfigResolved;
   /** Per-name role memo (filled lazily by `resolveRole`). */
   roles: Map<string, Role>;
+  /**
+   * `unmetKey` of every regular-color variant whose contrast solve came back
+   * unmet, so `verifyContrastDrift` doesn't repeat the solver's warning.
+   */
+  unmet: Set<string>;
+  /** Per-name `darkAnchor` memo for the normal and high-contrast passes. */
+  anchors: [Map<string, DarkAnchor>, Map<string, DarkAnchor>];
+  /** Dark-delta anchors of external bases, supplied by their own tokens. */
+  externalAnchors?: Map<string, DarkAnchorHook>;
 }
+
+/** The part of a `ResolveContext` that `darkAnchor` reads. */
+type AnchorContext = Pick<
+  ResolveContext,
+  'defs' | 'resolved' | 'config' | 'anchors' | 'externalAnchors'
+>;
 
 type ResolvedField = 'light' | 'dark' | 'lightContrast' | 'darkContrast';
 
-/** An OKHSL-lightness-shaped variant used at the mix/shadow edge. */
+/** An OKHSL-lightness-shaped variant used at the mix / shadow / glow edge. */
 interface OkhslVariant {
   h: number;
   s: number;
@@ -174,7 +297,7 @@ function resolveRoleInMap(
   if (cached) return cached;
 
   let role: Role | undefined;
-  if (isShadowDef(def)) {
+  if (isLightingDef(def)) {
     role = 'surface';
   } else if (isMixDef(def)) {
     role =
@@ -204,7 +327,7 @@ function resolveRoleInMap(
  *   4. `'text'` (foreground) default
  *
  * Memoized on `ctx.roles` so the four scheme passes share one resolution.
- * Shadows have no contrast participation and default to `'surface'`.
+ * Shadows and glows have no contrast participation and default to `'surface'`.
  */
 function resolveRole(name: string, def: ColorDef, ctx: ResolveContext): Role {
   return resolveRoleInMap(name, def, ctx.defs, ctx.config.inferRole, ctx.roles);
@@ -250,7 +373,7 @@ function passTone(
     : parseToneValueAt(tone, f);
 }
 
-/** The authored numeric pair for this pass (shadow `intensity`, mix `value`). */
+/** The authored numeric pair for this pass (shadow / glow `intensity`, mix `value`). */
 function passNumber(
   p: HCPair<number>,
   isHighContrast: boolean,
@@ -437,6 +560,241 @@ function resolveChannels(
   };
 }
 
+/**
+ * Whether a light-side anchor reads the stored light tone in this pass: high
+ * contrast or a level at 100 at the reference light eps, where the light window
+ * bypasses to the full range and is the identity. Those passes have always
+ * stepped dark deltas from the light tone, so reading it as stored keeps them
+ * bit-identical (recomputing the authored tone differs by float noise, which
+ * can flip a tie-broken contrast solve). A normal pass has always read the
+ * authored tone as is, so it keeps doing so even where its window is the
+ * identity too (`lightTone: false` / `[0, 100]`). Read off the theme's config,
+ * not a color's: a `from` color drops its own light window.
+ */
+function readsStoredLightTone(
+  isHighContrast: boolean,
+  config: GlazeConfigResolved,
+): boolean {
+  if (normalizeToneWindow(config.lightTone).eps !== REF_EPS) return false;
+  return isHighContrast || hcMirrorsNormal(config);
+}
+
+/**
+ * Where a step of `delta` from `anchor` lands on the authored scale: clamped to
+ * `0–100`, widened to reach an anchor past the dark window (a base a contrast
+ * floor, an extreme's replay, or its own fixed / static placement put there).
+ * A step back toward the scale then moves by the full delta, and one that
+ * points further out stops at the anchor — the base itself — instead of
+ * snapping back to the window's edge. Either way a step stops at the window's
+ * edge or at its base, whichever is further out, so the result moves
+ * continuously as the base crosses the edge.
+ */
+function stepFromAnchor(anchor: number, delta: number): number {
+  return clamp(anchor + delta, Math.min(0, anchor), Math.max(100, anchor));
+}
+
+/**
+ * Where a color sits on the authored `0–100` tone scale in one pass: the tone
+ * an `auto` color would be authored at to land where this one sits in dark. In
+ * dark, an `auto` tone delta steps from its base's anchor, so the dark step is
+ * the dark window's scale times the delta on every base.
+ *
+ * - An `auto` color placed by a tone (a root, an absolute tone, a `from` value,
+ *   an extreme with no base) returns that tone as authored for the pass.
+ * - An `auto` tone delta returns its base's anchor plus the delta
+ *   (`stepFromAnchor`), flipped exactly as the light pass flipped it on the
+ *   base's light tone, so a chain of deltas steps evenly. An `auto` color with
+ *   no tone of its own returns its base's.
+ * - Any other color — one whose dark tone is not the inversion of an authored
+ *   tone: a `fixed` / `static` color (which keeps its side, or rides its base
+ *   with its delta's sign kept), an `auto` contrast-solved color, an `auto`
+ *   extreme on a base (which replays its light shift), a mix — returns its own
+ *   dark tone taken back through the dark window (`unmapDarkTone`). So an
+ *   `auto` dependent mirrors around wherever its base sits in dark, inverting
+ *   per its own mode. That falls outside `0–100` when the color sits past the
+ *   window; a step from it stays off the scale until it comes back
+ *   (`stepFromAnchor`, `mapDarkToneUnclamped`), so it does not snap to the
+ *   window's edge.
+ * - An external base (a `glaze.color()` link) supplies its own anchor, read in
+ *   its own resolve context (`ctx.externalAnchors`), when its active dark window
+ *   is this pass's. A base under another dark window — or one with no hook — is
+ *   read back through this pass's dark window, so a `'+0'` lands on it and the
+ *   step is this window's scale times the delta.
+ * - A token's hidden seed (`anchorAtAuthoredTone`) is `static`, but returns its
+ *   tone as authored, like an `auto` color placed by a tone, so a delta on it
+ *   inverts in dark as it would from the same color in a theme.
+ *
+ * In high contrast and at `contrastLevel: 100` at the reference light eps
+ * (`readsStoredLightTone`), a light-side color's light tone *is* its authored
+ * tone, so it is read as stored. That keeps those passes bit-identical to the
+ * light-tone anchor they have always used, as a normal pass stays on the
+ * authored tone it has always used.
+ *
+ * Memoized per resolve and pass on `ctx.anchors`, so a long chain of deltas
+ * resolves in linear time without deep recursion: the dark passes run in topo
+ * order, so a base's anchor is cached before its dependents ask for it. A
+ * tone-less alias never asks for its own, so a chain of aliases is walked in a
+ * loop instead.
+ */
+function darkAnchor(
+  name: string,
+  ctx: AnchorContext,
+  isHighContrast: boolean,
+): DarkAnchor {
+  const memo = ctx.anchors[isHighContrast ? 1 : 0];
+  const cached = memo.get(name);
+  if (cached) return cached;
+
+  if (aliasBaseOf(ctx.defs[name]) !== undefined) {
+    const chain: string[] = [];
+    let target = name;
+    for (
+      let base = aliasBaseOf(ctx.defs[target]);
+      base !== undefined && !memo.has(target);
+      base = aliasBaseOf(ctx.defs[target])
+    ) {
+      chain.push(target);
+      target = base;
+    }
+    let anchor = darkAnchor(target, ctx, isHighContrast);
+    for (let i = chain.length - 1; i >= 0; i--) {
+      anchor = withStoredLightTone(chain[i], anchor, ctx, isHighContrast);
+      memo.set(chain[i], anchor);
+    }
+    return anchor;
+  }
+
+  const color = ctx.resolved.get(name)!;
+  const fromDark = (config: GlazeConfigResolved): DarkAnchor => ({
+    tone: unmapDarkTone(
+      getSchemeVariant(color, true, isHighContrast).t * 100,
+      'auto',
+      isHighContrast,
+      config,
+    ),
+    lightSide: false,
+  });
+
+  let anchor: DarkAnchor;
+  const def: ColorDef | undefined = ctx.defs[name];
+  if (def === undefined) {
+    const external = ctx.externalAnchors?.get(name)?.(isHighContrast);
+    anchor =
+      external === undefined ||
+      !sameDarkWindow(isHighContrast, external.config, ctx.config)
+        ? fromDark(ctx.config)
+        : { tone: external.tone, lightSide: false };
+  } else if (isMixDef(def) || isLightingDef(def)) {
+    anchor = fromDark(ctx.config);
+  } else {
+    const regDef = def as RegularColorDef;
+    const mode = regDef.mode ?? 'auto';
+    const config = configForColor(regDef, ctx.config);
+    const rawTone = regDef.tone ?? fromSeed(regDef)?.tone;
+    const parsed =
+      rawTone === undefined
+        ? undefined
+        : passTone(rawTone, isHighContrast, config);
+
+    if (
+      (mode !== 'auto' && !authoredToneAnchors.has(regDef)) ||
+      regDef.contrast !== undefined
+    ) {
+      anchor = fromDark(config);
+    } else if (parsed === undefined) {
+      anchor = darkAnchor(regDef.base!, ctx, isHighContrast);
+    } else if (parsed.kind === 'relative') {
+      const base = darkAnchor(regDef.base!, ctx, isHighContrast);
+      const baseLightTone =
+        getSchemeVariant(ctx.resolved.get(regDef.base!)!, false, isHighContrast)
+          .t * 100;
+      const flip = regDef.autoFlip ?? ctx.config.autoFlip;
+      anchor = {
+        tone: stepFromAnchor(
+          base.tone,
+          applyToneFlip(parsed.value, baseLightTone, flip),
+        ),
+        lightSide: base.lightSide,
+      };
+    } else if (parsed.kind === 'extreme' && regDef.base !== undefined) {
+      anchor = fromDark(config);
+    } else {
+      anchor = { tone: clamp(parsed.value, 0, 100), lightSide: true };
+    }
+  }
+
+  anchor = withStoredLightTone(name, anchor, ctx, isHighContrast);
+  memo.set(name, anchor);
+  return anchor;
+}
+
+/**
+ * A light-side anchor read as the color's stored light tone where that is its
+ * authored tone (`readsStoredLightTone`; see `darkAnchor`).
+ */
+function withStoredLightTone(
+  name: string,
+  anchor: DarkAnchor,
+  ctx: AnchorContext,
+  isHighContrast: boolean,
+): DarkAnchor {
+  if (!anchor.lightSide || !readsStoredLightTone(isHighContrast, ctx.config)) {
+    return anchor;
+  }
+  const color = ctx.resolved.get(name)!;
+  return {
+    tone: getSchemeVariant(color, false, isHighContrast).t * 100,
+    lightSide: true,
+  };
+}
+
+/**
+ * A resolved color's dark-delta anchor for one pass (see `darkAnchor`), read
+ * after its resolve. This is what a `glaze.color()` token hands the resolver
+ * (with its config, and cached per pass) when another token links to it as a
+ * `base`, so the link steps from where the base sits under the base's own
+ * windows and defs. Internal, not public API.
+ */
+export function darkAnchorOf(
+  name: string,
+  isHighContrast: boolean,
+  source: {
+    defs: ColorMap;
+    config: GlazeConfigResolved;
+    resolved: Map<string, ResolvedColor>;
+    externalBases?: Map<string, ResolvedColor>;
+    externalAnchors?: Map<string, DarkAnchorHook>;
+  },
+): number {
+  const resolved = new Map(source.externalBases);
+  for (const [key, color] of source.resolved) resolved.set(key, color);
+  return darkAnchor(
+    name,
+    {
+      defs: source.defs,
+      config: source.config,
+      resolved,
+      anchors: [new Map(), new Map()],
+      externalAnchors: source.externalAnchors,
+    },
+    isHighContrast,
+  ).tone;
+}
+
+/**
+ * Which side of its base a tone sits on (both 0–100), or `undefined` when they
+ * coincide. A gap within float noise counts as coinciding: a `'+0'` on a base
+ * whose dark tone was read back through the dark window lands a few ulps off
+ * it, and a strict comparison would let that noise pick the color's side.
+ */
+function sideOfBase(
+  tone: number,
+  baseTone: number,
+): 'lighter' | 'darker' | undefined {
+  if (Math.abs(tone - baseTone) < 1e-9) return undefined;
+  return tone < baseTone ? 'darker' : 'lighter';
+}
+
 function resolveDependentColor(
   name: string,
   def: RegularColorDef,
@@ -478,23 +836,22 @@ function resolveDependentColor(
 
     if (parsed.kind === 'relative') {
       if (isDark && mode === 'auto') {
-        const baseLightVariant = getSchemeVariant(
-          baseResolved,
-          false,
-          isHighContrast,
-        );
-        const baseLightTone = baseLightVariant.t * 100;
-        const absoluteLightTone = clamp(
-          baseLightTone + applyToneFlip(parsed.value, baseLightTone, flip),
-          0,
-          100,
-        );
-        // Invert + remap the base-anchored light tone into the dark window,
-        // exactly like an absolute author tone under `mode: 'auto'`.
-        preferredTone = mapToneForScheme(
-          absoluteLightTone,
-          'auto',
-          true,
+        const baseLightTone =
+          getSchemeVariant(baseResolved, false, isHighContrast).t * 100;
+        // Flip on the light scale, as the light pass did, so the dark step
+        // mirrors the light one instead of picking a side of its own.
+        const delta = applyToneFlip(parsed.value, baseLightTone, flip);
+        // Step from where the base sits on the authored scale — the tone its
+        // own dark variant is the inversion of — not from its light tone,
+        // which carries the light window's lift (or, for a solved color or a
+        // mix, sits wherever light put it). Either would land in the dark step
+        // and make it uneven across bases.
+        const anchor = darkAnchor(baseName, ctx, isHighContrast).tone;
+        // Invert + remap the stepped tone into the dark window, exactly like
+        // an absolute author tone under `mode: 'auto'` — past the window's
+        // edge where the base itself sits past it.
+        preferredTone = mapDarkToneUnclamped(
+          stepFromAnchor(anchor, delta),
           isHighContrast,
           config,
         );
@@ -550,12 +907,7 @@ function resolveDependentColor(
       ? ([0, 1] as const)
       : schemeToneRange(isDark, mode, isHighContrast, config);
 
-    let initialDirection: 'lighter' | 'darker' | undefined;
-    if (preferredTone < baseTone) {
-      initialDirection = 'darker';
-    } else if (preferredTone > baseTone) {
-      initialDirection = 'lighter';
-    }
+    let initialDirection = sideOfBase(preferredTone, baseTone);
 
     const solve = {
       hue: channels.hue,
@@ -587,9 +939,9 @@ function resolveDependentColor(
     // the probe solves the very problem that pass would solve, so it reproduces
     // that side. `flip` stays on, so a pinned side that physically cannot reach
     // the target still falls back to the opposite one and the floor is met.
-    // A color whose two endpoints genuinely disagree therefore changes side at
-    // most once, at level 50 — the same place every other un-interpolable
-    // decision switches.
+    // A color whose two endpoints genuinely disagree switches its preferred
+    // side at level 50, where every other un-interpolable decision switches;
+    // that fallback can still move it across earlier, or back and forth.
     const level = isHighContrast ? undefined : contrastFraction(config);
     let preferInitial = false;
     if (level !== undefined && level > 0 && level < 1) {
@@ -602,7 +954,8 @@ function resolveDependentColor(
         ),
         initialDirection,
       });
-      initialDirection = probe.tone * 100 < baseTone ? 'darker' : 'lighter';
+      initialDirection =
+        sideOfBase(probe.tone * 100, baseTone) ?? initialDirection;
       preferInitial = true;
     }
 
@@ -614,6 +967,7 @@ function resolveDependentColor(
     });
 
     if (!result.met) {
+      ctx.unmet.add(unmetKey(name, isDark, isHighContrast));
       warnContrastUnmet(
         name,
         isDark,
@@ -636,8 +990,8 @@ function resolveColorForScheme(
   isDark: boolean,
   isHighContrast: boolean,
 ): ResolvedColorVariant {
-  if (isShadowDef(def)) {
-    return resolveShadowForScheme(def, ctx, isDark, isHighContrast);
+  if (isLightingDef(def)) {
+    return resolveLightingForScheme(name, def, ctx, isDark, isHighContrast);
   }
 
   if (isMixDef(def)) {
@@ -683,37 +1037,72 @@ function resolveColorForScheme(
   };
 }
 
-function resolveShadowForScheme(
-  def: ShadowColorDef,
+/**
+ * Shadow / glow: solve the pigment opacity that lands this scheme's `bg`
+ * exactly `intensity × k` tones darker / lighter. `bg` and `fg` are read per
+ * scheme, so the object factor `k` adapts on its own in dark and high contrast.
+ * A glow past white with `headroom` gets `hdr` (base in OKHST + exposure); the
+ * same headroom applies in every scheme, high contrast included.
+ */
+function resolveLightingForScheme(
+  name: string,
+  def: ShadowColorDef | GlowColorDef,
   ctx: ResolveContext,
   isDark: boolean,
   isHighContrast: boolean,
 ): ResolvedColorVariant {
-  const bgResolved = ctx.resolved.get(def.bg)!;
   const bgVariant = toOkhslVariant(
-    getSchemeVariant(bgResolved, isDark, isHighContrast),
+    getSchemeVariant(ctx.resolved.get(def.bg)!, isDark, isHighContrast),
   );
-
-  let fgVariant: OkhslVariant | undefined;
-  if (def.fg) {
-    const fgResolved = ctx.resolved.get(def.fg)!;
-    fgVariant = toOkhslVariant(
-      getSchemeVariant(fgResolved, isDark, isHighContrast),
-    );
-  }
+  const fgVariant = def.fg
+    ? toOkhslVariant(
+        getSchemeVariant(ctx.resolved.get(def.fg)!, isDark, isHighContrast),
+      )
+    : undefined;
 
   const intensity = passNumber(def.intensity, isHighContrast, ctx.config);
+  const tuning = resolveLightingTuning(
+    def.tuning,
+    def.type === 'shadow' ? ctx.config.shadowTuning : ctx.config.glowTuning,
+  );
+  const pastel = def.pastel ?? ctx.config.pastel;
+  const result = computeLighting(
+    def.type,
+    { ...bgVariant, pastel: bgVariant.pastel ?? ctx.config.pastel },
+    fgVariant,
+    intensity,
+    tuning,
+    pastel,
+  );
+  warnLightingShortfall(
+    def.type,
+    name,
+    { isDark, isHighContrast },
+    result,
+    tuning.headroom,
+  );
 
-  const tuning = resolveShadowTuning(def.tuning, ctx.config.shadowTuning);
-  return {
-    ...toToneVariant(computeShadow(bgVariant, fgVariant, intensity, tuning)),
-    pastel: def.pastel ?? ctx.config.pastel,
+  const variant: ResolvedColorVariant = {
+    ...toToneVariant({
+      h: result.h,
+      s: result.s,
+      l: result.l,
+      alpha: result.alpha,
+    }),
+    pastel,
   };
+  if (result.hdr) variant.hdr = toResolvedHdr(result.hdr);
+  return variant;
 }
 
 function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {
   return okhslToLinearSrgb(v.h, v.s, v.l, pastel);
 }
+
+/** Saturation at or below which a mix endpoint counts as gray (no hue). */
+const MIX_SAT_EPSILON = 1e-6;
+/** Lightness margin from 0 and 1 for re-reading a mix endpoint's saturation. */
+const MIX_EXTREME_L = 1e-4;
 
 /**
  * Resolve hue for OKHSL mixing, handling achromatic colors.
@@ -722,9 +1111,8 @@ function okhslVariantToLinearRgb(v: OkhslVariant, pastel: boolean): LinearRgb {
  * color-mix "missing component" behavior).
  */
 function mixHue(base: OkhslVariant, target: OkhslVariant, t: number): number {
-  const SAT_EPSILON = 1e-6;
-  const baseHasSat = base.s > SAT_EPSILON;
-  const targetHasSat = target.s > SAT_EPSILON;
+  const baseHasSat = base.s > MIX_SAT_EPSILON;
+  const targetHasSat = target.s > MIX_SAT_EPSILON;
 
   if (baseHasSat && targetHasSat) return circularLerp(base.h, target.h, t);
   if (targetHasSat) return target.h;
@@ -743,44 +1131,14 @@ function linearSrgbLerp(
   ];
 }
 
-/** Gamma-encoded sRGB clamped to the display gamut — what a browser paints. */
-function toDisplayGamma(rgb: LinearRgb): LinearRgb {
-  return [
-    clamp(sRGBLinearToGamma(rgb[0]), 0, 1),
-    clamp(sRGBLinearToGamma(rgb[1]), 0, 1),
-    clamp(sRGBLinearToGamma(rgb[2]), 0, 1),
-  ];
-}
-
 /**
- * Browser alpha compositing: `source-over` interpolates the gamma-encoded
- * channels, not linear light (50% black over white paints `#808080`).
- * Takes display-gamma inputs and returns the composite as linear sRGB for
- * the luminance pipeline.
+ * Linear sRGB → OKHSL in one saturation space. Channels are clamped to sRGB
+ * first, and a pastel read caps saturation at the pastel limit (same hue and
+ * lightness), so the result is a color that space can paint.
  */
-function compositeOverGamma(
-  baseGamma: LinearRgb,
-  targetGamma: LinearRgb,
-  alpha: number,
-): LinearRgb {
-  return [
-    sRGBGammaToLinear(baseGamma[0] + (targetGamma[0] - baseGamma[0]) * alpha),
-    sRGBGammaToLinear(baseGamma[1] + (targetGamma[1] - baseGamma[1]) * alpha),
-    sRGBGammaToLinear(baseGamma[2] + (targetGamma[2] - baseGamma[2]) * alpha),
-  ];
-}
-
-function linearRgbToToneVariant(
-  rgb: LinearRgb,
-  pastel: boolean,
-): ResolvedColorVariant {
-  const gamma: [number, number, number] = [
-    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[0]))),
-    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[1]))),
-    Math.max(0, Math.min(1, sRGBLinearToGamma(rgb[2]))),
-  ];
-  const [h, s, l] = srgbToOkhsl(gamma, pastel);
-  return toToneVariant({ h, s, l, alpha: 1 });
+function linearRgbToOkhsl(rgb: LinearRgb, pastel: boolean): OkhslVariant {
+  const [h, s, l] = srgbToOkhsl(toDisplayGamma(rgb), pastel);
+  return { h, s, l, alpha: 1, pastel };
 }
 
 function resolveMixForScheme(
@@ -807,14 +1165,68 @@ function resolveMixForScheme(
   const role = resolveRole(name, def, ctx);
   const polarity = roleToPolarity(role);
   const pastel = def.pastel ?? ctx.config.pastel;
-  const baseLinear = okhslVariantToLinearRgb(
-    baseVariant,
-    baseVariant.pastel ?? ctx.config.pastel,
-  );
-  const targetLinear = okhslVariantToLinearRgb(
-    targetVariant,
-    targetVariant.pastel ?? ctx.config.pastel,
-  );
+  const basePastel = baseVariant.pastel ?? ctx.config.pastel;
+  const targetPastel = targetVariant.pastel ?? ctx.config.pastel;
+  // What each endpoint paints, under its own flag.
+  const baseLinear = okhslVariantToLinearRgb(baseVariant, basePastel);
+  const targetLinear = okhslVariantToLinearRgb(targetVariant, targetPastel);
+
+  // `pastel` sets the gamut of the mixed result, so an endpoint under the
+  // other flag has its saturation re-read in the mix's space from the same
+  // OKLab color; hue and lightness carry over. A standard mix holds a pastel
+  // endpoint exactly, and a pastel mix caps a vivid one at the pastel limit.
+  const inMixSpace = (v: OkhslVariant, own: boolean): OkhslVariant => {
+    // A gray (as `mixHue` counts one) has no saturation to re-read.
+    if (own === pastel || v.s <= MIX_SAT_EPSILON) return v;
+    // White and black have no chroma to measure in either space, so the
+    // re-read runs just inside the lightness range, where it has converged:
+    // their saturation still carries their hue, and the mix stays continuous
+    // as an endpoint reaches tone 0 or 100.
+    const l = clamp(v.l, MIX_EXTREME_L, 1 - MIX_EXTREME_L);
+    const s = oklabToOkhsl(okhslToOklab(v.h, v.s, l, own), pastel)[1];
+    return { ...v, s, pastel };
+  };
+
+  // `mixAt(v)` is the color the mix emits at value `v` and `paintAt(v)` what
+  // it paints. The contrast search measures `paintAt`, so the floor holds on
+  // the emitted color.
+  let mixAt: (v: number) => OkhslVariant;
+  let paintAt: (v: number) => LinearRgb;
+
+  if (blend === 'transparent') {
+    // The overlay is the target in the mix's gamut, composited by the browser
+    // over the base as painted.
+    const overlay = inMixSpace(targetVariant, targetPastel);
+    const baseGamma = toDisplayGamma(baseLinear);
+    const overlayGamma = toDisplayGamma(
+      okhslVariantToLinearRgb(overlay, pastel),
+    );
+    mixAt = (v) => ({ ...overlay, alpha: clamp(v, 0, 1) });
+    paintAt = (v) => compositeOverGamma(baseGamma, overlayGamma, v);
+  } else if (space === 'srgb') {
+    // The lerp runs between the painted endpoints and is emitted in the mix's
+    // space. The standard gamut holds every lerp (sRGB is convex), so only a
+    // pastel mix can clamp one, at the pastel limit (saturation 1), and only
+    // a clamped lerp is measured as emitted.
+    const lerpAt = (v: number) => linearSrgbLerp(baseLinear, targetLinear, v);
+    mixAt = (v) => linearRgbToOkhsl(lerpAt(v), pastel);
+    paintAt = pastel
+      ? (v) => {
+          const mixed = mixAt(v);
+          return mixed.s < 1 ? lerpAt(v) : okhslVariantToLinearRgb(mixed, true);
+        }
+      : lerpAt;
+  } else {
+    const from = inMixSpace(baseVariant, basePastel);
+    const to = inMixSpace(targetVariant, targetPastel);
+    mixAt = (v) => ({
+      h: mixHue(from, to, v),
+      s: clamp(from.s + (to.s - from.s) * v, 0, 1),
+      l: clamp(from.l + (to.l - from.l) * v, 0, 1),
+      alpha: 1,
+    });
+    paintAt = (v) => okhslVariantToLinearRgb(mixAt(v), pastel);
+  }
 
   if (def.contrast !== undefined) {
     const resolvedContrast = resolveContrastSpec(
@@ -825,66 +1237,44 @@ function resolveMixForScheme(
     );
     const metric = resolvedContrast.metric;
 
-    let luminanceAt: (v: number) => number;
-
-    if (blend === 'transparent') {
-      const baseGamma = toDisplayGamma(baseLinear);
-      const targetGamma = toDisplayGamma(targetLinear);
-      luminanceAt = (v: number) =>
-        metricLuminance(metric, compositeOverGamma(baseGamma, targetGamma, v));
-    } else if (space === 'srgb') {
-      luminanceAt = (v: number) =>
-        metricLuminance(metric, linearSrgbLerp(baseLinear, targetLinear, v));
-    } else {
-      luminanceAt = (v: number) => {
-        const h = mixHue(baseVariant, targetVariant, v);
-        const s = baseVariant.s + (targetVariant.s - baseVariant.s) * v;
-        const l = baseVariant.l + (targetVariant.l - baseVariant.l) * v;
-        return metricLuminance(metric, okhslToLinearSrgb(h, s, l, pastel));
-      };
-    }
-
     const result = findValueForMixContrast({
       preferredValue: t,
       baseLinearRgb: baseLinear,
-      targetLinearRgb: targetLinear,
       contrast: resolvedContrast,
-      luminanceAtValue: luminanceAt,
+      luminanceAtValue: (v) => metricLuminance(metric, paintAt(v)),
       flip: ctx.config.autoFlip,
     });
     t = result.value;
+
+    // Unmet means even the pure target falls short of the floor. The mix
+    // settles at the end of the range it searched; say so like a regular
+    // color does (deduped, with the same slack, so a rounding miss stays quiet).
+    if (!result.met) {
+      warnMixContrastUnmet(
+        name,
+        isDark,
+        isHighContrast,
+        resolvedContrast,
+        result.contrast,
+        // Blame the pastel cap only when the target painted in full would
+        // meet the floor.
+        pastel &&
+          !targetPastel &&
+          metricScore(
+            metric,
+            metricLuminance(metric, targetLinear),
+            metricLuminance(metric, baseLinear),
+            resolvedContrast.polarity,
+          ) >= resolvedContrast.target,
+      );
+    }
   }
 
-  if (blend === 'transparent') {
-    return {
-      ...toToneVariant({
-        h: targetVariant.h,
-        s: targetVariant.s,
-        l: targetVariant.l,
-        alpha: clamp(t, 0, 1),
-      }),
-      pastel,
-    };
-  }
-
-  if (space === 'srgb') {
-    const mixed = linearSrgbLerp(baseLinear, targetLinear, t);
-    return { ...linearRgbToToneVariant(mixed, pastel), pastel };
-  }
-
-  return {
-    ...toToneVariant({
-      h: mixHue(baseVariant, targetVariant, t),
-      s: clamp(baseVariant.s + (targetVariant.s - baseVariant.s) * t, 0, 1),
-      l: clamp(baseVariant.l + (targetVariant.l - baseVariant.l) * t, 0, 1),
-      alpha: 1,
-    }),
-    pastel,
-  };
+  return { ...toToneVariant(mixAt(t)), pastel };
 }
 
 function defMode(def: ColorDef): AdaptationMode | undefined {
-  if (isShadowDef(def) || isMixDef(def)) return undefined;
+  if (isLightingDef(def) || isMixDef(def)) return undefined;
   return (def as RegularColorDef).mode ?? 'auto';
 }
 
@@ -945,10 +1335,28 @@ function seedField(
   }
 }
 
+/** Key for `ResolveContext.unmet`: one color in one scheme. */
+function unmetKey(
+  name: string,
+  isDark: boolean,
+  isHighContrast: boolean,
+): string {
+  return `${name}|${isDark ? 'dark' : 'light'}|${isHighContrast ? 'hc' : ''}`;
+}
+
+/** Below this OKHSL saturation a variant is a gray: its tone is exact. */
+const ACHROMATIC_EPSILON = 1e-6;
+
 /**
- * After the passes, surface chromatic contrast drift (§10): a color
- * resolved with a `base` + `contrast` may land slightly under the contrast
- * its tone implies because chromatic luminance drifts from the gray tone.
+ * After the passes, surface chromatic contrast drift (the drift check in
+ * docs/okhst.mdx): a color resolved with a `base` + `contrast` may land
+ * slightly under the contrast its tone implies because chromatic luminance
+ * drifts from the gray tone.
+ *
+ * Two kinds of variant are skipped. One the solver reported as unmet (`unmet`)
+ * already got a "cannot meet" warning with the same measured value, and the
+ * shortfall is an unreachable floor, not drift. An achromatic one (saturation
+ * 0) has no chromatic luminance to drift, so the advisory's cause can't apply.
  *
  * Under a manual `contrastLevel` the spec is resolved at the level, so the check
  * measures each normal variant against the target it was actually solved for. At
@@ -961,11 +1369,12 @@ function verifyContrastDrift(
   defs: ColorMap,
   result: Map<string, ResolvedColor>,
   config: GlazeConfigResolved,
+  unmet: ReadonlySet<string>,
 ): void {
   const roles = new Map<string, Role>();
   for (const name of order) {
     const def = defs[name];
-    if (isShadowDef(def) || isMixDef(def)) continue;
+    if (isLightingDef(def) || isMixDef(def)) continue;
     const regDef = def as RegularColorDef;
     if (regDef.contrast === undefined || !regDef.base) continue;
     const color = result.get(name);
@@ -990,13 +1399,15 @@ function verifyContrastDrift(
     for (const s of schemes) {
       // At level 100 the high-contrast slots are mirrors of the normal ones.
       if (mirrored && s.isHighContrast) continue;
+      if (unmet.has(unmetKey(name, s.isDark, s.isHighContrast))) continue;
+      const cVariant = color[s.field];
+      if (cVariant.s <= ACHROMATIC_EPSILON) continue;
       const spec = resolveContrastSpec(
         regDef.contrast,
         s.isHighContrast,
         config,
         polarity,
       );
-      const cVariant = color[s.field];
       const bVariant = base[s.field];
       const cOkhsl = toOkhslVariant(cVariant);
       const bOkhsl = toOkhslVariant(bVariant);
@@ -1024,6 +1435,7 @@ export function resolveAllColors(
   defs: ColorMap,
   config: GlazeConfigResolved,
   externalBases?: Map<string, ResolvedColor>,
+  externalAnchors?: Map<string, DarkAnchorHook>,
 ): Map<string, ResolvedColor> {
   validateColorDefs(defs, externalBases);
   const order = topoSort(defs);
@@ -1034,6 +1446,9 @@ export function resolveAllColors(
     resolved: new Map(),
     config,
     roles: new Map(),
+    unmet: new Set(),
+    anchors: [new Map(), new Map()],
+    externalAnchors,
   };
 
   // Pre-seed externally-resolved bases. The per-pass loops iterate only
@@ -1051,8 +1466,9 @@ export function resolveAllColors(
   // the high-contrast passes bit for bit, so the two are skipped and their slots
   // mirror the normal ones. That holds because within a pass a dependent reads
   // its base's same slot (topo order), and the only cross-scheme reads — the
-  // relative-tone dark branch and `extremeDarkTone` — read `light`, which equals
-  // `lightContrast` at 100.
+  // relative-tone dark branch (`darkAnchor`) and `extremeDarkTone` — read
+  // `light`, which equals `lightContrast` at 100, and every window they map or
+  // unmap through is the same full-range literal in both.
   const mirrored = hcMirrorsNormal(config);
 
   // Pass 1: Light (normal, or at the level).
@@ -1089,7 +1505,7 @@ export function resolveAllColors(
     });
   }
 
-  verifyContrastDrift(order, defs, result, config);
+  verifyContrastDrift(order, defs, result, config, ctx.unmet);
 
   return result;
 }

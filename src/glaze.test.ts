@@ -6,16 +6,26 @@ import {
   gamutClampedLuminance,
   apcaLuminanceFromLinearRgb,
   parseHex,
+  relativeLuminanceFromLinearRgb,
   sRGBGammaToLinear,
   srgbToHex,
+  srgbToOkhsl,
+  toDisplayGamma,
+  compositeOverGamma,
 } from './okhsl-color-math';
 import { apcaContrast } from './contrast-solver';
-import { variantToOkhsl } from './okhst';
+import { fromTone, toneFromY, variantToOkhsl } from './okhst';
 import type {
+  ColorMap,
   ContrastSpec,
   DtcgColorToken,
+  DtcgSrgbColorValue,
   GlazeColorTokenExport,
   HCPair,
+  LightingTuning,
+  MixColorDef,
+  RegularColorDef,
+  ResolvedColor,
   ResolvedColorVariant,
   ToneValue,
 } from './types';
@@ -139,6 +149,61 @@ describe('glaze', () => {
     it('defaults saturation to 100 when using shorthand', () => {
       const theme = glaze(280);
       expect(theme.saturation).toBe(100);
+    });
+
+    it('takes the config override second in the object form', () => {
+      const theme = glaze({ hue: 280, saturation: 80 }, { pastel: true });
+      expect(theme.getConfig().pastel).toBe(true);
+
+      const legacy = glaze({ hue: 280, saturation: 80 }, undefined, {
+        pastel: true,
+      });
+      expect(legacy.getConfig().pastel).toBe(true);
+    });
+
+    it('takes a config second after a numeric hue (untyped, not dropped)', () => {
+      const theme = glaze(280, { pastel: true } as never);
+      expect(theme.saturation).toBe(100);
+      expect(theme.getConfig().pastel).toBe(true);
+    });
+
+    it('lets a third-argument config win over an untyped second one', () => {
+      const theme = glaze(200, { lightTone: false } as never, {
+        darkTone: false,
+      });
+      expect(theme.getConfig().darkTone).toBe(false);
+      expect(theme.getConfig().lightTone).toEqual(glaze.getConfig().lightTone);
+    });
+
+    it('reads a null config as no override', () => {
+      const css = (theme: ReturnType<typeof glaze>) => {
+        theme.colors({ a: { tone: 50 } });
+        return theme.css().light;
+      };
+      const reference = css(glaze(200, 50));
+      expect(css(glaze(200, 50, null as never))).toBe(reference);
+      expect(
+        css(glaze({ hue: 200, saturation: 50 }, undefined, null as never)),
+      ).toBe(reference);
+      expect(
+        glaze(200, { lightTone: false } as never, null as never).getConfig()
+          .lightTone,
+      ).toBe(false);
+    });
+
+    it('reads a null saturation as unset', () => {
+      const theme = glaze(280, null as never, { pastel: true });
+      expect(theme.saturation).toBe(100);
+      expect(theme.getConfig().pastel).toBe(true);
+      const plain = glaze(280, null as never);
+      plain.colors({ a: { tone: 50 } });
+      expect(plain.css().light).toBe(
+        (() => {
+          const ref = glaze(280);
+          ref.colors({ a: { tone: 50 } });
+          return ref.css().light;
+        })(),
+      );
     });
   });
 
@@ -551,7 +616,8 @@ describe('glaze', () => {
       const fg = r.get('fg')!;
       const lightShift = (fg.light.t - bg.light.t) * 100;
       const darkShift = (fg.dark.t - bg.dark.t) * 100;
-      // Documented in docs/api.md — keep the two in sync.
+      // Documented in docs/okhst.mdx and docs/reference/color-definitions.md
+      // — keep them in sync.
       expect(bg.light.t * 100).toBeCloseTo(62.0, 1);
       expect(fg.light.t * 100).toBeCloseTo(100.0, 1);
       expect(bg.dark.t * 100).toBeCloseTo(43.9, 1);
@@ -1832,7 +1898,7 @@ describe('glaze', () => {
       theme.colors({ surface: { tone: 97 } });
       const exported = theme.export();
       expect(exported.kind).toBe('theme');
-      expect(exported.version).toBe(1);
+      expect(exported.version).toBe(2);
       expect(exported.config?.lightTone).toEqual({
         lo: 10,
         hi: 100,
@@ -1878,7 +1944,7 @@ describe('glaze', () => {
       theme.colors({ surface: { tone: 97 } });
       const exported = theme.export();
       exported.colors.surface = { tone: 10 };
-      expect(theme.color('surface')!.tone).toBe(97);
+      expect((theme.color('surface') as RegularColorDef).tone).toBe(97);
     });
 
     it('accepts legacy theme snapshots without kind/version', () => {
@@ -1929,6 +1995,88 @@ describe('glaze', () => {
         /invalid "version"/,
       );
     });
+
+    describe('version-1 (Glaze 1.1–2) snapshots', () => {
+      const v1 = {
+        kind: 'theme' as const,
+        version: 1,
+        hue: 0,
+        saturation: 0,
+        colors: {
+          surface: { tone: 97 },
+        } as ColorMap,
+      };
+
+      it('rejects one with shadow colors', () => {
+        expect(() =>
+          glaze.themeFrom({
+            ...v1,
+            colors: {
+              ...v1.colors,
+              'shadow-md': { type: 'shadow', bg: 'surface', intensity: 10 },
+            },
+          }),
+        ).toThrow(
+          /export version 1 \(Glaze 1\.1–2\).*shadow colors \("shadow-md"\)/,
+        );
+      });
+
+      it('rejects one with a shadowTuning config', () => {
+        expect(() =>
+          glaze.themeFrom({ ...v1, config: { shadowTuning: {} } }),
+        ).toThrow(/a "shadowTuning" config/);
+      });
+
+      it('loads one without shadows, and unversioned hand-written ones', () => {
+        expect(glaze.themeFrom(v1).resolve().get('surface')).toBeDefined();
+        const handWritten = glaze.themeFrom({
+          hue: 0,
+          saturation: 0,
+          colors: {
+            surface: { tone: 97 },
+            shade: { type: 'shadow', bg: 'surface', intensity: 6 },
+          },
+        });
+        expect(handWritten.resolve().get('shade')!.light.alpha).toBeGreaterThan(
+          0,
+        );
+      });
+
+      it('rejects a version-1 palette whose theme has shadows', () => {
+        expect(() =>
+          glaze.paletteFrom({
+            kind: 'palette',
+            version: 1,
+            themes: {
+              brand: {
+                hue: 0,
+                saturation: 0,
+                colors: {
+                  surface: { tone: 97 },
+                  shade: { type: 'shadow', bg: 'surface', intensity: 6 },
+                },
+              },
+            },
+          }),
+        ).toThrow(/theme "brand".*export version 1/);
+      });
+    });
+
+    it('round-trips glow defs and glowTuning', () => {
+      const theme = glaze(260, 40, { glowTuning: { objectInfluence: 0.25 } });
+      theme.colors({
+        surface: { tone: 12 },
+        chip: { tone: 40 },
+        'chip-glow': { type: 'glow', bg: 'surface', fg: 'chip', intensity: 6 },
+      });
+      const snapshot = JSON.parse(JSON.stringify(theme.export()));
+      expect(snapshot.config.glowTuning).toEqual({ objectInfluence: 0.25 });
+      const restored = glaze.themeFrom(snapshot);
+      const a = theme.resolve().get('chip-glow')!;
+      const b = restored.resolve().get('chip-glow')!;
+      expect(b.light.alpha).toBeCloseTo(a.light.alpha, 10);
+      expect(b.dark.alpha).toBeCloseTo(a.dark.alpha, 10);
+    });
   });
 
   describe('palette export / paletteFrom', () => {
@@ -1958,7 +2106,7 @@ describe('glaze', () => {
       const palette = richPalette();
       const snapshot = JSON.parse(JSON.stringify(palette.export()));
       expect(snapshot.kind).toBe('palette');
-      expect(snapshot.version).toBe(1);
+      expect(snapshot.version).toBe(2);
       expect(snapshot.primary).toBe('brand');
       expect(snapshot.themes.brand.kind).toBe('theme');
 
@@ -2150,11 +2298,14 @@ describe('glaze', () => {
       expect(tokens['#accent']['']).toMatch(/oklch\([^)]*var\(--accent-hue\)/);
     });
 
-    it('is a no-op for hsl and rgb formats', () => {
+    it('throws for hsl and rgb formats', () => {
       const theme = pastelTheme();
-      const inline = theme.css({ format: 'rgb' });
-      const withFlag = theme.css({ format: 'rgb', splitHue: true });
-      expect(withFlag.light).toBe(inline.light);
+      expect(() => theme.css({ format: 'rgb', splitHue: true })).toThrow(
+        "glaze: splitHue requires format 'oklch' (got 'rgb').",
+      );
+      expect(() => theme.css({ format: 'hsl', splitHue: true })).toThrow(
+        "(got 'hsl')",
+      );
     });
 
     it('emits no dark hue declarations without a dark hue', () => {
@@ -2322,7 +2473,7 @@ describe('glaze', () => {
       ).toThrow(/requires every color to be pastel/);
     });
 
-    it('inlines achromatic, shadow, and mix colors and preserves alpha', () => {
+    it('inlines achromatic, shadow, glow, and mix colors and preserves alpha', () => {
       const theme = glaze(240, 18, { pastel: true });
       theme.colors({
         surface: { tone: 50 },
@@ -2335,6 +2486,7 @@ describe('glaze', () => {
           fg: 'text',
           intensity: 0.5,
         },
+        lift: { type: 'glow', bg: 'surface', intensity: 2 },
         ghost: {
           type: 'mix',
           base: 'surface',
@@ -2357,6 +2509,11 @@ describe('glaze', () => {
         /--shadow-color: oklch\([\d.]+ [\d.]+ [\d.]+ \/ [\d.]+\)/,
       );
       expect(css.light).not.toMatch(/--shadow-color:[^;]*var\(/);
+      // glow → inline (no var()), with alpha
+      expect(css.light).toMatch(
+        /--lift-color: oklch\([\d.]+ [\d.]+ [\d.]+ \/ [\d.]+\)/,
+      );
+      expect(css.light).not.toMatch(/--lift-color:[^;]*var\(/);
       // mix → inline (no var())
       expect(css.light).toMatch(/--ghost-color: oklch\([\d.]+ [\d.]+ [\d.]+\)/);
       expect(css.light).not.toMatch(/--ghost-color:[^;]*var\(/);
@@ -2416,7 +2573,8 @@ describe('glaze', () => {
       const dtcg = theme.dtcg();
       const lightToken = dtcg.light.surface;
       expect(lightToken.$type).toBe('color');
-      const value = lightToken.$value;
+      // `srgb` is the default color space; the assertion below checks it.
+      const value = lightToken.$value as DtcgSrgbColorValue;
       expect(value.colorSpace).toBe('srgb');
       expect(value.components).toHaveLength(3);
       for (const c of value.components) {
@@ -3060,7 +3218,7 @@ describe('glaze', () => {
       it('value-form snapshots the tone-window config (light=false, dark default)', () => {
         const data: GlazeColorTokenExport = glaze.color('#26fcb2').export();
         expect(data.kind).toBe('color');
-        expect(data.version).toBe(1);
+        expect(data.version).toBe(2);
         expect(data.config?.lightTone).toBe(false);
         expect(data.config?.darkTone).toEqual({ lo: 15, hi: 95, eps: 0.05 });
         expect(data.config?.pastel).toBe(false);
@@ -3169,70 +3327,608 @@ describe('glaze', () => {
     });
   });
 
-  describe('shadow colors', () => {
-    it('resolves a shadow with 0 < alpha < 1', () => {
+  describe('shadow and glow colors', () => {
+    interface Okhsl {
+      h: number;
+      s: number;
+      l: number;
+    }
+
+    /** Luminance tone (0–100) of a color the browser paints. */
+    function paintedTone(gamma: [number, number, number]): number {
+      const lin = gamma.map(sRGBGammaToLinear) as [number, number, number];
+      return toneFromY(relativeLuminanceFromLinearRgb(lin));
+    }
+
+    /**
+     * Tones the surface moves once `overlay` is composited over it the way
+     * browsers do (`source-over` on gamma-encoded sRGB): positive = darker.
+     */
+    function stepOver(overlay: ResolvedColorVariant, bg: Okhsl): number {
+      const o = variantToOkhsl(overlay);
+      const gO = okhslToSrgb(o.h, o.s, o.l);
+      const gB = okhslToSrgb(bg.h, bg.s, bg.l);
+      const composite = gB.map((c, i) => c + (gO[i] - c) * overlay.alpha) as [
+        number,
+        number,
+        number,
+      ];
+      return paintedTone(gB) - paintedTone(composite);
+    }
+
+    function stepIn(
+      r: Map<string, ResolvedColor>,
+      name: string,
+      bg: string,
+      scheme: 'light' | 'dark' | 'lightContrast' | 'darkContrast',
+    ): number {
+      return stepOver(r.get(name)![scheme], variantToOkhsl(r.get(bg)![scheme]));
+    }
+
+    const gray = (tone: number): Okhsl => ({ h: 0, s: 0, l: fromTone(tone) });
+    const SCHEMES = ['light', 'dark', 'lightContrast', 'darkContrast'] as const;
+
+    describe('intensity is an exact tone step', () => {
+      // Neutral light / mid / dark surfaces plus chromatic ones (a saturated
+      // blue accent, a warm mid-tone, a deep green).
+      const SURFACES: Record<string, RegularColorDef> = {
+        white: { tone: 100, saturation: 0 },
+        light: { tone: 92, saturation: 0 },
+        mid: { tone: 50, saturation: 0 },
+        dim: { tone: 25, saturation: 0 },
+        dark: { tone: 15, saturation: 0 },
+        blue: { hue: 260, tone: 44 },
+        warm: { hue: 40, tone: 70 },
+        green: { hue: 150, tone: 30 },
+      };
+
+      function lightingTheme(type: 'shadow' | 'glow', intensity: number) {
+        const theme = glaze(260, 87, { lightTone: false, darkTone: false });
+        const defs: ColorMap = { ...SURFACES };
+        for (const name of Object.keys(SURFACES)) {
+          defs[`${name}-${type}`] = { type, bg: name, intensity };
+        }
+        theme.colors(defs);
+        return theme.resolve();
+      }
+
+      it('shadow lands exactly `intensity` tones darker on every surface and scheme', () => {
+        const r = lightingTheme('shadow', 6);
+        // White inverts to black in dark; it is the unreachable case there.
+        for (const name of Object.keys(SURFACES)) {
+          for (const scheme of SCHEMES) {
+            if (name === 'white' && scheme.startsWith('dark')) continue;
+            expect(stepIn(r, `${name}-shadow`, name, scheme)).toBeCloseTo(6, 4);
+          }
+        }
+      });
+
+      it('glow lands exactly `intensity` tones lighter on every surface and scheme', () => {
+        const r = lightingTheme('glow', 6);
+        // White has nothing above it in light; it is the unreachable case.
+        for (const name of Object.keys(SURFACES)) {
+          for (const scheme of SCHEMES) {
+            if (name === 'white' && !scheme.startsWith('dark')) continue;
+            expect(stepIn(r, `${name}-glow`, name, scheme)).toBeCloseTo(-6, 4);
+          }
+        }
+      });
+
+      it('solves a different opacity per surface (the issue table)', () => {
+        const alpha = (kind: 'shadow' | 'glow', tone: number) =>
+          glaze[kind]({ bg: { h: 0, s: 0, t: tone / 100 }, intensity: 6 })
+            .alpha;
+        expect(alpha('shadow', 100)).toBeCloseTo(0.081, 3);
+        expect(alpha('shadow', 92)).toBeCloseTo(0.083, 3);
+        expect(alpha('shadow', 50)).toBeCloseTo(0.107, 3);
+        expect(alpha('shadow', 15)).toBeCloseTo(0.29, 3);
+        expect(alpha('shadow', 10)).toBeCloseTo(0.477, 3);
+        expect(alpha('glow', 92)).toBeCloseTo(0.741, 3);
+        expect(alpha('glow', 50)).toBeCloseTo(0.095, 3);
+        expect(alpha('glow', 15)).toBeCloseTo(0.059, 3);
+        expect(alpha('glow', 10)).toBeCloseTo(0.061, 3);
+      });
+
+      it('direction is fixed per type in every scheme', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { tone: 95 },
+          shade: { type: 'shadow', bg: 'surface', intensity: 4 },
+          lift: { type: 'glow', bg: 'surface', intensity: 4 },
+        });
+        const r = theme.resolve();
+        for (const scheme of SCHEMES) {
+          expect(stepIn(r, 'shade', 'surface', scheme)).toBeGreaterThan(3.9);
+          if (scheme.startsWith('dark')) {
+            expect(stepIn(r, 'lift', 'surface', scheme)).toBeLessThan(-3.9);
+          }
+        }
+      });
+
+      it('emits a pure black / white pigment that keeps the surface hue', () => {
+        const shadow = glaze.shadow({ bg: '#ffffff', intensity: 6 });
+        expect(glaze.format(shadow, 'rgb')).toBe('rgb(0 0 0 / 0.0814)');
+        const glow = glaze.glow({ bg: '#000000', intensity: 6 });
+        expect(glaze.format(glow, 'rgb')).toMatch(
+          /^rgb\(255 255 255 \/ 0\.\d+\)$/,
+        );
+
+        // Darkening a chromatic surface with black does not shift its hue.
+        const theme = glaze(260, 87);
+        theme.colors({
+          accent: { tone: 44 },
+          pressed: { type: 'shadow', bg: 'accent', intensity: 10 },
+        });
+        const r = theme.resolve();
+        const accent = variantToOkhsl(r.get('accent')!.light);
+        const pressed = r.get('pressed')!.light;
+        const p = variantToOkhsl(pressed);
+        const gA = okhslToSrgb(accent.h, accent.s, accent.l);
+        const gP = okhslToSrgb(p.h, p.s, p.l);
+        const composite = gA.map((c, i) => c + (gP[i] - c) * pressed.alpha) as [
+          number,
+          number,
+          number,
+        ];
+        expect(srgbToOkhsl(composite)[0]).toBeCloseTo(accent.h, 0);
+      });
+    });
+
+    describe('object influence', () => {
+      // k = max(0, 1 + β·d·(t_bg − t_fg)/100), β = 0.5 by default.
+      const at = (
+        kind: 'shadow' | 'glow',
+        bgTone: number,
+        fgTone: number | undefined,
+        tuning?: LightingTuning,
+      ) =>
+        stepOver(
+          glaze[kind]({
+            bg: { h: 0, s: 0, t: bgTone / 100 },
+            fg:
+              fgTone === undefined
+                ? undefined
+                : { h: 0, s: 0, t: fgTone / 100 },
+            intensity: 8,
+            tuning,
+          }),
+          gray(bgTone),
+        );
+
+      it('scales the shadow step by how dark the object is', () => {
+        expect(at('shadow', 97, 100)).toBeCloseTo(7.88, 2);
+        expect(at('shadow', 97, 45)).toBeCloseTo(10.08, 2);
+        expect(at('shadow', 97, 8)).toBeCloseTo(11.56, 2);
+        expect(at('shadow', 12, 20)).toBeCloseTo(7.68, 2);
+        expect(at('shadow', 12, 55)).toBeCloseTo(6.28, 2);
+        expect(at('shadow', 12, 95)).toBeCloseTo(4.68, 2);
+      });
+
+      it('scales the glow step by how light the object is', () => {
+        expect(at('glow', 12, 20)).toBeCloseTo(-8.32, 2);
+        expect(at('glow', 12, 55)).toBeCloseTo(-9.72, 2);
+      });
+
+      it('an object at the surface tone, or none, gives exactly `intensity`', () => {
+        expect(at('shadow', 60, 60)).toBeCloseTo(8, 4);
+        expect(at('shadow', 60, undefined)).toBeCloseTo(8, 4);
+        expect(at('glow', 30, 30)).toBeCloseTo(-8, 4);
+      });
+
+      it('objectInfluence 0 ignores the object; k never goes negative', () => {
+        expect(at('shadow', 97, 8, { objectInfluence: 0 })).toBeCloseTo(8, 4);
+        const none = glaze.glow({
+          bg: { h: 0, s: 0, t: 0.6 },
+          fg: '#000000',
+          intensity: 8,
+          tuning: { objectInfluence: 2 },
+        });
+        expect(none.alpha).toBe(0);
+      });
+
+      it('reads bg and fg per scheme', () => {
+        const theme = glaze(0, 0);
+        theme.colors({
+          surface: { tone: 97 },
+          card: { tone: 100 },
+          'card-shadow': {
+            type: 'shadow',
+            bg: 'surface',
+            fg: 'card',
+            intensity: 8,
+          },
+        });
+        const r = theme.resolve();
+        const tone = (name: string, scheme: 'light' | 'dark') =>
+          r.get(name)![scheme].t * 100;
+        for (const scheme of ['light', 'dark'] as const) {
+          const k =
+            1 + (0.5 * (tone('surface', scheme) - tone('card', scheme))) / 100;
+          expect(stepIn(r, 'card-shadow', 'surface', scheme)).toBeCloseTo(
+            8 * k,
+            4,
+          );
+        }
+      });
+    });
+
+    describe('unreachable steps', () => {
+      it('pins a glow on white to transparent and warns once', () => {
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          const resolvePaper = () => {
+            const theme = glaze(0, 0, { lightTone: false });
+            theme.colors({
+              paper: { tone: 100 },
+              'paper-glow': { type: 'glow', bg: 'paper', intensity: 5 },
+            });
+            return theme.resolve();
+          };
+          expect(resolvePaper().get('paper-glow')!.light.alpha).toBe(0);
+          resolvePaper();
+          const calls = spy.mock.calls
+            .map((c) => String(c[0]))
+            .filter((m) => m.includes('glow "paper-glow" cannot reach'));
+          // Light and light high contrast, each once despite two resolves.
+          expect(calls).toHaveLength(2);
+          expect(calls[0]).toContain('in light scheme');
+          expect(calls[1]).toContain('in lightContrast scheme');
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      it('pins a deep shadow on near-black to the opaque pigment', () => {
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          const v = glaze.shadow({ bg: { h: 0, s: 0, t: 0.1 }, intensity: 20 });
+          expect(v.alpha).toBe(1);
+          expect(stepOver(v, gray(10))).toBeCloseTo(10, 4);
+          expect(
+            spy.mock.calls.some((c) =>
+              String(c[0]).includes('glaze.shadow() cannot reach a 20.0-tone'),
+            ),
+          ).toBe(true);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+    });
+
+    describe('intensity input', () => {
+      it('intensity 0 produces alpha 0; negative clamps to 0', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { tone: 95 },
+          zero: { type: 'shadow', bg: 'surface', intensity: 0 },
+          neg: { type: 'glow', bg: 'surface', intensity: -5 },
+        });
+        const r = theme.resolve();
+        expect(r.get('zero')!.light.alpha).toBe(0);
+        expect(r.get('neg')!.light.alpha).toBe(0);
+      });
+
+      it('HC intensity pair uses the second value for high contrast', () => {
+        const theme = glaze(280, 80);
+        theme.colors({
+          surface: { tone: 95 },
+          hover: { type: 'shadow', bg: 'surface', intensity: [6, 12] },
+          lift: { type: 'glow', bg: 'surface', intensity: [4, 8] },
+        });
+        const r = theme.resolve();
+        expect(stepIn(r, 'hover', 'surface', 'light')).toBeCloseTo(6, 4);
+        expect(stepIn(r, 'hover', 'surface', 'lightContrast')).toBeCloseTo(
+          12,
+          4,
+        );
+        expect(stepIn(r, 'lift', 'surface', 'dark')).toBeCloseTo(-4, 4);
+        expect(stepIn(r, 'lift', 'surface', 'darkContrast')).toBeCloseTo(-8, 4);
+      });
+    });
+
+    describe('tuning', () => {
+      it('tint + reach give a surface-hue pigment and still land the step', () => {
+        const theme = glaze(260, 87, { lightTone: false });
+        theme.colors({
+          surface: { tone: 90 },
+          shade: {
+            type: 'shadow',
+            bg: 'surface',
+            intensity: 8,
+            tuning: { tint: 0.3, reach: 0.85 },
+          },
+        });
+        const r = theme.resolve();
+        const shade = r.get('shade')!.light;
+        const surface = r.get('surface')!.light;
+        expect(shade.h).toBeCloseTo(surface.h, 6);
+        expect(shade.s).toBeCloseTo(0.3, 6);
+        expect(shade.t * 100).toBeCloseTo(surface.t * 100 * 0.15, 4);
+        expect(stepIn(r, 'shade', 'surface', 'light')).toBeCloseTo(8, 4);
+      });
+
+      it('lower reach costs reach on dark surfaces', () => {
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          const bg = { h: 0, s: 0, t: 0.12 };
+          const pure = glaze.shadow({ bg, intensity: 11 });
+          const tinted = glaze.shadow({
+            bg,
+            intensity: 11,
+            tuning: { tint: 0.3, reach: 0.8 },
+          });
+          expect(stepOver(pure, gray(12))).toBeCloseTo(11, 4);
+          expect(stepOver(tinted, gray(12))).toBeLessThan(10);
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      it('hueBleed pulls the pigment hue toward the object', () => {
+        const theme = glaze(40, 60);
+        theme.colors({
+          surface: { tone: 90 },
+          chip: { hue: 260, tone: 50 },
+          bleed: {
+            type: 'shadow',
+            bg: 'surface',
+            fg: 'chip',
+            intensity: 8,
+            tuning: { tint: 0.3, reach: 0.8, hueBleed: 1 },
+          },
+        });
+        expect(theme.resolve().get('bleed')!.light.h).toBeCloseTo(260, 6);
+      });
+
+      it('a tint on a neutral surface stays neutral, or takes the object hue', () => {
+        // A hex gray parses with saturation 0 but keeps its computed hue
+        // (about 90° for #808080); that hue must not tint the pigment.
+        const object = 'oklch(0.5 0.2 260)';
+        const objectHue = glaze.color(object).resolve().light.h;
+        const tuning = { tint: 0.5, reach: 0.8 };
+        for (const bg of ['#808080', '#fefefe', 'okhsl(0 0% 50%)']) {
+          for (const kind of ['shadow', 'glow'] as const) {
+            const plain = glaze[kind]({ bg, fg: object, intensity: 8, tuning });
+            expect(plain.s).toBe(0);
+            const bled = glaze[kind]({
+              bg,
+              fg: object,
+              intensity: 8,
+              tuning: { ...tuning, hueBleed: 0.3 },
+            });
+            // No surface hue to lerp from: the object's hue, whole.
+            expect(bled.h).toBeCloseTo(objectHue, 6);
+            expect(bled.s).toBeCloseTo(0.5, 6);
+          }
+        }
+      });
+
+      it('a near-white gray value is neutral as a surface and as an object', () => {
+        // Its float residue used to read as a saturation above the neutral
+        // threshold, at a hue near 90, which the tint then took.
+        const gray = 'rgb(254.9 254.9 254.9)';
+        const tuning = { tint: 0.5, reach: 0.8, objectInfluence: 0 };
+        expect(glaze.shadow({ bg: gray, intensity: 8, tuning }).s).toBe(0);
+        const surface = '#3366cc';
+        const surfaceHue = glaze.color(surface).resolve().light.h;
+        for (const kind of ['shadow', 'glow'] as const) {
+          const bled = glaze[kind]({
+            bg: surface,
+            fg: gray,
+            intensity: 8,
+            tuning: { ...tuning, hueBleed: 1 },
+          });
+          // No object hue to bleed toward: the surface's hue.
+          expect(bled.h).toBeCloseTo(surfaceHue, 6);
+        }
+      });
+
+      it('a pigment on the surface tone paints nothing', () => {
+        // `reach: 0` parks a neutral pigment on a neutral surface's own tone,
+        // where it moves the surface only by float noise: it stays
+        // transparent.
+        const spy = vi
+          .spyOn(console, 'warn')
+          .mockImplementation(() => undefined);
+        try {
+          for (const bg of ['okhsl(0 0% 50%)', 'okhst(0 0% 12%)', '#ffffff']) {
+            for (const kind of ['shadow', 'glow'] as const) {
+              const v = glaze[kind]({
+                bg,
+                intensity: 8,
+                tuning: { reach: 0 },
+              });
+              expect(v.alpha).toBe(0);
+              expect(v.hdr).toBeUndefined();
+            }
+          }
+        } finally {
+          spy.mockRestore();
+        }
+      });
+
+      it('global shadowTuning / glowTuning apply per type and merge per field', () => {
+        try {
+          glaze.configure({
+            shadowTuning: { objectInfluence: 0 },
+            glowTuning: { tint: 0.5, reach: 0.5 },
+          });
+          const theme = glaze(260, 87);
+          theme.colors({
+            surface: { tone: 40 },
+            ink: { tone: 0 },
+            shade: { type: 'shadow', bg: 'surface', fg: 'ink', intensity: 8 },
+            lift: { type: 'glow', bg: 'surface', intensity: 8 },
+            override: {
+              type: 'glow',
+              bg: 'surface',
+              intensity: 8,
+              tuning: { tint: 0 },
+            },
+          });
+          const r = theme.resolve();
+          // objectInfluence 0 from the global shadow tuning → exactly 8.
+          expect(stepIn(r, 'shade', 'surface', 'light')).toBeCloseTo(8, 4);
+          // The glow tuning does not leak into shadows and vice versa.
+          expect(r.get('shade')!.light.s).toBe(0);
+          expect(r.get('lift')!.light.s).toBeCloseTo(0.5, 6);
+          // Per-color tuning merges over the global one field by field.
+          expect(r.get('override')!.light.s).toBe(0);
+          expect(r.get('override')!.light.t).toBeCloseTo(
+            r.get('lift')!.light.t,
+            6,
+          );
+        } finally {
+          glaze.resetConfig();
+        }
+      });
+    });
+
+    describe('validation', () => {
+      it('rejects missing and overlay references', () => {
+        const cases: [ColorMap, RegExp][] = [
+          [
+            { g: { type: 'glow', bg: 'nope', intensity: 4 } },
+            /glow "g" references non-existent bg "nope"/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', fg: 'nope', intensity: 4 },
+            },
+            /glow "g" references non-existent fg "nope"/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              sh: { type: 'shadow', bg: 's', intensity: 4 },
+              g: { type: 'glow', bg: 'sh', intensity: 4 },
+            },
+            /glow "g" bg "sh" references a shadow color/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', intensity: 4 },
+              sh: { type: 'shadow', bg: 's', fg: 'g', intensity: 4 },
+            },
+            /shadow "sh" fg "g" references a glow color/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', intensity: 4 },
+              c: { base: 'g', tone: '+10' },
+            },
+            /color "c" base "g" references a glow color/,
+          ],
+          [
+            {
+              s: { tone: 50 },
+              g: { type: 'glow', bg: 's', intensity: 4 },
+              m: { type: 'mix', base: 's', target: 'g', value: 50 },
+            },
+            /mix "m" target "g" references a glow color/,
+          ],
+        ];
+        for (const [defs, message] of cases) {
+          const theme = glaze(0, 0);
+          theme.colors(defs);
+          expect(() => theme.resolve()).toThrow(message);
+        }
+      });
+    });
+
+    it('extend inherits shadow and glow defs and re-solves them', () => {
+      const parent = glaze(260, 60);
+      parent.colors({
+        surface: { tone: 20 },
+        'elevation-1': { type: 'glow', bg: 'surface', intensity: 4 },
+        local: { type: 'shadow', bg: 'surface', intensity: 4, inherit: false },
+      });
+      const child = parent.extend({ hue: 20 });
+      const r = child.resolve();
+      expect(r.has('local')).toBe(false);
+      expect(r.get('elevation-1')!.light.h).toBeCloseTo(20, 6);
+      expect(stepIn(r, 'elevation-1', 'surface', 'light')).toBeCloseTo(-4, 4);
+    });
+
+    it('resolves a shadow with an object and 0 < alpha < 1', () => {
       const theme = glaze(280, 80);
       theme.colors({
         surface: { tone: 95 },
-        text: { tone: 15, base: 'surface', contrast: 'AA' },
+        card: { tone: 100 },
         'shadow-md': {
           type: 'shadow',
           bg: 'surface',
-          fg: 'text',
+          fg: 'card',
           intensity: 10,
         },
       });
       const shadow = theme.resolve().get('shadow-md')!;
+      expect(shadow.light.s).toBe(0);
       expect(shadow.light.alpha).toBeGreaterThan(0);
       expect(shadow.light.alpha).toBeLessThan(1);
       expect(shadow.dark.alpha).toBeGreaterThan(0);
     });
 
-    it('achromatic shadow (no fg) has s=0', () => {
-      const theme = glaze(280, 80);
-      theme.colors({
-        surface: { tone: 95 },
-        'drop-shadow': { type: 'shadow', bg: 'surface', intensity: 12 },
-      });
-      const shadow = theme.resolve().get('drop-shadow')!;
-      expect(shadow.light.s).toBe(0);
-      expect(shadow.light.alpha).toBeGreaterThan(0);
-    });
-
-    it('intensity 0 produces alpha 0; negative clamps to 0', () => {
-      const theme = glaze(280, 80);
-      theme.colors({
-        surface: { tone: 95 },
-        zero: { type: 'shadow', bg: 'surface', intensity: 0 },
-        neg: { type: 'shadow', bg: 'surface', intensity: -5 },
-      });
-      const r = theme.resolve();
-      expect(r.get('zero')!.light.alpha).toBe(0);
-      expect(r.get('neg')!.light.alpha).toBe(0);
-    });
-
-    it('HC intensity pair uses the second value for high-contrast', () => {
-      const theme = glaze(280, 80);
-      theme.colors({
-        surface: { tone: 95 },
-        text: { tone: 15, base: 'surface', contrast: 'AA' },
-        card: {
-          type: 'shadow',
-          bg: 'surface',
-          fg: 'text',
-          intensity: [10, 20],
-        },
-      });
-      const shadow = theme.resolve().get('card')!;
-      expect(shadow.lightContrast.alpha).toBeGreaterThan(shadow.light.alpha);
-    });
-
-    it('glaze.shadow() standalone returns a tone variant', () => {
+    it('glaze.shadow() / glaze.glow() return tone variants', () => {
       const v = glaze.shadow({ bg: '#ffffff', fg: '#000000', intensity: 20 });
-      expect(v.t).toBeGreaterThanOrEqual(0);
-      expect(v.t).toBeLessThanOrEqual(1);
+      expect(v.t).toBe(0);
       expect(v.alpha).toBeGreaterThan(0);
       expect(v.alpha).toBeLessThan(1);
+      // k = 1.5 for a black object on white → a 30-tone step.
+      expect(stepOver(v, gray(100))).toBeCloseTo(30, 4);
+
+      const g = glaze.glow({ bg: '#202020', intensity: 10 });
+      expect(g.t).toBe(1);
+      expect(
+        stepOver(g, variantToOkhsl(glaze.color('#202020').resolve().light)),
+      ).toBeCloseTo(-10, 4);
+    });
+
+    it('glaze.shadow() / glaze.glow() reject a missing bg or a bad intensity', () => {
+      for (const kind of ['shadow', 'glow'] as const) {
+        expect(() => glaze[kind]({ intensity: 8 } as never)).toThrow(
+          `glaze.${kind}(): "bg" is required.`,
+        );
+        for (const [intensity, shown] of [
+          [Number.NaN, 'NaN'],
+          [Infinity, 'Infinity'],
+          ['8', '"8"'],
+        ] as const) {
+          expect(() =>
+            glaze[kind]({ bg: '#808080', intensity: intensity as number }),
+          ).toThrow(
+            `glaze.${kind}(): "intensity" must be a finite number (got ${shown}).`,
+          );
+        }
+      }
+    });
+
+    it('glaze.shadow() / glaze.glow() read a value past white as white', () => {
+      // The browser composites an over-range surface or object at white, so
+      // the step (and an HDR glow's value) is solved for white.
+      const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        const over = { h: 0, s: 0, l: 1.2 };
+        const white = { h: 0, s: 0, l: 1 };
+        const glow = (bg: typeof white) =>
+          glaze.glow({ bg, intensity: 10, tuning: { headroom: 1 } });
+        expect(glow(over)).toEqual(glow(white));
+        expect(glow(white).hdr).toBeDefined();
+        expect(
+          glaze.shadow({ bg: '#808080', fg: over, intensity: 10 }),
+        ).toEqual(glaze.shadow({ bg: '#808080', fg: white, intensity: 10 }));
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 
@@ -3380,9 +4076,432 @@ describe('glaze', () => {
       expect(m.light.t).toBeGreaterThanOrEqual(0);
       expect(m.light.t).toBeLessThanOrEqual(1);
     });
+
+    describe('gray values as endpoints', () => {
+      const SCHEMES = [
+        'light',
+        'dark',
+        'lightContrast',
+        'darkContrast',
+      ] as const;
+
+      it('takes the accent hue from a light gray value', () => {
+        // A gray given as a value parses with saturation 0 however close to
+        // white it is, so an OKHSL mix from it stays in the accent's hue.
+        for (const gray of [
+          '#f1f1f1',
+          '#f5f5f5',
+          '#fefefe',
+          'rgb(254.999 254.999 254.999)',
+          'hsl(0 0% 99.99%)',
+        ]) {
+          const theme = glaze(280, 80);
+          theme.colors({
+            surface: { from: gray },
+            accent: { tone: 40, hue: 140 },
+            tint: { type: 'mix', base: 'surface', target: 'accent', value: 50 },
+          });
+          const r = theme.resolve();
+          for (const scheme of SCHEMES) {
+            expect(r.get('surface')![scheme].s).toBe(0);
+            expect(r.get('tint')![scheme].h).toBeCloseTo(
+              r.get('accent')![scheme].h,
+              6,
+            );
+          }
+        }
+      });
+
+      it('takes the accent hue from an sRGB blend of grays', () => {
+        // A blend near white, where float residue in its saturation used to
+        // read as a hue.
+        const theme = glaze(280, 80);
+        theme.colors({
+          white: { tone: 100, saturation: 0 },
+          gray: { tone: 50, saturation: 0 },
+          mid: {
+            type: 'mix',
+            base: 'white',
+            target: 'gray',
+            value: 5,
+            space: 'srgb',
+          },
+          accent: { tone: 40, hue: 140 },
+          tint: { type: 'mix', base: 'mid', target: 'accent', value: 50 },
+        });
+        const r = theme.resolve();
+        for (const scheme of SCHEMES) {
+          expect(r.get('mid')![scheme].s).toBe(0);
+          expect(r.get('tint')![scheme].h).toBeCloseTo(
+            r.get('accent')![scheme].h,
+            6,
+          );
+        }
+      });
+    });
+
+    describe('endpoints under another pastel flag', () => {
+      // A mix's `pastel` sets the gamut of the mixed result, while the base
+      // and target keep their own flags. Each endpoint is read in the mix's
+      // gamut through the color it paints, and the floor is measured on the
+      // color the mix emits.
+      const BLENDS: [string, Pick<MixColorDef, 'blend' | 'space'>][] = [
+        ['an OKHSL mix', { space: 'okhsl' }],
+        ['an sRGB mix', { space: 'srgb' }],
+        ['a transparent mix', { blend: 'transparent' }],
+      ];
+
+      /** Linear sRGB a variant paints, read with its own `pastel` flag. */
+      function painted(v: ResolvedColorVariant): [number, number, number] {
+        const c = variantToOkhsl(v);
+        return okhslToLinearSrgb(c.h, c.s, c.l, v.pastel);
+      }
+
+      /** What a mix paints over its base: the composite when translucent. */
+      function paintedOver(
+        mix: ResolvedColorVariant,
+        base: ResolvedColorVariant,
+      ): [number, number, number] {
+        if (mix.alpha >= 1) return painted(mix);
+        return compositeOverGamma(
+          toDisplayGamma(painted(base)),
+          toDisplayGamma(painted(mix)),
+          mix.alpha,
+        );
+      }
+
+      function paintedContrast(
+        mix: ResolvedColorVariant,
+        base: ResolvedColorVariant,
+      ): number {
+        return contrastRatioFromLuminance(
+          gamutClampedLuminance(paintedOver(mix, base)),
+          gamutClampedLuminance(painted(base)),
+        );
+      }
+
+      function expectSameColor(
+        actual: [number, number, number],
+        expected: [number, number, number],
+      ): void {
+        // OKHSL's gamut approximation leaves ~1e-8 of round-trip noise.
+        actual.forEach((c, i) => expect(c).toBeCloseTo(expected[i], 6));
+      }
+
+      it.each(BLENDS)(
+        'paints the base at 0 and the target at 100 in %s',
+        (_, blend) => {
+          // A standard mix holds pastel endpoints exactly, and a pastel mix
+          // holds standard ones inside the pastel gamut.
+          for (const pastel of [false, true]) {
+            const theme = glaze(84, 95, { pastel });
+            theme.colors({
+              surface: {
+                tone: 14,
+                hue: 30,
+                saturation: pastel ? 0.3 : 1,
+                mode: 'static',
+                pastel: !pastel,
+              },
+              accent: {
+                tone: 51,
+                hue: 254,
+                saturation: pastel ? 0.3 : 1,
+                mode: 'static',
+                pastel: !pastel,
+              },
+              from: {
+                type: 'mix',
+                base: 'surface',
+                target: 'accent',
+                value: 0,
+                ...blend,
+              },
+              to: {
+                type: 'mix',
+                base: 'surface',
+                target: 'accent',
+                value: 100,
+                ...blend,
+              },
+            });
+            const r = theme.resolve();
+            const surface = r.get('surface')!.light;
+            const accent = r.get('accent')!.light;
+            expect(r.get('to')!.light.pastel).toBe(pastel);
+            // For a transparent mix, value 0 is alpha 0: this checks the alpha.
+            expectSameColor(
+              paintedOver(r.get('from')!.light, surface),
+              painted(surface),
+            );
+            expectSameColor(
+              paintedOver(r.get('to')!.light, surface),
+              painted(accent),
+            );
+          }
+        },
+      );
+
+      it.each(BLENDS)(
+        'caps a vivid target at the pastel limit in %s',
+        (_, blend) => {
+          const theme = glaze(84, 95, { pastel: true });
+          theme.colors({
+            surface: { tone: 14, mode: 'static' },
+            brand: { tone: 51, hue: 254, mode: 'static', pastel: false },
+            to: {
+              type: 'mix',
+              base: 'surface',
+              target: 'brand',
+              value: 100,
+              ...blend,
+            },
+          });
+          const r = theme.resolve();
+          const to = r.get('to')!.light;
+          const brand = variantToOkhsl(r.get('brand')!.light);
+          const capped = variantToOkhsl(to);
+          // Same hue and lightness, saturation at the pastel limit.
+          expect(to.pastel).toBe(true);
+          expect(capped.h).toBeCloseTo(brand.h, 4);
+          expect(capped.l).toBeCloseTo(brand.l, 6);
+          expect(capped.s).toBeCloseTo(1, 6);
+          expectSameColor(
+            paintedOver(to, r.get('surface')!.light),
+            okhslToLinearSrgb(brand.h, 1, brand.l, true),
+          );
+        },
+      );
+
+      it('keeps a gray endpoint gray under the other flag', () => {
+        // A gray has no hue, so the mix takes the brand's the whole way,
+        // whichever gamut the mix paints in. The `saturation: 0` gray keeps
+        // its own hue (30) on the variant, and `#eeeeee` parses with
+        // saturation 0 at its computed hue near 90.
+        const grays: RegularColorDef[] = [
+          { tone: 97, hue: 30, saturation: 0 },
+          { from: '#eeeeee' },
+        ];
+        for (const pastel of [false, true]) {
+          for (const gray of grays) {
+            const theme = glaze(280, 80, { pastel });
+            theme.colors({
+              surface: { ...gray, pastel: !pastel },
+              brand: { tone: 40 },
+              tint: {
+                type: 'mix',
+                base: 'surface',
+                target: 'brand',
+                value: 60,
+              },
+            });
+            const r = theme.resolve();
+            for (const scheme of [
+              'light',
+              'dark',
+              'lightContrast',
+              'darkContrast',
+            ] as const) {
+              expect(r.get('tint')![scheme].h).toBeCloseTo(
+                r.get('brand')![scheme].h,
+                6,
+              );
+            }
+          }
+        }
+      });
+
+      it('keeps the hue of a white that has saturation', () => {
+        // White paints no chroma in either gamut, but its saturation carries
+        // its hue, so the mix sweeps from it the same under either flag.
+        const hues = [true, false].map((surfacePastel) => {
+          const theme = glaze(280, 80, { pastel: true });
+          theme.colors({
+            surface: { tone: 100, pastel: surfacePastel },
+            accent: { tone: 40, hue: 140, pastel: false },
+            tint: {
+              type: 'mix',
+              base: 'surface',
+              target: 'accent',
+              value: 30,
+              pastel: false,
+            },
+          });
+          return theme.resolve().get('tint')!.light.h;
+        });
+        expect(hues[0]).toBeCloseTo(hues[1], 6);
+        // Swept from white's hue 280 toward the accent's 140.
+        expect(Math.abs(hues[0] - 140)).toBeGreaterThan(50);
+      });
+
+      it('meets the floor on the overlay it paints', () => {
+        // A pastel accent in a standard theme. The overlay used to keep the
+        // accent's pastel saturation under the standard flag, a different
+        // color, and composited at 2.88:1.
+        const theme = glaze(84, 90);
+        theme.colors({
+          surface: { tone: 20, mode: 'static' },
+          accent: { tone: 60, hue: 30, mode: 'static', pastel: true },
+          wash: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            blend: 'transparent',
+            contrast: 3,
+          },
+        });
+        const r = theme.resolve();
+        const wash = r.get('wash')!.light;
+        expectSameColor(
+          paintedOver({ ...wash, alpha: 1 }, r.get('surface')!.light),
+          painted(r.get('accent')!.light),
+        );
+        expectMeetsWcag(paintedContrast(wash, r.get('surface')!.light), 3);
+      });
+
+      it('stays continuous as an endpoint reaches white or black', () => {
+        // Tone 0 / 100 land on OKHSL lightness 0 / 1 in high contrast (and
+        // 100 in light), where neither gamut has chroma to measure.
+        const mixOff = (tone: number) => {
+          const theme = glaze(90, 100, { pastel: true });
+          theme.colors({
+            surface: { tone },
+            brand: { tone: 50, hue: 264, pastel: false },
+            tint: {
+              type: 'mix',
+              base: 'surface',
+              target: 'brand',
+              value: 30,
+              pastel: false,
+            },
+          });
+          return theme.resolve().get('tint')!;
+        };
+        for (const [extreme, near] of [
+          [100, 99.99],
+          [0, 0.01],
+        ]) {
+          const a = mixOff(extreme);
+          const b = mixOff(near);
+          for (const scheme of [
+            'light',
+            'dark',
+            'lightContrast',
+            'darkContrast',
+          ] as const) {
+            expect(a[scheme].h).toBeCloseTo(b[scheme].h, 3);
+            expect(a[scheme].s).toBeCloseTo(b[scheme].s, 2);
+          }
+        }
+      });
+
+      it('composites over the base as painted', () => {
+        // The overlay sits on the base under the base's own flag: here a
+        // vivid surface in a pastel theme.
+        const theme = glaze(84, 95, { pastel: true });
+        theme.colors({
+          surface: { tone: 50, hue: 300, mode: 'static', pastel: false },
+          accent: { tone: 95, hue: 140, mode: 'static' },
+          wash: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            blend: 'transparent',
+            contrast: 3,
+          },
+        });
+        const r = theme.resolve();
+        expectMeetsWcag(
+          paintedContrast(r.get('wash')!.light, r.get('surface')!.light),
+          3,
+        );
+      });
+
+      it('meets the floor on the OKHSL mix it paints', () => {
+        // A standard mix toward a pastel accent interpolates the accent's
+        // saturation re-read in the standard gamut, and measures that.
+        const theme = glaze(84, 95, { pastel: true });
+        theme.colors({
+          surface: {
+            tone: 65,
+            hue: 0,
+            saturation: 0.5,
+            mode: 'static',
+            pastel: false,
+          },
+          accent: { tone: 20, hue: 30, mode: 'static' },
+          fill: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 30,
+            contrast: 3,
+            role: 'surface',
+            pastel: false,
+          },
+        });
+        const r = theme.resolve();
+        expectMeetsWcag(
+          paintedContrast(r.get('fill')!.light, r.get('surface')!.light),
+          3,
+        );
+      });
+
+      it('measures a pastel sRGB blend raw until the cap clamps it', () => {
+        // The endpoints paint the same under either mix flag, and the blend
+        // stays inside the pastel gamut, so a pastel and a standard mix measure
+        // the same lerp and settle at the same tone.
+        const theme = glaze(55, 100, { pastel: true });
+        const mix = {
+          type: 'mix',
+          base: 'white',
+          target: 'black',
+          value: 0,
+          space: 'srgb',
+          contrast: 1.5,
+        } as const;
+        theme.colors({
+          white: { tone: 100 },
+          black: { tone: 'min' },
+          'pastel-mix': mix,
+          'standard-mix': { ...mix, pastel: false },
+        });
+        const r = theme.resolve();
+        expect(r.get('pastel-mix')!.light.pastel).toBe(true);
+        expect(r.get('pastel-mix')!.light.t).toBe(
+          r.get('standard-mix')!.light.t,
+        );
+      });
+
+      it('meets the floor on the sRGB mix it paints', () => {
+        // A vivid accent in a pastel theme. The search used to measure the
+        // unclamped sRGB lerp and emit the pastel-clamped one at 4.31:1.
+        const theme = glaze(84, 90, { pastel: true });
+        theme.colors({
+          surface: { tone: 95, mode: 'static' },
+          accent: { tone: 40, hue: 300, mode: 'static', pastel: false },
+          text: {
+            type: 'mix',
+            base: 'surface',
+            target: 'accent',
+            value: 10,
+            space: 'srgb',
+            contrast: 'AA',
+          },
+        });
+        const r = theme.resolve();
+        expect(r.get('text')!.light.pastel).toBe(true);
+        expectMeetsWcag(
+          paintedContrast(r.get('text')!.light, r.get('surface')!.light),
+          4.5,
+        );
+      });
+    });
   });
 
-  describe('verification (§10) drift warning', () => {
+  describe('verification drift warning', () => {
     it('does not warn for an achromatic contrast pair', () => {
       const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
       try {
@@ -3712,7 +4831,7 @@ describe('glaze', () => {
       const LEVELS = [0, 10, 20, 30, 40, 49, 50, 51, 60, 80, 90, 100];
 
       /** Signed tone delta of a solved color against its base, per level. */
-      function deltasAcrossRamp(baseTone: number, tone: string): number[] {
+      function deltasAcrossRamp(baseTone: number, tone: ToneValue): number[] {
         return LEVELS.map((level) => {
           glaze.resetConfig();
           glaze.configure({ contrastLevel: level });
@@ -3828,17 +4947,24 @@ describe('glaze', () => {
       });
 
       it('keeps root/dependent classification level-independent', () => {
-        // `isAbsoluteTone` inspects only the normal entry, so a pair whose HC
-        // entry is relative still resolves as a root at every level.
+        // A relative entry on either side of a pair needs a base, so a mixed
+        // pair is a dependent at every level. The level only picks which entry
+        // places it: the absolute one below level 50, the delta from 50 up.
         const at = (level: number) => {
           glaze.resetConfig();
           glaze.configure({ contrastLevel: level });
           const theme = glaze(0, 0);
-          theme.colors({ odd: { tone: [50, '+20'] } });
-          return theme.resolve().get('odd')!.light.t;
+          theme.colors({
+            bg: { tone: 90 },
+            odd: { base: 'bg', tone: [50, '-20'] },
+          });
+          const r = theme.resolve();
+          return { odd: r.get('odd')!.light.t, bg: r.get('bg')!.light.t };
         };
-        expect(at(0)).toBeGreaterThan(0);
-        expect(at(100)).toBeGreaterThan(0);
+        // Absolute tone 50 through the default light window.
+        expect(at(0).odd).toBeCloseTo(0.5247, 4);
+        const high = at(100);
+        expect(high.odd).toBeCloseTo(high.bg - 0.2, 10);
       });
     });
 

@@ -1,0 +1,519 @@
+---
+title: Shadows and glows
+description: Translucent overlays that land an exact tone step on any surface with room for it, in every scheme.
+---
+
+import Example from '../docs-site/components/Example.astro';
+import StepCompare from '../docs-site/components/shadows-and-glows/StepCompare.tsx';
+import ObjectInfluence from '../docs-site/components/shadows-and-glows/ObjectInfluence.tsx';
+import StateLayers from '../docs-site/components/shadows-and-glows/StateLayers.tsx';
+import CardShadows from '../docs-site/components/shadows-and-glows/CardShadows.tsx';
+import ElevationLadder from '../docs-site/components/shadows-and-glows/ElevationLadder.tsx';
+import TintedPigment from '../docs-site/components/shadows-and-glows/TintedPigment.tsx';
+import Unreachable from '../docs-site/components/shadows-and-glows/Unreachable.tsx';
+
+export const stateTheme = {
+  hue: 280,
+  saturation: 80,
+  colors: {
+    surface: { tone: 100, saturation: 0.1 },
+    'surface-hover': { type: 'shadow', bg: 'surface', intensity: 4 },
+    'surface-pressed': { type: 'shadow', bg: 'surface', intensity: [8, 12] },
+    'accent-surface': { tone: 52, mode: 'fixed' },
+    'accent-surface-hover': { type: 'shadow', bg: 'accent-surface', intensity: 4 },
+    'accent-surface-pressed': { type: 'shadow', bg: 'accent-surface', intensity: [8, 12] },
+    'accent-surface-highlight': { type: 'glow', bg: 'accent-surface', intensity: 5 },
+    'inverse-surface': { tone: 18, saturation: 0.2, mode: 'fixed' },
+    'inverse-surface-hover': { type: 'glow', bg: 'inverse-surface', intensity: 4 },
+    'inverse-surface-pressed': { type: 'glow', bg: 'inverse-surface', intensity: [8, 12] },
+  },
+};
+
+export const cardTheme = {
+  hue: 280,
+  saturation: 80,
+  colors: {
+    surface: { tone: 100, saturation: 0.1 },
+    card: { base: 'surface', tone: '-3', saturation: 0.15 },
+    'shadow-sm': { type: 'shadow', bg: 'surface', fg: 'card', intensity: 3 },
+    'shadow-md': { type: 'shadow', bg: 'surface', fg: 'card', intensity: [6, 9] },
+    'shadow-lg': { type: 'shadow', bg: 'surface', fg: 'card', intensity: [9, 14] },
+  },
+};
+
+export const elevationTheme = {
+  hue: 280,
+  saturation: 80,
+  colors: {
+    surface: { tone: 92, saturation: 0.1 },
+    'elevation-1': { type: 'glow', bg: 'surface', intensity: 3 },
+    'elevation-2': { type: 'glow', bg: 'surface', intensity: 5 },
+    'elevation-3': { type: 'glow', bg: 'surface', intensity: 7 },
+  },
+};
+
+`shadow` and `glow` are translucent overlays. Each emits a pigment (black for a
+shadow, white for a glow) with an opacity Glaze solves so that, once the
+browser composites it over `bg`, the surface lands **exactly `intensity`
+tones** darker (`shadow`) or lighter (`glow`), scaled by the object when you
+name one. The step is the same on every surface and in every scheme where the
+surface has room for it: light, mid, dark, and chromatic.
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+const theme = glaze(280, 80);
+
+theme.colors({
+  surface: { tone: 97 },
+  card: { tone: 100 },
+  accent: { tone: 45 },
+
+  // Object-aware drop shadow: `fg` is the element casting it.
+  'card-shadow': {
+    type: 'shadow',
+    bg: 'surface',
+    fg: 'card',
+    intensity: 8,
+  },
+
+  // No `fg`: an exact shade, for state layers and scrims.
+  'surface-hover': { type: 'shadow', bg: 'surface', intensity: 5 },
+  'accent-pressed': { type: 'shadow', bg: 'accent', intensity: [8, 14] },
+
+  // The mirror: dark-mode elevation, edge highlights, lightening states.
+  'accent-highlight': { type: 'glow', bg: 'accent', intensity: 4 },
+});
+```
+
+Resolving this sample logs two warnings. In dark high contrast the `auto`
+surface sits at tone 3, so `card-shadow` and `surface-hover` can't darken it by
+their full step: they pin to black and warn, even when you don't emit
+high-contrast tokens. See [Unreachable steps](#unreachable-steps).
+
+Every field is listed in
+[Color definitions](./reference/color-definitions.md#shadowcolordef--glowcolordef);
+this page explains how the overlays behave.
+
+## The same step on every surface
+
+`intensity` is a step on tone, the WCAG-shaped axis Glaze uses everywhere
+(see [Tone and OKHST](./okhst.mdx)). For neutrals a tone step is a fixed WCAG
+ratio, so 6 tones is about 1.20:1 wherever it lands, and the same number reads
+the same on any surface. APCA cannot express steps this small, so overlays
+are always measured in tone.
+
+A fixed opacity cannot do this. Below, each surface carries a `shadow` with
+`intensity: 6` (top patch) and a black layer at a fixed 8% (bottom patch); the
+big number is the tone step each one actually paints.
+
+<StepCompare
+  kind="shadow"
+  tones={[100, 70, 50, 25, 12]}
+  accentTone={50}
+  intensity={6}
+  fixedAlpha={0.08}
+  caption="Neutral surfaces at the listed tones, plus a hue-280 accent at tone 50. Top: shadow, intensity 6. Bottom: black at a fixed 8%. Big numbers are the measured tone step of the composite against its surface."
+/>
+
+The solved shadow lands 6.0 tones everywhere, at an opacity that climbs as the
+surface darkens. The fixed layer darkens white by almost 6 tones and a tone-12
+surface by little more than one. Glows mirror this:
+
+<StepCompare
+  kind="glow"
+  tones={[70, 50, 25, 12, 0]}
+  accentTone={50}
+  intensity={6}
+  fixedAlpha={0.08}
+  caption="Top: glow, intensity 6. Bottom: white at a fixed 8%. The fixed layer lifts every surface by a different amount; the solved glow lifts each one 6 tones."
+/>
+
+## How the opacity is solved
+
+Browsers composite `source-over` on gamma-encoded sRGB: 50% black over white
+paints `#808080`, not the `#bcbcbc` that mixing linear light would give. Glaze
+models exactly that. The composite's luminance changes monotonically with
+opacity, so a bisection finds the opacity that lands the step, on chromatic
+surfaces too.
+
+The required opacity depends heavily on the surface. A 6-tone shadow needs
+α 0.081 on white, 0.107 on a tone-50 surface, and 0.477 on a tone-10 surface.
+
+There is no opacity cap: when the step is reachable, it is exact. For a
+lighter overlay, lower `intensity`.
+
+The output is the pigment with its solved alpha. Shadows and glows appear in
+every output method (`tokens()`, `tasty()`, `css()`, `json()`, and the rest)
+alongside regular colors. The default pigment is neutral, so the values stay
+clean:
+
+```text
+rgb(0 0 0 / 0.0814)       shadow, 6 tones on white
+oklch(1 0 0 / 0.0953)     glow, 6 tones on a tone-50 surface
+```
+
+The alpha is only meaningful over the surface it was solved for. Paint the
+token on top of `bg` (as a `box-shadow` color, a state-layer background, or a
+pseudo-element over the surface).
+
+## Direction is fixed per type
+
+A `shadow` darkens in light **and** dark schemes; a `glow` lightens in both.
+Neither flips when the scheme does. Pick the type for the effect you want in
+each scheme: for example, `shadow` for light-mode cards and `glow` for
+dark-mode elevation. When one component needs a darkening layer in light mode
+and a lightening one in dark mode, emit both tokens and wire each in the
+scheme it belongs to. Both still resolve in all four schemes, so each one warns
+wherever its surface has no room, including schemes where you don't use it
+([Unreachable steps](#unreachable-steps)).
+
+`bg` and `fg` are read per scheme, so the solved opacity adapts on its own as
+the surface moves in dark and high contrast. See
+[Light, dark, and high contrast](./schemes.mdx) for how surfaces move between
+schemes.
+
+## Object influence
+
+`fg` is the object casting the shadow or emitting the glow, such as the card.
+It scales the step the way bounce light does. With `fg`, the step is
+`intensity × k`:
+
+```text
+k = max(0, 1 + β · d · (t_bg − t_fg) / 100)
+```
+
+`t_bg` and `t_fg` are the tones of the surface and the object, `d` is `+1` for
+a `shadow` and `−1` for a `glow`, and `β` is `tuning.objectInfluence` (`0.5`
+by default).
+
+- An object at the surface's own tone gives exactly `intensity`, and so does
+  omitting `fg`.
+- A darker object deepens its shadow; a lighter one softens it.
+- For a glow it is the other way round: a lighter object glows stronger.
+- `k` never drops below 0 and tops out at `1 + β` (a black object casting a
+  shadow on a white surface). `objectInfluence: 0` removes `fg`'s effect on
+  the step (`k = 1`); `fg` still feeds [`hueBleed`](#tinted-pigment).
+
+Each card below casts a hard-edged `shadow` (offset, no blur) or emits a solid
+`glow` ring, both with `intensity: 8` and `fg` pointed at the card:
+
+<ObjectInfluence
+  intensity={8}
+  scenes={[
+    {
+      tone: 97,
+      label: 'Light surface · tone 97',
+      kinds: ['shadow'],
+      objects: [
+        { label: 'white card', tone: 100 },
+        { label: 'accent', tone: 45, chromatic: true },
+        { label: 'near-black', tone: 8 },
+      ],
+    },
+    {
+      tone: 12,
+      label: 'Dark surface · tone 12',
+      kinds: ['shadow', 'glow'],
+      objects: [
+        { label: 'raised card', tone: 20 },
+        { label: 'accent', tone: 55, chromatic: true },
+      ],
+    },
+  ]}
+  caption="Each label gives the object's tone, its factor k, and the step the composite lands (intensity 8, default β)."
+/>
+
+The same numbers as a table:
+
+| Surface | Object | `k` (`shadow`) | `shadow` step | `glow` step |
+| --- | --- | --- | --- | --- |
+| light 97 | white card 100 | 0.985 | 7.9 | — |
+| light 97 | accent 45 | 1.26 | 10.1 | — |
+| light 97 | near-black 8 | 1.445 | 11.6 | — |
+| dark 12 | raised card 20 | 0.96 | 7.7 | 8.3 |
+| dark 12 | accent 55 | 0.785 | 6.3 | 9.7 |
+
+Point `fg` at the element that casts the shadow, never at text: `fg` is the
+object, not a contrast reference. Like `bg`, it must not be another shadow or
+glow.
+
+## State layers
+
+Without `fg`, a shadow or glow is an exact shade or tint of its surface: the
+right tool for hover and pressed states, which need the same visible change on
+every fill.
+
+<Example {...stateTheme} visual="none" />
+
+<StateLayers
+  {...stateTheme}
+  rows={[
+    {
+      fill: 'surface',
+      label: 'Neutral fill',
+      layers: [
+        { name: 'surface-hover', label: 'Hover' },
+        { name: 'surface-pressed', label: 'Pressed' },
+      ],
+    },
+    {
+      fill: 'accent-surface',
+      label: 'Accent fill',
+      layers: [
+        { name: 'accent-surface-hover', label: 'Hover' },
+        { name: 'accent-surface-pressed', label: 'Pressed' },
+        { name: 'accent-surface-highlight', label: 'Highlight' },
+      ],
+    },
+    {
+      fill: 'inverse-surface',
+      label: 'Dark fill',
+      layers: [
+        { name: 'inverse-surface-hover', label: 'Hover' },
+        { name: 'inverse-surface-pressed', label: 'Pressed' },
+      ],
+    },
+  ]}
+  caption="Rest, hover, and pressed on three fills in your current scheme. Each number is the measured step of the layer over its fill."
+/>
+
+The accent fill uses `mode: 'fixed'`, so it stays a mid tone in every scheme
+and its layers land the same steps everywhere. The dark fill uses glows, so
+its states lighten it. The neutral `surface` follows the scheme: in dark high
+contrast it becomes black, and a shadow has nothing left to darken, so
+`surface-hover` and `surface-pressed` stay fully transparent and warn (the
+figure shows what they reached; see [Unreachable steps](#unreachable-steps)).
+A glow on this surface fails the other way: it warns in the light schemes,
+where the surface is white. No overlay fits a surface that spans the whole
+tone range. For a state that darkens in light schemes and lightens in dark
+ones, use a regular color relative to the surface, such as
+`{ base: 'surface', tone: '-4' }`, which flips with the scheme.
+
+## Card drop shadows
+
+For elevation in light schemes, define one shadow ladder with `bg` on the page
+and `fg` on the card. Equal intensity steps read as evenly spaced on every
+surface. Use [high-contrast pairs](#high-contrast) for shadows that should
+deepen in high contrast.
+
+<Example {...cardTheme} visual="none" />
+
+<CardShadows
+  {...cardTheme}
+  page="surface"
+  card="card"
+  cards={[
+    { shadow: 'shadow-sm', geometry: '0 0.0625rem 0.25rem 0' },
+    { shadow: 'shadow-md', geometry: '0 0.375rem 1rem -0.125rem' },
+    { shadow: 'shadow-lg', geometry: '0 1rem 2.5rem -0.5rem' },
+  ]}
+  caption="Each card's box-shadow is colored by its token in your current scheme. The step is what the shadow lands where it is fully opaque."
+/>
+
+A blurred `box-shadow` fades out from the token's color, so the step is the
+darkest the shadow gets, right at the card's edge. In dark schemes the page
+sits near black and a dark card shadow has little room: the solved opacity
+climbs, and in dark high contrast the page is black, so all three shadows
+stay fully transparent and warn. For elevation in dark schemes, use glows on a
+surface with room in every scheme, as in the next section.
+
+## Dark-mode elevation
+
+Glows are the mirror for dark-mode elevation and edge highlights: each level
+lifts the surface a fixed number of tones. A glow resolves in all four
+schemes, so it needs room above its surface in each of them. This ladder
+sits on a light-gray surface, so the same tokens also lift cards toward white
+in the light scheme.
+
+<Example {...elevationTheme} visual="none" />
+
+<ElevationLadder
+  {...elevationTheme}
+  surface="surface"
+  levels={['elevation-1', 'elevation-2', 'elevation-3']}
+  schemes={['dark', 'light']}
+  caption="The same three glows in the dark and light schemes. On the dark surface a few percent of white lifts it 3, 5, and 7 tones; on the light surface the same steps take far more opacity."
+/>
+
+A glow on a white light-mode surface has nothing to lighten in SDR, so Glaze
+warns, even if you only use the token in dark mode. On a tone-100 surface it
+leaves the glow transparent. A white written as `'#ffffff'` parses a hair
+below tone 100, so its glow pins to opaque white instead, which paints the
+same over it. Give glows a surface with room in every scheme, like the
+tone-92 surface here.
+
+## Tinted pigment
+
+The pigment is pure black or pure white by default, so the surface keeps its
+own hue under the overlay and the output stays neutral. A pigment tinted in
+the surface's hue ([Josh Comeau's shadow advice](https://www.joshwcomeau.com/css/designing-shadows))
+is opt-in through tuning:
+
+- **`reach`** sets where the pigment sits: the fraction of the way from the
+  surface's tone to black (shadow) or white (glow). `1` is pure black or
+  white, the most reach; lower values let a tint show at the cost of reach.
+- **`tint`** is the pigment's saturation, in the surface's hue. It shows only
+  with `reach` below 1, since pure black and white have no hue. A neutral
+  surface has no hue to give, so there the tint takes the object's hue when
+  `hueBleed` is above 0, and the pigment stays neutral otherwise.
+- **`hueBleed`** pulls the pigment's hue from the surface's hue toward the
+  object's (`fg`). It needs `fg`, a `tint`, and `reach` below 1 to show.
+- **`objectInfluence`** is the `β` in [object influence](#object-influence).
+
+```ts
+theme.colors({
+  'shadow-tinted': {
+    type: 'shadow',
+    bg: 'surface',
+    intensity: 8,
+    tuning: { tint: 0.3, reach: 0.85 },
+  },
+});
+
+glaze.configure({
+  shadowTuning: { objectInfluence: 0.4 },
+  glowTuning: { objectInfluence: 0.6 },
+});
+```
+
+`shadowTuning` and `glowTuning` set the tuning globally (or per theme or token
+through the config override); a per-color `tuning` merges over them field by
+field. Both take these `LightingTuning` fields; defaults are in
+[Color definitions](./reference/color-definitions.md#lightingtuning) and
+[Configuration](./reference/configuration.md#glazeconfig).
+
+<TintedPigment
+  hue={60}
+  saturation={70}
+  surfaceSaturation={0.3}
+  tones={[97, 50, 12]}
+  intensity={8}
+  object={{ hue: 200, tone: 50 }}
+  columns={[
+    { label: 'neutral (default)', tuning: {} },
+    { label: 'tint 0.3 · reach 0.85', tuning: { tint: 0.3, reach: 0.85 } },
+    {
+      label: '+ hueBleed 0.6',
+      tuning: { tint: 0.3, reach: 0.85, hueBleed: 0.6, objectInfluence: 0 },
+      withObject: true,
+    },
+  ]}
+  caption="An 8-tone shadow on warm surfaces. The dot is the pigment at full opacity. The hueBleed column points fg at a hue-200 object and sets objectInfluence to 0, so only the hue changes."
+/>
+
+The step is exact in every column. On light and mid surfaces a tint barely
+changes the composite; on dark surfaces it costs reach and opacity. On the
+figure's tone-12 surface, black reaches about 12 tones and needs α 0.545 for
+the 8-tone shadow; the `tint: 0.3, reach: 0.85` pigment reaches about 10 tones
+and needs α 0.706.
+
+## Unreachable steps
+
+Every surface has limited room: a shadow cannot go below black, and a glow
+cannot go above white. When the step is out of reach (a glow on white, a deep
+shadow on near-black), Glaze pins the overlay to the pigment's strongest
+composite (full opacity, or fully transparent when the pigment cannot move the
+surface at all) and emits a deduplicated `console.warn`. A 6-tone glow on a
+tone-100 `auto` surface logs:
+
+```text
+glaze: glow "surface-highlight" cannot reach a 6.0-tone step in light
+  scheme (reached 0.0 at full strength).
+Lower the intensity, move the surface away from white, or raise a
+  tuned-down `reach`.
+```
+
+<Unreachable
+  cases={[
+    { kind: 'glow', tone: 100, intensity: 6 },
+    { kind: 'glow', tone: 97, intensity: 8 },
+    { kind: 'shadow', tone: 8, intensity: 12 },
+  ]}
+  caption="The big number is the step reached; asked is the step requested. A glow on white stays transparent; the other two pin to full-opacity white and black."
+/>
+
+Every shadow and glow resolves in all four schemes on every resolve, whatever
+`modes` you emit and wherever you use the token, so the warning fires even for
+a scheme you never show. Not using a token in a scheme only keeps the pinned
+value off the screen.
+
+To fix it, lower `intensity`, or give the overlay a surface with room in
+every scheme. A tuned-down `reach` also costs room; raise it back toward 1.
+Otherwise, expect the warning. Watch dark high contrast in particular: it
+bypasses the tone window, so a page that is white in light mode becomes black
+there and every shadow on it pins and warns. A tone-97 page sits at tone 3,
+which leaves room for less than 3 tones.
+
+On a display that can show brighter than white, a glow can also go past white:
+see [HDR glows](./hdr.mdx).
+
+## High contrast
+
+`intensity` accepts a `[normal, highContrast]` pair, like other numeric
+fields:
+
+```ts
+theme.colors({
+  'card-shadow': {
+    type: 'shadow',
+    bg: 'surface',
+    fg: 'card',
+    intensity: [8, 14],
+  },
+});
+```
+
+With a manual contrast level, the pair is interpolated like every other pair.
+See [high-contrast pairs and the contrast level](./reference/contrast.md#manual-contrast-level).
+
+## Fixed opacity
+
+For one fixed-alpha color with no opacity solve, such as a modal scrim, set
+`opacity` on a regular color:
+
+```ts
+theme.colors({
+  scrim: { tone: 0, saturation: 0, mode: 'static', opacity: 0.5 },
+});
+// scrim → 'oklch(0 0 0 / 0.5)' in every scheme
+```
+
+`opacity` is applied after the color resolves, so its tone still adapts like
+any regular color. Without `mode: 'static'`, `tone: 0` is lifted by the light
+tone window and inverted into a light overlay in dark mode. A fixed alpha
+gives a different step on every surface (an 8% black layer darkens white by
+about 6 tones and a tone-10 surface by about 1), which is what shadows and
+glows exist to avoid. For a translucent color with a contrast floor, use a
+[transparent mix](./mixes.mdx#transparent-mix).
+
+## Outside a theme
+
+`glaze.shadow()` and `glaze.glow()` compute an overlay without a theme. `bg`
+and `fg` accept any color value Glaze parses (hex, `rgb()`, `okhsl()`, value
+objects, …):
+
+```ts
+const shade = glaze.shadow({ bg: '#ffffff', intensity: 6 });
+// → { h: 0, s: 0, t: 0, alpha: 0.0814… }
+
+glaze.format(shade, 'rgb');
+// → 'rgb(0 0 0 / 0.0814)'
+
+const lift = glaze.glow({ bg: '#1e1e22', fg: '#3a3a44', intensity: 4 });
+```
+
+Both accept an optional `tuning` that merges over the global `shadowTuning` /
+`glowTuning`.
+
+The full input table is in
+[Utilities](./reference/utilities.md#glazeshadowinput--glazeglowinput).
+
+## Coming from 2.x
+
+In Glaze 2, `intensity` went through a curve in OKHSL lightness, so the same
+number darkened white, mid, and dark surfaces by very different amounts, and
+`fg` was a contrast reference that gave a white card on a light page almost no
+shadow. 3.0 makes `intensity` an exact tone step, makes `fg` the object, and
+adds `glow`. Upgrade steps are in
+[3.0 — shadows and glows](./migration.md#30--shadows-and-glows).

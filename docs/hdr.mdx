@@ -1,0 +1,523 @@
+---
+title: HDR glows
+description: Glows past SDR white for HDR displays — when Glaze adds an HDR value, how to opt in, and where it can be shown today.
+---
+
+import Example from '../docs-site/components/Example.astro';
+import GlowsPastWhite from '../docs-site/components/shadows-and-glows/GlowsPastWhite.tsx';
+import { Preview } from '@tenphi/cookbook/components';
+import { hdrHaloPreview } from '../docs-site/components/shadows-and-glows/hdr-preview.ts';
+
+export const hdrTheme = {
+  hue: 280,
+  saturation: 80,
+  config: { glowTuning: { headroom: 1 } },
+  colors: {
+    surface: { tone: 100 },
+    'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
+    near: { tone: 95, saturation: 0, mode: 'static' },
+    'near-glow': { type: 'glow', bg: 'near', intensity: 12 },
+    inverse: { tone: 12, saturation: 0, mode: 'static' },
+    'inverse-glow': { type: 'glow', bg: 'inverse', intensity: 12 },
+  },
+};
+
+export const haloTheme = {
+  hue: 280,
+  saturation: 80,
+  config: { glowTuning: { headroom: 1 } },
+  colors: {
+    page: { tone: 92, saturation: 0.1 },
+    card: { base: 'page', tone: '+6', saturation: 0.1 },
+    'card-glow': { type: 'glow', bg: 'page', fg: 'card', intensity: 20 },
+  },
+};
+
+export const haloPreview = hdrHaloPreview(haloTheme, {
+  page: 'page',
+  card: 'card',
+  glow: 'card-glow',
+  blur: 40,
+  spread: 4,
+});
+
+A [glow](./shadows-and-glows.mdx) can't go past white in SDR, but an HDR
+display can show brighter than white. Set `glowTuning.headroom`, and a glow
+whose step would pass white also resolves an HDR value: an opaque exposure of
+what SDR already paints there. The SDR value doesn't change, and exporters add
+the HDR one only when you [opt in](#output-is-opt-in). Everything outside this
+page is SDR; skip it unless you target HDR displays.
+
+## When a glow gets an HDR value
+
+[Tone runs on past 100](./okhst.mdx#tone-above-100) on the same curve: one
+stop above SDR white (`Y` 2) is tone 121.98, two stops (`Y` 4) tone 144.34,
+and 12 tones past white is the same `Y + 0.05` ratio as a 12-tone step
+anywhere. WCAG and APCA end at white, so Glaze makes no contrast claim above
+100. A glow can't be a `bg`, `fg`, `base`, or mix input, so an HDR value never
+reaches the contrast solver.
+
+A glow gets an HDR value when three things hold: its `headroom` is above 0,
+its target tone (the surface's luminance tone plus `intensity × k`) passes
+100, and SDR is pinned at its brightest. That means the pigment at full
+opacity, or a white surface (tone 100) at opacity 0, since no pigment can lift
+it. Below white nothing changes, dark-scheme glows included. A pigment that
+can't lift a non-white surface at all (`reach: 0` on a gray surface, say)
+paints nothing in SDR, gets no HDR value, and keeps the SDR warning. On a
+chromatic surface a `reach: 0` pigment, a gray at the surface's tone, can be
+slightly brighter than the surface: it then pins at full opacity and, past
+white, gets an HDR value like any pinned pigment.
+
+The resolved variant gains `hdr: { h, s, t, exposure }`. The base (`h`, `s`,
+`t`) is the opaque color SDR paints, with a standard (never pastel) OKHSL
+saturation. The HDR value is that base's linear light times `2^exposure`, the
+gain that lands the target tone exactly; `variant.t` itself stays at most 1. The value is
+opaque on purpose: it stays exact whichever way it is composited, and it maps
+one to one onto native exposure APIs.
+
+## Headroom
+
+`headroom` counts stops above SDR white, the doublings of its luminance. It
+defaults to 0 (no HDR anywhere) and must be a finite number ≥ 0, or Glaze
+throws. Set it globally (`glaze.configure({ glowTuning: { headroom: 1 } })`),
+in a theme's config override, on one glow's `tuning`, or on
+`glaze.glow()`. A glow's `tuning` merges over `glowTuning` field by field. A
+theme's own `glowTuning` replaces the global one whole, and so does a later
+`glaze.configure({ glowTuning })`, so pass every field you want kept:
+`glaze.configure({ glowTuning: { objectInfluence: 0.6, headroom: 1 } })`. A
+`headroom` on a shadow throws: nothing goes below black.
+
+Values above 2 clamp to 2. The warning fires once per field and value, and
+only after the whole input has validated:
+
+```text
+glaze: glowTuning.headroom 4 is above the 2-stop maximum; using 2.
+Headroom counts stops (doublings of SDR white's luminance), not a
+  ratio: 1 stop is 2× white, 2 stops 4×.
+```
+
+The gain is capped per channel, so no linear channel of the HDR value passes
+`2^headroom`. On a neutral glow that caps luminance: a 30-tone glow on white
+with 1 stop of headroom ends at `color(srgb 1.3533 1.3533 1.3533)` (linear 2
+per channel), tone 121.98, and warns (below). A saturated base hits the cap on
+its brightest channel first, so its HDR tone can stay below 100.
+
+How much of that a display shows depends on its headroom at the moment, which
+falls as the user turns brightness up. Past it, most platforms clip the
+color, which can move a tinted glow toward white, while Apple's platforms
+tone-map it. A web page can't read the number. Android suggests about 1.5–2×
+white for interfaces that are mostly SDR, so 1 stop is a sensible ceiling for
+UI.
+
+With headroom, a glow whose target passes white no longer logs the
+[unreachable-step warning](./shadows-and-glows.mdx#unreachable-steps): its HDR
+value lands the step. Only the headroom cap can leave such a step short, and
+that logs its own warning. A 30-tone glow on white with 1 stop of headroom:
+
+```text
+glaze: glow "surface-flare" cannot reach a 30.0-tone step in light
+  scheme even with 1 stop of headroom (reached 22.0).
+Lower the intensity or raise `headroom`.
+```
+
+At the 2-stop maximum the second sentence reads "Lower the intensity;
+`headroom` is already at its 2-stop maximum." A glow without an HDR value
+keeps the SDR warning.
+
+## Worked example
+
+Three 12-tone glows: one on a white `auto` surface, one on a light gray, and
+one on a dark gray.
+
+<Example
+  {...hdrTheme}
+  visual="none"
+  after={
+    "const glow = theme.resolve().get('surface-glow')!.light;\n" +
+    'glaze.formatHdr(glow);\n' +
+    "// → 'color(srgb 1.1813 1.1813 1.1813)'"
+  }
+/>
+
+<GlowsPastWhite
+  {...hdrTheme}
+  glows={['surface-glow', 'near-glow', 'inverse-glow']}
+  caption="Each glow over its surface, in your current scheme, as CSS paints it: the step it reached, the step asked, and its opacity. The HDR values are in the table below."
+/>
+
+The same numbers in every scheme:
+
+| Glow | SDR | HDR |
+| --- | --- | --- |
+| `surface-glow`, light and light HC | White at α 0 | 1.1813 per channel (linear 1.4631), 0.549 stops, tone 112 |
+| `surface-glow`, dark and dark HC | White at α 0.1237 (α 0.1603 in dark HC) | None: the dark surface has room |
+| `near-glow`, all four | Opaque white, 5 of 12 tones | 1.1026 per channel (linear 1.2494), 0.321 stops, tone 107 |
+| `inverse-glow`, all four | White at α 0.1155 | None: the target is tone 24 |
+
+`near-glow` shows the split: SDR pins it to opaque white 7 tones short, and
+its HDR value lands those 7. In dark, `surface` sits at tone 9.25 (luminance
+tone 8.5, so the glow's target is tone 20.5), and `surface-glow` is an
+ordinary translucent glow there.
+
+## Crossing white
+
+A full-reach glow meets SDR at the boundary. On a gray tone-95 surface (like
+`near`) a 4.9-tone glow is white at α 0.9794 and a 5-tone glow is opaque
+white, both without an HDR value. At 5.1 tones it adds
+`color(srgb 1.0014 1.0014 1.0014)`, 0.0046 stops.
+
+A glow with `reach` below 1 doesn't meet it. Its pigment sits below white, so
+it stays short and warns until its target passes 100, then its HDR value lands
+the whole step at once. A `reach: 0.5` glow on a gray tone-90 surface
+paints tone 95 for any step from 5 to 10. Past 10, its HDR value jumps straight to
+tone 100 (0.2315 stops over the pigment). Keep `reach` at 1 on a glow that
+may cross white.
+
+## Extended sRGB
+
+Glaze writes an HDR value as `color(srgb R G B)` with channels past 1: the
+sRGB curve continued past SDR white, so `1` is white and one stop above it is
+`1.3533`. `glaze.formatHdr(variant, 'srgb-linear')` writes the same color in
+linear light (`color(srgb-linear 1.4631 1.4631 1.4631)` for `surface-glow`),
+and a browser converts either one into the other exactly. The format doesn't
+follow `format`: CSS clamps `oklch()` lightness at 1, and `rgb()` / `hsl()`
+can't go past white.
+
+That is all an HDR glow needs. Its value is its SDR base made brighter, so it
+stays inside the sRGB gamut and is measured against SDR white, the way
+displays and native APIs measure headroom. The `rec2100-pq` and
+`rec2100-hlg` spaces from the CSS Color HDR draft would add a conversion, to
+wider primaries and to an HDR transfer curve pinned to an assumed SDR white,
+with nothing to gain for a color like this, and browsers don't support them
+yet.
+
+The same numbers are what most HDR APIs take as they are: a WebGPU `'srgb'`
+canvas, Apple's extended sRGB color space, and Android's `EXTENDED_SRGB`. For
+numbers instead of a string, `hdrToSrgb(variant.hdr)` returns these channels,
+and `hdrToLinearSrgb(variant.hdr)` the linear ones, for APIs that take linear
+light.
+
+## Output is opt-in
+
+Resolving fills in `variant.hdr` whenever headroom allows. Exporters leave it
+out until you turn on `modes.hdr`, so every export is byte-identical until
+then, headroom or not. Turn it on for the export that needs it:
+
+```ts
+const theme = glaze(280, 80, { glowTuning: { headroom: 1 } });
+
+theme.colors({
+  surface: { tone: 100 },
+  'surface-glow': { type: 'glow', bg: 'surface', intensity: 12 },
+  near: { tone: 95, saturation: 0, mode: 'static' },
+  'near-glow': { type: 'glow', bg: 'near', intensity: 12 },
+});
+
+theme.dtcg({ modes: { hdr: true } });
+theme.css({ hdr: true }); // css() has no `modes`
+// Or for every export:
+glaze.configure({ modes: { hdr: true } });
+```
+
+Each export then adds the HDR value next to the SDR value it already emits,
+for the schemes the other `modes` include. `surface-glow` has one in the light
+schemes only; on the dark surface its step stays below white. `near-glow` has
+one in all four. HDR values stay literal under `splitHue`, palettes treat them
+like any other entry (prefixes, the `primary` alias, collisions), and
+`glaze.color()` tokens are never glows, so the HDR options don't change their
+output.
+
+The data exports (DTCG, `json()`, `tokens()`) are what native apps and
+WebGPU code read. The CSS exports (`css()`, `tasty()`, Tailwind) are
+experimental: no browser paints them past white yet
+([Browsers](#browsers)), and their shape may change once one does. Prefer
+turning HDR on per call, so a setup that only needs DTCG doesn't add the CSS
+tier to every stylesheet.
+
+### CSS blocks
+
+`css()` takes `hdr` (default: the global `modes.hdr`) and returns four more
+blocks in `hdr`. Wire each one after the SDR blocks, under the same selector
+plus `(dynamic-range: high)`:
+
+```ts
+const css = theme.css({ hdr: true });
+const hdr = css.hdr!;
+const dark = '(prefers-color-scheme: dark)';
+const more = '(prefers-contrast: more)';
+const high = '(dynamic-range: high)';
+
+const stylesheet = `
+:root { ${css.light} }
+@media ${dark} { :root { ${css.dark} } }
+@media ${more} { :root { ${css.lightContrast} } }
+@media ${dark} and ${more} { :root { ${css.darkContrast} } }
+
+@media ${high} { :root { ${hdr.light} } }
+@media ${dark} and ${high} { :root { ${hdr.dark} } }
+@media ${more} and ${high} { :root { ${hdr.lightContrast} } }
+@media ${dark} and ${more} and ${high} {
+  :root { ${hdr.darkContrast} }
+}
+`;
+```
+
+The blocks are dense. Each lists every color that has an HDR value in any
+scheme, and repeats a color's SDR declaration where its own scheme has none:
+
+```css
+/* hdr.light */
+--surface-glow-color: color(srgb 1.1813 1.1813 1.1813);
+--near-glow-color: color(srgb 1.1026 1.1026 1.1026);
+
+/* hdr.dark */
+--surface-glow-color: oklch(1 0 0 / 0.1237);
+--near-glow-color: color(srgb 1.1026 1.1026 1.1026);
+```
+
+On a dark HDR display, both the light and the dark HDR blocks match. The dark
+one comes later, so its `surface-glow` line puts the dark SDR value back. A
+block that listed only HDR values would let the light one leak into dark.
+When no glow passes white, all four blocks are empty strings.
+
+### Tasty keys
+
+`tasty()` adds a key under the `states.hdr` alias (default
+`'@media(dynamic-range: high)'`) right after each SDR key that has an HDR
+value:
+
+```ts
+theme.tasty({ modes: { hdr: true } })['#surface-glow'];
+// → {
+//   '': 'oklch(1 0 0 / 0)',
+//   '@media(dynamic-range: high)': 'color(srgb 1.1813 1.1813 1.1813)',
+//   '@media(prefers-color-scheme: dark)': 'oklch(1 0 0 / 0.1237)',
+// }
+```
+
+Tasty gives later keys priority, so the order is what keeps the light HDR
+value out of dark: `''`, hdr, dark, dark & hdr, hc, hc & hdr, dark & hc,
+dark & hc & hdr, with only the keys that exist. Don't sort the keys if you
+post-process the map. With your own aliases, set `states.hdr` next to `dark`
+and `highContrast` (for example `'@hdr'`, which emits keys such as
+`'@dark & @hdr'`) and register it in Tasty like the others.
+
+### Tailwind blocks
+
+`tailwind()` appends the same dense blocks after all its SDR blocks, under
+`hdrSelector` (default `'@media (dynamic-range: high)'`), around
+`darkSelector` and `highContrastSelector`:
+
+```css
+/* ...the @theme and .dark blocks, unchanged... */
+
+@media (dynamic-range: high) {
+  :root {
+    --color-surface-glow: color(srgb 1.1813 1.1813 1.1813);
+    --color-near-glow: color(srgb 1.1026 1.1026 1.1026);
+  }
+}
+
+@media (dynamic-range: high) {
+  .dark {
+    --color-surface-glow: oklch(1 0 0 / 0.1237);
+    --color-near-glow: color(srgb 1.1026 1.1026 1.1026);
+  }
+}
+```
+
+### JSON and tokens
+
+`json()` adds a sparse `<scheme>Hdr` key after each scheme that has an HDR
+value. `tokens()` adds a dense `<scheme>Hdr` map after each scheme it emits,
+always present and possibly empty:
+
+```ts
+theme.json({ modes: { hdr: true } })['surface-glow'];
+// → {
+//   light: 'oklch(1 0 0 / 0)',
+//   lightHdr: 'color(srgb 1.1813 1.1813 1.1813)',
+//   dark: 'oklch(1 0 0 / 0.1237)',
+// }
+
+theme.tokens({ modes: { hdr: true } }).darkHdr;
+// → {
+//   'surface-glow': 'oklch(1 0 0 / 0.1237)',
+//   'near-glow': 'color(srgb 1.1026 1.1026 1.1026)',
+// }
+```
+
+A dense map drops into a cascade the way the CSS blocks do; the sparse JSON
+keys suit code that reads one color at a time. Both carry only the string,
+whose numbers are the [extended sRGB](#extended-srgb) channels. Apple's
+exposure initializers take a base and an exposure, which only DTCG carries.
+
+### DTCG
+
+`dtcg()` and `dtcgResolver()` keep `$value` SDR: DTCG color components run
+from 0 to 1. The HDR value goes in `$extensions`, only in the scheme
+documents that have one. This is `light['surface-glow']`;
+`dark['surface-glow']` has no `$extensions`:
+
+```json
+{
+  "$type": "color",
+  "$value": {
+    "colorSpace": "srgb",
+    "components": [1, 1, 1],
+    "hex": "#ffffff",
+    "alpha": 0
+  },
+  "$extensions": {
+    "me.tenphi.glaze": {
+      "hdr": {
+        "exposure": 0.548987,
+        "tone": 112,
+        "base": {
+          "colorSpace": "srgb",
+          "components": [1, 1, 1],
+          "hex": "#ffffff"
+        },
+        "value": {
+          "colorSpace": "srgb",
+          "components": [1.181265, 1.181265, 1.181265]
+        }
+      }
+    }
+  }
+}
+```
+
+- `base` is the opaque SDR color the exposure applies to: always a DTCG sRGB
+  color with `hex`, whatever `colorSpace` you export, and never pastel.
+- `exposure` is the gain over `base` in stops.
+- `value` is `base × 2^exposure` in linear light, written as extended sRGB:
+  the numbers of the CSS string, to 6 decimals. Only its brightest component is guaranteed above 1.
+- `tone` is the HDR value's tone: past 100 when the headroom covers the step,
+  though a saturated base that the cap stops early can land below.
+
+Style Dictionary and Terrazzo keep `$extensions`, but their built-in color
+transforms expect components from 0 to 1, so read the extension with a
+transform of your own. [Native apps](#native-apps) maps each field.
+
+## Outside a theme
+
+[`glaze.glow()`](./shadows-and-glows.mdx#outside-a-theme) takes `headroom` in
+its `tuning` and returns `hdr` when its step passes white:
+
+```ts
+const flare = glaze.glow({
+  bg: '#ffffff',
+  intensity: 12,
+  tuning: { headroom: 1 },
+});
+
+glaze.formatHdr(flare);
+// → 'color(srgb 1.1813 1.1813 1.1813)'
+```
+
+## Where it shows
+
+### Browsers
+
+No browser paints a CSS color brighter than white yet. The CSS Color 4
+spaces, `srgb` included, are SDR by design: values past 1 are valid, but they
+are fit into SDR when painted. A neutral HDR value paints white, the same as
+the SDR value of a glow pinned at opaque white (`near-glow`). A tinted one
+paints a lighter, less saturated tint, or white. And on a white surface,
+where SDR is transparent, the HDR value covers what is drawn under it
+([Fills, not overlays](#fills-not-overlays)).
+
+The planned way past white is the CSS Color HDR draft's `hdr-color()` (also
+written `color-hdr()` there), which blends an SDR and an HDR color by the
+display's headroom. No browser implements it and its name isn't settled.
+`@media (dynamic-range: high)` reports what the device can do, not that HDR
+is on: Low Power Mode and the brightness setting change that.
+
+### WebGPU
+
+A WebGPU canvas can paint past white. Chrome and Edge 129+ show an
+`rgba16float` canvas configured with `toneMapping: { mode: 'extended' }`
+brighter than white on an HDR display: on Windows, macOS, ChromeOS, and
+Android, and on Linux since 144 with Intel Gen12+ GPUs only (not in Android
+WebView). Safari 26 accepts the option, but whether it paints past white is
+unconfirmed, so check on the device. Firefox has WebGPU without extended tone
+mapping, so its canvases stay SDR.
+
+The preview below is a card on a tone-92 page, its edges glowing with
+`card-glow`, an `intensity: 20` glow from the card. In the light scheme the
+glow's target is tone 113, past white, so its SDR value is opaque white and
+its HDR value is `color(srgb 1.1972 1.1972 1.1972)` (0.593 stops). CSS draws
+the halo as a `box-shadow` in the SDR value; its 40px blur fades it from about
+58% at the card's edge. On an HDR display with HDR canvases, a WebGPU canvas
+behind the card draws a matching halo in the HDR value instead, so the edge
+glows brighter than the white card.
+
+<Example {...haloTheme} visual="none" />
+
+<Preview title="A card with an HDR glow (light scheme)" {...haloPreview} />
+
+The canvas's default `colorSpace`, `'srgb'`, takes extended sRGB, so the
+channels go in as Glaze writes them:
+
+```ts
+import { hdrToSrgb } from '@tenphi/glaze';
+
+const { hdr } = theme.resolve().get('card-glow')!.light;
+const [r, g, b] = hdrToSrgb(hdr!); // 1.1972 per channel
+```
+
+Check the mode after `configure()`: where a browser doesn't support HDR
+canvases, `context.getConfiguration().toneMapping?.mode` isn't `'extended'`,
+and Chrome 129 and 130 have no `getConfiguration()`. `'extended'` means only
+that the browser supports HDR canvases, not that the screen shows them, so
+the preview also checks `(dynamic-range: high)` before it replaces the CSS
+halo. A page can't read the display's headroom, so keep `headroom` modest.
+
+### Native apps
+
+Read the [DTCG export](#dtcg), which carries every field these take.
+
+- **Apple** (iOS, iPadOS, macOS, tvOS, visionOS 26):
+  `UIColor(red:green:blue:alpha:exposure:)`, or its `NSColor` twin, with
+  `base.components` and `exposure`, reproduces Glaze's value. In SwiftUI,
+  apply `.exposureAdjust(exposure)` to a `Color(.sRGB, …)` made from `base`.
+  A view shows it brighter than white only once its layer opts in: set
+  `layer.preferredDynamicRange` to `.automatic`, `.constrainedHigh`, or
+  `.high`, since the default `.standard` tone-maps it into SDR. Where the
+  system limits headroom it tone-maps the color, which isn't Glaze's SDR
+  value (often translucent), so keep both tokens and switch yourself.
+- **Android** (14 and later): set the window's color mode to
+  `COLOR_MODE_HDR`, and on Android 15 its `desiredHdrHeadroom` to the
+  brightest linear channel you draw. `Color.pack(r, g, b, 1f, space)` takes
+  `value.components` as they are, with
+  `ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB)` as the space; in Compose,
+  `Color(r, g, b, 1f, ColorSpaces.ExtendedSrgb)`. Int colors, `<color>`
+  resources, and Compose text colors can't carry HDR.
+- **Windows:** Direct2D, Win2D, and other FP16 scRGB surfaces take linear
+  light where 1 is 80 nits, not SDR white. Multiply the linear channels
+  (`hdrToLinearSrgb()`, or `value.components` decoded) by the display's SDR
+  white level in nits divided by 80, at run time.
+- Flutter and React Native: no HDR color path in their own drawing has been
+  verified, so use the SDR value there, or draw the glow in a native view
+  with the Apple or Android APIs above.
+
+## Fills, not overlays
+
+Where the HDR value clamps, as it does in CSS today, it paints an opaque
+color: white, for a neutral glow. That matches SDR wherever SDR is already
+opaque (`near-glow`). On a tone-100 surface it doesn't: SDR is transparent
+there, and the clamped value covers anything drawn between the surface and the
+glow. Use HDR glows for fills (a card's or button's own background), edge
+highlights, and `box-shadow` colors, never for a state layer drawn over a
+label.
+
+## Power and accessibility
+
+- HDR is an enhancement. The design must work in SDR, and it does: the SDR
+  value is what every other display already shows.
+- Don't animate or flash HDR values. A pulsing glow past white is a large
+  luminance swing, and HDR flash thresholds now appear in the WCAG 2.3.1
+  Understanding draft and ITU-R BT.1702-3.
+- Brighter-than-white pixels cost power, and systems fall back to SDR to save
+  it (iOS Low Power Mode does). Keep headroom low and HDR areas small.

@@ -9,11 +9,32 @@
  * The per-theme config override is **merged over the live global config at
  * resolve time** so the theme still reacts to later `configure()` calls
  * for fields it didn't override. The merged config is memoized by
- * `configVersion` to avoid rebuilding it on every export call.
+ * `configVersion` to avoid rebuilding it on every export call. The override is
+ * copied once when the theme is created and `getConfig()` hands out a deep copy
+ * of the merged config, so mutating either object can't reach a resolve.
+ *
+ * Exports carry the HDR tier of glows (`variant.hdr`) only with `modes.hdr`
+ * — `css()` reads its own `hdr` option, defaulting to the global mode — and
+ * `tasty()` keys it with `states.hdr`; the shapes live in `formatters.ts`.
+ *
+ * `tasty()` / `css()` with `splitHue` run its guards before emitting: format
+ * `'oklch'`, every color pastel, and no color whose own hue var would take the
+ * theme var's name (`--{name}-hue`). `css()` also claims each color's value
+ * property, so a `suffix` that lands one on a hue var (`'-hue'`, or `''` with a
+ * color named `*-hue`) throws too.
  */
 
-import type { ChannelCtx } from './channels';
 import {
+  assertSplitHueFormat,
+  claimHueVars,
+  claimValueProps,
+  type ChannelCtx,
+  type HueVarLabels,
+  type SplitHueOwners,
+} from './channels';
+import {
+  copyConfigOverride,
+  copyResolvedConfig,
   freezeConfigForExport,
   getConfig,
   getConfigVersion,
@@ -28,8 +49,10 @@ import {
   buildJsonMap,
   buildTailwindMap,
   buildTokenMap,
+  DEFAULT_TAILWIND_HDR_SELECTOR,
   resolveModes,
 } from './formatters';
+import { showValue } from './hc-pair';
 import { resolveAllColors } from './resolver';
 import { GLAZE_EXPORT_VERSION } from './serialize';
 import type {
@@ -38,6 +61,7 @@ import type {
   GlazeConfigOverride,
   GlazeConfigResolved,
   GlazeCssOptions,
+  GlazeColorFormat,
   GlazeCssResult,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
@@ -45,19 +69,46 @@ import type {
   GlazeDtcgResult,
   GlazeExtendOptions,
   GlazeJsonOptions,
+  GlazeOutputModes,
   GlazeTailwindOptions,
+  GlazeTastyOptions,
   GlazeTheme,
   GlazeThemeExport,
   GlazeThemeSeed,
-  GlazeTokenOptions,
   ResolvedColor,
 } from './types';
+
+/**
+ * Reject a seed the resolver can't use: every color multiplies its hue and
+ * saturation, so a non-finite one paints the whole theme `NaN`.
+ */
+function assertValidSeed(seed: GlazeThemeSeed): void {
+  for (const field of [
+    'hue',
+    'saturation',
+    'darkHue',
+    'darkSaturation',
+  ] as const) {
+    const value: unknown = seed?.[field];
+    const optional = field === 'darkHue' || field === 'darkSaturation';
+    if (optional && value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(
+        `glaze: theme seed ${field} must be a finite number (got ${showValue(value)}).`,
+      );
+    }
+  }
+}
 
 export function createTheme(
   seed: GlazeThemeSeed,
   initialColors?: ColorMap,
-  configOverride?: GlazeConfigOverride,
+  callerOverride?: GlazeConfigOverride,
 ): GlazeTheme {
+  // Copied once here, so resolve, `getConfig()`, `export()` and `extend()`
+  // read one object the caller can no longer mutate.
+  const configOverride = copyConfigOverride(callerOverride);
+  assertValidSeed(seed);
   const { hue, saturation, darkHue, darkSaturation } = seed;
   let colorDefs: ColorMap = initialColors ? { ...initialColors } : {};
 
@@ -88,31 +139,45 @@ export function createTheme(
     cache = null;
   }
 
+  /**
+   * `splitHue` context for `tasty()` / `css()`, or `undefined` without it.
+   * Throws on a non-oklch format, a non-pastel color, or a color whose own
+   * hue var would take the theme var's name. `css()` passes its `suffix` so
+   * each color's value property is claimed too: `--{color}{suffix}` must not
+   * land on a hue var.
+   */
   function channelCtxFor(
-    options:
-      | {
-          splitHue?: boolean;
-          name?: string;
-          format?: GlazeCssOptions['format'];
-          modes?: GlazeJsonOptions['modes'];
-        }
-      | undefined,
-    formatDefault: 'rgb' | 'oklch' | 'okhsl',
-    prefix: string,
+    options: GlazeTastyOptions | GlazeCssOptions | undefined,
+    format: GlazeColorFormat,
+    modes: Required<GlazeOutputModes>,
+    valueSuffix?: string,
   ): ChannelCtx | undefined {
-    const format = options?.format ?? formatDefault;
-    if (!options?.splitHue || format !== 'oklch') return undefined;
+    if (!options?.splitHue) return undefined;
+    assertSplitHueFormat(options.splitHue, format);
     const resolved = resolveCached();
-    const modes = resolveModes(options?.modes);
     assertAllPastel(resolved, modes);
-    return {
+    const baseName = options.name ?? 'theme';
+    const ctx: ChannelCtx = {
       seedHue: hue,
       darkSeedHue: darkHue,
-      baseName: options.name ?? 'theme',
-      prefix,
+      baseName,
+      prefix: '',
       defs: colorDefs,
       mode: 'theme',
     };
+    const owners: SplitHueOwners = new Map();
+    const labels: HueVarLabels = {
+      theme: `the theme hue (name: '${baseName}')`,
+      color: (name) => `color "${name}"'s own hue`,
+      value: (name) => `color "${name}"'s value`,
+      fix: 'Rename the color or pass a different `name`.',
+      valueFix: 'Rename the color, or pass a different `suffix` or `name`.',
+    };
+    claimHueVars(resolved, ctx, owners, labels);
+    if (valueSuffix !== undefined) {
+      claimValueProps(resolved, '', valueSuffix, owners, labels);
+    }
+    return ctx;
   }
 
   const theme: GlazeTheme = {
@@ -129,7 +194,9 @@ export function createTheme(
       return darkSaturation;
     },
     getConfig(): GlazeConfigResolved {
-      return getEffectiveConfig();
+      // A deep copy: the cached config feeds every resolve, so a caller's
+      // mutation must not reach it (or skip `mergeConfig()`'s validation).
+      return copyResolvedConfig(getEffectiveConfig());
     },
 
     colors(defs: ColorMap): void {
@@ -198,10 +265,14 @@ export function createTheme(
         ? { ...inheritedColors, ...options.colors }
         : { ...inheritedColors };
 
-      // Child inherits the parent override then merges in the per-extend override.
+      // Child inherits the parent override then merges in the per-extend
+      // override, read like a stored one so its getters count too.
       const mergedConfigOverride: GlazeConfigOverride | undefined =
         configOverride || options.config
-          ? { ...(configOverride ?? {}), ...(options.config ?? {}) }
+          ? {
+              ...(configOverride ?? {}),
+              ...(copyConfigOverride(options.config) ?? {}),
+            }
           : undefined;
 
       return createTheme(childSeed, mergedColors, mergedConfigOverride);
@@ -227,15 +298,16 @@ export function createTheme(
       );
     },
 
-    tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>> {
+    tasty(options?: GlazeTastyOptions): Record<string, Record<string, string>> {
       const cfg = getEffectiveConfig();
       const states = {
         dark: options?.states?.dark ?? cfg.states.dark,
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
+        hdr: options?.states?.hdr ?? cfg.states.hdr,
       };
       const modes = resolveModes(options?.modes);
       const format = options?.format ?? 'oklch';
-      const channelCtx = channelCtxFor(options, 'oklch', '');
+      const channelCtx = channelCtxFor(options, format, modes);
       return buildTokenMap(
         resolveCached(),
         '',
@@ -262,14 +334,17 @@ export function createTheme(
     css(options?: GlazeCssOptions): GlazeCssResult {
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
-      const channelCtx = channelCtxFor(options, 'oklch', '');
+      const suffix = options?.suffix ?? '-color';
+      const modes = resolveModes();
+      const channelCtx = channelCtxFor(options, format, modes, suffix);
       return buildCssMap(
         resolveCached(),
         '',
-        options?.suffix ?? '-color',
+        suffix,
         format,
         getEffectiveConfig().pastel,
         channelCtx,
+        options?.hdr ?? modes.hdr,
       );
     },
 
@@ -310,6 +385,7 @@ export function createTheme(
         options?.darkSelector ?? '.dark',
         options?.highContrastSelector ?? '.high-contrast',
         getEffectiveConfig().pastel,
+        options?.hdrSelector ?? DEFAULT_TAILWIND_HDR_SELECTOR,
       );
     },
   } as GlazeTheme;

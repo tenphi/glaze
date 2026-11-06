@@ -1,0 +1,976 @@
+---
+title: Designing a palette
+description: Build a complete Glaze palette step by step, from the surface ladder to status themes, and see it grow in every scheme.
+---
+
+import { Callout, Steps } from '@tenphi/cookbook/components';
+import PaletteStep from '../docs-site/components/methodology/PaletteStep.tsx';
+import PalettePreview from '../docs-site/components/methodology/PalettePreview.tsx';
+import StatusThemes from '../docs-site/components/methodology/StatusThemes.tsx';
+import PaletteOutput from '../docs-site/components/methodology/PaletteOutput.astro';
+import { PURPLE_HUE } from '../docs-site/components/methodology/palette.ts';
+
+A practical way to design a Glaze palette without fighting dark mode. Start
+from tone relationships, add contrast only where a role needs a readable floor,
+and let `extend()` carry the same decisions across status hues.
+
+This guide builds one palette from scratch: a neutral default theme with
+surfaces, text, accents, disabled states, and effects, then a set of status
+themes extended from it. After each step you see the tokens it adds and the
+product UI built from the palette so far, resolved live in the scheme you are
+viewing. Switch the Appearance menu to check dark and high contrast as you go.
+This is where the guide ends up:
+
+<PalettePreview caption="The finished palette, in the scheme you are viewing. Every part of this UI appears in the step that defines its token." />
+
+For the color model behind tone, see [Tone and OKHST](./okhst.mdx); the
+derivation lives in the
+[canonical OKHST specification](https://github.com/tenphi/okhst). Every option
+used here is documented in the [API reference](./reference/index.md).
+
+## The mental model
+
+Glaze palettes work best as one default neutral theme plus a few colored
+sibling themes:
+
+- `default` owns the neutral system most components consume: `#surface`,
+  `#surface-text`, `#border`, `#disabled-surface`, and so on.
+- Status themes (`success`, `danger`, `warning`, `note`, …) are created with
+  `extend()`. They swap the hue and keep only the inherited tokens that should
+  become status-aware.
+- `inherit: false` keeps a token local to the parent theme. Use it for neutral
+  ladders, shadows, code colors, scrims, and anything that should not be
+  repeated for every status hue.
+
+The main simplification is OKHST tone. Dark mode is a single inversion
+(`100 - t`) plus a scheme tone window, so tone relationships carry over from
+light to dark. A relative **tone delta** such as `tone: '-4'` is an exact tone
+step from its base in light. In dark it steps from where the base sits on the
+authored scale and is inverted and remapped like any authored tone, so it flips
+with its base and keeps its place in the ladder, slightly compressed by the
+dark window (about 0.87× at the defaults; high contrast keeps it exact). The
+step is exactly contrast-even for neutrals and approximate for chromatic
+colors; add a `contrast` floor when the measured result matters.
+[How relative tone adapts](./schemes.mdx#how-relative-tone-adapts) shows the
+mapping.
+
+Use `glaze.color()` instead of a theme when you need one standalone color or
+one base/dependent pair and do not need a named palette. The same tone,
+adaptation, and contrast rules apply; see
+[Color tokens](./reference/color-tokens.md).
+
+## Implementation workflow
+
+Build in dependency order so every decision has a clear base:
+
+<Steps>
+  <li>Configure the output schemes and application states once.</li>
+  <li>Choose the default theme's hue and saturation seed.</li>
+  <li>Define root surfaces with absolute tones.</li>
+  <li>Add dependent surfaces, text, borders, and icons with tone deltas.</li>
+  <li>Add contrast floors only to roles that need measured readability or recognizability.</li>
+  <li>Choose adaptation per color: `auto`, `fixed`, or `static`.</li>
+  <li>Add high-contrast pairs to tones and effects that should separate more in high contrast.</li>
+  <li>Mark default-only tokens `inherit: false`, then extend the shared definitions into status themes.</li>
+  <li>Compose and export the palette in the shape your application consumes.</li>
+  <li>Verify complete screens in all emitted scheme variants.</li>
+</Steps>
+
+The sections below follow this order and build one palette incrementally.
+
+## Authoring decisions
+
+Use this order when defining a token:
+
+1. Pick the base it visually belongs to.
+2. Use an absolute numeric `tone` for independent placement. Use a signed
+   **tone delta** (`'+N'` / `'-N'`) for distance from a base: surface ladders,
+   soft chips, disabled states, and similar relationships. Under `auto`, the
+   dark step mirrors the light one around its base, wherever the base sits,
+   but a `fixed` base doesn't invert while the delta does, so the delta lands
+   on the other side of it in dark: make a delta off a `fixed` base `fixed`
+   too when it should keep its side. A delta has no floor of its own, so give
+   a hover that must stay readable its own `contrast`, or use a
+   [state layer](#state-layers) on fills.
+3. Add `contrast` only when readability or recognizability needs a measured
+   floor.
+4. Prefer APCA presets for content-like colors when perceptual readability is
+   the design goal: `contrast: { apca: 'content' }`.
+5. Use WCAG numbers or presets when compatibility, policy, or migration
+   requires a WCAG ratio: `contrast: 4.5`, `contrast: 'AAA'`, or
+   `contrast: { wcag: [4.5, 7] }`.
+6. Let token names infer APCA roles. A name whose last recognized keyword is
+   `text`, `label`, `border`, `surface`, `fill`, `bg`, or a similar alias
+   already tells Glaze which side is foreground or background, so
+   `surface-text-soft` is text and `accent-surface-hover` is a surface. Set
+   `role` only when a name is ambiguous.
+7. Let high contrast escalate floors on its own: an APCA floor rises by Lc 15,
+   `'AA'` becomes `'AAA'`, and `'AA-large'` becomes `'AAA-large'`. Add a
+   high-contrast pair where a value does not escalate by itself (tone, shadow /
+   glow intensity, mix value, a bare WCAG number) or where you want a different
+   high-contrast target.
+
+[Contrast solving](./contrast.mdx) explains the two metrics and the presets;
+[Roles and APCA polarity](./contrast.mdx#roles-and-apca-polarity) covers name
+inference.
+
+### Choosing adaptation mode
+
+Pick the mode by role. This palette uses all three:
+
+| Mode | Roles |
+| --- | --- |
+| `auto` (default) | Surfaces, text, borders, icons, and accent foregrounds on neutral UI: they trade places with their background in dark. |
+| `fixed` | Accent fills, their label, and the inverse surface: they keep their side of the tone scale. |
+| `static` | The modal scrim, which must stay pure black in every scheme. |
+
+[Adaptation modes](./schemes.mdx#adaptation-modes) shows what each mode does
+per scheme. Dark tone inversion is controlled by `mode` alone; `autoFlip` only
+lets an overshooting tone delta or an unmet contrast direction reverse around
+its base.
+
+### Root or dependent?
+
+- Use a root color when its tone has meaning on its own: the page surface, a
+  fixed brand anchor, or a scheme extreme.
+- Use a dependent color when its purpose exists relative to another token:
+  text on a surface, a border around a fill, or a tint of an accent.
+- Setting `base` with an absolute tone is valid when the color needs a
+  contrast relationship but not a tone delta. The absolute position is resolved
+  independently; `contrast` acts as a safety floor. Without `contrast`, such a
+  base does not change the resolved color; it only records which surface the
+  color belongs to.
+
+## Seed and configure
+
+Keep hue decisions named and configure output modes once:
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+const PURPLE_HUE = 280.3;
+const SUCCESS_HUE = 156.9;
+const DANGER_HUE = 23.1;
+const WARNING_HUE = 84.3;
+const NOTE_HUE = 302.3;
+
+const SEED_SATURATION = 80;
+
+glaze.configure({
+  states: { dark: '@dark', highContrast: '@hc' },
+  modes: { dark: true, highContrast: true },
+});
+```
+
+`states` names the selectors your app uses for dark and high contrast, and
+`modes` turns on the variants Glaze emits; both are covered in
+[Configuration](./reference/configuration.md).
+
+Per-color `saturation` is a factor of the theme seed, not an absolute
+saturation. With `SEED_SATURATION = 80`, `saturation: 0.25` means one quarter
+of that seed.
+
+### When dark needs its own chroma
+
+Dark schemes get a flat `darkDesaturation` haircut (10% by default), which is
+enough for most palettes. Reach for a second seed only when dark is wrong in a
+way a uniform reduction cannot fix — a hue that reads muddy against dark
+surfaces, or an accent that stays gaudy no matter how much you dial the global
+knob. Pass the dark seed with the object form when you create the theme:
+
+```ts
+const defaultTheme = glaze({
+  hue: PURPLE_HUE,
+  saturation: SEED_SATURATION,
+  darkHue: PURPLE_HUE - 12, // cooler purple on dark surfaces
+  darkSaturation: 62, // calmer than a 10% haircut would give
+});
+```
+
+<PalettePreview
+  columns={[
+    { label: 'Dark · seed only', scheme: 'dark' },
+    {
+      label: 'Dark · with the dark seed',
+      scheme: 'dark',
+      darkHue: PURPLE_HUE - 12,
+      darkSaturation: 62,
+    },
+  ]}
+  caption="The finished palette in dark, without and with the dark seed above. The accent fill's dark saturation goes from 72 (the seed's 80 less the 10% haircut) to exactly 62."
+/>
+
+An explicit `darkSaturation` replaces `darkDesaturation` rather than stacking
+with it, so the number you write is the number you get. Prefer tuning the seed
+over per-color `darkHue` / `darkSaturation`: one seed keeps the palette
+coherent, while scattered per-color dark overrides drift apart as the palette
+grows. Save the per-color form for the one or two tokens that genuinely need
+it. [Dark seed](./schemes.mdx#dark-seed) shows the effect per scheme, and
+[Color definitions](./reference/color-definitions.md) has the per-color rules.
+The rest of this guide builds the default theme without a dark seed, so its
+previews show the plain haircut.
+
+## Naming
+
+Prefer purpose first and variant last:
+
+- Surfaces: `surface`, `surface-2`, `surface-3`.
+- Foregrounds: `surface-text`, `surface-text-soft`, `surface-text-soft-2`.
+- Structure: `border`, `divider`, `outline`, `placeholder`, `focus`.
+- Fills: `accent-surface`, `accent-surface-2`, `accent-surface-hover`.
+- Foregrounds on neutral surfaces: `accent-text`, `accent-text-soft`,
+  `accent-icon`.
+- Disabled states: `disabled-surface`, `disabled-surface-text`,
+  `accent-disabled-surface`, `accent-disabled-surface-text`.
+- Effects: `shadow-sm`, `shadow-md`, `shadow-lg`, `surface-hover`,
+  `accent-surface-pressed`, `accent-surface-highlight`, `scrim`, `hover`,
+  `tint`.
+
+These names are not only readable. They also help APCA role inference pick the
+right polarity. For example, `button-text` is foreground, `input-bg` is a
+surface, and `card-outline` is a border.
+
+## Build the default theme
+
+### The surface ladder
+
+Start with the surface family. It is mostly tone, with small saturation changes
+to keep the ladder visually coherent:
+
+```ts
+const defaultTheme = glaze(PURPLE_HUE, SEED_SATURATION);
+
+defaultTheme.colors({
+  surface: { tone: 100, saturation: 0.11 },
+  'surface-2': {
+    base: 'surface',
+    tone: '-2',
+    saturation: 0.15,
+    inherit: false,
+  },
+  'surface-3': {
+    base: 'surface',
+    tone: '-4',
+    saturation: 0.19,
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="surfaces"
+  schemes={['light', 'dark']}
+  caption="The ladder in light and dark. Each step moves away from surface's end of the scale in both schemes. Before any text exists, the UI is a wireframe: the page is surface-2, the cards are surface, and the bars and track are surface-3."
+/>
+
+Each tone delta is an exact step from `surface` in light; in dark it steps from
+`surface`'s authored tone and is mapped like an authored tone, so the ladder
+keeps its order everywhere and flips with `surface` in dark. The dark window
+compresses the steps a little: `'-2'` and `'-4'` land 1.7 and 3.5 tones from
+`surface` in dark, and high contrast keeps them exact. These small deltas are
+enough to define the ladder; there is no separate dark-mode curve to tune.
+
+### Text and borders
+
+Use a hard edge tone for maximum-prominence text, and APCA floors for softer
+content:
+
+```ts
+defaultTheme.colors({
+  'surface-text': {
+    base: 'surface',
+    tone: 2,
+    saturation: 0.475,
+  },
+  'surface-text-soft': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.375,
+    contrast: { apca: ['content', 'body'] },
+    inherit: false,
+  },
+  'surface-text-soft-2': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.24,
+    contrast: { apca: ['large', 'content'] },
+    inherit: false,
+  },
+  border: {
+    base: 'surface',
+    tone: ['-10', '-20'],
+    saturation: 0.175,
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="text"
+  caption="Each foreground on its base, with the APCA Lc it reaches against surface in your scheme. The soft variants land on their floors (Lc 60 and 45, or 75 and 60 in high contrast). The border has no floor; APCA rates very dark pairs at Lc 0, so in dark it reads 0 although it sits about 9 tones off surface (20 in high contrast)."
+/>
+
+`surface-text` uses an absolute `tone: 2`: it is intentionally edge-anchored,
+and with no `contrast` floor its `base` only records which surface it belongs
+to. The soft variants use a `-1` tone delta as the preferred direction and
+APCA as the readable floor. Their pairs only spell out what high contrast does
+anyway (an APCA floor rises by Lc 15), so a bare `{ apca: 'content' }`
+resolves the same; this guide writes them out to keep the high-contrast target
+visible. `border` needs its tone pair, because tones do not escalate on their
+own and borders usually need a larger visible step in high contrast.
+
+Repeat the same pattern for `surface-2` and `surface-3` only if components need
+text directly on those surfaces.
+
+### Neutral utility tokens
+
+Keep neutral-only primitives local to the default theme:
+
+```ts
+defaultTheme.colors({
+  placeholder: {
+    base: 'surface',
+    tone: 67,
+    saturation: 0.175,
+    inherit: false,
+  },
+  focus: {
+    base: 'surface',
+    tone: 71,
+    saturation: 0.8625,
+    inherit: false,
+  },
+  disabled: {
+    tone: 80.8,
+    saturation: 0.4,
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="utility"
+  caption="A search field with its placeholder and focus ring, and an unavailable option drawn in disabled."
+/>
+
+Absolute tones are fine for primitives whose job is visual placement rather
+than a strict relationship to a specific surface.
+
+## Chips and disabled states
+
+For subtle fills, tone is usually clearer than contrast:
+
+```ts
+defaultTheme.colors({
+  'disabled-surface': {
+    base: 'surface',
+    tone: '-3',
+    saturation: 0.2,
+    inherit: false,
+  },
+  'disabled-surface-text': {
+    base: 'disabled-surface',
+    tone: '-18',
+    saturation: 0.3,
+    autoFlip: false,
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="chips"
+  caption="A disabled chip: a small tone step off surface, with a deliberately faint label 16 to 18 tones from the chip in every scheme. In dark its Lc drops toward 0 for the same reason the border's does."
+/>
+
+This says exactly what the pair should do: the chip sits a small tone delta off
+`surface`, and the label sits a muted delta from the chip. `autoFlip: false`
+keeps the label on the authored side when the delta reaches the edge. Point the
+delta away from the nearer edge: the chip sits at tone 97 in light, so `'+18'`
+would have only three tones of room, and with `autoFlip: false` it would clamp
+at 100 and the label would all but vanish.
+
+Use contrast instead when the chip must hit an explicit accessibility floor:
+
+```ts
+defaultTheme.colors({
+  'disabled-surface-text': {
+    base: 'disabled-surface',
+    tone: '+1',
+    saturation: 0.3,
+    contrast: { apca: 'non-text' },
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="chips"
+  extra="disabled-floor"
+  preview={false}
+  caption="The same chip with the floor instead: the label reaches the same APCA Lc in light and dark (30, raised automatically to 45 in high contrast). The '+1' preference is too close to meet it, so the solver crosses to the other side of the chip."
+/>
+
+When a token needs the scheme extreme, use `tone: 'min'` or `tone: 'max'`
+directly. Avoid large magic numbers or fake contrast floors just to push a
+color to the edge.
+
+Pair the extreme with a `base` when the gap between the two has to survive the
+scheme switch. Glaze then replays the light-scheme tone shift against the
+resolved dark base instead of re-mapping the extreme through the dark window,
+so a knockout on a surface keeps the same contrast in both schemes.
+[Extremes in dark](./schemes.mdx#extremes-in-dark) shows the replay.
+
+## Fixed surfaces and accent fills
+
+Use `mode: 'fixed'` when the authored color should stay recognizable across
+schemes.
+
+```ts
+defaultTheme.colors({
+  'surface-inverse': {
+    tone: 12,
+    saturation: 0.475,
+    mode: 'fixed',
+    inherit: false,
+  },
+
+  'accent-surface-text': {
+    tone: 100,
+    mode: 'fixed',
+  },
+  'accent-surface': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: { apca: ['content', 'body'] },
+    mode: 'fixed',
+  },
+  'accent-surface-2': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: { apca: [65, 80] },
+    mode: 'fixed',
+  },
+  'accent-surface-hover': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: { apca: ['body', 'preferred'] },
+    mode: 'fixed',
+  },
+});
+```
+
+<PaletteStep
+  step="fixed"
+  schemes={['light', 'dark']}
+  caption="Fixed tokens keep their side of the scale: surface-inverse stays dark and the accent fills keep a light label in both schemes. Lc is measured with accent-surface-text as the label on each fill."
+/>
+
+The accent fill family is a fixed chain against a fixed text anchor. The names
+infer `surface` and `text` roles, so APCA gets the right polarity without extra
+fields.
+
+## Adaptive accent foregrounds
+
+Brand foregrounds that sit on neutral surfaces should stay adaptive:
+
+```ts
+defaultTheme.colors({
+  'accent-text': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 1,
+    contrast: { apca: ['content', 'body'] },
+  },
+  'accent-text-soft': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 1,
+    contrast: { apca: ['large', 'content'] },
+  },
+  'accent-icon': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.9375,
+    contrast: { apca: ['non-text', 'large'] },
+  },
+});
+```
+
+<PaletteStep
+  step="adaptive"
+  caption="A link, its softer caption, and an icon, each floored against surface."
+/>
+
+Anchor these to `surface`, not to `accent-surface`. Their real job is to remain
+readable on neutral UI, so `mode: 'auto'` and a surface base are the right
+defaults.
+
+Brand-tinted disabled states can usually be pure tone:
+
+```ts
+defaultTheme.colors({
+  'accent-disabled-surface': {
+    base: 'surface',
+    tone: '+3',
+    saturation: 0.5,
+  },
+  'accent-disabled-surface-text': {
+    base: 'accent-disabled-surface',
+    tone: '-18',
+    saturation: 0.4,
+    autoFlip: false,
+  },
+});
+```
+
+<PaletteStep
+  step="accent-disabled"
+  caption="The brand-tinted disabled button."
+/>
+
+On the white default `surface` there is no room for `'+3'`, so `autoFlip`
+(on by default) mirrors the chip just below `surface`; on the tinted status
+surfaces later in this guide it lands above. The label follows the same rule as
+the neutral disabled chip.
+
+These are inherited, so status themes automatically get
+`success-accent-disabled-surface`, `danger-accent-disabled-surface`, and the
+matching text tokens.
+
+## Special-purpose colors
+
+Use absolute `hue` overrides for tokens that should come from another hue
+family but keep the same adaptation behavior:
+
+```ts
+defaultTheme.colors({
+  'code-comment': {
+    base: 'surface',
+    hue: 280,
+    saturation: 0.1,
+    tone: '-1',
+    contrast: { apca: ['large', 'content'] },
+    inherit: false,
+  },
+  'code-keyword': {
+    base: 'surface',
+    hue: 348,
+    saturation: 1,
+    tone: '-1',
+    contrast: { apca: ['content', 'body'] },
+    inherit: false,
+  },
+  'code-string': {
+    base: 'surface',
+    hue: SUCCESS_HUE,
+    saturation: 1,
+    tone: '-1',
+    contrast: { apca: ['large', 'content'] },
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="code"
+  caption="Syntax colors from three hue families, each floored against surface like any other foreground."
+/>
+
+Use small tone ramps for decorative motion:
+
+```ts
+defaultTheme.colors({
+  'loading-face-1': {
+    base: 'surface',
+    tone: 98,
+    saturation: 0.3,
+    inherit: false,
+  },
+  'loading-face-2': {
+    base: 'surface',
+    tone: 91,
+    saturation: 0.62,
+    inherit: false,
+  },
+  'loading-face-3': {
+    base: 'surface',
+    tone: 79,
+    saturation: 0.66,
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="loading"
+  caption="A loading skeleton built from the three faces."
+/>
+
+Absolute tones invert and remap the same way in every scheme, so the ramp keeps
+its order and close to its spacing without involving the contrast solver: the
+tone windows narrow it to about 95% in light and 87% in dark, and high contrast
+keeps it exact. Use a high-contrast tone pair only when the animation should
+become more pronounced in high contrast.
+
+## Effects
+
+Shadows and glows are translucent overlays with an exact tone step:
+`intensity` is how many tones darker (`shadow`) or lighter (`glow`) the surface
+ends up once the browser composites it. The opacity is solved per surface, so
+the same number reads the same on white, on a mid-tone accent and on a dark
+surface. Direction is fixed per type: a `shadow` always darkens and a `glow`
+always lightens, in every scheme. [Shadows and glows](./shadows-and-glows.mdx)
+covers the model in depth.
+
+### Shadows
+
+Define one neutral shadow system. Point `bg` at the surface the shadow falls on
+and `fg` at the element that casts it — here a `surface` card on the
+`surface-2` page:
+
+```ts
+defaultTheme.colors({
+  'shadow-sm': {
+    type: 'shadow',
+    bg: 'surface-2',
+    fg: 'surface',
+    intensity: 4,
+    inherit: false,
+  },
+  'shadow-md': {
+    type: 'shadow',
+    bg: 'surface-2',
+    fg: 'surface',
+    intensity: [8, 14],
+    inherit: false,
+  },
+  'shadow-lg': {
+    type: 'shadow',
+    bg: 'surface-2',
+    fg: 'surface',
+    intensity: [12, 20],
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="shadows"
+  schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
+  preview={false}
+  caption="A surface card casting each shadow on surface-2, in all four schemes. The value line is the solved opacity and the tone step the composite actually lands."
+/>
+
+`fg` modulates the step the way bounce light does: an object at the surface's
+own tone gives exactly `intensity`, a darker object casts a deeper shadow and a
+lighter one a softer shadow. Do not point `fg` at text — it is the object, not
+a contrast reference. Use a high-contrast pair for shadows that should deepen
+in high contrast.
+
+<Callout kind="caution" title="Shadows need room below the surface">
+  A shadow can only darken as far as black. The page surface here,
+  `surface-2`, sits at tone 98 in light but about 11 in dark and 2 in dark
+  high contrast, so `shadow-lg` falls just short of its step in dark, and in
+  dark high contrast all three pin at full opacity and still land only about 2
+  tones down. Glaze warns for each step it cannot reach. Every color resolves
+  in all four schemes, so not binding a shadow in dark only keeps the pinned
+  value off screen; the warning fires anyway. The fix is a lower `intensity`,
+  or a surface with room below it in every scheme. For elevation
+  in dark, reach for [glows](./shadows-and-glows.mdx#dark-mode-elevation)
+  instead. This palette keeps its near-white page, so these warnings are
+  expected.
+</Callout>
+
+### State layers
+
+Without `fg`, a shadow or glow is an exact shade or tint — the right tool for
+state layers, which need the same visible change on every fill:
+
+```ts
+defaultTheme.colors({
+  'surface-hover': { type: 'shadow', bg: 'surface', intensity: 3 },
+  'accent-surface-pressed': {
+    type: 'shadow',
+    bg: 'accent-surface',
+    intensity: [6, 10],
+  },
+  'accent-surface-highlight': {
+    type: 'glow',
+    bg: 'accent-surface',
+    intensity: 5,
+  },
+});
+```
+
+<PaletteStep
+  step="state-layers"
+  caption="Each layer over the fill it targets, then in the UI: the hovered row and the pressed and highlighted buttons. The cards now carry shadow-md and shadow-sm."
+/>
+
+A fixed opacity cannot do this: an 8% black layer darkens white by about 6
+tones but a tone-10 surface by about 1
+([The same step on every surface](./shadows-and-glows.mdx#the-same-step-on-every-surface)
+compares the two). The same limit applies, though: in dark high
+contrast `surface` sits at tone 0, so `surface-hover` has nothing to darken
+there and resolves transparent, with a warning.
+
+Glows are the mirror, for dark-mode elevation and edge highlights. A glow needs
+room above its surface, so a glow on a white light-mode surface has nothing to
+lighten — Glaze leaves it transparent and warns, even if you only use the token
+in dark. Give glows a surface with room in every scheme, as
+`accent-surface-highlight` has on the mid-tone accent fill. With `headroom`
+above 0, an [HDR glow](./hdr.mdx) can carry a value past white for platforms
+that can show it, but its standard value on white stays transparent.
+
+### Fixed opacity and mixes
+
+Use `opacity` for one fixed-alpha color, such as a modal scrim:
+
+```ts
+defaultTheme.colors({
+  scrim: {
+    tone: 0,
+    saturation: 0,
+    mode: 'static',
+    opacity: 0.5,
+    inherit: false,
+  },
+});
+```
+
+<PaletteStep
+  step="scrim"
+  schemes={['light', 'dark']}
+  preview={false}
+  caption="The scrim at a fixed 50% over surface: black in light and dark, and in both high-contrast variants."
+/>
+
+`mode: 'static'` keeps the scrim pure black. Under the default `auto`, tone 0
+would be remapped to tone 4.95 in light and inverted to 95.9 in dark, turning
+the scrim into a light 50% wash there.
+
+Use mixes when one color should tint through another:
+
+```ts
+defaultTheme.colors({
+  hover: {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent-surface',
+    value: 8,
+    blend: 'transparent',
+  },
+  tint: {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent-surface',
+    value: 20,
+  },
+});
+```
+
+<PaletteStep
+  step="mixes"
+  caption="A transparent accent hover over surface and a solid 20% tint, then the complete default theme."
+/>
+
+Transparent mixes are good for tinted hover washes. Opaque mixes are good for
+solid tints. Opaque mixes default to perceptual OKHSL interpolation; set
+`space: 'srgb'` for linear-light channel interpolation. Transparent mixes are
+composited by the browser, and their contrast solve models that compositing.
+Mix colors can also use `contrast`; the solver adjusts the value or opacity to
+meet the floor. If the floor is out of reach, the mix settles at the pure target
+(the pure base when its value is already 100) and Glaze warns, as it does for a
+regular color. See [Mixes and transparency](./mixes.mdx).
+
+## High contrast
+
+High contrast is not a separate palette. Contrast floors escalate on their own
+in the high-contrast variants: an APCA floor rises by Lc 15, `'AA'` becomes
+`'AAA'`, and `'AA-large'` becomes `'AAA-large'` (a bare WCAG number stays as
+written). Text, icons, and accent fills tighten with no extra fields;
+[Contrast solving](./contrast.mdx#high-contrast) has the full table.
+
+Tones, shadow / glow `intensity`, and mix `value` do not escalate. Give them a
+high-contrast pair where users should get more separation:
+
+- Borders: `tone: ['-10', '-20']`.
+- Shadows and glows: `intensity: [8, 14]`.
+- Decorative ramps that must stay perceivable.
+
+A contrast pair is only needed for a different high-contrast target than the
+automatic one, such as `{ apca: ['content', 'preferred'] }`.
+
+In high-contrast variants, Glaze bypasses the normal tone window and uses the
+full `[0, 100]` range. Edge tones can reach the edge; contrast floors have more
+room to solve.
+
+<PalettePreview
+  schemes={['light', 'dark', 'lightContrast', 'darkContrast']}
+  caption="The finished palette in all four schemes. In high contrast the borders deepen, soft text and accent fills move to their high-contrast floors, and the surfaces reach the ends of the scale."
+/>
+
+### A slider through the tier
+
+The two-tier model assumes contrast is a binary OS preference. When contrast is
+instead a setting _your users_ control, set
+[`contrastLevel`](./reference/contrast.md#manual-contrast-level) to a number
+and your **normal** palette slides along a `0–100` ramp: level `0` is the
+palette you authored, `100` is its high-contrast variant, and everything
+between is resolved at that level.
+
+<PalettePreview
+  columns={[
+    { label: 'Light · level 0', scheme: 'light', contrastLevel: 0 },
+    { label: 'Light · level 50', scheme: 'light', contrastLevel: 50 },
+    { label: 'Light · level 100', scheme: 'light', contrastLevel: 100 },
+  ]}
+  caption="The finished palette's light variant at three levels. No new fields: the slider ramps toward the high-contrast values, escalated floors and pairs alike."
+/>
+
+The authoring work is the same: the slider ramps toward the values the
+high-contrast tier uses, so a palette tuned for high contrast needs no new
+fields. Two things worth planning for:
+
+- The slider and the tier compose. The high-contrast tier keeps resolving at
+  full contrast regardless of the level, so wire the level into your build or
+  runtime _and_ keep your `prefers-contrast: more` block: a user who has raised
+  the slider and asked their OS for more contrast still gets the escalation on
+  top. The one exception is a global level of `100`
+  (`glaze.configure({ contrastLevel: 100 })`), where the two coincide and the
+  tier is dropped as a duplicate. A per-theme level of `100` still emits the
+  tier, with values equal to the normal ones.
+- `contrastLevel: 0` is the natural rest position for a slider you ship but
+  default off — it reproduces the `'auto'` output bit for bit.
+
+[Manual contrast level](./schemes.mdx#manual-contrast-level) shows the level
+as a strip; [Contrast and high contrast](./reference/contrast.md#manual-contrast-level)
+in the API reference has the exact interpolation rules.
+
+## Extend into status themes
+
+Once the default theme is shaped, create colored siblings by replacing hue and
+overriding only the root surface that should become visibly tinted:
+
+```ts
+const TINTED_SURFACE_OVERRIDE = {
+  surface: { tone: 96, saturation: 0.8 },
+};
+
+const primaryTheme = defaultTheme.extend({
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const successTheme = defaultTheme.extend({
+  hue: SUCCESS_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const dangerTheme = defaultTheme.extend({
+  hue: DANGER_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const warningTheme = defaultTheme.extend({
+  hue: WARNING_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+const noteTheme = defaultTheme.extend({
+  hue: NOTE_HUE,
+  colors: TINTED_SURFACE_OVERRIDE,
+});
+```
+
+<StatusThemes caption="Each theme painted only with its own tokens. The token count shows inherit: false at work: the default theme carries the whole palette, each sibling only the inherited subset." />
+
+The inherited accent tokens (including `accent-disabled-*`) now resolve in each
+status hue. Tokens marked `inherit: false` stay default-only, so sibling themes
+remain small. [`theme.extend()`](./reference/theme.md#themeextendoptions)
+documents how inherited and overriding definitions merge.
+
+<Callout kind="caution" title="A dark seed is inherited too">
+  `extend()` keeps the parent's `darkHue` and `darkSaturation` unless you pass
+  new ones. If the default theme has the dark seed from
+  [When dark needs its own chroma](#when-dark-needs-its-own-chroma), a status
+  theme that only sets `hue` turns purple in dark. Pass its own `darkHue` next
+  to `hue`, for example `hue: SUCCESS_HUE, darkHue: SUCCESS_HUE - 12`.
+</Callout>
+
+## Export the palette
+
+Compose the themes once:
+
+```ts
+const palette = glaze.palette({
+  default: defaultTheme,
+  primary: primaryTheme,
+  success: successTheme,
+  danger: dangerTheme,
+  warning: warningTheme,
+  note: noteTheme,
+});
+```
+
+The usual export shape is default unprefixed and status themes prefixed:
+
+```ts
+const prefix = {
+  default: '',
+  primary: 'primary-',
+  success: 'success-',
+  danger: 'danger-',
+  warning: 'warning-',
+  note: 'note-',
+};
+
+palette.tasty({ prefix });
+```
+
+<PaletteOutput />
+
+An explicit prefix map is the clearest choice when the palette has a neutral
+`default` theme. The separate palette `primary` option serves another pattern:
+it duplicates one named theme without a prefix while retaining its prefixed
+tokens. Do not combine the two accidentally; choose the token namespace your
+components expect.
+
+The palette design is independent of the exporter:
+
+```ts
+palette.tokens({ prefix }); // JavaScript maps, native oklch by default
+palette.css({ prefix }); // CSS custom-property declarations
+palette.dtcg({ prefix }); // one design-token tree per scheme
+palette.tailwind({ prefix }); // Tailwind CSS v4 theme
+```
+
+Use `palette.tasty({ prefix })` for [Tasty](https://tasty.style) state
+bindings. [Choosing an export](./exporting.mdx#choosing-an-export) covers
+output shapes and application wiring, and
+[the `primary` alias](./exporting.mdx#the-primary-alias) the alias pattern;
+every palette option is in the [Palettes](./reference/palette.md) reference.
+
+## Checklist
+
+Before shipping a palette, verify:
+
+- Text, icon, and content tokens either have APCA/WCAG contrast or are
+  deliberately edge-anchored.
+- Accent fills use `mode: 'fixed'`; accent foregrounds on neutral UI stay
+  `mode: 'auto'` and are based on `surface`.
+- Ambiguous APCA tokens have an explicit `role`; obvious names rely on
+  inference.
+- Low-stakes visual relationships use tone deltas instead of fake contrast
+  floors.
+- `inherit: false` is set on default-only tokens so status themes stay
+  focused.
+- Tones, shadow / glow intensities, and mix values that should change in high
+  contrast have a high-contrast pair. Contrast floors escalate on their own;
+  both feed a manual `contrastLevel`.
+- Status themes extended from a theme with a dark seed pass their own
+  `darkHue`.
+- `glaze.configure({ states, modes })` matches the states registered in the
+  app.
+- Every emitted scheme (`light`, `dark`, `lightContrast`, `darkContrast`) has
+  been reviewed on complete screens, not only in a token grid.
+- Rendered WCAG/APCA results have been checked for chromatic foreground/base
+  pairs that carry accessibility requirements.
+- Resolution emits no unexplained unreachable-contrast (colors and mixes),
+  unreachable shadow / glow, or token-collision warnings.

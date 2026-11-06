@@ -3,16 +3,31 @@
  *
  * Composes multiple themes into a single token namespace with optional
  * theme-name prefixes and a "primary theme" that also surfaces an
- * unprefixed copy of its tokens. All seven export methods (`tokens` /
- * `tasty` / `json` / `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a
- * `buildPaletteOutput` driver that handles validation, per-theme iteration,
- * prefix resolution, collision filtering, and primary duplication.
+ * unprefixed copy of its tokens. Six export methods (`tokens` / `tasty` /
+ * `css` / `dtcg` / `dtcgResolver` / `tailwind`) share a `buildPaletteOutput`
+ * driver that handles validation, per-theme iteration, prefix resolution,
+ * collision filtering, and primary duplication; `json()` keys its output by
+ * theme name instead, with no prefixes or collisions to resolve. The HDR
+ * tier of glows (with `modes.hdr`, or `css({ hdr })`) is built from the same
+ * filtered maps, so prefixes, the primary alias and collisions apply to it the
+ * same way.
+ * `tasty()` / `css()` with `splitHue` share one custom-property registry across
+ * the passes of a call, so two themes declaring the same `--*-hue` throws — as
+ * does a `css()` value property (primary aliases included) landing on a hue
+ * var.
  *
  * Authoring round-trip: `palette.export()` / `createPaletteFromExport()`
  * (wired as `glaze.paletteFrom`).
  */
 
-import type { ChannelCtx } from './channels';
+import {
+  assertSplitHueFormat,
+  claimHueVars,
+  claimValueProps,
+  type ChannelCtx,
+  type HueVarLabels,
+  type SplitHueOwners,
+} from './channels';
 import { getConfig } from './config';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import {
@@ -23,19 +38,26 @@ import {
   buildJsonMap,
   buildTailwindLines,
   buildTokenMap,
+  DEFAULT_TAILWIND_HDR_SELECTOR,
   emitTailwindCss,
+  emptySchemeLines,
+  emptyTailwindLines,
+  joinSchemeLines,
+  mergeTailwindLines,
   resolveModes,
+  SCHEMES,
 } from './formatters';
 import {
   assertExportKind,
   assertExportVersion,
+  assertNoLegacyShadows,
   GLAZE_EXPORT_VERSION,
 } from './serialize';
 import { createTheme } from './theme';
 import type {
   ColorMap,
-  GlazeCssOptions,
   GlazeCssResult,
+  GlazeCssSchemeBlocks,
   GlazeConfigOverride,
   GlazeDtcgOptions,
   GlazeDtcgResolverDocument,
@@ -44,12 +66,13 @@ import type {
   GlazeJsonOptions,
   GlazePalette,
   GlazePaletteExport,
+  GlazePaletteCssOptions,
   GlazePaletteExportOptions,
   GlazePaletteOptions,
+  GlazePaletteTastyOptions,
   GlazeTailwindOptions,
   GlazeTheme,
   GlazeThemeExport,
-  GlazeTokenOptions,
   ResolvedColor,
 } from './types';
 import type { GlazeTailwindLines } from './formatters';
@@ -133,19 +156,33 @@ function colorMapFromTheme(theme: GlazeTheme): ColorMap {
   return defs;
 }
 
+/**
+ * `splitHue` context for one theme pass of `palette.tasty()` / `css()`, or
+ * `undefined` without `splitHue` (the caller has already checked the format).
+ * `hueOwners` is shared by every pass of one export call, so a property two
+ * declarations would share — a color named after another theme under an empty
+ * prefix, or (`css()`, which passes its `suffix`) a color's value property
+ * landing on a hue var — throws instead of one silently overriding the other.
+ * Value properties are claimed on the primary's alias pass too: it declares no
+ * hue vars, but its unprefixed values are emitted all the same.
+ */
 function channelCtxForTheme(
   theme: GlazeTheme,
   themeName: string,
   passPrefix: string,
   themedPrefix: string,
   splitHue: boolean | undefined,
-  format: string,
   modes: ReturnType<typeof resolveModes>,
   filtered: Map<string, ResolvedColor>,
+  hueOwners: SplitHueOwners,
+  valueSuffix?: string,
 ): ChannelCtx | undefined {
-  if (!splitHue || format !== 'oklch') return undefined;
+  if (!splitHue) return undefined;
   assertAllPastel(filtered, modes);
-  return {
+  // The primary's unprefixed alias pass, which only references the hue vars
+  // its prefixed pass declares.
+  const aliasPass = passPrefix !== themedPrefix;
+  const ctx: ChannelCtx = {
     seedHue: theme.hue,
     darkSeedHue: theme.darkHue,
     baseName: themeName,
@@ -157,8 +194,27 @@ function channelCtxForTheme(
     mode: 'theme',
     // Emit declarations only in the pass whose color-prop prefix matches the
     // themed prefix (the prefixed pass, or the single pass when prefix:false).
-    emitDeclarations: passPrefix === themedPrefix,
+    emitDeclarations: !aliasPass,
   };
+  const labels: HueVarLabels = {
+    theme: `the hue of theme "${themeName}"`,
+    color: (name) => `color "${name}"'s own hue (theme "${themeName}")`,
+    value: (name) =>
+      aliasPass
+        ? `the primary alias of color "${name}" (theme "${themeName}")`
+        : `color "${name}"'s value (theme "${themeName}")`,
+    fix:
+      'Rename the color or the theme, or give the theme a prefix that ' +
+      'keeps its hue vars apart.',
+    valueFix:
+      'Rename the color or the theme, or pass a different `suffix` or ' +
+      'theme prefix.',
+  };
+  claimHueVars(filtered, ctx, hueOwners, labels);
+  if (valueSuffix !== undefined) {
+    claimValueProps(filtered, passPrefix, valueSuffix, hueOwners, labels);
+  }
+  return ctx;
 }
 
 /**
@@ -221,6 +277,7 @@ function buildPaletteOutput<T, R>(
 export function createThemeFromExport(
   data: GlazeThemeExport,
   factory = 'glaze.themeFrom',
+  fallbackVersion?: unknown,
 ): GlazeTheme {
   if (data === null || typeof data !== 'object') {
     throw new Error(
@@ -229,6 +286,7 @@ export function createThemeFromExport(
   }
   assertExportKind(data, 'theme', factory);
   assertExportVersion(data, factory);
+  assertNoLegacyShadows(data, factory, fallbackVersion);
   if (typeof data.hue !== 'number' || typeof data.saturation !== 'number') {
     throw new Error(
       `${factory}: expected numeric "hue" and "saturation" fields.`,
@@ -277,6 +335,7 @@ export function createPaletteFromExport(
     rebuilt[name] = createThemeFromExport(
       themeExport,
       `glaze.paletteFrom (theme "${name}")`,
+      data.version,
     );
   }
 
@@ -385,15 +444,18 @@ export function createPalette(
     },
 
     tasty(
-      options?: GlazeTokenOptions & GlazePaletteExportOptions,
+      options?: GlazePaletteTastyOptions,
     ): Record<string, Record<string, string>> {
       const cfg = getConfig();
       const states = {
         dark: options?.states?.dark ?? cfg.states.dark,
         highContrast: options?.states?.highContrast ?? cfg.states.highContrast,
+        hdr: options?.states?.hdr ?? cfg.states.hdr,
       };
       const modes = resolveModes(options?.modes);
       const format = options?.format ?? 'oklch';
+      assertSplitHueFormat(options?.splitHue, format);
+      const hueOwners: SplitHueOwners = new Map();
       return buildPaletteOutput<
         Record<string, Record<string, string>>,
         Record<string, Record<string, string>>
@@ -409,9 +471,9 @@ export function createPalette(
             prefix,
             themedPrefix,
             options?.splitHue,
-            format,
             modes,
             filtered,
+            hueOwners,
           );
           return buildTokenMap(
             filtered,
@@ -429,9 +491,7 @@ export function createPalette(
     },
 
     json(
-      options?: GlazeJsonOptions & {
-        prefix?: boolean | Record<string, string>;
-      },
+      options?: GlazeJsonOptions,
     ): Record<string, Record<string, Record<string, string>>> {
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'json');
@@ -451,15 +511,19 @@ export function createPalette(
       return result;
     },
 
-    css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult {
+    css(options?: GlazePaletteCssOptions): GlazeCssResult {
       const suffix = options?.suffix ?? '-color';
       const format = options?.format ?? 'oklch';
       assertNativeFormat(format, 'css');
+      assertSplitHueFormat(options?.splitHue, format);
       const modes = resolveModes();
+      const hdr = options?.hdr ?? modes.hdr;
+      const hueOwners: SplitHueOwners = new Map();
+      type SchemeLines = Record<keyof GlazeCssSchemeBlocks, string[]>;
 
       const lines = buildPaletteOutput<
         GlazeCssResult,
-        Record<keyof GlazeCssResult, string[]>
+        { sdr: SchemeLines; hdr: SchemeLines }
       >(
         themes,
         paletteOptions,
@@ -472,9 +536,10 @@ export function createPalette(
             prefix,
             themedPrefix,
             options?.splitHue,
-            format,
             modes,
             filtered,
+            hueOwners,
+            suffix,
           );
           return buildCssMap(
             filtered,
@@ -483,34 +548,21 @@ export function createPalette(
             format,
             pastel,
             channelCtx,
+            hdr,
           );
         },
         (acc, part) => {
-          for (const key of [
-            'light',
-            'dark',
-            'lightContrast',
-            'darkContrast',
-          ] as const) {
-            if (part[key]) {
-              acc[key].push(part[key]);
-            }
+          for (const key of SCHEMES) {
+            if (part[key]) acc.sdr[key].push(part[key]);
+            if (part.hdr?.[key]) acc.hdr[key].push(part.hdr[key]);
           }
         },
-        () => ({
-          light: [],
-          dark: [],
-          lightContrast: [],
-          darkContrast: [],
-        }),
+        () => ({ sdr: emptySchemeLines(), hdr: emptySchemeLines() }),
       );
 
-      return {
-        light: lines.light.join('\n'),
-        dark: lines.dark.join('\n'),
-        lightContrast: lines.lightContrast.join('\n'),
-        darkContrast: lines.darkContrast.join('\n'),
-      };
+      const result: GlazeCssResult = joinSchemeLines(lines.sdr);
+      if (hdr) result.hdr = joinSchemeLines(lines.hdr);
+      return result;
     },
 
     dtcg(
@@ -535,32 +587,32 @@ export function createPalette(
       const darkSelector = options?.darkSelector ?? '.dark';
       const highContrastSelector =
         options?.highContrastSelector ?? '.high-contrast';
+      const hdrSelector = options?.hdrSelector ?? DEFAULT_TAILWIND_HDR_SELECTOR;
 
       const lines = buildPaletteOutput<GlazeTailwindLines, GlazeTailwindLines>(
         themes,
         paletteOptions,
         options,
         (filtered, prefix, pastel, _themeName, _theme) =>
-          buildTailwindLines(filtered, prefix, cssPrefix, format, pastel),
-        (acc, part) => {
-          for (const variant of [
-            'light',
-            'dark',
-            'lightContrast',
-            'darkContrast',
-          ] as const) {
-            acc[variant].push(...part[variant]);
-          }
-        },
-        () => ({
-          light: [],
-          dark: [],
-          lightContrast: [],
-          darkContrast: [],
-        }),
+          buildTailwindLines(
+            filtered,
+            prefix,
+            cssPrefix,
+            format,
+            pastel,
+            modes,
+          ),
+        mergeTailwindLines,
+        emptyTailwindLines,
       );
 
-      return emitTailwindCss(lines, modes, darkSelector, highContrastSelector);
+      return emitTailwindCss(
+        lines,
+        modes,
+        darkSelector,
+        highContrastSelector,
+        hdrSelector,
+      );
     },
   };
 }

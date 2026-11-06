@@ -6,13 +6,33 @@
  * `{ l, c, h }`), the structured-input validator, the two factory paths
  * (value vs structured), and the JSON-safe export / rehydration round-trip.
  *
- * Tokens store a sparse local config override only. Resolve merges the
- * live global config with that local override (invalidated on
- * `configure()`). Authoring `.export(override?)` freezes
- * `getConfig() ∪ local ∪ override` at call time.
+ * A token that links to another as `base` resolves against the base token's
+ * own variants — what the base actually paints, under its own config — in
+ * every scheme, so a light `'+0'` lands on it and a light `contrast` floor is
+ * measured against it. Every token also registers an internal dark-delta
+ * anchor hook: a linking token passes it to the resolver, so a `'+N'` link
+ * steps in dark from where the base sits under the base's own windows (the
+ * resolver reads a base under another dark window back through the link's
+ * own). The hook's result is cached per pass with the token's resolve.
+ *
+ * A token's role is pinned here rather than left to the resolver's chain: an
+ * explicit `role`, else `'text'`. The token is the foreground against its
+ * anchor — its `base`, or the hidden seed holding its own input color — and
+ * the user-supplied `name` is a debug label that never drives role inference.
+ *
+ * Tokens store a sparse local config override only, copied once at creation so
+ * the caller's object can't reach it later. Resolve merges the live global
+ * config with that local override (invalidated on `configure()`). Authoring
+ * `.export(override?)` freezes `getConfig() ∪ local ∪ override` at call time.
+ *
+ * `css()` with `splitHue` claims the token's `--{name}-hue` and its value
+ * property in one namespace, so `suffix: '-hue'` throws whenever the token
+ * declares a hue var (it is chromatic in light), instead of emitting a value
+ * that reads itself through `var()`.
  */
 
 import {
+  copyConfigOverride,
   freezeConfigForExport,
   getConfig,
   getConfigVersion,
@@ -24,12 +44,26 @@ import {
   GLAZE_EXPORT_VERSION,
   isColorTokenExport,
 } from './serialize';
-import type { ChannelCtx } from './channels';
-import { extractOkhslFromValue } from './color-value';
+import {
+  assertSplitHueFormat,
+  claimHueVars,
+  claimValueProps,
+  type ChannelCtx,
+  type HueVarLabels,
+  type SplitHueOwners,
+} from './channels';
+import { copyColorValue, extractOkhslFromValue } from './color-value';
 import { assertAllPastel, assertNativeFormat } from './format-guard';
 import { toTone } from './okhst';
-import { isAbsoluteTone, pairNormal } from './hc-pair';
-import { resolveAllColors } from './resolver';
+import { pairNormal, showValue } from './hc-pair';
+import {
+  anchorAtAuthoredTone,
+  darkAnchorOf,
+  resolveAllColors,
+} from './resolver';
+import type { DarkAnchorHook, ExternalDarkAnchor } from './resolver';
+import { normalizeRole } from './roles';
+import { hasRelativeTone, isRelativeValue } from './validation';
 import {
   buildCssMap,
   buildDtcgMap,
@@ -62,9 +96,12 @@ import type {
   GlazeThemeSeed,
   GlazeTokenOptions,
   HCPair,
+  ContrastSpec,
   OkhslColor,
   RegularColorDef,
   ResolvedColor,
+  Role,
+  RoleInput,
   ToneValue,
 } from './types';
 
@@ -92,15 +129,15 @@ const RESERVED_STANDALONE_NAMES = new Set([
 
 /**
  * Value-form local override: `lightTone` defaults to `false` (preserve
- * input tone). User override fields win.
+ * input tone). User override fields win. Returns a detached copy.
  */
 function sparseValueFormLocal(
   userOverride?: GlazeConfigOverride,
 ): GlazeConfigOverride {
+  const own = copyConfigOverride(userOverride);
   return {
-    ...userOverride,
-    lightTone:
-      userOverride?.lightTone !== undefined ? userOverride.lightTone : false,
+    ...own,
+    lightTone: own?.lightTone !== undefined ? own.lightTone : false,
   };
 }
 
@@ -174,9 +211,14 @@ function validateStructuredInput(input: GlazeColorInput): void {
       );
     }
   }
-  if (typeof input.darkHue === 'number' && !Number.isFinite(input.darkHue)) {
+  if (
+    input.darkHue !== undefined &&
+    !(typeof input.darkHue === 'number'
+      ? Number.isFinite(input.darkHue)
+      : isRelativeValue(input.darkHue))
+  ) {
     throw new Error(
-      `glaze.color: structured darkHue must be a finite number (got ${input.darkHue}).`,
+      `glaze.color: structured darkHue must be a finite number or a '+N' / '-N' offset (got ${showValue(input.darkHue)}).`,
     );
   }
   if (input.darkSaturation !== undefined) {
@@ -251,6 +293,21 @@ function pinExtremeTone(tone: HCPair<ToneValue>): HCPair<ToneValue> {
 }
 
 /**
+ * The role the user-facing def resolves with: an explicit `role`, else
+ * `'text'`.
+ *
+ * A token is the foreground against its anchor in both pairings — an
+ * external `base` (which the resolver treats as a background) and the hidden
+ * `STANDALONE_SEED` holding the token's own input color (marked `'surface'`
+ * below). Pinning the role here, instead of leaving it to the resolver's
+ * chain, also keeps the user-supplied `name` a pure debug label: it becomes
+ * the def's key, so the resolver would otherwise infer a role from it.
+ */
+function standaloneRole(role: RoleInput | undefined): Role {
+  return normalizeRole(role) ?? 'text';
+}
+
+/**
  * Build the `ColorMap` for a value-shorthand `glaze.color()` call.
  *
  * The user-facing color (`STANDALONE_VALUE`) defaults to `mode: 'auto'`
@@ -263,7 +320,9 @@ function pinExtremeTone(tone: HCPair<ToneValue>): HCPair<ToneValue> {
  * When the user requests `contrast` or relative `tone`, a hidden
  * `STANDALONE_SEED` def is synthesized at `mode: 'static'`. That keeps
  * the seed pinned to the literal user-provided color across all four
- * variants, so the contrast solver always anchors against it.
+ * variants, so the contrast solver always anchors against it. Its dark-delta
+ * anchor is still its authored tone (`anchorAtAuthoredTone`), so a delta on it
+ * inverts in dark like one on the same color in a theme.
  */
 function buildStandaloneValueDefs(
   main: OkhslColor,
@@ -281,8 +340,7 @@ function buildStandaloneValueDefs(
   // the literal seed via the hidden `STANDALONE_SEED` def.
   const needsSeedAnchor =
     !hasExternalBase &&
-    (options?.contrast !== undefined ||
-      (toneOption !== undefined && !isAbsoluteTone(toneOption)));
+    (options?.contrast !== undefined || hasRelativeTone(toneOption));
 
   if (options?.opacity !== undefined)
     validateStandaloneOpacity(options.opacity);
@@ -307,7 +365,7 @@ function buildStandaloneValueDefs(
     autoFlip: options?.autoFlip,
     opacity: options?.opacity,
     pastel: options?.pastel,
-    role: options?.role,
+    role: standaloneRole(options?.role),
     base: hasExternalBase
       ? STANDALONE_BASE
       : needsSeedAnchor
@@ -318,12 +376,14 @@ function buildStandaloneValueDefs(
   const defs: ColorMap = { [primary]: valueDef };
 
   if (needsSeedAnchor) {
-    defs[STANDALONE_SEED] = {
+    defs[STANDALONE_SEED] = anchorAtAuthoredTone({
       hue: main.h,
       saturation: 1,
       tone: seedTone,
       mode: 'static',
-    };
+      // The anchor is the background the token is measured on.
+      role: 'surface',
+    });
   }
 
   return {
@@ -337,6 +397,24 @@ function buildStandaloneValueDefs(
   };
 }
 
+/**
+ * Each token's dark-delta anchor (internal, not public API). A token linking to
+ * another as its `base` hands the resolver the base's hook, so a `'+N'` link
+ * steps in dark from where the base sits on its own authored scale — read in the
+ * base's own resolve context, under its windows and defs, and returned with the
+ * base's config so the resolver can tell whether the link's dark window is the
+ * same one.
+ */
+const darkAnchorHooks = new WeakMap<GlazeColorToken, DarkAnchorHook>();
+
+function withDarkAnchor(
+  hook: DarkAnchorHook,
+  token: GlazeColorToken,
+): GlazeColorToken {
+  darkAnchorHooks.set(token, hook);
+  return token;
+}
+
 function createColorTokenFromDefs(
   seed: GlazeThemeSeed,
   defs: ColorMap,
@@ -345,17 +423,30 @@ function createColorTokenFromDefs(
   baseToken: GlazeColorToken | undefined,
   buildExport: (override?: GlazeConfigOverride) => GlazeColorTokenExport,
 ): GlazeColorToken {
+  const baseHook = baseToken && darkAnchorHooks.get(baseToken);
+  const externalAnchors = baseHook
+    ? new Map([[STANDALONE_BASE, baseHook]])
+    : undefined;
+
   let cache: {
     map: Map<string, ResolvedColor> | null;
     version: number;
     effectiveConfig: GlazeConfigResolved;
+    /** The resolved `base` token the map was resolved against. */
+    externalBases?: Map<string, ResolvedColor>;
+    /**
+     * This token's dark-delta anchor per pass (normal, high contrast). Cached
+     * with the resolve, so a token linking to it reads it in O(1): a chain of
+     * links walks itself once, not once per link, and adds no stack depth.
+     */
+    anchors: [ExternalDarkAnchor?, ExternalDarkAnchor?];
   } | null = null;
 
   function getEffectiveConfig(): GlazeConfigResolved {
     const version = getConfigVersion();
     if (cache && cache.version === version) return cache.effectiveConfig;
     const effectiveConfig = mergeConfig(getConfig(), configOverride);
-    cache = { map: null, version, effectiveConfig };
+    cache = { map: null, version, effectiveConfig, anchors: [] };
     return effectiveConfig;
   }
 
@@ -363,12 +454,37 @@ function createColorTokenFromDefs(
     const version = getConfigVersion();
     if (cache && cache.version === version && cache.map) return cache.map;
     const effectiveConfig = getEffectiveConfig();
+    // Resolved here, not through a helper: a chain of linked tokens recurses
+    // through this line once per link, so an extra frame shortens the chain
+    // that fits on the stack.
     const externalBases = baseToken
       ? new Map([[STANDALONE_BASE, baseToken.resolve()]])
       : undefined;
-    const map = resolveAllColors(seed, defs, effectiveConfig, externalBases);
-    cache = { map, version, effectiveConfig };
+    const map = resolveAllColors(
+      seed,
+      defs,
+      effectiveConfig,
+      externalBases,
+      externalAnchors,
+    );
+    cache = { map, version, effectiveConfig, externalBases, anchors: [] };
     return map;
+  };
+
+  const darkAnchor: DarkAnchorHook = (isHighContrast) => {
+    const resolved = resolveOnce();
+    const { anchors, effectiveConfig, externalBases } = cache!;
+    const pass = isHighContrast ? 1 : 0;
+    return (anchors[pass] ??= {
+      tone: darkAnchorOf(primary, isHighContrast, {
+        defs,
+        config: effectiveConfig,
+        resolved,
+        externalBases,
+        externalAnchors,
+      }),
+      config: effectiveConfig,
+    });
   };
 
   const resolveStates = (options?: GlazeTokenOptions) => {
@@ -391,7 +507,7 @@ function createColorTokenFromDefs(
     return tokenMap[`#${primary}`];
   };
 
-  return {
+  return withDarkAnchor(darkAnchor, {
     resolve(): ResolvedColor {
       return resolveOnce().get(primary)!;
     },
@@ -414,13 +530,15 @@ function createColorTokenFromDefs(
     css(options: GlazeColorCssOptions): GlazeCssResult {
       const format = options.format ?? 'oklch';
       assertNativeFormat(format, 'css');
+      assertSplitHueFormat(options.splitHue, format);
+      const suffix = options.suffix ?? '-color';
       const resolved = resolveOnce().get(primary)!;
       const renamed = new Map<string, ResolvedColor>([
         [options.name, resolved],
       ]);
 
       let channelCtx: ChannelCtx | undefined;
-      if (options.splitHue && format === 'oklch') {
+      if (options.splitHue) {
         const modes = resolveModes();
         assertAllPastel(renamed, modes);
         channelCtx = {
@@ -431,12 +549,25 @@ function createColorTokenFromDefs(
           mode: 'standalone',
           resolvedHue: resolved.light.h,
         };
+        // `--{name}-hue` and the value `--{name}{suffix}` share a namespace:
+        // `suffix: '-hue'` would make the value a `var()` cycle on itself.
+        const owners: SplitHueOwners = new Map();
+        const fix = "Pass a `suffix` other than '-hue'.";
+        const labels: HueVarLabels = {
+          theme: `the hue of token "${options.name}"`,
+          color: (name) => `the hue of token "${name}"`,
+          value: (name) => `the value of token "${name}"`,
+          fix,
+          valueFix: fix,
+        };
+        claimHueVars(renamed, channelCtx, owners, labels);
+        claimValueProps(renamed, '', suffix, owners, labels);
       }
 
       return buildCssMap(
         renamed,
         '',
-        options.suffix ?? '-color',
+        suffix,
         format,
         getEffectiveConfig().pastel,
         channelCtx,
@@ -506,27 +637,7 @@ function createColorTokenFromDefs(
     export(override?: GlazeConfigOverride): GlazeColorTokenExport {
       return buildExport(override);
     },
-  };
-}
-
-/**
- * When a value/`from` color links to a base that was created via the
- * structured form (with explicit `hue`/`saturation`/`tone`), resolve
- * that base with `lightTone: false` for the linking math so the
- * contrast/tone anchor matches the input tone — not the
- * windowed output. The original base token's `.resolve()` is unaffected.
- */
-function toLinkingBase(
-  base: GlazeColorToken | undefined,
-): GlazeColorToken | undefined {
-  if (!base) return undefined;
-  const exp = base.export();
-  if (exp.form !== 'structured') return base;
-  const linkingConfig: GlazeConfigOverride = {
-    ...(exp.config ?? {}),
-    lightTone: false,
-  };
-  return colorFromExport({ ...exp, config: linkingConfig });
+  });
 }
 
 /**
@@ -563,9 +674,11 @@ export function isGlazeColorToken(
 // ============================================================================
 
 export function createColorToken(
-  input: GlazeColorInput,
+  rawInput: GlazeColorInput,
   configOverride?: GlazeConfigOverride,
 ): GlazeColorToken {
+  // Validate the copy, so the token is built from exactly what passed.
+  const input = copyTokenOptions(rawInput);
   validateStructuredInput(input);
 
   const userName = input.name;
@@ -587,7 +700,7 @@ export function createColorToken(
       contrast: input.contrast,
       opacity: input.opacity,
       pastel: input.pastel,
-      role: input.role,
+      role: standaloneRole(input.role),
       base: hasExternalBase
         ? STANDALONE_BASE
         : needsSeedAnchor
@@ -597,16 +710,19 @@ export function createColorToken(
   };
 
   if (needsSeedAnchor) {
-    defs[STANDALONE_SEED] = {
+    defs[STANDALONE_SEED] = anchorAtAuthoredTone({
       // The seed anchor must be a concrete tone; resolve 'max'/'min' to its
       // extreme so the static anchor is well-defined.
       tone: pinExtremeTone(pairNormal(input.tone)),
       saturation: 1,
       mode: 'static',
-    };
+      // The anchor is the background the token is measured on.
+      role: 'surface',
+    });
   }
 
-  const localOverride = configOverride;
+  // Copied once, so resolve and `export()` read the same detached object.
+  const localOverride = copyConfigOverride(configOverride);
 
   return createColorTokenFromDefs(
     {
@@ -622,7 +738,7 @@ export function createColorToken(
       kind: 'color',
       version: GLAZE_EXPORT_VERSION,
       form: 'structured',
-      input: buildStructuredInputExport(input, exportArg),
+      input: buildStructuredInputExport(input, baseToken, exportArg),
       config: freezeConfigForExport(localOverride, exportArg),
     }),
   );
@@ -633,16 +749,14 @@ export function createColorToken(
 // ============================================================================
 
 export function createColorTokenFromValue(
-  value: GlazeColorValue,
-  options: GlazeColorOverrides | undefined,
+  input: GlazeColorValue,
+  inputOptions: GlazeColorOverrides | undefined,
   configOverride: GlazeConfigOverride | undefined,
 ): GlazeColorToken {
+  const value = copyColorValue(input);
+  const options = inputOptions && copyTokenOptions(inputOptions);
   const main = extractOkhslFromValue(value);
-  const rawBaseToken = resolveBaseToken(options?.base);
-  // For linking math, structured bases are re-resolved at full range
-  // (lightTone: false) so contrast/tone anchors use the
-  // input tone, not the windowed output.
-  const linkingBase = toLinkingBase(rawBaseToken);
+  const baseToken = resolveBaseToken(options?.base);
   const { seed, defs, primary } = buildStandaloneValueDefs(main, options);
 
   const localOverride = sparseValueFormLocal(configOverride);
@@ -652,14 +766,14 @@ export function createColorTokenFromValue(
     defs,
     primary,
     localOverride,
-    linkingBase,
+    baseToken,
     (exportArg) => ({
       kind: 'color',
       version: GLAZE_EXPORT_VERSION,
       form: 'value',
-      input: value,
+      input: copyColorValue(value),
       ...(options !== undefined
-        ? { overrides: buildOverridesExport(options, exportArg) }
+        ? { overrides: buildOverridesExport(options, baseToken, exportArg) }
         : {}),
       config: freezeConfigForExport(localOverride, exportArg),
     }),
@@ -671,18 +785,21 @@ export function createColorTokenFromValue(
 // ============================================================================
 
 /**
- * Build a JSON-safe snapshot of `GlazeColorOverrides`. `base` is
- * recursively serialized when it was originally a token; raw values are
- * preserved as-is so `glaze.colorFrom(...)` round-trips them.
+ * Build a JSON-safe snapshot of `GlazeColorOverrides`. `base` is serialized
+ * as its token's own snapshot: a raw value as the token it is wrapped in, so
+ * its config is frozen with the rest and a restored token doesn't follow later
+ * `glaze.configure()` calls through its base. Every object in it is a fresh
+ * copy, so editing a snapshot never reaches the live token.
  */
 function buildOverridesExport(
   options: GlazeColorOverrides,
+  baseToken: GlazeColorToken | undefined,
   exportArg?: GlazeConfigOverride,
 ): GlazeColorOverridesExport {
   const out: GlazeColorOverridesExport = {};
   if (options.hue !== undefined) out.hue = options.hue;
   if (options.saturation !== undefined) out.saturation = options.saturation;
-  if (options.tone !== undefined) out.tone = options.tone;
+  if (options.tone !== undefined) out.tone = copyPair(options.tone);
   if (options.saturationFactor !== undefined) {
     out.saturationFactor = options.saturationFactor;
   }
@@ -695,27 +812,27 @@ function buildOverridesExport(
   }
   if (options.mode !== undefined) out.mode = options.mode;
   if (options.autoFlip !== undefined) out.autoFlip = options.autoFlip;
-  if (options.contrast !== undefined) out.contrast = options.contrast;
+  if (options.contrast !== undefined) {
+    out.contrast = copyContrast(options.contrast);
+  }
   if (options.opacity !== undefined) out.opacity = options.opacity;
   if (options.name !== undefined) out.name = options.name;
   if (options.pastel !== undefined) out.pastel = options.pastel;
   if (options.role !== undefined) out.role = options.role;
-  if (options.base !== undefined) {
-    out.base = isGlazeColorToken(options.base)
-      ? options.base.export(exportArg)
-      : options.base;
-  }
+  if (baseToken !== undefined) out.base = baseToken.export(exportArg);
   return out;
 }
 
+/** The structured-input counterpart of `buildOverridesExport`. */
 function buildStructuredInputExport(
   input: GlazeColorInput,
+  baseToken: GlazeColorToken | undefined,
   exportArg?: GlazeConfigOverride,
 ): GlazeColorInputExport {
   const out: GlazeColorInputExport = {
     hue: input.hue,
     saturation: input.saturation,
-    tone: input.tone,
+    tone: copyPair(input.tone),
   };
   if (input.saturationFactor !== undefined) {
     out.saturationFactor = input.saturationFactor;
@@ -730,16 +847,79 @@ function buildStructuredInputExport(
   if (input.mode !== undefined) out.mode = input.mode;
   if (input.autoFlip !== undefined) out.autoFlip = input.autoFlip;
   if (input.opacity !== undefined) out.opacity = input.opacity;
-  if (input.contrast !== undefined) out.contrast = input.contrast;
+  if (input.contrast !== undefined) out.contrast = copyContrast(input.contrast);
   if (input.name !== undefined) out.name = input.name;
   if (input.pastel !== undefined) out.pastel = input.pastel;
   if (input.role !== undefined) out.role = input.role;
-  if (input.base !== undefined) {
-    out.base = isGlazeColorToken(input.base)
-      ? input.base.export(exportArg)
-      : input.base;
-  }
+  if (baseToken !== undefined) out.base = baseToken.export(exportArg);
   return out;
+}
+
+/** A copy of a `[normal, highContrast]` pair, or the value itself. */
+function copyPair<T>(value: HCPair<T>): HCPair<T> {
+  return Array.isArray(value) ? ([...value] as HCPair<T>) : value;
+}
+
+/**
+ * A copy of a `contrast` value, read by property access so a proxy (reactive
+ * state) copies too. Other keys of a spec object are kept for the validator.
+ */
+function copyContrast(contrast: HCPair<ContrastSpec>): HCPair<ContrastSpec> {
+  const copySpec = (spec: ContrastSpec): ContrastSpec => {
+    if (typeof spec !== 'object' || spec === null) return spec;
+    const out: Record<string, unknown> = { ...spec };
+    for (const key of ['wcag', 'apca'] as const) {
+      const value = (spec as Record<string, unknown>)[key];
+      if (value !== undefined) out[key] = copyPair(value);
+    }
+    return out as ContrastSpec;
+  };
+  return Array.isArray(contrast)
+    ? (contrast.map(copySpec) as HCPair<ContrastSpec>)
+    : copySpec(contrast);
+}
+
+/** Every field of `GlazeColorInput` / `GlazeColorOverrides`. */
+const TOKEN_OPTION_KEYS = [
+  'hue',
+  'saturation',
+  'tone',
+  'saturationFactor',
+  'darkHue',
+  'darkSaturation',
+  'darkSaturationFactor',
+  'mode',
+  'autoFlip',
+  'opacity',
+  'contrast',
+  'base',
+  'name',
+  'pastel',
+  'role',
+] as const;
+
+/**
+ * A detached copy of a token's input or overrides, each field read by property
+ * access so a getter, an inherited field or a proxy copies like a plain one.
+ * The pairs, `contrast` and a raw value `base` are copied too, so a caller
+ * editing them later doesn't change the token (a token `base` is kept, as
+ * tokens are immutable). Other keys (a value form's `from`) are left out.
+ */
+function copyTokenOptions<T extends GlazeColorOverrides | GlazeColorInput>(
+  options: T,
+): T {
+  const source = options as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of TOKEN_OPTION_KEYS) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  const copy = out as T;
+  if (copy.tone !== undefined) copy.tone = copyPair(copy.tone) as T['tone'];
+  if (copy.contrast !== undefined) copy.contrast = copyContrast(copy.contrast);
+  if (copy.base !== undefined && !isGlazeColorToken(copy.base)) {
+    copy.base = copyColorValue(copy.base);
+  }
+  return copy;
 }
 
 /**

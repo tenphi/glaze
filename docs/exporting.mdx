@@ -1,0 +1,635 @@
+---
+title: Exporting and integration
+description: Choose an export shape for your renderer or design tool, then wire Glaze tokens into Tasty, CSS, JSON, DTCG, or Tailwind.
+---
+
+import CssExample from '../docs-site/components/exporting/CssExample.astro';
+import PrefixDemo from '../docs-site/components/exporting/PrefixDemo.astro';
+
+Glaze resolves every color once and emits the result in whatever shape your
+app or design tool reads. This page helps you pick a shape, wire it in, and
+name tokens across a multi-theme palette. If you are still designing the
+palette itself, start with [Designing a palette](./methodology.mdx); every
+option mentioned here is listed in full in the
+[Output formats](./reference/output.md) and
+[Palettes](./reference/palette.md) references.
+
+## Snapshots and resolved output
+
+Glaze has two kinds of "export", and they are not interchangeable:
+
+| Kind | Methods | What it carries | Restore with |
+| --- | --- | --- | --- |
+| Authoring snapshot | `theme.export()`, `token.export()`, `palette.export()` | Seeds, color definitions and their relations, the effective config frozen at export time, plus `kind` and `version` | `glaze.themeFrom`, `glaze.colorFrom`, `glaze.paletteFrom` |
+| Resolved output | `tasty`, `tokens`, `css`, `json`, `dtcg`, `dtcgResolver`, `tailwind` | Color strings or design-token documents for apps and tools | Nothing: it is not authoring config |
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+// Persist the authoring graph and rebuild it later.
+const snapshot = theme.export();
+// → { kind: 'theme', version: 2, hue, saturation, colors, config }
+const restored = glaze.themeFrom(JSON.parse(JSON.stringify(snapshot)));
+
+// Emit colors for the app.
+const css = theme.css();
+```
+
+A live theme, token, or palette keeps only the config fields you set on it;
+the rest track `glaze.configure()` until you export, when the effective resolve
+settings are frozen into the snapshot. A global `contrastLevel` is not frozen
+(it is a live preference, like `modes` and `states`); see the
+[merge rules](./reference/configuration.md#merge-rules). Use snapshots to store
+or ship the palette definition (a theme editor, a config file, a server), and
+resolved output for everything that paints pixels. Snapshot versioning and the
+`kind` / `version` checks are covered in the
+[reference overview](./reference/index.md#authoring-snapshots-and-versioning).
+
+## Choosing an export
+
+Every method below exists on a theme and on a palette, and emits the same
+resolved colors. Pick the one your renderer or tooling reads.
+
+| Method | Output shape | Use it for |
+| --- | --- | --- |
+| `palette.tasty()` | `{ '#name': { '': value, [state]: value } }` | The [Tasty](https://tasty.style) style system. One object; the scheme states are keyed inside each token. |
+| `palette.tokens()` | `{ light: { name: value }, dark: { name: value }, ... }` | Most CSS-in-JS systems. Flat maps per scheme, easy to feed into a `:root` rule through your framework's globals. |
+| `palette.css()` | `{ light: '--name-color: ...;', dark: '...', lightContrast: '...', darkContrast: '...' }` | Framework-free CSS and static stylesheets. CSS custom-property declarations per scheme, ready to wrap in `:root` and media queries. |
+| `palette.json()` | `{ themeName: { name: { light, dark, ... } } }` | Tooling and JSON pipelines. |
+| `palette.dtcg()` | `{ light: { name: { $type, $value } }, dark: { ... }, ... }` | W3C [DTCG 2025.10](https://www.designtokens.org/) `.tokens.json` files for Figma, Tokens Studio, Style Dictionary, Terrazzo, and Penpot. One document per scheme. |
+| `palette.dtcgResolver()` | `{ version, sets, modifiers, resolutionOrder }` | The W3C DTCG **Resolver Module**: one document that describes every scheme as `sets` plus a `scheme` modifier with a context per scheme. For resolver tools such as Dispersa. |
+| `palette.tailwind()` | `'@theme { --color-*: ... } .dark { ... } ...'` | Tailwind CSS v4. One ready-to-paste `@theme` block plus dark and high-contrast overrides. |
+
+A few options cut across the shapes:
+
+- **Schemes.** `tasty()`, `tokens()`, `json()`, `dtcg()`, `dtcgResolver()`, and
+  `tailwind()` take `modes: { dark, highContrast }` to choose which schemes
+  they emit; by default you get light and dark. `css()` takes no `modes` and
+  always returns all four strings. See [Light, dark, and high contrast](./schemes.mdx) for what each
+  scheme is.
+- **Color format.** The CSS-string exports take `format`: `'oklch'` (the
+  default), `'rgb'`, or `'hsl'`. `'okhsl'` and `'okhst'` are not CSS color
+  spaces, so only the Tasty-shaped exports accept them (`tasty()`, and a
+  standalone color's `token()` / `tasty()`); `tokens()`, `json()`, `css()`, and
+  `tailwind()` throw.
+- **DTCG color space.** `dtcg()` and `dtcgResolver()` emit structured
+  `$value` objects, not CSS strings, so they ignore `format`. Use `colorSpace`
+  instead: `'srgb'` (the default) or `'oklch'`.
+- **HDR.** `modes: { hdr: true }` (`css({ hdr: true })` for `css()`) adds the
+  values of [HDR glows](./hdr.mdx) next to the SDR ones. It is off by
+  default; see [Output is opt-in](./hdr.mdx#output-is-opt-in).
+
+Here is one theme and the CSS custom properties `theme.css()` emits for it.
+Switch to the Output tab to see the declarations, wrapped the way the
+[CSS custom properties](#css-custom-properties) section below wires them:
+
+<CssExample
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 100, saturation: 0.11 },
+    'surface-text': { base: 'surface', tone: 2, saturation: 0.475 },
+    border: { base: 'surface', tone: ['-10', '-20'], saturation: 0.175 },
+    'accent-surface-text': { tone: 100, mode: 'fixed' },
+    'accent-surface': {
+      base: 'accent-surface-text',
+      tone: '-1',
+      contrast: { apca: ['content', 'body'] },
+      mode: 'fixed',
+    },
+    'accent-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 1,
+      contrast: { apca: ['content', 'body'] },
+    },
+  }}
+  after={"const css = theme.css({ format: 'rgb' });\n// css.light → :root, css.dark → (prefers-color-scheme: dark)"}
+  caption="Each color and the rgb() value css() emits for it, in the scheme you are viewing. The Output tab lists the light and dark declarations."
+/>
+
+## Wiring exports into the app
+
+The examples below export a palette; a single theme has the same methods, and
+`prefix` / `primary` only matter for palettes. The values shown are real output
+for the `default` + `danger` palette from
+[Prefix map strategies](#prefix-map-strategies).
+
+### Tasty
+
+`tasty()` returns [Tasty](https://tasty.style) color tokens: `#name` keys whose
+values are state maps. Register them as global tokens:
+
+```ts
+import { configure } from '@tenphi/tasty';
+
+configure({ tokens: palette.tasty({ prefix: { default: '' } }) });
+```
+
+Or spread them into a global style call:
+
+```ts
+import type { Styles } from '@tenphi/tasty';
+import { useGlobalStyles } from '@tenphi/tasty';
+import { tastyStatic } from '@tenphi/tasty/static';
+
+export const PALETTE_TOKENS = palette.tasty({
+  prefix: { default: '' },
+}) as Styles;
+
+// In your root component:
+useGlobalStyles('body', PALETTE_TOKENS);
+
+// Or, for zero-runtime builds:
+tastyStatic('body', PALETTE_TOKENS);
+```
+
+By default the dark and high-contrast variants are keyed by media-query states,
+so the tokens follow the OS preference with no extra Tasty setup:
+
+```ts
+palette.tasty({ prefix: { default: '' } })['#surface'];
+// → {
+//   '': 'oklch(1 0 0)',
+//   '@media(prefers-color-scheme: dark)': 'oklch(0.2534 0.0081 280)',
+// }
+```
+
+To drive the schemes from your own state aliases instead (for example a manual
+toggle that falls back to the OS preference), set
+[`glaze.configure({ states })`](./reference/output.md#state-aliases) and register
+what those states mean in Tasty:
+
+```ts
+import { setGlobalPredefinedStates } from '@tenphi/tasty';
+
+glaze.configure({ states: { dark: '@dark', highContrast: '@hc' } });
+
+setGlobalPredefinedStates({
+  '@dark':
+    '@root(schema=dark) | ' +
+    '(!@root(schema) & @media(prefers-color-scheme: dark))',
+  '@hc':
+    '@root(contrast=high) | ' +
+    '(!@root(contrast) & @media(prefers-contrast: more))',
+});
+```
+
+The state names must match the `states` you set in `glaze.configure()`. To
+override them for one export only, pass `states` to the call:
+`palette.tasty({ states: { dark: '@dark', highContrast: '@hc' } })`. With
+`modes: { highContrast: true }` each token then carries four keys: `''`,
+`'@dark'`, `'@hc'`, and `'@dark & @hc'`.
+
+You can also register the tokens as a Tasty recipe instead of spreading them
+globally:
+
+```ts
+import { configure, tasty } from '@tenphi/tasty';
+
+configure({
+  recipes: { 'theme-tokens': palette.tasty({ prefix: { default: '' } }) },
+});
+
+const Page = tasty({
+  styles: {
+    recipe: 'theme-tokens',
+    fill: '#surface',
+    color: '#surface-text',
+  },
+});
+```
+
+### CSS custom properties
+
+`css()` returns one string of declarations per scheme. Wrap them in the rules
+that select each scheme:
+
+```ts
+const css = palette.css({ prefix: { default: '' } });
+const stylesheet = `
+:root { ${css.light} }
+@media (prefers-color-scheme: dark) { :root { ${css.dark} } }
+@media (prefers-contrast: more) { :root { ${css.lightContrast} } }
+@media (prefers-color-scheme: dark) and (prefers-contrast: more) {
+  :root { ${css.darkContrast} }
+}
+`;
+```
+
+Keep that order: the dark high-contrast block comes last so it wins over both
+the dark and the light high-contrast blocks.
+
+Each property is named `--<prefix><name>-color` by default. Change the suffix
+or the color format per call:
+
+```ts
+palette.css({ prefix: { default: '' }, suffix: '' });
+// → '--surface: oklch(1 0 0);'
+palette.css({ prefix: { default: '' }, format: 'rgb' });
+// → '--surface-color: rgb(255 255 255);'
+```
+
+### JSON
+
+```ts
+const data = palette.json();
+// → {
+//   default: {
+//     surface: {
+//       light: 'oklch(1 0 0)',
+//       dark: 'oklch(0.2534 0.0081 280)',
+//     },
+//     ...
+//   },
+//   danger: {
+//     surface: {
+//       light: 'oklch(0.9602 0.0148 23)',
+//       dark: 'oklch(0.287 0.065 23)',
+//     },
+//     ...
+//   },
+// }
+```
+
+Each color is grouped by theme name, then token name, then scheme, so there is
+no prefix logic to undo: `json()` takes only `modes` and `format`. It has no
+`prefix` option and does not emit the `primary` alias.
+
+### W3C DTCG
+
+`dtcg()` returns one [Design Tokens](https://www.designtokens.org/) document
+per scheme. Write each to its own file:
+
+```ts
+import { writeFileSync } from 'node:fs';
+
+const dtcg = palette.dtcg({ prefix: { default: '' } });
+
+writeFileSync('light.tokens.json', JSON.stringify(dtcg.light, null, 2));
+if (dtcg.dark) {
+  writeFileSync('dark.tokens.json', JSON.stringify(dtcg.dark, null, 2));
+}
+```
+
+Each document is a spec-conformant token tree:
+
+```json
+{
+  "surface-text": {
+    "$type": "color",
+    "$value": {
+      "colorSpace": "srgb",
+      "components": [0.096174, 0.101248, 0.179183],
+      "hex": "#191a2e"
+    }
+  }
+}
+```
+
+One file per scheme is the most tool-compatible convention: Style Dictionary
+treats the files as themes, Tokens Studio as sets, and Figma as variable modes.
+Feed them straight into Style Dictionary v4+, Tokens Studio, or any
+DTCG-compatible tool; no Glaze-specific transform is needed.
+
+- The default `colorSpace: 'srgb'` emits gamma sRGB components in 0–1 plus a
+  `hex` hint that every reader understands.
+- `colorSpace: 'oklch'` emits `[L, C, H]` components and no `hex`: wide-gamut,
+  Glaze-native values.
+- Translucent colors (shadows, glows, transparent mixes, `opacity`) carry an
+  `alpha` field; opaque ones omit it.
+- A scheme you didn't ask for is `undefined`, hence the `if (dtcg.dark)` check.
+
+### W3C DTCG Resolver Module
+
+When you want **one file** that describes every scheme, for a resolver tool
+such as [Dispersa](https://github.com/dispersa-core/dispersa), use
+`dtcgResolver()` instead of `dtcg()`:
+
+```ts
+import { writeFileSync } from 'node:fs';
+
+const resolver = palette.dtcgResolver({ modes: { highContrast: true } });
+
+writeFileSync('resolver.json', JSON.stringify(resolver, null, 2));
+```
+
+```ts
+// → {
+//   version: '2025.10',
+//   sets: { base: { sources: [ /* light tokens */ ] } },
+//   modifiers: {
+//     scheme: {
+//       default: 'light',
+//       contexts: {
+//         light: [],
+//         dark: [ /* dark tokens */ ],
+//         lightContrast: [ /* light high-contrast tokens */ ],
+//         darkContrast: [ /* dark high-contrast tokens */ ],
+//       },
+//     },
+//   },
+//   resolutionOrder: [
+//     { $ref: '#/sets/base' },
+//     { $ref: '#/modifiers/scheme' },
+//   ],
+// }
+```
+
+The light tokens are the base set (`sets.base.sources[0]`) and the modifier's
+default context, so the `light` context is empty. Every other context holds
+that scheme's exact resolved tokens. Glaze resolves `darkContrast`
+independently, which is why it gets its own context: two independent modifiers
+(dark, high contrast) would compose additively and produce wrong dark
+high-contrast values.
+
+Rename the set, the modifier, or the contexts with `setName`, `modifierName`,
+and `contextNames` if your resolver expects other labels. Prefer `dtcg()` for
+the widest per-file tool support, and `dtcgResolver()` when a resolver tool
+consumes the document for you.
+
+### Tailwind CSS v4
+
+```ts
+const css = palette.tailwind({ prefix: { default: '' } });
+// Write it to your CSS entry, next to `@import "tailwindcss";`
+```
+
+```css
+@theme {
+  --color-surface: oklch(1 0 0);
+  --color-surface-text: oklch(0.2263 0.0385 280);
+  /* ... */
+}
+
+.dark {
+  --color-surface: oklch(0.2534 0.0081 280);
+  --color-surface-text: oklch(0.9394 0.0137 280);
+  /* ... */
+}
+```
+
+The `--color-*` namespace makes every color available as `bg-*`, `text-*`,
+`border-*`, and the other color utilities. Change it with `namespace` (for
+example `namespace: ''` emits `--surface`); it is separate from the palette's
+theme `prefix`.
+
+To follow the OS preference instead of a class, pass a media query as
+`darkSelector`; Glaze nests `:root` inside it:
+
+```ts
+palette.tailwind({
+  prefix: { default: '' },
+  darkSelector: '@media (prefers-color-scheme: dark)',
+});
+// @media (prefers-color-scheme: dark) {
+//   :root {
+//     --color-surface: oklch(0.2534 0.0081 280);
+//     ...
+//   }
+// }
+```
+
+High-contrast overrides are omitted unless `modes.highContrast` is on. They
+land under `.high-contrast` and `.dark.high-contrast` (both classes on the same
+element) by default; change the class with `highContrastSelector`, which also
+accepts a media query such as `'@media (prefers-contrast: more)'`.
+
+## Prefix map strategies
+
+When a palette merges several themes into one namespace, the `prefix` option
+decides how each theme's tokens are named. It applies to `tokens()`, `tasty()`,
+`css()`, `dtcg()`, `dtcgResolver()`, and `tailwind()` (`json()` groups by theme
+instead):
+
+| Value | Result |
+| --- | --- |
+| `true` (default) | Every theme prefixes its tokens with `<themeName>-`. |
+| `false` | No prefixes. Colliding names warn and the first theme wins; see [Collisions](#collisions). |
+| `Record<string, string>` | Per-theme prefixes. Themes not listed fall back to `<themeName>-`. |
+
+Below, one palette exported three ways. Each column lists the names
+`palette.tokens()` actually returns for that call:
+
+<PrefixDemo
+  themes={{
+    default: {
+      hue: 280,
+      saturation: 80,
+      colors: {
+        surface: { tone: 100, saturation: 0.11 },
+        'surface-text': {
+          base: 'surface',
+          tone: 2,
+          saturation: 0.475,
+          inherit: false,
+        },
+        'accent-text': {
+          base: 'surface',
+          tone: '-1',
+          saturation: 1,
+          contrast: { apca: ['content', 'body'] },
+        },
+      },
+    },
+    danger: {
+      extends: 'default',
+      hue: 23,
+      colors: { surface: { tone: 96, saturation: 0.8 } },
+    },
+  }}
+  calls={[{}, { prefix: { default: '' } }, { primary: 'default' }]}
+  caption="Same palette, three prefix settings. surface-text is inherit: false, so the danger theme doesn't emit it."
+/>
+
+The most common production pattern is a **default theme without a prefix and
+every other theme prefixed with its name**:
+
+```ts
+palette.tasty({
+  prefix: {
+    default: '',
+    primary: 'primary-',
+    success: 'success-',
+    danger: 'danger-',
+    warning: 'warning-',
+    note: 'note-',
+  },
+});
+```
+
+Neutral tokens are then consumed as `#surface`, `#border`, and
+`#disabled-surface` (no theme namespace), while status colors live under
+`#danger-surface`, `#success-accent-text`, and so on. Listing every theme
+spells the namespace out; since unlisted themes fall back to `<themeName>-`,
+`{ default: '' }` alone emits the same names.
+
+An explicit map like this is usually the clearest choice for a palette with a
+neutral `default` theme. The separate [`primary`](#the-primary-alias) option
+solves a different problem: it duplicates one named theme without a prefix
+while keeping that theme's prefixed tokens too.
+
+### Alias themes for legacy names
+
+Register the same theme instance under two palette names to get identical
+token values under two prefixes. This supports a legacy token name without
+duplicating any definitions:
+
+```ts
+const palette = glaze.palette({
+  default: defaultTheme,
+  primary: primaryTheme,
+  purple: primaryTheme, // legacy alias: same theme, different prefix
+});
+
+palette.tasty({
+  prefix: {
+    default: '',
+    primary: 'primary-',
+    purple: 'purple-', // emits #purple-surface alongside #primary-surface
+  },
+});
+```
+
+Both `#primary-surface` and `#purple-surface` resolve to exactly the same
+color. Drop the alias once nothing references the legacy name.
+
+<PrefixDemo
+  themes={{
+    default: {
+      hue: 280,
+      saturation: 80,
+      colors: {
+        surface: { tone: 100, saturation: 0.11 },
+        'accent-text': {
+          base: 'surface',
+          tone: '-1',
+          saturation: 1,
+          contrast: { apca: ['content', 'body'] },
+        },
+      },
+    },
+    primary: {
+      extends: 'default',
+      colors: { surface: { tone: 96, saturation: 0.8 } },
+    },
+    purple: { alias: 'primary' },
+  }}
+  calls={[
+    { prefix: { default: '', primary: 'primary-', purple: 'purple-' } },
+  ]}
+  caption="The purple- names repeat the primary- colors exactly: both come from one theme instance."
+/>
+
+### The `primary` alias
+
+`glaze.palette(themes, { primary })`, and the per-export `primary` option,
+duplicate one theme's tokens **without** a prefix on top of whatever the prefix
+setting produces. It is equivalent to listing that theme twice with different
+prefixes, and it is useful when the primary theme is conceptually distinct
+from `default` and you want its tokens both namespaced and short.
+
+```ts
+const palette = glaze.palette({ brand, accent }, { primary: 'brand' });
+
+palette.tokens();
+// → {
+//   light: {
+//     'brand-surface': '...',
+//     surface: '...',
+//     'accent-surface': '...',
+//     ...
+//   },
+//   ...
+// }
+```
+
+Override it per call with `palette.tokens({ primary: 'accent' })`, or turn it
+off with `palette.tokens({ primary: false })`. A `primary` that names no theme
+in the palette throws.
+
+### Collisions
+
+When two themes produce the same output name, whether through `prefix: false`,
+a prefix map that gives two themes the same prefix, or a `primary` alias that
+lands on names another theme already emits unprefixed, the **first-written
+value wins** and Glaze warns about the rest:
+
+```text
+glaze: token "surface" from theme "danger" collides with theme
+  "default" — skipping.
+```
+
+Themes are written in palette order. A frequent cause is combining
+`prefix: { default: '' }` with `primary`: both emit unprefixed names, so the
+primary's alias collides with the default theme
+(`token "surface" from theme "danger (primary)" collides with theme "default"`).
+Choose one of the two patterns for the namespace your components expect.
+
+## Hue channels with `splitHue`
+
+`splitHue: true` emits each hue as its own custom property and references it
+with `var()` inside the colors, so you can re-skin the palette at runtime by
+changing a single number:
+
+```ts
+const brand = glaze(240, 18, { pastel: true });
+
+brand.colors({
+  surface: { tone: 97 },
+  accent: { tone: 55, hue: '+20', saturation: 1 },
+});
+
+brand.css({ splitHue: true, name: 'brand' }).light;
+```
+
+```css
+--brand-hue: 240;
+--accent-hue: calc(var(--brand-hue) + 20);
+--surface-color: oklch(0.97 0.0025 var(--brand-hue));
+--accent-color: oklch(0.6175 0.0189 var(--accent-hue));
+```
+
+The colors are declared on `:root`, and a custom property resolves `var()` on
+the element that declares it, so set the hue there:
+
+```ts
+document.documentElement.style.setProperty('--brand-hue', '150');
+```
+
+In practice:
+
+- **Pastel only.** Every exported color must be pastel (`pastel: true` on the
+  theme, the token, or the color), so its chroma stays inside sRGB at any hue.
+  Otherwise the export throws and names the non-pastel colors.
+- **`oklch` only.** The hue slot is native CSS `var()` only in `oklch()`; with
+  another `format` the export throws.
+- **One name per hue variable.** A color that sets its own hue gets
+  `--<color>-hue`, so it can't share its name with the theme hue (`name`), or,
+  in an unprefixed palette, with another theme. `css()` value properties share
+  the namespace, so `suffix: '-hue'` (or `suffix: ''` with a color named
+  `*-hue`) collides too. The export throws and names both sides rather than
+  let one silently override the other. A color that is gray in light declares
+  no hue variable, so it is exempt.
+- **Palettes name the hue after the theme.** `palette.css({ splitHue: true })`
+  emits `--brand-hue`, `--brand-accent-hue`, and so on for a theme named
+  `brand`; a `primary` alias references the same hue variables.
+- **Dark hues re-declare the set.** When the theme or a color has a
+  [dark hue](./schemes.mdx#dark-seed), the dark block repeats every hue
+  variable the light block declares, with its dark value. A color that is
+  gray in light stays a literal `oklch()` in every scheme.
+- **Tasty** gets the hue variables as `$brand-hue`-style keys from
+  `tasty({ splitHue: true })`.
+
+`splitHue` is available on `css()` and `tasty()` for themes and palettes, and on
+a standalone color's `css()`. The full rules, including which colors stay
+inline, are in the
+[Output formats](./reference/output.md#hue-channel-splitting-splithue) reference.
+
+## Next steps
+
+- [Migration and upgrading](./migration.md): move an existing color system to
+  Glaze, keep its token names, and upgrade between major versions.
+- [Output formats](./reference/output.md): every output method and option.
+- [Palettes](./reference/palette.md): palette options, prefix
+  behavior, and primary aliases.

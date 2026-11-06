@@ -39,7 +39,7 @@ export default defineDocsConfig({
     sources: [
       {
         id: 'home',
-        file: 'docs-site/index.md',
+        file: 'docs-site/index.mdx',
         route: '/',
       },
       { id: 'docs', glob: 'docs/**/*.{md,mdx}', base: 'docs' },
@@ -48,16 +48,63 @@ export default defineDocsConfig({
   navigation: {
     items: [
       '/',
+      '/getting-started',
+      {
+        label: 'Concepts',
+        items: [
+          '/schemes',
+          '/contrast',
+          '/shadows-and-glows',
+          '/mixes',
+          '/okhst',
+        ],
+      },
       {
         label: 'Guides',
-        items: ['/methodology', '/migration', '/okhst'],
+        items: ['/methodology', '/exporting', '/hdr', '/migration'],
       },
-      { label: 'Reference', items: ['/api'] },
+      {
+        label: 'Reference',
+        items: [
+          '/reference',
+          '/reference/theme',
+          '/reference/color-definitions',
+          '/reference/contrast',
+          '/reference/color-tokens',
+          '/reference/palette',
+          '/reference/output',
+          '/reference/configuration',
+          '/reference/utilities',
+        ],
+      },
     ],
   },
   theme: {
     brand: { from: '#765b7e' },
+    states: {
+      /*
+        High contrast as the reader chose it in the Appearance menu, or the
+        system preference while that choice is Auto. Live examples use it to
+        show Glaze's high-contrast variants.
+      */
+      '@hc': '@root(contrast=more) | (!@root(contrast) & @media(prefers-contrast: more))',
+    },
     styles: {
+      /*
+        Example code groups carry a file-name tab (`theme.ts`); the language
+        caption under it repeats what the tab already says.
+      */
+      CodeGroup: { Caption: { hide: true } },
+      /*
+        Previews here are live demos whose source is generated from a Glaze
+        theme; the page shows the code that matters next to them.
+      */
+      Preview: { Code: { hide: true } },
+      /*
+        Reference headings are method signatures in code (`dtcgResolver(…)`)
+        that can't wrap on a phone and would widen the page.
+      */
+      MarkdownHeading: { Heading: { overflowWrap: 'anywhere' } },
       Hero: {
         Visual: {
           inlineSize: {

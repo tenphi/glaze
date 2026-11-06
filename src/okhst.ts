@@ -10,16 +10,22 @@
  * - the `{ h, s, t }` <-> `{ h, s, l }` color-space converters,
  * - the resolved-variant edge adapter (`variantToOkhsl`),
  * - the per-scheme tone mapping that replaced the Möbius dark curve
- *   (`mapToneForScheme`), the dark desaturation reducer, and the solver's scheme
- *   tone range,
- * - the scheme tone window, including the high-contrast bypass and its
- *   continuous generalization under a manual contrast level.
+ *   (`mapToneForScheme`) and its dark inverse (`unmapDarkTone`, which the
+ *   resolver uses to find where a base sits on the authored scale), the dark
+ *   map off that scale (`mapDarkToneUnclamped`, for a
+ *   step from a base pushed past the dark window) and the dark-window
+ *   comparison across configs (`sameDarkWindow`), the dark desaturation
+ *   reducer, and the scheme tone range that clamps a contrast-solved color's
+ *   preferred tone,
+ * - the scheme tone window — validated and clamped by `normalizeToneWindow` —
+ *   including the high-contrast bypass and its continuous generalization under
+ *   a manual contrast level.
  *
- * See `docs/okhst.md` for the full specification and the calibrated
+ * See `docs/okhst.mdx` for the full specification and the calibrated
  * default constants.
  */
 
-import { clamp, contrastFraction, lerp } from './hc-pair';
+import { clamp, contrastFraction, lerp, showValue } from './hc-pair';
 import { toe, toeInv } from './okhsl-color-math';
 import type { AdaptationMode, GlazeConfigResolved, ToneWindow } from './types';
 
@@ -127,20 +133,77 @@ export function variantToOkhsl(v: { h: number; s: number; t: number }): {
 // ============================================================================
 
 /**
- * Normalize any {@link ToneWindow} form to `{ lo, hi, eps }`.
+ * Largest render eps a tone window accepts. The transfers divide by
+ * `log(1 + eps) - log(eps)`, which loses precision as eps grows (colors are
+ * visibly wrong by ~1e14) and cancels to 0 — `NaN` tones — from ~1e15. At 1e6
+ * the tone ↔ luminance round trip still holds to ~1e-9, and past ~1e3 the
+ * curve is already linear in luminance, so the cap costs nothing usable.
+ */
+const MAX_WINDOW_EPS = 1e6;
+
+/**
+ * Normalize any {@link ToneWindow} form to `{ lo, hi, eps }`, validated.
  * - `false`: full range `[0, 100]` at the reference eps (boundaries removed,
  *   curve preserved).
  * - `[lo, hi]`: endpoints at the reference eps (the common form).
- * - `{ lo, hi, eps }`: passed through (advanced eps tuning).
+ * - `{ lo, hi, eps }`: an explicit render eps (advanced eps tuning).
+ *
+ * A bad window never fails on its own — `[90, 20]` silently inverts the scale
+ * and an `eps` of 0 turns every tone into `NaN` — so this throws a `glaze:`
+ * error when the value is none of the three forms, an endpoint is not a finite
+ * number, `lo > hi`, or `eps` is not a finite number in `(0, MAX_WINDOW_EPS]`.
+ * Endpoints then clamp into `[0, 100]`, the OKHSL lightness range. `lo === hi`
+ * is allowed: a zero-width window renders every tone at that one lightness.
+ *
+ * `field` names the window in the error message (`lightTone` / `darkTone`).
  */
-export function normalizeToneWindow(win: ToneWindow): {
-  lo: number;
-  hi: number;
-  eps: number;
-} {
+export function normalizeToneWindow(
+  win: ToneWindow,
+  field = 'tone window',
+): { lo: number; hi: number; eps: number } {
   if (win === false) return { lo: 0, hi: 100, eps: REF_EPS };
-  if (Array.isArray(win)) return { lo: win[0], hi: win[1], eps: REF_EPS };
-  return { lo: win.lo, hi: win.hi, eps: win.eps };
+  const raw: unknown = win;
+  let lo: unknown;
+  let hi: unknown;
+  let eps: unknown = REF_EPS;
+  if (Array.isArray(raw) && raw.length === 2) {
+    [lo, hi] = raw;
+  } else if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    ({ lo, hi, eps } = raw as Record<string, unknown>);
+  } else {
+    throw new Error(
+      `glaze: ${field} must be [lo, hi], { lo, hi, eps }, or false (got ${showValue(raw)}).`,
+    );
+  }
+  for (const [name, value] of [
+    ['lo', lo],
+    ['hi', hi],
+  ] as const) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(
+        `glaze: ${field} ${name} must be a finite number (got ${showValue(value)}).`,
+      );
+    }
+  }
+  if (
+    typeof eps !== 'number' ||
+    !Number.isFinite(eps) ||
+    eps <= 0 ||
+    eps > MAX_WINDOW_EPS
+  ) {
+    throw new Error(
+      `glaze: ${field} eps must be a finite number above 0 and at most 1e6 (got ${showValue(eps)}).`,
+    );
+  }
+  const from = lo as number;
+  const to = hi as number;
+  if (from > to) {
+    throw new Error(
+      `glaze: ${field} lo (${from}) is above hi (${to}). A window runs from ` +
+        `its dark end to its light end: [lo, hi] with lo ≤ hi, e.g. [${to}, ${from}].`,
+    );
+  }
+  return { lo: clamp(from, 0, 100), hi: clamp(to, 0, 100), eps };
 }
 
 /**
@@ -218,6 +281,79 @@ export function mapToneForScheme(
   return clamp(toTone(finalL / 100), 0, 100);
 }
 
+/**
+ * The dark `auto` branch of {@link mapToneForScheme} without its clamp to the
+ * authored `0–100` scale: a tone below 0 lands past the dark window's top, one
+ * above 100 past its bottom, and only the stored tone is clamped (to the full
+ * range). That makes it the inverse of `unmapDarkTone(…, 'auto', …)` off the
+ * scale too, so a step can start from a base a contrast floor pushed past the
+ * window. Inside `0–100` it is `mapToneForScheme` bit for bit.
+ */
+export function mapDarkToneUnclamped(
+  authorTone: number,
+  isHighContrast: boolean,
+  config: GlazeConfigResolved,
+): number {
+  const win = activeWindow(isHighContrast, 'dark', config);
+  const finalL = remapToneToLightness(100 - authorTone, win);
+  return clamp(toTone(finalL / 100), 0, 100);
+}
+
+/**
+ * Whether two configs give one pass the same active dark window — endpoints and
+ * render eps, after the high-contrast bypass and a manual level's widening. An
+ * authored tone only means the same dark tone under both when they do.
+ */
+export function sameDarkWindow(
+  isHighContrast: boolean,
+  a: GlazeConfigResolved,
+  b: GlazeConfigResolved,
+): boolean {
+  const wa = activeWindow(isHighContrast, 'dark', a);
+  const wb = activeWindow(isHighContrast, 'dark', b);
+  return wa.lo === wb.lo && wa.hi === wb.hi && wa.eps === wb.eps;
+}
+
+/**
+ * Inverse of {@link remapToneToLightness} on canonical tone: the position
+ * (0–100) in the window that renders at a stored canonical tone. A tone outside
+ * the window comes back outside `0–100`; a zero-width window has no inverse, so
+ * the tone is returned unchanged.
+ */
+function unmapWindow(
+  tone: number,
+  win: { lo: number; hi: number; eps: number },
+): number {
+  const loT = toTone(win.lo / 100, win.eps);
+  const hiT = toTone(win.hi / 100, win.eps);
+  if (hiT === loT) return tone;
+
+  const winTone = toTone(fromTone(tone), win.eps);
+  return ((winTone - loT) / (hiT - loT)) * 100;
+}
+
+/**
+ * Inverse of the dark branch of {@link mapToneForScheme}: the authored tone
+ * (0–100) that the active dark window places at a stored canonical tone —
+ * inverted back (`100 - position`) under `auto`, as is under `fixed`, and the
+ * identity under `static`. A tone outside the window comes back outside
+ * `0–100` (a contrast floor can push a color past the window; callers clamp);
+ * a zero-width window has no inverse, so only the inversion is undone.
+ */
+export function unmapDarkTone(
+  tone: number,
+  mode: AdaptationMode,
+  isHighContrast: boolean,
+  config: GlazeConfigResolved,
+): number {
+  if (mode === 'static') return tone;
+  const position = unmapWindow(
+    tone,
+    activeWindow(isHighContrast, 'dark', config),
+  );
+  return mode === 'auto' ? 100 - position : position;
+}
+
 // ============================================================================
 // Saturation
 // ============================================================================
@@ -237,10 +373,14 @@ export function mapSaturationDark(
 // ============================================================================
 
 /**
- * Tone search range (0–1) for the contrast solver in a given scheme.
- * `static` searches the full range; otherwise the scheme window's tone
- * endpoints (HC bypasses to full range, a manual `contrastLevel` widens
- * toward it — see `activeWindow`).
+ * A scheme's window as canonical tone endpoints (0–1): `[0, 1]` for `static`,
+ * otherwise the active window's `lo` / `hi` (HC bypasses to the full range, a
+ * manual `contrastLevel` widens toward it — see `activeWindow`).
+ *
+ * The resolver uses it only to clamp a contrast-solved color's *preferred*
+ * tone into the window before the solve. It is not the solver's search range:
+ * the solver always searches the full `[0, 1]`, so a contrast floor can push a
+ * color outside the window when the window can't meet it.
  */
 export function schemeToneRange(
   isDark: boolean,

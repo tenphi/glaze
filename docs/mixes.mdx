@@ -1,0 +1,348 @@
+---
+title: Mixes and transparency
+description: Blend two colors into a solid tint or a translucent wash, optionally solved for contrast.
+---
+
+import Example from '../docs-site/components/Example.astro';
+import MixRamp from '../docs-site/components/mixes/MixRamp.tsx';
+import TransparentMix from '../docs-site/components/mixes/TransparentMix.tsx';
+import ContrastMix from '../docs-site/components/mixes/ContrastMix.tsx';
+
+export const washTheme = {
+  hue: 280,
+  saturation: 80,
+  colors: {
+    surface: { tone: 97 },
+    accent: { tone: 45 },
+    'wash-sm': { type: 'mix', base: 'surface', target: 'accent', value: 6, blend: 'transparent' },
+    'wash-md': { type: 'mix', base: 'surface', target: 'accent', value: 15, blend: 'transparent' },
+    'wash-lg': { type: 'mix', base: 'surface', target: 'accent', value: 30, blend: 'transparent' },
+  },
+};
+
+export const contrastTheme = {
+  hue: 280,
+  saturation: 80,
+  colors: {
+    surface: { tone: 95 },
+    accent: { tone: 30 },
+    'accent-border': { type: 'mix', base: 'surface', target: 'accent', value: 20, contrast: 3 },
+    'accent-wash': { type: 'mix', base: 'surface', target: 'accent', value: 4, blend: 'transparent', contrast: 1.25 },
+  },
+};
+
+A mix color blends a `base` color toward a `target` color by `value`, from
+`0` (pure base) to `100` (pure target). An **opaque** mix produces a solid
+color; a **transparent** mix produces the target with an opacity, for the
+browser to composite over the base. Both read `base` and `target` per scheme,
+so they adapt to light, dark, and high contrast automatically.
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+const theme = glaze(280, 80);
+
+theme.colors({
+  surface: { tone: 95 },
+  accent: { tone: 30 },
+
+  // A solid tint: 30% of the way from surface to accent.
+  'accent-tint': {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: 30,
+  },
+
+  // A translucent wash: accent at 8% opacity, composited over surface.
+  'accent-hover': {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: 8,
+    blend: 'transparent',
+  },
+});
+```
+
+Every field is listed in [Color definitions](./reference/color-definitions.md#mixcolordef).
+
+## Opaque mix
+
+An opaque mix (the default, `blend: 'opaque'`) interpolates between the
+resolved base and target and emits a solid color with alpha 1. `value: 0` is
+the base, `value: 100` is the target. Because base and target are resolved for
+each scheme first, the mix follows them: a tint of the accent over the surface
+in light mode is a tint of the dark-mode accent over the dark-mode surface in
+dark mode.
+
+### Blend space
+
+`space` picks where an opaque mix interpolates:
+
+| `space` | Behavior | Best for |
+| --- | --- | --- |
+| `'okhsl'` (default) | Perceptually uniform OKHSL interpolation: hue, saturation, and lightness each move evenly. | Design token derivation. |
+| `'srgb'` | Linear-light sRGB channel interpolation, like CSS `color-mix(in srgb-linear, …)`. | Physical light mixing. |
+
+The same two colors, mixed at every tenth of the way in each space:
+
+<MixRamp
+  hue={260}
+  saturation={90}
+  colors={{
+    blue: { tone: 40, mode: 'static' },
+    yellow: { tone: 90, hue: 95, mode: 'static' },
+  }}
+  base="blue"
+  target="yellow"
+  caption="Blue (hue 260, tone 40) toward yellow (hue 95, tone 90). Top number: value. Bottom number: the result's tone. OKHSL walks the hue around the wheel through cyan and green; linear sRGB passes through desaturated colors."
+/>
+
+<MixRamp
+  hue={0}
+  saturation={0}
+  colors={{
+    black: { tone: 0, mode: 'static' },
+    white: { tone: 100, mode: 'static' },
+  }}
+  base="black"
+  target="white"
+  caption="Black toward white. OKHSL spaces lightness evenly; linear light gets bright quickly, so most of the ramp sits at high tones."
+/>
+
+### Achromatic colors
+
+When one side of an `okhsl` mix has a saturation of zero (a color defined with
+`saturation: 0`, such as a pure white, black, or gray), its hue carries no
+information, so the mix takes the hue of the color that has saturation. This
+matches the "missing component" behavior of CSS `color-mix()`: a mix from
+such a white toward an accent stays in the accent's hue the whole way instead
+of sweeping through other hues.
+
+Only zero counts, along with float noise up to 1e-6. A gray given as a value,
+such as `'#f5f5f5'` or `rgb(250 250 250)`, parses with a saturation of zero,
+and so does an `srgb` mix that lands on a gray. A white or black that keeps
+real saturation, such as `{ tone: 100 }` in a saturated theme, still carries
+its hue, and a mix toward
+an accent of another hue sweeps between the two. A mix between two
+zero-saturation colors stays gray in either space; the spaces differ only in
+how lightness is spread along the ramp (see black toward white above).
+
+<MixRamp
+  hue={280}
+  saturation={80}
+  colors={{
+    white: { tone: 100, saturation: 0, mode: 'static' },
+    accent: { tone: 40, mode: 'static' },
+  }}
+  base="white"
+  target="accent"
+  spaces={['okhsl']}
+  caption="White toward a hue-280 accent in OKHSL. White has no hue, so every step uses the accent's hue while saturation and lightness move."
+/>
+
+## Transparent mix
+
+With `blend: 'transparent'`, the output is the **target** color (its resolved
+hue, saturation, and tone, in the mix's gamut when their
+[`pastel` flags](#pastel-mixes) differ) with `alpha = value / 100`. Nothing is
+blended in Glaze; the browser composites it over whatever is underneath, which
+should be the `base`.
+
+```ts
+theme.colors({
+  surface: { tone: 95 },
+  black: { tone: 0, saturation: 0 },
+  hover: {
+    type: 'mix',
+    base: 'surface',
+    target: 'black',
+    value: 8,
+    blend: 'transparent',
+  },
+});
+// hover → the resolved `black` with alpha 0.08
+```
+
+The target is resolved like any color first. Here `black` uses the default
+`mode: 'auto'`, so it inverts to a near-white in dark schemes and the same
+`hover` lightens the dark surface instead of darkening it.
+
+`space` is ignored for transparent mixes. Browsers composite `source-over` on
+gamma-encoded sRGB: 50% black over white paints `#808080`, not the `#bcbcbc`
+linear light would give. Glaze's contrast solver for transparent mixes models
+exactly that, so a solved opacity renders at the contrast it was solved for.
+
+<Example {...washTheme} visual="none" />
+
+<TransparentMix
+  {...washTheme}
+  base="surface"
+  show={['wash-sm', 'wash-md', 'wash-lg']}
+  caption="Accent washes over the surface in your current scheme. The big number is the tone step the composite lands; the opacity is value / 100 in every scheme, so the step changes when the surface does."
+/>
+
+A transparent mix keeps the opacity you author. That makes it the right tool
+for a brand-colored wash, but it does not land the same visible step on every
+surface. For an overlay that does, use a
+[`shadow` or `glow`](./shadows-and-glows.mdx), whose opacity is solved per
+surface.
+
+## Contrast on mixes
+
+Mixes take the same `contrast` field as regular colors, with a WCAG ratio or
+preset, or an APCA target (see [Contrast solving](./contrast.mdx)). The floor
+is measured between the mix and its `base`. The solver keeps your `value` when
+it already meets the floor; otherwise it moves the mix ratio (opaque) or the
+opacity (transparent) toward the target until it does, staying as close to
+your `value` as it can.
+
+<Example {...contrastTheme} visual="none" />
+
+<ContrastMix
+  {...contrastTheme}
+  show={['accent-border', 'accent-wash']}
+  caption="Each mix as authored (no floor) and with its floor, over the surface in your current scheme. The big number is the WCAG ratio against the surface; below it, the value or opacity the mix ended up with."
+/>
+
+- Both `value` and `contrast` accept `[normal, highContrast]` pairs, and
+  `value` follows a manual contrast level like other pairs. Contrast presets
+  escalate in high contrast as they do for regular colors
+  ([high contrast](./contrast.mdx#high-contrast)).
+- For APCA floors, `role` sets the polarity of the mix against its `base`,
+  exactly as on a regular color ([roles](./contrast.mdx#roles-and-apca-polarity)).
+- When even the pure target cannot meet the floor, the mix settles at the
+  pure target for any `value` below 100.
+- A `value` of 100 is the pure target already. Glaze keeps it whenever it
+  clears the floor, even inside the solver's safety margin. When it misses,
+  there is no room above, so the mix falls back to `value: 0`: the base
+  itself, and a transparent mix vanishes. That includes a high-contrast entry
+  of 100. Keep `value` below 100 when you set a floor.
+
+An unmet floor warns once per scheme, like it does for a regular color. Below,
+`accent-fill` meets AA in light at about 4.55:1. In dark the pure target
+reaches only 4.24:1, so the mix settles there. High contrast escalates the
+floor to 7:1, which the pure target misses (5.72:1 in light high contrast,
+5.20:1 in dark), so the high-contrast entry of 100 falls back to the surface:
+
+```ts
+const theme = glaze(280, 80);
+
+theme.colors({
+  surface: { tone: 95 },
+  accent: { tone: 40 },
+  'accent-fill': {
+    type: 'mix',
+    base: 'surface',
+    target: 'accent',
+    value: [80, 100],
+    contrast: 'AA',
+  },
+});
+```
+
+```text
+glaze: mix "accent-fill" cannot meet WCAG 7.00 against its base in
+  lightContrast scheme (got 1.00).
+Even the pure target falls short; try lowering the contrast target or
+  mixing toward a color further from the base.
+```
+
+The `darkContrast` warning is the same with its scheme name, and the
+dark-scheme one names `WCAG 4.50` and `(got 4.24)` instead. The fix is a
+target further from the base or a lower floor. Here
+`contrast: ['AA', 'AA']` holds high contrast at 4.5:1, which the pure target
+clears, so its entry of 100 is kept. See
+[Warnings](./reference/configuration.md#mix-contrast-unmet).
+
+## Mix chaining
+
+A mix can use another mix as its `base` or `target`:
+
+<Example
+  hue={0}
+  saturation={0}
+  colors={{
+    white: { tone: 100, saturation: 0 },
+    black: { tone: 0, saturation: 0 },
+    gray: {
+      type: 'mix',
+      base: 'white',
+      target: 'black',
+      value: 50,
+      space: 'srgb',
+    },
+    'gray-light': {
+      type: 'mix',
+      base: 'white',
+      target: 'gray',
+      value: 50,
+      space: 'srgb',
+    },
+  }}
+  scheme="light"
+  caption="Light scheme, where the auto black sits at the light tone window's floor rather than tone 0. gray is halfway from white to black in linear sRGB; gray-light is halfway from white to gray. In dark schemes white and black invert, so the whole chain mirrors."
+/>
+
+A mix **cannot** reference a `shadow` or `glow` color, as `base` or as
+`target`; Glaze throws when the theme resolves. The same restriction applies to
+a regular color's `base`.
+
+Other translucent colors are accepted but lose their alpha. A transparent mix
+or a color with `opacity`, used as a mix's `base` or `target` (or as a shadow's
+`bg`), counts as its opaque color: a mix toward a 10% accent wash comes out the
+same as a mix toward the accent. Chain off opaque colors.
+
+## Pastel mixes
+
+A mix's `pastel` sets the gamut of the color it emits. Like any color, a mix
+takes the theme's `pastel` unless it sets its own. Its base and target keep
+their own flags, and when a flag differs from the mix's, the mix reads that
+color in its own gamut through the color it paints:
+
+- A standard mix holds every pastel color, so `value: 0` paints the base and
+  `value: 100` the target exactly.
+- A pastel mix caps a vivid color at the pastel limit, keeping its hue and
+  lightness. A pastel mix toward a vivid brand color ends at the brand with
+  its saturation capped.
+- A transparent mix's overlay is the target in the mix's gamut, and an
+  `srgb` mix interpolates the colors as painted, then caps the result.
+
+```ts
+const theme = glaze(280, 80, { pastel: true });
+
+theme.colors({
+  surface: { tone: 95 },
+  brand: { tone: 40, pastel: false },
+  // pastel like the theme: at value 100 it would be the brand, capped
+  'brand-soft': { type: 'mix', base: 'surface', target: 'brand', value: 60 },
+  // standard: the brand in full at value 100
+  'brand-tint': {
+    type: 'mix',
+    base: 'surface',
+    target: 'brand',
+    value: 60,
+    pastel: false,
+  },
+});
+```
+
+The contrast solver measures the color the mix paints, so a floor holds on
+screen. When a pastel mix misses its floor because the cap took the target's
+saturation, the [warning](./reference/configuration.md#mix-contrast-unmet)
+says so; `pastel: false` on the mix paints the target in full.
+
+## Mix, shadow, glow, or opacity?
+
+| You want | Use |
+| --- | --- |
+| The same visible darkening or lightening on any surface: state layers, elevation, drop shadows | [`shadow` / `glow`](./shadows-and-glows.mdx) |
+| A solid color part of the way from one color to another | Opaque mix |
+| A translucent color over a known base, such as a brand-colored wash | Transparent mix |
+| A translucent color with a contrast floor against its base | Transparent mix with `contrast` |
+| One fixed alpha everywhere, such as a 50% scrim | A regular color with [`opacity`](./shadows-and-glows.mdx#fixed-opacity) |
+
+Shadows and glows solve opacity for a tone step, transparent mixes keep (or
+solve, with `contrast`) an opacity against their base, and `opacity` is never
+solved.

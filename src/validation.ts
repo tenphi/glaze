@@ -1,22 +1,36 @@
 /**
  * Color graph validation and topological sort.
  *
- * `validateColorDefs` rejects bad references (missing / shadow-referencing /
- * base/contrast/tone mismatches) and detects cycles before the
- * resolver runs. `topoSort` orders defs so each color is processed after
- * its base / bg / fg / target dependencies.
+ * `validateColorDefs` rejects bad references (missing / shadow- or
+ * glow-referencing / base/contrast/tone mismatches — a relative tone in either
+ * entry of an HC pair needs a base), a malformed `contrast` spec (a misspelled
+ * preset, a non-finite number, a bad shape), a numeric field the resolver can't
+ * place (non-finite, a malformed `'+N'`, an opacity outside 0–1), and bad
+ * per-color lighting tuning (a
+ * `headroom` on a shadow; a glow `headroom` that is not a finite number ≥ 0,
+ * with one above the maximum warned about — once every def has passed — and
+ * clamped at resolve), and detects cycles before the resolver runs. `topoSort` orders defs so each color is
+ * processed after its base / bg / fg / target dependencies.
  */
 
 import { extractOkhslFromValue } from './color-value';
-import { contrastMetricOf } from './contrast-solver';
-import { isAbsoluteTone, pairHC, pairNormal } from './hc-pair';
-import { isMixDef, isShadowDef } from './shadow';
+import { normalizeLightingTuning } from './config';
+import {
+  contrastMetricOf,
+  isApcaPreset,
+  isContrastPreset,
+} from './contrast-solver';
+import { isAbsoluteTone, pairHC, pairNormal, showValue } from './hc-pair';
+import { isLightingDef, isMixDef } from './lighting';
+import { flushWarnings } from './warnings';
+import type { DeferredWarnings } from './warnings';
 import type {
   ColorMap,
   ContrastSpec,
   HCPair,
   RegularColorDef,
   ResolvedColor,
+  ToneValue,
 } from './types';
 
 /**
@@ -28,6 +42,109 @@ import type {
 export function hasAbsoluteTone(def: RegularColorDef): boolean {
   if (def.tone === undefined) return def.from !== undefined;
   return isAbsoluteTone(def.tone);
+}
+
+/**
+ * Does either entry of a `tone` measure from a base? `isAbsoluteTone` reads
+ * only the normal entry — that is the root / dependent test — so the
+ * high-contrast entry of a pair is checked on its own here: `[50, '+20']`
+ * needs a base just as much as `'+20'` does.
+ */
+export function hasRelativeTone(tone: HCPair<ToneValue> | undefined): boolean {
+  if (tone === undefined) return false;
+  return !isAbsoluteTone(pairNormal(tone)) || !isAbsoluteTone(pairHC(tone));
+}
+
+const isWcagValue = (value: unknown): boolean =>
+  (typeof value === 'number' && Number.isFinite(value)) ||
+  isContrastPreset(value);
+
+const isApcaValue = (value: unknown): boolean =>
+  (typeof value === 'number' && Number.isFinite(value)) || isApcaPreset(value);
+
+/**
+ * A value, or a `[normal, highContrast]` pair of two, that passes `isValue`.
+ * Both entries are read by index: `every` would skip a hole (`[, 7]`).
+ */
+function isPairOf(value: unknown, isValue: (v: unknown) => boolean): boolean {
+  return Array.isArray(value)
+    ? value.length === 2 && isValue(value[0]) && isValue(value[1])
+    : isValue(value);
+}
+
+/**
+ * A WCAG value, or an object with exactly one of `wcag` / `apca` set. A key
+ * holding `undefined` is unset, as everywhere else; other keys are ignored.
+ */
+function isContrastSpec(spec: unknown): boolean {
+  if (isWcagValue(spec)) return true;
+  if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+    return false;
+  }
+  const { wcag, apca } = spec as { wcag?: unknown; apca?: unknown };
+  if ((wcag === undefined) === (apca === undefined)) return false;
+  return wcag !== undefined
+    ? isPairOf(wcag, isWcagValue)
+    : isPairOf(apca, isApcaValue);
+}
+
+const SIGNED_NUMBER_RE = /^[+-](?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * A relative `'+N'` / `'-N'` string with a finite `N`. Whitespace around it
+ * is allowed, as the resolver's `parseFloat` reads past it. Also checks a
+ * token's structured `darkHue`.
+ */
+export const isRelativeValue = (value: unknown): boolean =>
+  typeof value === 'string' &&
+  SIGNED_NUMBER_RE.test(value.trim()) &&
+  Number.isFinite(parseFloat(value));
+
+const isToneValue = (value: unknown): boolean =>
+  isFiniteNumber(value) ||
+  value === 'max' ||
+  value === 'min' ||
+  isRelativeValue(value);
+
+const isHueValue = (value: unknown): boolean =>
+  isFiniteNumber(value) || isRelativeValue(value);
+
+const isOpacity = (value: unknown): boolean =>
+  isFiniteNumber(value) && value >= 0 && value <= 1;
+
+/**
+ * Reject a numeric field the resolver can't place: `NaN`, `Infinity`, a
+ * relative string that isn't `'+N'` / `'-N'` (`'+-5'`, `'+abc'`), an opacity
+ * outside 0–1. Each would otherwise reach the output as `NaN`.
+ */
+function assertField(
+  name: string,
+  field: string,
+  value: unknown,
+  isValid: (value: unknown) => boolean,
+): void {
+  if (value === undefined || isValid(value)) return;
+  throw new Error(
+    `glaze: color "${name}" has an invalid "${field}" ${showValue(value)}.`,
+  );
+}
+
+/**
+ * Reject a malformed `contrast`: a misspelled preset, a non-finite number, an
+ * object without exactly one of `wcag` / `apca`, or a pair without exactly two
+ * entries. The solver would read each as no target at all and pin the color
+ * to the scheme's extreme without a word.
+ */
+function assertValidContrast(name: string, contrast: unknown): void {
+  if (contrast === undefined || isPairOf(contrast, isContrastSpec)) return;
+  throw new Error(
+    `glaze: color "${name}" has an invalid "contrast" ${showValue(contrast)}. ` +
+      `Use a WCAG ratio or 'AA' / 'AAA' / 'AA-large' / 'AAA-large', ` +
+      `{ wcag: … }, { apca: … }, or a [normal, highContrast] pair of these.`,
+  );
 }
 
 /**
@@ -54,6 +171,18 @@ function assertConsistentContrastMetric(
   );
 }
 
+/**
+ * `'shadow'` / `'glow'` when `ref` names a local translucent overlay — which
+ * nothing may build on — else `undefined`.
+ */
+function overlayKindOf(
+  defs: ColorMap,
+  ref: string,
+): 'shadow' | 'glow' | undefined {
+  const def = Object.hasOwn(defs, ref) ? defs[ref] : undefined;
+  return def !== undefined && isLightingDef(def) ? def.type : undefined;
+}
+
 export function validateColorDefs(
   defs: ColorMap,
   externalBases?: Map<string, ResolvedColor>,
@@ -63,31 +192,44 @@ export function validateColorDefs(
     ...localNames,
     ...(externalBases ? externalBases.keys() : []),
   ]);
+  // Headroom clamp warnings, sent only once every def has passed, so a map
+  // that throws on a later def doesn't spend them before its fixed retry.
+  const deferred: DeferredWarnings = [];
 
   for (const [name, def] of Object.entries(defs)) {
-    if (isShadowDef(def)) {
-      if (!allNames.has(def.bg)) {
-        throw new Error(
-          `glaze: shadow "${name}" references non-existent bg "${def.bg}".`,
-        );
-      }
-      if (localNames.has(def.bg) && isShadowDef(defs[def.bg])) {
-        throw new Error(
-          `glaze: shadow "${name}" bg "${def.bg}" references another shadow color.`,
-        );
-      }
-      if (def.fg !== undefined) {
-        if (!allNames.has(def.fg)) {
+    if (isLightingDef(def)) {
+      // Translucent overlays are leaves: they composite over an opaque color,
+      // so neither end may itself be a shadow or glow.
+      const kind = def.type;
+      for (const field of ['bg', 'fg'] as const) {
+        const ref = def[field];
+        if (ref === undefined) {
+          if (field === 'fg') continue;
+          throw new Error(`glaze: ${kind} "${name}" is missing "bg".`);
+        }
+        if (!allNames.has(ref)) {
           throw new Error(
-            `glaze: shadow "${name}" references non-existent fg "${def.fg}".`,
+            `glaze: ${kind} "${name}" references non-existent ${field} "${ref}".`,
           );
         }
-        if (localNames.has(def.fg) && isShadowDef(defs[def.fg])) {
+        const refKind = overlayKindOf(defs, ref);
+        if (refKind !== undefined) {
           throw new Error(
-            `glaze: shadow "${name}" fg "${def.fg}" references another shadow color.`,
+            `glaze: ${kind} "${name}" ${field} "${ref}" references a ${refKind} color.`,
           );
         }
       }
+      assertField(name, 'intensity', def.intensity, (v) =>
+        isPairOf(v, isFiniteNumber),
+      );
+      // Throws for a shadow `headroom` or a bad glow one; the resolver's
+      // tuning merge applies the clamp this warns about.
+      normalizeLightingTuning(
+        kind,
+        def.tuning,
+        `${kind} "${name}" tuning`,
+        deferred,
+      );
       continue;
     }
 
@@ -102,22 +244,30 @@ export function validateColorDefs(
           `glaze: mix "${name}" references non-existent target "${def.target}".`,
         );
       }
-      if (localNames.has(def.base) && isShadowDef(defs[def.base])) {
-        throw new Error(
-          `glaze: mix "${name}" base "${def.base}" references a shadow color.`,
-        );
+      for (const field of ['base', 'target'] as const) {
+        const ref = def[field];
+        const refKind = overlayKindOf(defs, ref);
+        if (refKind !== undefined) {
+          throw new Error(
+            `glaze: mix "${name}" ${field} "${ref}" references a ${refKind} color.`,
+          );
+        }
       }
-      if (localNames.has(def.target) && isShadowDef(defs[def.target])) {
-        throw new Error(
-          `glaze: mix "${name}" target "${def.target}" references a shadow color.`,
-        );
-      }
+      assertField(name, 'value', def.value, (v) => isPairOf(v, isFiniteNumber));
+      assertValidContrast(name, def.contrast);
       assertConsistentContrastMetric(name, def.contrast);
       continue;
     }
 
     const regDef = def as RegularColorDef;
 
+    assertField(name, 'tone', regDef.tone, (v) => isPairOf(v, isToneValue));
+    assertField(name, 'hue', regDef.hue, isHueValue);
+    assertField(name, 'darkHue', regDef.darkHue, isHueValue);
+    assertField(name, 'saturation', regDef.saturation, isFiniteNumber);
+    assertField(name, 'darkSaturation', regDef.darkSaturation, isFiniteNumber);
+    assertField(name, 'opacity', regDef.opacity, isOpacity);
+    assertValidContrast(name, regDef.contrast);
     assertConsistentContrastMetric(name, regDef.contrast);
 
     // Parse `from` here rather than letting the resolver hit it. The parser's own
@@ -140,11 +290,9 @@ export function validateColorDefs(
       throw new Error(`glaze: color "${name}" has "contrast" without "base".`);
     }
 
-    if (
-      regDef.tone !== undefined &&
-      !isAbsoluteTone(regDef.tone) &&
-      !regDef.base
-    ) {
+    // Either entry of a pair: a relative high-contrast entry on a root would
+    // otherwise be read as an absolute tone (`'+20'` as tone 20).
+    if (hasRelativeTone(regDef.tone) && !regDef.base) {
       throw new Error(
         `glaze: color "${name}" has relative "tone" without "base".`,
       );
@@ -156,13 +304,10 @@ export function validateColorDefs(
       );
     }
 
-    if (
-      regDef.base &&
-      localNames.has(regDef.base) &&
-      isShadowDef(defs[regDef.base])
-    ) {
+    const baseKind = regDef.base && overlayKindOf(defs, regDef.base);
+    if (baseKind) {
       throw new Error(
-        `glaze: color "${name}" base "${regDef.base}" references a shadow color.`,
+        `glaze: color "${name}" base "${regDef.base}" references a ${baseKind} color.`,
       );
     }
 
@@ -196,7 +341,7 @@ export function validateColorDefs(
 
     inStack.add(name);
     const def = defs[name];
-    if (isShadowDef(def)) {
+    if (isLightingDef(def)) {
       dfs(def.bg);
       if (def.fg) dfs(def.fg);
     } else if (isMixDef(def)) {
@@ -215,6 +360,8 @@ export function validateColorDefs(
   for (const name of localNames) {
     dfs(name);
   }
+
+  flushWarnings(deferred);
 }
 
 export function topoSort(defs: ColorMap): string[] {
@@ -229,7 +376,7 @@ export function topoSort(defs: ColorMap): string[] {
     // External base references (not in `defs`) are leaves — they're already
     // pre-seeded into `ctx.resolved` and don't participate in the local sort.
     if (def === undefined) return;
-    if (isShadowDef(def)) {
+    if (isLightingDef(def)) {
       visit(def.bg);
       if (def.fg) visit(def.fg);
     } else if (isMixDef(def)) {

@@ -95,6 +95,22 @@ export type ToneValue = number | RelativeValue | ExtremeValue;
 export type GlazeColorFormat = 'okhsl' | 'okhst' | 'rgb' | 'hsl' | 'oklch';
 
 /**
+ * Output format for an HDR glow value (`glaze.formatHdr()`), its brightest
+ * channel past 1 (SDR white):
+ * - `'srgb'` (default, and what every exporter writes) — extended
+ *   `color(srgb R G B)`: the sRGB transfer function continued past 1, the
+ *   channels a WebGPU `'srgb'` canvas and the platform extended-sRGB color
+ *   spaces take as they are.
+ * - `'srgb-linear'` — `color(srgb-linear R G B)`: the same color in linear
+ *   light, for consumers that take linear channels.
+ *
+ * No other form: OKLCH lightness clamps at parse time, `rgb()` / `hsl()`
+ * cannot go past white, and the `rec2100-*` spaces would tie the value to an
+ * absolute reference white it doesn't need.
+ */
+export type GlazeHdrFormat = 'srgb' | 'srgb-linear';
+
+/**
  * Controls which scheme variants are generated in the export.
  * Light is always included (it's the default).
  */
@@ -111,6 +127,25 @@ export interface GlazeOutputModes {
    * @see GlazeConfig.contrastLevel
    */
   highContrast?: boolean;
+  /**
+   * Include the HDR tier of glows past SDR white (`variant.hdr`, set by
+   * `GlowTuning.headroom`). Default: false — every exporter's output stays
+   * byte-identical to SDR even when a headroom is set.
+   *
+   * When on, each exporter adds the HDR values next to the SDR ones it
+   * already emits (only for the scheme variants the other modes include),
+   * always written as extended `color(srgb R G B)`: Tasty `hdr` state keys,
+   * `json()` `lightHdr` / `darkHdr` / … keys, `tokens()` `lightHdr` / … maps,
+   * Tailwind blocks under `hdrSelector`, DTCG `$extensions`. `css()` reads
+   * its own `hdr` option, which falls back to this.
+   *
+   * The data tiers (DTCG, `json()`, `tokens()`) are what native apps and
+   * WebGPU canvases read. The CSS-family tiers (Tasty, `css()`, Tailwind) are
+   * experimental: no browser paints a CSS color past SDR white yet. Prefer
+   * turning this on per call (`theme.dtcg({ modes: { hdr: true } })`) over
+   * globally.
+   */
+  hdr?: boolean;
 }
 
 // ============================================================================
@@ -176,7 +211,7 @@ export interface RegularColorDef {
    */
   from?: GlazeColorValue;
   /**
-   * Tone value (0–100, contrast-uniform — see `docs/okhst.md`).
+   * Tone value (0–100, contrast-uniform — see `docs/okhst.mdx`).
    * - Number: absolute tone.
    * - String ('+N' / '-N'): relative to base color's tone (requires `base`).
    * - `'max'` / `'min'`: force to the scheme's tone extreme (no base needed).
@@ -278,50 +313,145 @@ export interface RegularColorDef {
   inherit?: boolean;
 }
 
-/** Shadow tuning knobs. All values use the 0–1 scale (OKHSL). */
-export interface ShadowTuning {
-  /** Fraction of fg saturation kept in pigment (0-1). Default: 0.18. */
-  saturationFactor?: number;
-  /** Upper clamp on pigment saturation (0-1). Default: 0.25. */
-  maxSaturation?: number;
-  /** Multiplier for bg lightness → pigment lightness. Default: 0.25. */
-  lightnessFactor?: number;
-  /** [min, max] clamp for pigment lightness (0-1). Default: [0.05, 0.20]. */
-  lightnessBounds?: [number, number];
+/**
+ * Tuning shared by `shadow` and `glow`. Global defaults come from
+ * `shadowTuning` / `glowTuning`; a per-color `tuning` merges over them field
+ * by field.
+ */
+export interface LightingTuning {
   /**
-   * Target minimum gap between pigment lightness and bg lightness (0-1).
-   * Default: 0.05.
+   * β — how strongly the object (`fg`) scales the step. The step is
+   * `intensity × k` with `k = max(0, 1 + β · d · (t_bg − t_fg) / 100)`,
+   * `d = +1` for a shadow and `−1` for a glow: a darker object deepens its
+   * shadow, a lighter one strengthens its glow. An object at the surface's
+   * own tone (or no `fg`) gives exactly `intensity`. `0` ignores the object.
+   * Default: 0.5.
    */
-  minGapTarget?: number;
-  /** Max alpha (0-1). Reached at intensity=100 with max contrast. Default: 1.0. */
-  alphaMax?: number;
+  objectInfluence?: number;
   /**
-   * Blend weight (0-1) pulling pigment hue toward bg hue.
-   * 0 = pure fg hue, 1 = pure bg hue. Default: 0.2.
+   * Pigment saturation (0–1) in the surface's hue. Default: 0 (neutral black /
+   * white). Shows only with `reach` below 1 — pure black and white have no hue.
+   * A neutral surface has no hue either: there the tint takes the object's
+   * hue with `hueBleed` above 0, and the pigment stays neutral otherwise.
    */
-  bgHueBlend?: number;
+  tint?: number;
+  /**
+   * Where the pigment sits (0–1): the fraction of the way from the surface's
+   * tone to black (shadow) / white (glow). Default: 1 (pure black / white),
+   * the most reach. Lower values let a `tint` show at the cost of reach.
+   */
+  reach?: number;
+  /**
+   * Pull (0–1) of the pigment hue from the surface's hue toward the object's
+   * (`fg`) hue. Default: 0. Needs `fg`, a `tint`, and `reach` below 1 to show.
+   */
+  hueBleed?: number;
 }
 
+/**
+ * Tuning for `shadow` colors: the shared {@link LightingTuning}. It has no
+ * `headroom` — a shadow darkens toward black, and nothing goes below black —
+ * so a `headroom` set on a shadow's tuning throws.
+ */
+export type ShadowTuning = LightingTuning;
+
+/** Tuning for `glow` colors: the shared {@link LightingTuning} plus HDR `headroom`. */
+export interface GlowTuning extends LightingTuning {
+  /**
+   * Stops above SDR white a glow may use when its step crosses white. Default:
+   * 0 (SDR only). Counted in stops — doublings of SDR white's luminance — not
+   * as a ratio: `1` allows up to 2× white, `2` up to 4×. Must be a finite
+   * number ≥ 0; values above 2 clamp to 2 with a one-time warning.
+   *
+   * Only a glow whose target tone (surface tone + `intensity × k`) passes 100
+   * gets an HDR value: the variant's `hdr`, an opaque exposure of what SDR
+   * paints at its brightest — the pigment at full opacity, or a white surface
+   * no pigment can lift — plus a gain in stops. A pigment that cannot lift a
+   * non-white surface at all (`reach: 0` on a gray surface, say) paints
+   * nothing in SDR, so it gets no HDR value either and keeps the SDR "cannot
+   * reach" warning. On a chromatic surface a `reach: 0` gray can measure
+   * slightly brighter than the surface and pins at full opacity instead.
+   * Nothing about the SDR variant changes. The gain lands the exact step when
+   * the headroom allows it; the brightest linear channel caps at `2^headroom`.
+   * High-contrast schemes use the same headroom.
+   *
+   * The HDR value lands the whole step, not just the part past white. A
+   * full-reach glow (the default `reach: 1`) is pinned at white, so its HDR
+   * value starts at white (`exposure` → 0) as the target passes 100. A glow
+   * with `reach` below 1 is pinned at its pigment, below white: just under 100
+   * it stays short there (and warns), and just past 100 its HDR value jumps to
+   * the exact step.
+   */
+  headroom?: number;
+}
+
+/**
+ * A translucent dark overlay that lands the surface (`bg`) exactly
+ * `intensity` tones darker in every scheme — a shade for state layers and
+ * scrims, or, with `fg`, an object-aware drop shadow.
+ */
 export interface ShadowColorDef {
   type: 'shadow';
   /**
-   * Background color name — the surface the shadow sits on.
-   * Must reference a non-shadow color in the same theme.
+   * The surface the shadow falls on. Must reference a color that is not a
+   * shadow or glow.
    */
   bg: string;
   /**
-   * Foreground color name for tinting and intensity modulation.
-   * Must reference a non-shadow color in the same theme.
-   * Omit for achromatic shadow at full user-specified intensity.
+   * The object casting the shadow (e.g. the card). A darker object casts a
+   * deeper shadow, a lighter one a softer shadow — see
+   * `LightingTuning.objectInfluence`. Omit for an exact shade of `intensity`
+   * tones. Must reference a color that is not a shadow or glow.
    */
   fg?: string;
   /**
-   * Shadow intensity, 0-100.
+   * Tone step, 0–100: how many tones darker than `bg` the composite lands.
    * Supports [normal, highContrast] pair.
    */
   intensity: HCPair<number>;
   /** Override default tuning. Merged field-by-field with global `shadowTuning`. */
   tuning?: ShadowTuning;
+
+  /**
+   * Per-color override for the hue-independent "safe" chroma limit used in
+   * OKHSL↔sRGB conversions (luminance, contrast solving, output formatting).
+   * Falls through to the per-theme / per-token `pastel` override when omitted.
+   * @see GlazeConfigOverride.pastel
+   */
+  pastel?: boolean;
+
+  /**
+   * Whether this color is inherited by child themes created via `extend()`.
+   * Default: true. Set to false to make this color local to the current theme.
+   */
+  inherit?: boolean;
+}
+
+/**
+ * The mirror of {@link ShadowColorDef}: a translucent light overlay that lands
+ * the surface (`bg`) exactly `intensity` tones lighter in every scheme — for
+ * dark-mode elevation, edge highlights, and lightening state layers.
+ */
+export interface GlowColorDef {
+  type: 'glow';
+  /**
+   * The surface the glow falls on. Must reference a color that is not a
+   * shadow or glow.
+   */
+  bg: string;
+  /**
+   * The object emitting the glow. A lighter object glows stronger, a darker
+   * one weaker — see `LightingTuning.objectInfluence`. Omit for an exact tint
+   * of `intensity` tones. Must reference a color that is not a shadow or glow.
+   */
+  fg?: string;
+  /**
+   * Tone step, 0–100: how many tones lighter than `bg` the composite lands.
+   * Supports [normal, highContrast] pair.
+   */
+  intensity: HCPair<number>;
+  /** Override default tuning. Merged field-by-field with global `glowTuning`. */
+  tuning?: GlowTuning;
 
   /**
    * Per-color override for the hue-independent "safe" chroma limit used in
@@ -398,7 +528,11 @@ export interface MixColorDef {
   inherit?: boolean;
 }
 
-export type ColorDef = RegularColorDef | ShadowColorDef | MixColorDef;
+export type ColorDef =
+  | RegularColorDef
+  | ShadowColorDef
+  | GlowColorDef
+  | MixColorDef;
 
 export type ColorMap = Record<string, ColorDef>;
 
@@ -428,6 +562,37 @@ export interface ResolvedColorVariant {
    * gamut mapping applied during resolution.
    */
   pastel?: boolean;
+  /**
+   * HDR tier of a glow whose step crosses SDR white, present only when the
+   * glow's `headroom` is above 0, its target tone passes 100, and SDR is
+   * pinned at its brightest — the pigment at full opacity, or a white surface
+   * (see `GlowTuning.headroom`). Absent everywhere else — shadows, mixes,
+   * regular colors, a glow whose pigment cannot lift a non-white surface, and
+   * every glow at the default headroom of 0.
+   */
+  hdr?: ResolvedHdr;
+}
+
+/**
+ * The HDR value of a glow past SDR white: an opaque base plus a gain. The base
+ * is what SDR paints at its brightest — the glow's pigment at full opacity, or
+ * the white surface it cannot lift — and the HDR color is that base's linear
+ * sRGB times `2^exposure`. Format it with `glaze.formatHdr()`, or read its
+ * channels with `hdrToSrgb()` / `hdrToLinearSrgb()`.
+ *
+ * Stored in OKHST like the variant. `s` is always standard (non-pastel)
+ * OKHSL saturation, whatever the variant's `pastel`, since the base is an
+ * arbitrary in-gamut composite.
+ */
+export interface ResolvedHdr {
+  /** Base OKHSL hue (0–360). */
+  h: number;
+  /** Base OKHSL saturation (0–1, non-pastel). */
+  s: number;
+  /** Base canonical tone (0–1, reference eps). */
+  t: number;
+  /** Gain over the base in stops (`log2` of the linear factor), above 0. */
+  exposure: number;
 }
 
 /** Fully resolved color across all scheme variants. */
@@ -437,7 +602,7 @@ export interface ResolvedColor {
   dark: ResolvedColorVariant;
   lightContrast: ResolvedColorVariant;
   darkContrast: ResolvedColorVariant;
-  /** Adaptation mode. Present only for regular colors, omitted for shadows. */
+  /** Adaptation mode of a regular color; `undefined` for shadow / glow / mix. */
   mode?: AdaptationMode;
 }
 
@@ -468,20 +633,32 @@ export interface GlazeConfig {
   darkDesaturation?: number;
   /**
    * State alias names for Tasty token export. Default to media-query states
-   * (`'@media(prefers-color-scheme: dark)'` / `'@media(prefers-contrast: more)'`)
-   * so tokens react to the OS preference without registering custom states.
+   * (`'@media(prefers-color-scheme: dark)'` / `'@media(prefers-contrast: more)'`
+   * / `'@media(dynamic-range: high)'`) so tokens react to the OS preference
+   * and the display without registering custom states. `hdr` keys an HDR
+   * glow value and is used only with `modes.hdr` (experimental, see
+   * `GlazeOutputModes.hdr`).
    */
   states?: {
     dark?: string;
     highContrast?: string;
+    hdr?: string;
   };
   /**
    * Which scheme variants to include in exports. Defaults: `dark: true`,
-   * `highContrast: false`.
+   * `highContrast: false`, `hdr: false`.
    */
   modes?: GlazeOutputModes;
-  /** Default tuning for all shadow colors. Per-color tuning merges field-by-field. */
+  /**
+   * Default tuning for all shadow colors. Per-color tuning merges field-by-field.
+   * A `headroom` here throws: it is a glow-only field.
+   */
   shadowTuning?: ShadowTuning;
+  /**
+   * Default tuning for all glow colors, including HDR `headroom`. Per-color
+   * tuning merges field-by-field.
+   */
+  glowTuning?: GlowTuning;
   /**
    * Manual contrast level — a 0–100 slider from normal contrast (`0`) to high
    * contrast (`100`), or `'auto'` (the default) to take the authored normal
@@ -501,7 +678,7 @@ export interface GlazeConfig {
    * approximation, and a color keeps to one side of its base as the level moves.
    *
    * Pass `'auto'` to leave manual mode; `configure()` never clears a field by
-   * omission. See `docs/api.md` for the ramp's edge cases (un-interpolable
+   * omission. See `docs/reference/contrast.md` for the ramp's edge cases (un-interpolable
    * pairs, side changes) and the export-freeze rule.
    *
    * @default 'auto'
@@ -538,9 +715,11 @@ export interface GlazeConfigResolved {
   states: {
     dark: string;
     highContrast: string;
+    hdr: string;
   };
   modes: Required<GlazeOutputModes>;
   shadowTuning?: ShadowTuning;
+  glowTuning?: GlowTuning;
   autoFlip: boolean;
   /**
    * Manual contrast level (0–100) for the normal variants, or `'auto'` to take
@@ -603,6 +782,11 @@ export interface GlazeConfigOverride {
    * standalone color tokens.
    */
   shadowTuning?: ShadowTuning;
+  /**
+   * Glow tuning defaults. Only meaningful for themes; harmless on
+   * standalone color tokens.
+   */
+  glowTuning?: GlowTuning;
 }
 
 // ============================================================================
@@ -612,8 +796,13 @@ export interface GlazeConfigOverride {
 /**
  * Current authoring-export schema version. Bump when the export shape
  * changes in a non-compatible way. Written on every `.export()` snapshot.
+ *
+ * - `1` — Glaze 2.x.
+ * - `2` — Glaze 3: `shadow` `intensity` / `fg` / `tuning` changed meaning and
+ *   `glow` was added. Version-1 theme snapshots that carry shadow defs or a
+ *   `shadowTuning` are rejected on restore.
  */
-export const GLAZE_EXPORT_VERSION = 1 as const;
+export const GLAZE_EXPORT_VERSION = 2 as const;
 
 /** Literal type of {@link GLAZE_EXPORT_VERSION}. */
 export type GlazeExportVersion = typeof GLAZE_EXPORT_VERSION;
@@ -643,26 +832,32 @@ export interface GlazeThemeExport {
 }
 
 // ============================================================================
-// Standalone shadow
+// Standalone shadow / glow
 // ============================================================================
 
-/** Input for `glaze.shadow()` standalone factory. */
-export interface GlazeShadowInput {
+/** Input for the `glaze.shadow()` and `glaze.glow()` standalone factories. */
+export interface GlazeLightingInput {
   /**
-   * Background color — accepts any `GlazeColorValue` form: hex
-   * (`#rgb` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()`
-   * / `oklch()` strings, or literal objects (`{ r, g, b }`, `{ h, s, l }`,
-   * `{ l, c, h }`). Alpha components are dropped with a warning.
+   * The surface — accepts any `GlazeColorValue` form: hex
+   * (`#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` /
+   * `okhsl()` / `okhst()` / `oklch()` strings, or literal objects
+   * (`{ r, g, b }`, `{ h, s, l }`, `{ h, s, t }`, `{ l, c, h }`). Alpha
+   * components are dropped with a warning.
    */
   bg: GlazeColorValue;
-  /**
-   * Foreground color for tinting + intensity modulation. Accepts the
-   * same forms as `bg`.
-   */
+  /** The object casting the shadow / emitting the glow. Same forms as `bg`. */
   fg?: GlazeColorValue;
-  /** Intensity 0-100. */
+  /** Tone step, 0–100. */
   intensity: number;
-  tuning?: ShadowTuning;
+  tuning?: LightingTuning;
+}
+
+/** Input for `glaze.shadow()`. */
+export type GlazeShadowInput = GlazeLightingInput;
+
+/** Input for `glaze.glow()`: the shared input, with glow tuning (`headroom`). */
+export interface GlazeGlowInput extends GlazeLightingInput {
+  tuning?: GlowTuning;
 }
 
 // ============================================================================
@@ -700,14 +895,17 @@ export interface GlazeColorInput {
    */
   base?: GlazeColorToken | GlazeColorValue;
   /**
-   * Contrast floor against `base`. Requires `base` to be set. A bare
+   * Contrast floor. Without `base`, solved against the token's own input
+   * color (`hue`, `saturation`, normal `tone`), held fixed in every scheme;
+   * with `base`, against the base's resolved variant per scheme. A bare
    * number/preset is WCAG; use `{ wcag }` / `{ apca }` to pick the metric.
    */
   contrast?: HCPair<ContrastSpec>;
   /**
    * Optional human-readable name for the token. Used in error and
    * warning messages (otherwise an internal name like `"value"` is
-   * used). Does not affect output keys.
+   * used) and as `resolve().name`. A debug label only: it does not
+   * affect output keys or the token's `role`.
    */
   name?: string;
 
@@ -720,11 +918,12 @@ export interface GlazeColorInput {
   pastel?: boolean;
 
   /**
-   * Semantic role against `base` / the literal seed: how this token is used.
-   * Fixes APCA contrast polarity. Same resolution chain as
-   * `RegularColorDef.role` (explicit → name inference → opposite of base →
-   * `'text'`). For standalone tokens the name is internal, so set `role`
-   * explicitly or rely on the base-opposite / foreground default.
+   * Semantic role against the token's anchor (`base`, or its own input
+   * color when `contrast` is set without one): how this token is used.
+   * Fixes APCA contrast polarity; WCAG ignores it. Defaults to `'text'` —
+   * the token is the foreground and the anchor the background, with or
+   * without `base`. Unlike a theme color, a token never infers its role
+   * from `name`, so `inferRole` has no effect on it.
    */
   role?: RoleInput;
 }
@@ -733,17 +932,35 @@ export interface GlazeColorInput {
  * Any single-color input form accepted by the value-shorthand
  * overload of `glaze.color()`.
  *
- * Strings cover hex (`#rgb` / `#rrggbb` / `#rrggbbaa`, alpha dropped
- * with a warning) and the four CSS color functions Glaze itself emits:
- * `rgb()`, `hsl()`, `okhsl()`, `oklch()` (alpha components also dropped
- * with a warning).
+ * Strings cover hex with a leading `#` (`#rgb` / `#rgba` / `#rrggbb` /
+ * `#rrggbbaa`) and the five color functions Glaze itself emits: `rgb()`,
+ * `hsl()`, `okhsl()`, `okhst()`, `oklch()`, plus the `rgba()` / `hsla()`
+ * aliases. Function names are case-insensitive; components are numbers or
+ * percentages, separated by spaces or commas. Their scales:
+ * - `rgb()` — channels 0–255, or percentages (`100%` is 255).
+ * - `hsl()` / `okhsl()` / `okhst()` — saturation, lightness and tone are
+ *   percentages or bare 0–1 fractions: `hsl(120 50% 50%)` or
+ *   `hsl(120 0.5 0.5)`. Unlike CSS, a bare `hsl(120 50 50)` does not mean
+ *   50%; it is out of range and resolves to white without a warning.
+ * - `oklch()` — L 0–1 or a percentage; C bare, or a percentage where
+ *   `100%` is 0.4.
+ * - Hue is in degrees, bare or with `deg`. Other angle units (`turn`,
+ *   `rad`, `grad`) are misread as degrees rather than rejected.
  *
- * Literal object forms:
- * - `{ h, s, l }` — OKHSL (h: 0–360, s/l: 0–1). Passing 0–100 for `s`/`l`
- *   throws with a hint to use the structured form.
- * - `{ h, s, t }` — OKHST (h: 0–360, s/t: 0–1). Tone in 0–1.
+ * An alpha component (hex alpha, `/ A`, or any fourth component) is
+ * dropped with a warning. Named colors, other color functions, and
+ * relative color syntax throw.
+ *
+ * Literal object forms, told apart by their keys:
  * - `{ r, g, b }` — sRGB 0–255.
  * - `{ l, c, h }` — OKLCh (L/C: 0–1, H: degrees), same as `oklch()` strings.
+ * - `{ h, s, t }` — OKHST (h: 0–360, s/t: 0–1). Tone in 0–1, so `t: 0.7` is
+ *   tone 70.
+ * - `{ h, s, l }` — OKHSL (h: 0–360, s/l: 0–1).
+ *
+ * An object `s`, `l`, `t` or `c` above 1.5 throws, which catches 0–100
+ * input; the OKHSL / OKHST errors point to the structured form. String
+ * components have no such check.
  */
 export type GlazeColorValue =
   | string
@@ -831,11 +1048,10 @@ export interface GlazeColorOverrides {
    *   tone per-scheme (matches theme behavior for dependent colors).
    * - Relative `hue: '+N'` / `'-N'` still anchors to the seed (the
    *   value passed to `glaze.color()`), not the base.
-   * - When the base was created via the structured form (with explicit
-   *   `hue`/`saturation`/`tone`), it is resolved at full range
-   *   (`lightTone: false`) for the linking math — ensuring the
-   *   contrast/tone anchor matches the input tone, not the
-   *   windowed output. The base's own `.resolve()` output is unaffected.
+   * - The link resolves against the base token's own variants in every
+   *   scheme: what the base paints, under its own config, whatever form
+   *   the base was made in. A light `'+0'` lands on the base and a light
+   *   `contrast` floor is measured against it.
    *
    * The base token's `.resolve()` is called lazily on first resolve and
    * its result is captured by reference; later mutations to the base's
@@ -853,7 +1069,8 @@ export interface GlazeColorOverrides {
   /**
    * Optional human-readable name for the token. Used in error and
    * warning messages (otherwise an internal name like `"value"` is
-   * used). Does not affect output keys.
+   * used) and as `resolve().name`. A debug label only: it does not
+   * affect output keys or the token's `role`.
    */
   name?: string;
 
@@ -866,9 +1083,12 @@ export interface GlazeColorOverrides {
   pastel?: boolean;
 
   /**
-   * Semantic role against `base` / the literal seed: how this token is used.
-   * Fixes APCA contrast polarity. Same resolution chain as
-   * `RegularColorDef.role`.
+   * Semantic role against the token's anchor (`base`, or the literal seed
+   * when `contrast` / a relative `tone` is set without one): how this token
+   * is used. Fixes APCA contrast polarity; WCAG ignores it. Defaults to
+   * `'text'` — the token is the foreground and the anchor the background,
+   * with or without `base`. Unlike a theme color, a token never infers its
+   * role from `name`, so `inferRole` has no effect on it.
    */
   role?: RoleInput;
 }
@@ -903,8 +1123,9 @@ export interface GlazeColorCssOptions {
    */
   suffix?: string;
   /**
-   * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and a pastel token. oklch + all-pastel only.
+   * Emit hue as a separate `--{name}-hue` custom property, referenced via
+   * `var()`. Requires `format: 'oklch'` (any other format throws) and a
+   * pastel token.
    */
   splitHue?: boolean;
 }
@@ -1116,6 +1337,11 @@ export interface GlazeTheme {
    * theme.tokens()
    * // → { light: { surface: 'okhsl(...)' }, dark: { surface: 'okhsl(...)' } }
    * ```
+   *
+   * With `modes.hdr`, each scheme map is followed by a dense `<scheme>Hdr`
+   * map (`lightHdr`, `darkHdr`, …): every glow with an HDR value in any
+   * emitted scheme, as extended `color(srgb …)`, or its SDR value where
+   * that scheme has none.
    */
   tokens(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
 
@@ -1123,11 +1349,16 @@ export interface GlazeTheme {
    * Export as tasty style-to-state bindings.
    * Uses `#name` color token keys and state aliases (`''`, `'@media(prefers-color-scheme: dark)'`, etc.).
    * Spread into component styles or register as a recipe via `configure({ recipes })`.
+   * With `modes.hdr`, a glow's HDR value follows each SDR key that has one,
+   * under `states.hdr` (`'@media(dynamic-range: high)'`) combined with it.
    * @see https://tasty.style/docs
    */
-  tasty(options?: GlazeTokenOptions): Record<string, Record<string, string>>;
+  tasty(options?: GlazeTastyOptions): Record<string, Record<string, string>>;
 
-  /** Export as plain JSON. */
+  /**
+   * Export as plain JSON. With `modes.hdr`, a glow variant with an HDR value
+   * adds a `<scheme>Hdr` key (`lightHdr`, …) right after its SDR key.
+   */
   json(options?: GlazeJsonOptions): Record<string, Record<string, string>>;
 
   /** Export as CSS custom property declarations. */
@@ -1174,30 +1405,43 @@ export interface GlazeExtendOptions {
 // Palette API
 // ============================================================================
 
+/**
+ * Options for `token.token()` / `token.tasty()`, and the base of the theme and
+ * palette `tasty()` options: output format, scheme variants, state aliases.
+ */
 export interface GlazeTokenOptions {
-  /** Prefix mode. `true` uses "<themeName>-", or provide a custom map. */
-  prefix?: boolean | Record<string, string>;
-  /** Override state aliases for this export. */
+  /**
+   * Override state aliases for this export. `hdr` keys an HDR glow value
+   * (with `modes.hdr`); a `glaze.color()` token is never a glow, so it never
+   * uses it.
+   */
   states?: {
     dark?: string;
     highContrast?: string;
+    hdr?: string;
   };
   /** Override which scheme variants to include. */
   modes?: GlazeOutputModes;
   /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
+}
+
+/** Options for `theme.tasty()`. */
+export interface GlazeTastyOptions extends GlazeTokenOptions {
   /**
    * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and every color to be pastel.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel.
    */
   splitHue?: boolean;
   /**
    * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
-   * Palette export auto-derives this from the theme name.
+   * Must not equal the name of a color that sets its own hue (throws).
    */
   name?: string;
 }
 
+/** Options for `theme.tokens()` / `theme.json()` and their palette and token counterparts. */
 export interface GlazeJsonOptions {
   /** Override which scheme variants to include. */
   modes?: GlazeOutputModes;
@@ -1205,6 +1449,7 @@ export interface GlazeJsonOptions {
   format?: GlazeColorFormat;
 }
 
+/** Options for `theme.css()`. */
 export interface GlazeCssOptions {
   /** Output color format. Default: 'oklch'. */
   format?: GlazeColorFormat;
@@ -1212,22 +1457,47 @@ export interface GlazeCssOptions {
   suffix?: string;
   /**
    * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and every color to be pastel.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel.
    */
   splitHue?: boolean;
   /**
    * Base name for the theme-level hue var (`--{name}-hue`). Default: `'theme'`.
-   * Palette export auto-derives this from the theme name.
+   * Must not equal the name of a color that sets its own hue (throws).
    */
   name?: string;
+  /**
+   * Add the HDR tier as `result.hdr` (see {@link GlazeCssResult.hdr}).
+   * Default: the global `modes.hdr` (false). `css()` has no `modes` — it
+   * always emits all four schemes — so this is its HDR switch.
+   * @experimental No browser paints a CSS color past SDR white yet, so this
+   * tier looks like SDR at best today, and its shape may change (for example
+   * to CSS `hdr-color()`) once one does.
+   */
+  hdr?: boolean;
 }
 
-/** CSS custom property declarations grouped by scheme variant. */
-export interface GlazeCssResult {
+/** CSS custom property declarations for each scheme variant. */
+export interface GlazeCssSchemeBlocks {
   light: string;
   dark: string;
   lightContrast: string;
   darkContrast: string;
+}
+
+/** CSS custom property declarations grouped by scheme variant. */
+export interface GlazeCssResult extends GlazeCssSchemeBlocks {
+  /**
+   * The HDR tier, present when HDR output is on — the `hdr` option, which
+   * defaults to the global `modes.hdr`: one block per scheme,
+   * each re-declaring every color that has an HDR value in any scheme — its
+   * HDR value (extended `color(srgb R G B)`) where that scheme has one, and
+   * the scheme's SDR declaration where it has none. The blocks are dense so
+   * a light HDR value can never leak into dark: wire each one after the SDR
+   * blocks, under the same selector plus `(dynamic-range: high)`. Every block
+   * is an empty string when no color has an HDR value.
+   */
+  hdr?: GlazeCssSchemeBlocks;
 }
 
 // ============================================================================
@@ -1268,13 +1538,54 @@ export interface DtcgOklchColorValue {
 export type DtcgColorValue = DtcgSrgbColorValue | DtcgOklchColorValue;
 
 /**
+ * The HDR value of a glow past SDR white, carried in a DTCG token's
+ * `$extensions['me.tenphi.glaze'].hdr` (`$value` stays the SDR color, since
+ * DTCG color components stop at 1). Maps onto native APIs: UIKit
+ * `UIColor(red:green:blue:alpha:exposure:)` (AppKit: its `NSColor` twin) from
+ * `base` and `exposure`, or Android
+ * `Color.pack(r, g, b, 1f, ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))`
+ * from `value`.
+ */
+export interface GlazeDtcgHdr {
+  /** Gain over `base` in stops (`log2` of the linear factor), above 0. */
+  exposure: number;
+  /**
+   * Luminance tone of the HDR value (e.g. `112`) — past 100 when the headroom
+   * covers the step; a saturated base capped by `headroom` can land below 100,
+   * though its brightest channel still exceeds 1.
+   */
+  tone: number;
+  /** The opaque base (what SDR paints), as a DTCG sRGB color. */
+  base: DtcgSrgbColorValue;
+  /**
+   * The HDR color, `base × 2^exposure` in linear light, as extended sRGB
+   * components (the numbers of `glaze.formatHdr()`): its brightest channel
+   * above 1 (the others may stay below).
+   */
+  value: {
+    colorSpace: 'srgb';
+    components: [number, number, number];
+  };
+}
+
+/** The Glaze namespace of a DTCG token's `$extensions`. */
+export interface GlazeDtcgExtensions {
+  'me.tenphi.glaze': {
+    /** Present only with `modes.hdr`, on a glow variant that has an HDR value. */
+    hdr: GlazeDtcgHdr;
+  };
+}
+
+/**
  * A single W3C DTCG color token: `{ $type: 'color', $value }`.
- * `$description` is optional and not populated by Glaze today.
+ * `$description` is optional and not populated by Glaze today. `$extensions`
+ * is set only with `modes.hdr`, on a glow variant with an HDR value.
  */
 export interface DtcgColorToken {
   $type: 'color';
   $value: DtcgColorValue;
   $description?: string;
+  $extensions?: GlazeDtcgExtensions;
 }
 
 /**
@@ -1426,6 +1737,18 @@ export interface GlazeTailwindOptions {
    * `.dark.high-contrast`).
    */
   highContrastSelector?: string;
+  /**
+   * Selector wrapping the HDR overrides, emitted with `modes.hdr` after every
+   * SDR block. Default: `'@media (dynamic-range: high)'`. Each HDR block is
+   * dense (every color with an HDR value in any emitted scheme, SDR value
+   * where the scheme has none) and is scoped by this selector alone (light),
+   * combined with `darkSelector` (dark), with `highContrastSelector` (light
+   * high contrast), or with both.
+   * @experimental No browser paints a CSS color past SDR white yet, so this
+   * tier looks like SDR at best today, and its shape may change (for example
+   * to CSS `hdr-color()`) once one does.
+   */
+  hdrSelector?: string;
 }
 
 /** Options for `glaze.color().tailwind()`. `name` is required. */
@@ -1451,7 +1774,10 @@ export interface GlazePaletteOptions {
   primary?: string;
 }
 
-/** Options shared by palette `tokens()`, `tasty()`, and `css()` exports. */
+/**
+ * Options shared by every palette export except `json()`: `tokens()`,
+ * `tasty()`, `css()`, `dtcg()`, `dtcgResolver()`, and `tailwind()`.
+ */
 export interface GlazePaletteExportOptions {
   /**
    * Prefix mode. `true` uses `"<themeName>-"`, or provide a custom map.
@@ -1466,11 +1792,45 @@ export interface GlazePaletteExportOptions {
    * When omitted, inherits the palette-level `primary`.
    */
   primary?: string | false;
+}
+
+/**
+ * Options for `palette.tasty()`. There is no `name`: each theme's hue var is
+ * named after the theme.
+ */
+export interface GlazePaletteTastyOptions
+  extends GlazeTokenOptions, GlazePaletteExportOptions {
   /**
    * Emit hue as a separate custom property, referenced via `var()`.
-   * Requires `format: 'oklch'` and every color to be pastel.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel. The theme-level hue var is `--{themeName}-hue`.
    */
   splitHue?: boolean;
+}
+
+/**
+ * Options for `palette.css()`. There is no `name`: each theme's hue var is
+ * named after the theme.
+ */
+export interface GlazePaletteCssOptions extends GlazePaletteExportOptions {
+  /** Output color format. Default: 'oklch'. */
+  format?: GlazeColorFormat;
+  /** Suffix appended to each CSS custom property name. Default: '-color'. */
+  suffix?: string;
+  /**
+   * Emit hue as a separate custom property, referenced via `var()`.
+   * Requires `format: 'oklch'` (any other format throws) and every color to
+   * be pastel. The theme-level hue var is `--{themeName}-hue`.
+   */
+  splitHue?: boolean;
+  /**
+   * Add the HDR tier as `result.hdr` (see {@link GlazeCssResult.hdr}).
+   * Default: the global `modes.hdr` (false).
+   * @experimental No browser paints a CSS color past SDR white yet, so this
+   * tier looks like SDR at best today, and its shape may change (for example
+   * to CSS `hdr-color()`) once one does.
+   */
+  hdr?: boolean;
 }
 
 export interface GlazePalette {
@@ -1519,18 +1879,19 @@ export interface GlazePalette {
    * @see https://tasty.style/docs
    */
   tasty(
-    options?: GlazeTokenOptions & GlazePaletteExportOptions,
+    options?: GlazePaletteTastyOptions,
   ): Record<string, Record<string, string>>;
 
-  /** Export all themes as plain JSON grouped by theme name. */
+  /**
+   * Export all themes as plain JSON grouped by theme name. No prefix, primary
+   * alias, or collision handling: each theme keeps its own key.
+   */
   json(
-    options?: GlazeJsonOptions & {
-      prefix?: boolean | Record<string, string>;
-    },
+    options?: GlazeJsonOptions,
   ): Record<string, Record<string, Record<string, string>>>;
 
   /** Export all themes as CSS custom property declarations. */
-  css(options?: GlazeCssOptions & GlazePaletteExportOptions): GlazeCssResult;
+  css(options?: GlazePaletteCssOptions): GlazeCssResult;
 
   /**
    * Export all themes as W3C DTCG documents, one per scheme variant.

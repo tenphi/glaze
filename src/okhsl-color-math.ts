@@ -3,7 +3,11 @@
  *
  * Provides bidirectional OKHSL ↔ sRGB conversion, luminance computation
  * for both contrast metrics (WCAG 2 relative luminance and APCA screen
- * luminance `Ys`), and multi-format output (okhsl, rgb, hsl, oklch).
+ * luminance `Ys` — both the exact functions the contrast solver uses, and
+ * both public), strict hex parsing (`parseHex` / `parseHexAlpha` check every
+ * digit), and multi-format output (okhsl, rgb, hsl, oklch, plus the
+ * unclamped `color(srgb …)` / `color(srgb-linear …)` writers for HDR glow
+ * values, whose channels may exceed 1).
  */
 
 type Vec3 = [number, number, number];
@@ -64,6 +68,12 @@ const K1 = 0.206;
 const K2 = 0.03;
 const K3 = (1.0 + K1) / (1.0 + K2);
 const EPSILON = 1e-10;
+/**
+ * OKLab chroma under which an sRGB input counts as gray. An exact sRGB gray
+ * leaves float residue in OKLab a / b (at most 3.7e-8, at white); the faintest
+ * deliberate tint, one channel 0.01 of 255 off gray, has 1.06e-5.
+ */
+const GRAY_CHROMA = 1e-6;
 
 // ============================================================================
 // Helpers
@@ -458,6 +468,33 @@ export const sRGBGammaToLinear = (val: number): number => {
     : sign * Math.pow((abs + 0.055) / 1.055, 2.4);
 };
 
+/** Gamma-encoded sRGB clamped to the display gamut — what a browser paints. */
+export function toDisplayGamma(linearRgb: Vec3): Vec3 {
+  return [
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[0]))),
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[1]))),
+    Math.max(0, Math.min(1, sRGBLinearToGamma(linearRgb[2]))),
+  ];
+}
+
+/**
+ * Browser alpha compositing: `source-over` interpolates the gamma-encoded
+ * channels, not linear light (50% black over white paints `#808080`).
+ * Takes display-gamma inputs and returns the composite as linear sRGB for
+ * the luminance pipeline.
+ */
+export function compositeOverGamma(
+  baseGamma: Vec3,
+  overlayGamma: Vec3,
+  alpha: number,
+): Vec3 {
+  return [
+    sRGBGammaToLinear(baseGamma[0] + (overlayGamma[0] - baseGamma[0]) * alpha),
+    sRGBGammaToLinear(baseGamma[1] + (overlayGamma[1] - baseGamma[1]) * alpha),
+    sRGBGammaToLinear(baseGamma[2] + (overlayGamma[2] - baseGamma[2]) * alpha),
+  ];
+}
+
 /**
  * Convert OKHSL to gamma-encoded sRGB (clamped to 0–1).
  * h: 0–360, s: 0–1, l: 0–1. Returns [r, g, b] with each channel 0–1.
@@ -505,6 +542,11 @@ export function gamutClampedLuminance(
  * soft-clamp threshold in `apcaContrast` is calibrated against this basis,
  * so the solver must feed it `Ys`, not WCAG relative luminance. Channels
  * are gamut-clamped to [0, 1] first, matching `gamutClampedLuminance`.
+ *
+ * This is exactly the luminance Glaze's contrast solver (and its drift
+ * check) feeds `apcaContrast`, so
+ * `apcaContrast(apcaLuminanceFromLinearRgb(text), apcaLuminanceFromLinearRgb(bg))`
+ * reproduces the solver's Lc for a resolved pair.
  */
 export function apcaLuminanceFromLinearRgb(
   linearRgb: [number, number, number],
@@ -613,6 +655,11 @@ export const oklabToOkhsl = (lab: Vec3, pastel = false): Vec3 => {
 /**
  * Convert gamma-encoded sRGB (0–1 per channel) to OKHSL.
  * Returns [h, s, l] where h: 0–360, s: 0–1, l: 0–1.
+ *
+ * A gray reads with saturation 0 (its computed hue is kept). Its OKLab
+ * residue would otherwise come out as a saturation that grows toward white
+ * (`#fefefe` reads 1.6e-5, `rgb(254.999 254.999 254.999)` 1.6e-2), which a
+ * color carries into every scheme and an OKHSL mix reads as a hue.
  */
 export function srgbToOkhsl(
   rgb: [number, number, number],
@@ -624,7 +671,9 @@ export function srgbToOkhsl(
     sRGBGammaToLinear(rgb[2]),
   ];
   const oklab = linearSrgbToOklab(linear);
-  return oklabToOkhsl(oklab, pastel) as [number, number, number];
+  const okhsl = oklabToOkhsl(oklab, pastel) as [number, number, number];
+  if (Math.hypot(oklab[1], oklab[2]) < GRAY_CHROMA) okhsl[1] = 0;
+  return okhsl;
 }
 
 /**
@@ -665,7 +714,9 @@ export function hslToSrgb(
 
 /**
  * Parse a hex color string (#rgb or #rrggbb) to sRGB [r, g, b] in 0–1 range.
- * Returns null if the string is not a valid hex color.
+ * The leading `#` is optional. Returns null if the string is not a valid hex
+ * color: a wrong length, any character outside `0-9a-f` (case-insensitive),
+ * or a form with alpha.
  *
  * For 8-digit hex (`#rrggbbaa`) and 4-digit hex (`#rgba`) with alpha,
  * use {@link parseHexAlpha}.
@@ -676,51 +727,36 @@ export function parseHex(hex: string): [number, number, number] | null {
   return result.rgb;
 }
 
+/** Hex digits only — no sign, whitespace, or `0x` prefix. */
+const HEX_DIGITS_RE = /^[0-9a-f]+$/i;
+
 /**
  * Parse a hex color string (#rgb, #rrggbb, #rgba, or #rrggbbaa) to
  * sRGB [r, g, b] in 0–1 range plus an optional alpha (0–1).
- * Returns null if the string is not a valid hex color.
+ * The leading `#` is optional. Returns null if the string is not a valid hex
+ * color: a wrong length or any character outside `0-9a-f`
+ * (case-insensitive).
+ *
+ * Every digit is checked up front: `parseInt` alone stops at the first bad
+ * character, so `'#1z2z3z'` would otherwise read as `#010203`.
  */
 export function parseHexAlpha(
   hex: string,
 ): { rgb: [number, number, number]; alpha?: number } | null {
   const h = hex.startsWith('#') ? hex.slice(1) : hex;
+  if (!HEX_DIGITS_RE.test(h)) return null;
 
-  if (h.length === 3) {
-    const r = parseInt(h[0] + h[0], 16);
-    const g = parseInt(h[1] + h[1], 16);
-    const b = parseInt(h[2] + h[2], 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
-    return { rgb: [r / 255, g / 255, b / 255] };
-  }
+  // Expand the short forms (#rgb / #rgba) to their long equivalents.
+  const full =
+    h.length === 3 || h.length === 4
+      ? Array.from(h, (digit) => digit + digit).join('')
+      : h;
+  if (full.length !== 6 && full.length !== 8) return null;
 
-  if (h.length === 4) {
-    const r = parseInt(h[0] + h[0], 16);
-    const g = parseInt(h[1] + h[1], 16);
-    const b = parseInt(h[2] + h[2], 16);
-    const a = parseInt(h[3] + h[3], 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b) || isNaN(a)) return null;
-    return { rgb: [r / 255, g / 255, b / 255], alpha: a / 255 };
-  }
-
-  if (h.length === 6) {
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
-    return { rgb: [r / 255, g / 255, b / 255] };
-  }
-
-  if (h.length === 8) {
-    const r = parseInt(h.slice(0, 2), 16);
-    const g = parseInt(h.slice(2, 4), 16);
-    const b = parseInt(h.slice(4, 6), 16);
-    const a = parseInt(h.slice(6, 8), 16);
-    if (isNaN(r) || isNaN(g) || isNaN(b) || isNaN(a)) return null;
-    return { rgb: [r / 255, g / 255, b / 255], alpha: a / 255 };
-  }
-
-  return null;
+  const channel = (i: number): number =>
+    parseInt(full.slice(i, i + 2), 16) / 255;
+  const rgb: [number, number, number] = [channel(0), channel(2), channel(4)];
+  return full.length === 8 ? { rgb, alpha: channel(6) } : { rgb };
 }
 
 // ============================================================================
@@ -882,6 +918,31 @@ export function formatOklch(
 
   const [L, C, hh] = okhslToOklch(h, s, l, pastel);
   return `oklch(${fmt(L, 4)} ${fmt(C, 4)} ${fmt(hh, 2)})`;
+}
+
+/**
+ * Format linear sRGB channels as a CSS `color(srgb-linear R G B)` string with
+ * 4 decimals. Unlike the other writers it takes linear light, not OKHSL, and
+ * does not clamp: a channel may exceed 1, which is how an HDR glow value
+ * written with `glaze.formatHdr(v, 'srgb-linear')` goes past SDR white — `1`
+ * is SDR white, `2` one stop above it (the default extended form is
+ * `formatSrgb`). Opaque only; HDR values carry no alpha.
+ */
+export function formatSrgbLinear(rgb: [number, number, number]): string {
+  return `color(srgb-linear ${fmt(rgb[0], 4)} ${fmt(rgb[1], 4)} ${fmt(rgb[2], 4)})`;
+}
+
+/**
+ * Format extended sRGB channels — gamma-encoded, with the transfer function
+ * continued past 1 (`sRGBLinearToGamma` does) — as a CSS `color(srgb R G B)`
+ * string with 4 decimals. Like `formatSrgbLinear` it takes the channels of
+ * its own space and does not clamp, so an HDR glow value
+ * (`glaze.formatHdr()`) can pass SDR white: `1` is SDR white, about `1.3533`
+ * one stop above it. CSS reads it as the same color as the matching
+ * `color(srgb-linear …)`. Opaque only; HDR values carry no alpha.
+ */
+export function formatSrgb(rgb: [number, number, number]): string {
+  return `color(srgb ${fmt(rgb[0], 4)} ${fmt(rgb[1], 4)} ${fmt(rgb[2], 4)})`;
 }
 
 /**

@@ -1,0 +1,92 @@
+---
+/**
+ * Code + a scheme comparison for the schemes page. Prints the `glaze()`
+ * source generated from the same props that drive the visual (like
+ * `Example.astro`), then renders a `SchemeTable` (default) or a `LevelStrip`.
+ *
+ *   <SchemeExample hue={280} saturation={60} colors={{ ... }} delta ratio />
+ */
+import { CodeGroup } from '@tenphi/cookbook/components';
+import SchemeTable from './SchemeTable.tsx';
+import LevelStrip from './LevelStrip.tsx';
+import { themeSource } from '../glaze-docs.ts';
+import type { DemoTheme, Scheme } from '../glaze-docs.ts';
+import type { SchemeTableRow } from './SchemeTable.tsx';
+import type { LevelRoles } from './LevelStrip.tsx';
+
+interface Props extends DemoTheme {
+  visual?: 'table' | 'levels';
+  /** Tab label of the code block. Default `theme.ts`. */
+  label?: string;
+  /** Lines appended after the generated source. */
+  after?: string;
+  /** Replace the generated source entirely. */
+  code?: string;
+  caption?: string;
+  // SchemeTable
+  rows?: SchemeTableRow[];
+  show?: string[];
+  schemes?: Scheme[];
+  value?: 'tone' | 'channels';
+  delta?: boolean;
+  ratio?: boolean;
+  // LevelStrip
+  levels?: number[];
+  roles?: Partial<LevelRoles>;
+  hc?: boolean;
+}
+
+const props = Astro.props;
+const visual = props.visual ?? 'table';
+const source =
+  props.code ??
+  [
+    "import { glaze } from '@tenphi/glaze';",
+    '',
+    themeSource(props),
+    ...(props.after ? ['', props.after] : []),
+  ].join('\n');
+
+const theme: DemoTheme = {
+  hue: props.hue,
+  saturation: props.saturation,
+  darkHue: props.darkHue,
+  darkSaturation: props.darkSaturation,
+  config: props.config,
+  colors: props.colors,
+};
+const normalSchemes = (props.schemes ?? ['light', 'dark']).filter(
+  (s): s is 'light' | 'dark' => s === 'light' || s === 'dark',
+);
+---
+
+<CodeGroup
+  label="Example source"
+  items={[{ label: props.label ?? 'theme.ts', language: 'ts', code: source }]}
+/>
+{
+  visual === 'table' && (
+    <SchemeTable
+      {...theme}
+      rows={props.rows}
+      show={props.show}
+      schemes={props.schemes}
+      value={props.value}
+      delta={props.delta}
+      ratio={props.ratio}
+      caption={props.caption}
+    />
+  )
+}
+{
+  visual === 'levels' && (
+    <LevelStrip
+      {...theme}
+      levels={props.levels}
+      schemes={normalSchemes}
+      roles={props.roles}
+      hc={props.hc}
+      caption={props.caption}
+    />
+  )
+}

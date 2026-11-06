@@ -1,0 +1,23 @@
+---
+/**
+ * `Example` for a CSS export: the generated source with an Output (CSS) tab,
+ * then each color with the `rgb()` value `css()` emits for it.
+ *
+ *   <CssExample hue={280} saturation={80} colors={{ ... }} after="..." />
+ */
+import Example from '../Example.astro';
+import CssSwatches from './CssSwatches.tsx';
+import type { DemoTheme } from '../glaze-docs.ts';
+
+interface Props extends DemoTheme {
+  /** Lines appended after the generated source (e.g. the export call). */
+  after?: string;
+  show?: string[];
+  caption?: string;
+}
+
+const { after, show, caption, ...theme } = Astro.props;
+---
+
+<Example {...theme} after={after} output="css" visual="none" />
+<CssSwatches {...theme} show={show} caption={caption} />

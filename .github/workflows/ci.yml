@@ -41,3 +41,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # The docs' live examples resolve themes from src/ at build time, so a
+      # library change can break the site. Build it (with the playground, which
+      # the header links to) and run Cookbook's built-output checks.
+      - name: Docs site
+        run: pnpm build:site && pnpm exec cookbook check-build

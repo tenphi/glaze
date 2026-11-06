@@ -6,8 +6,9 @@
  * - `theme.ts` — single-theme factory
  * - `palette.ts` — multi-theme composition
  * - `color-token.ts` — standalone single-color tokens (`glaze.color`)
- * - `shadow.ts` — standalone shadow factory (`glaze.shadow`)
- * - `formatters.ts` — variant → string (`glaze.format`)
+ * - `lighting.ts` — shadow / glow solver (`glaze.shadow`, `glaze.glow`,
+ *   including a glow's HDR value)
+ * - `formatters.ts` — variant → string (`glaze.format`, `glaze.formatHdr`)
  * - `config.ts` — global config singleton
  * - `serialize.ts` — authoring export type guards / version checks
  */
@@ -16,6 +17,7 @@ import { parseHex, srgbToOkhsl } from './okhsl-color-math';
 import {
   configure as configureImpl,
   getConfig,
+  normalizeLightingTuning,
   resetConfig as resetConfigImpl,
   snapshotConfig,
 } from './config';
@@ -25,9 +27,16 @@ import {
   createColorTokenFromValue,
 } from './color-token';
 import { extractOkhslFromValue } from './color-value';
-import { formatVariant } from './formatters';
-import { computeShadow, resolveShadowTuning } from './shadow';
+import { formatHdrVariant, formatVariant } from './formatters';
+import {
+  computeLighting,
+  resolveLightingTuning,
+  toResolvedHdr,
+} from './lighting';
+import type { LightingKind } from './lighting';
+import { showValue } from './hc-pair';
 import { okhslToOkhst } from './okhst';
+import { warnLightingShortfall } from './warnings';
 import {
   createPalette,
   createPaletteFromExport,
@@ -49,6 +58,9 @@ import type {
   GlazeConfigOverride,
   GlazeConfigResolved,
   GlazeFromInput,
+  GlazeGlowInput,
+  GlazeHdrFormat,
+  GlazeLightingInput,
   GlazePalette,
   GlazePaletteExport,
   GlazePaletteOptions,
@@ -84,21 +96,54 @@ type PaletteInput = Record<string, GlazeTheme>;
  * const primary = glaze({ hue: 280, saturation: 80, darkHue: 268, darkSaturation: 65 });
  * // with config override:
  * const raw = glaze(280, 80, { lightTone: false });
+ * const rawSeed = glaze({ hue: 280, saturation: 80 }, { lightTone: false });
  * ```
  */
 export function glaze(
-  hueOrOptions: number | GlazeThemeSeed,
+  hue: number,
   saturation?: number,
+  config?: GlazeConfigOverride,
+): GlazeTheme;
+export function glaze(
+  seed: GlazeThemeSeed,
+  config?: GlazeConfigOverride,
+): GlazeTheme;
+/** @deprecated Pass the config second: `glaze(seed, config)`. */
+export function glaze(
+  seed: GlazeThemeSeed,
+  saturation: undefined,
+  config?: GlazeConfigOverride,
+): GlazeTheme;
+export function glaze(
+  hueOrOptions: number | GlazeThemeSeed,
+  saturationOrConfig?: number | GlazeConfigOverride,
   config?: GlazeConfigOverride,
 ): GlazeTheme {
   if (typeof hueOrOptions === 'number') {
+    const saturation =
+      typeof saturationOrConfig === 'number' ? saturationOrConfig : undefined;
+    // `glaze(hue, config)` is not a typed form, but dropping the config
+    // without a word would be worse than taking it. A third argument still
+    // wins, as it always did.
+    const override =
+      (config === undefined || config === null) &&
+      typeof saturationOrConfig === 'object' &&
+      saturationOrConfig !== null
+        ? saturationOrConfig
+        : config;
     return createTheme(
       { hue: hueOrOptions, saturation: saturation ?? 100 },
       undefined,
-      config,
+      override,
     );
   }
-  return createTheme(hueOrOptions, undefined, config);
+  // The object form takes its override second; the older
+  // `glaze(seed, undefined, config)` spelling still works.
+  const override =
+    typeof saturationOrConfig === 'object' && saturationOrConfig !== null
+      ? saturationOrConfig
+      : config;
+  return createTheme(hueOrOptions, undefined, override);
 }
 
 /** Configure global glaze settings. */
@@ -179,44 +224,86 @@ glaze.color = function color(
   const obj = input as object;
 
   if ('from' in obj) {
-    const { from, ...overrides } = input as GlazeFromInput;
-    return createColorTokenFromValue(from, overrides, config);
+    // The token reads its override fields off the input itself (`from` aside),
+    // so a getter or a proxy field counts.
+    const fromInput = input as GlazeFromInput;
+    return createColorTokenFromValue(fromInput.from, fromInput, config);
   }
 
   if ('hue' in obj) {
     return createColorToken(input as GlazeColorInput, config);
   }
 
-  // Value-object: { h, s, l }, { r, g, b }, or { l, c, h }
+  // Value-object: { h, s, l }, { h, s, t }, { r, g, b }, or { l, c, h }
   return createColorTokenFromValue(input as GlazeColorValue, undefined, config);
 };
 
-/**
- * Compute a shadow color from a bg/fg pair and intensity.
- *
- * Both `bg` and `fg` accept any `GlazeColorValue` form: hex (`#rgb` /
- * `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` / `oklch()`
- * strings, or `{ r, g, b }` / `{ h, s, l }` / `{ l, c, h }` objects.
- */
-glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
+/** Shared body of `glaze.shadow()` / `glaze.glow()`. */
+function standaloneLighting(
+  kind: LightingKind,
+  input: GlazeLightingInput | GlazeGlowInput,
+): ResolvedColorVariant {
+  if (input?.bg === undefined) {
+    throw new Error(`glaze.${kind}(): "bg" is required.`);
+  }
+  if (
+    typeof input.intensity !== 'number' ||
+    !Number.isFinite(input.intensity)
+  ) {
+    throw new Error(
+      `glaze.${kind}(): "intensity" must be a finite number (got ${showValue(input.intensity)}).`,
+    );
+  }
+  // The parser clamps a value past white or black (an `rgb()` channel over
+  // 255, `l` over 1) to white or black, as the browser composites it.
   const bg = extractOkhslFromValue(input.bg as GlazeColorValue);
   const fg = input.fg
     ? extractOkhslFromValue(input.fg as GlazeColorValue)
     : undefined;
   const cfg = getConfig();
-  const tuning = resolveShadowTuning(input.tuning, cfg.shadowTuning);
-  const result = computeShadow(
-    { ...bg, alpha: 1 },
-    fg ? { ...fg, alpha: 1 } : undefined,
-    input.intensity,
-    tuning,
+  const tuning = resolveLightingTuning(
+    normalizeLightingTuning(kind, input.tuning, `glaze.${kind}() tuning`),
+    kind === 'shadow' ? cfg.shadowTuning : cfg.glowTuning,
   );
+  const result = computeLighting(kind, bg, fg, input.intensity, tuning, false);
+  warnLightingShortfall(kind, undefined, undefined, result, tuning.headroom);
   const { h, s, t } = okhslToOkhst({
     h: result.h,
     s: result.s,
     l: result.l,
   });
-  return { h, s, t, alpha: result.alpha };
+  const variant: ResolvedColorVariant = { h, s, t, alpha: result.alpha };
+  if (result.hdr) variant.hdr = toResolvedHdr(result.hdr);
+  return variant;
+}
+
+/**
+ * Compute a shadow over a surface: a translucent pigment whose opacity lands
+ * `bg` exactly `intensity` tones darker once the browser composites it. The
+ * optional object `fg` scales the step (a darker object casts a deeper
+ * shadow).
+ *
+ * Both `bg` and `fg` accept any `GlazeColorValue` form: hex (`#rgb` /
+ * `#rgba` / `#rrggbb` / `#rrggbbaa`), `rgb()` / `hsl()` / `okhsl()` /
+ * `okhst()` / `oklch()` strings, or `{ r, g, b }` / `{ h, s, l }` /
+ * `{ h, s, t }` / `{ l, c, h }` objects. Alpha components are dropped with
+ * a warning. `GlazeColorValue` gives each form's component scales.
+ */
+glaze.shadow = function shadow(input: GlazeShadowInput): ResolvedColorVariant {
+  return standaloneLighting('shadow', input);
+};
+
+/**
+ * Compute a glow over a surface — the mirror of `glaze.shadow()`: the
+ * composite lands `bg` exactly `intensity` tones lighter, and a lighter
+ * object `fg` glows stronger. Accepts the same inputs, plus `tuning.headroom`
+ * (merged over the global `glowTuning`): when the step would pass SDR white,
+ * the result carries `hdr` — an opaque exposure of the SDR result, formatted
+ * by `glaze.formatHdr()` — unless the pigment cannot lift a non-white `bg` at
+ * all (see `GlowTuning.headroom`).
+ */
+glaze.glow = function glow(input: GlazeGlowInput): ResolvedColorVariant {
+  return standaloneLighting('glow', input);
 };
 
 /** Format a resolved color variant as a CSS string. */
@@ -226,6 +313,27 @@ glaze.format = function format(
   pastel?: boolean,
 ): string {
   return formatVariant(variant, colorFormat, pastel);
+};
+
+/**
+ * Format a variant's HDR value — set on a glow whose step crosses SDR white
+ * with `headroom` above 0 — as extended `color(srgb R G B)`, with channels
+ * that may exceed 1 (`1` is SDR white), or as the same color in linear light
+ * with `'srgb-linear'`. Returns `undefined` for a variant without one.
+ *
+ * @example
+ * ```ts
+ * const v = glaze.glow({ bg: '#ffffff', intensity: 12, tuning: { headroom: 1 } });
+ * glaze.format(v);                   // SDR: 'oklch(1 0 0)'
+ * glaze.formatHdr(v);                // 'color(srgb 1.1813 1.1813 1.1813)'
+ * glaze.formatHdr(v, 'srgb-linear'); // 'color(srgb-linear 1.4631 1.4631 1.4631)'
+ * ```
+ */
+glaze.formatHdr = function formatHdr(
+  variant: ResolvedColorVariant,
+  hdrFormat: GlazeHdrFormat = 'srgb',
+): string | undefined {
+  return formatHdrVariant(variant, hdrFormat);
 };
 
 /**
@@ -282,14 +390,24 @@ glaze.paletteFrom = function paletteFrom(
   return createPaletteFromExport(data);
 };
 
+// Typed explicitly: the declaration bundler would write `typeof isThemeExport`
+// inside `namespace glaze`, where the name means the static itself, and the
+// published guard would come out as `any`.
+
 /** Type guard for theme authoring snapshots. */
-glaze.isThemeExport = isThemeExport;
+glaze.isThemeExport = isThemeExport as (
+  value: unknown,
+) => value is GlazeThemeExport;
 
 /** Type guard for color-token authoring snapshots. */
-glaze.isColorTokenExport = isColorTokenExport;
+glaze.isColorTokenExport = isColorTokenExport as (
+  value: unknown,
+) => value is GlazeColorTokenExport;
 
 /** Type guard for palette authoring snapshots. */
-glaze.isPaletteExport = isPaletteExport;
+glaze.isPaletteExport = isPaletteExport as (
+  value: unknown,
+) => value is GlazePaletteExport;
 
 /** Get the current global configuration (for testing/debugging). */
 glaze.getConfig = function getConfig(): GlazeConfigResolved {

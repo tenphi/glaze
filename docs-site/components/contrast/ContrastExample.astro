@@ -1,0 +1,40 @@
+---
+/**
+ * Code + contrast rows. Prints the `glaze()` source generated from the same
+ * props that drive `ContrastRows`, so the two can never drift apart.
+ *
+ *   <ContrastExample hue={280} saturation={80} colors={{ ... }} rows={[...]} />
+ */
+import { CodeGroup } from '@tenphi/cookbook/components';
+import ContrastRows from './ContrastRows.tsx';
+import { themeSource } from '../glaze-docs.ts';
+import type { DemoTheme, SchemeChoice } from '../glaze-docs.ts';
+
+interface Props extends DemoTheme {
+  rows: string[];
+  compare?: 'unsolved' | 'hc';
+  scheme?: SchemeChoice;
+  showRole?: boolean;
+  /** Sample text: one for every row, or per row name. */
+  sample?: string | Record<string, string>;
+  caption?: string;
+  /** Tab label of the code block. Default `theme.ts`. */
+  label?: string;
+  /** Lines appended after the generated source. */
+  after?: string;
+}
+
+const props = Astro.props;
+const source = [
+  "import { glaze } from '@tenphi/glaze';",
+  '',
+  themeSource(props),
+  ...(props.after ? ['', props.after] : []),
+].join('\n');
+---
+
+<CodeGroup
+  label="Example source"
+  items={[{ label: props.label ?? 'theme.ts', language: 'ts', code: source }]}
+/>
+<ContrastRows {...props} />

@@ -6,6 +6,7 @@
  * - Absolute / relative / extreme tone discrimination
  * - Generic numeric helpers (`clamp`, `lerp`, hue resolution, relative-value
  *   parsing)
+ * - `showValue`, which writes a rejected input into a validation error
  */
 
 import type { ExtremeValue, HCPair, RelativeValue, ToneValue } from './types';
@@ -24,6 +25,39 @@ export function clamp(v: number, min: number, max: number): number {
 
 export function lerp(a: number, b: number, f: number): number {
   return a + (b - a) * f;
+}
+
+/** Brackets `undefined` or a non-finite number while JSON writes it. */
+const UNWRITABLE_MARK = '\uE000';
+const UNWRITABLE_RE = /"\uE000([^"]*)\uE000"/g;
+
+/**
+ * A rejected input as a validation error shows it. Numbers and `undefined`
+ * via `String` (`JSON.stringify(NaN)` is "null"), a bigint with its `n`
+ * (JSON can't write one), anything else via JSON so a string shows its quotes
+ * and an array its shape, with `undefined` or a non-finite number inside
+ * written as it prints (`[10,NaN]`, `{"wcag":undefined}`; JSON would write
+ * `null` or drop the key) — falling back to `String` for what JSON can't
+ * write (a symbol, a function, a cycle).
+ */
+export function showValue(value: unknown): string {
+  if (typeof value === 'number' || value === undefined) return String(value);
+  if (typeof value === 'bigint') return `${value}n`;
+  try {
+    // A value that holds the marker itself is written as plain JSON, so a
+    // string of the caller's never loses its quotes.
+    const plain = JSON.stringify(value);
+    if (plain === undefined) return String(value);
+    if (plain.includes(UNWRITABLE_MARK)) return plain;
+    const json = JSON.stringify(value, (_key, v: unknown) =>
+      v === undefined || (typeof v === 'number' && !Number.isFinite(v))
+        ? `${UNWRITABLE_MARK}${v}${UNWRITABLE_MARK}`
+        : v,
+    );
+    return json?.replace(UNWRITABLE_RE, '$1') ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 // ============================================================================
@@ -78,7 +112,7 @@ export function hcMirrorsNormal(config: {
 }
 
 /**
- * A numeric HC pair at a blend fraction (shadow `intensity`, mix `value`).
+ * A numeric HC pair at a blend fraction (shadow / glow `intensity`, mix `value`).
  *
  * The endpoints return the authored entry *by identity* rather than through
  * float arithmetic — `a + (b - a) * 1` is not bit-exactly `b` in IEEE 754, and

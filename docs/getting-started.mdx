@@ -1,0 +1,488 @@
+---
+title: Getting started
+description: Install Glaze, build a first theme step by step, and export it.
+---
+
+import { Callout, Card, CodeGroup } from '@tenphi/cookbook/components';
+import Example from '../docs-site/components/Example.astro';
+import Swatches from '../docs-site/components/Swatches.tsx';
+import UiPreview from '../docs-site/components/UiPreview.tsx';
+import CardGrid from '../docs-site/components/home/CardGrid.tsx';
+import ContrastSamples from '../docs-site/components/home/ContrastSamples.tsx';
+
+This guide builds a small, complete theme — a surface, text, an accent, a
+border, and a card shadow — and exports it as CSS. Every example renders live in
+the scheme you're viewing, so switch the site's appearance to dark or high
+contrast as you go.
+
+## Install
+
+<CodeGroup
+  label="Install Glaze"
+  items={[
+    { label: 'pnpm', language: 'shell', code: 'pnpm add @tenphi/glaze' },
+    { label: 'npm', language: 'shell', code: 'npm install @tenphi/glaze' },
+    { label: 'yarn', language: 'shell', code: 'yarn add @tenphi/glaze' },
+  ]}
+/>
+
+Glaze has no runtime dependencies. It ships ESM and CommonJS builds with type
+definitions and runs in Node.js 20+, browsers, and edge runtimes.
+
+## Build a theme
+
+### 1. Seed and surface
+
+A theme starts from a seed: a hue (0–360) and a saturation (0–100). Colors are
+then defined on the **tone** scale, where 0 is black and 100 is white and equal
+steps give equal contrast for neutrals (see [Tone and OKHST](./okhst.mdx)). The
+page surface is a **root** color: it places itself with an absolute tone.
+
+<Example hue={280} saturation={80} colors={{ surface: { tone: 97, saturation: 0.15 } }} />
+
+A color's `saturation` is a factor of the seed: `0.15` is 15% of 80. It
+defaults to `1`, the full seed saturation.
+
+Each swatch prints the tone the current scheme renders. Ordinary light and dark
+schemes fit tones into a window, so tone 97 renders as 97.1 in light; dark mode
+inverts the scale, so the surface turns dark. High-contrast schemes use the
+full range. [Light, dark, and high contrast](./schemes.mdx) covers the details.
+
+### 2. Text with a contrast floor
+
+Text is a **dependent** color: it names a `base` and a signed **tone delta**
+from it. `'-1'` means one tone darker than the surface — unreadable on its own.
+The `contrast` floor fixes that: Glaze moves the color away from its base until
+the WCAG ratio passes (`'AA'` is 4.5:1, `'AAA'` is 7:1), and stops at the floor
+or just past it.
+
+```ts
+theme.colors({
+  'surface-text': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.4,
+    contrast: 'AAA',
+  },
+  'surface-text-soft': {
+    base: 'surface',
+    tone: '-1',
+    saturation: 0.3,
+    contrast: 'AA',
+  },
+});
+```
+
+<ContrastSamples
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'surface-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.4,
+      contrast: 'AAA',
+    },
+    'surface-text-soft': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.3,
+      contrast: 'AA',
+    },
+  }}
+  samples={[
+    { fg: 'surface-text', bg: 'surface', note: "contrast: 'AAA'" },
+    { fg: 'surface-text-soft', bg: 'surface', note: "contrast: 'AA'" },
+  ]}
+  caption="Each tile measures the resolved text against the surface in the scheme you're viewing."
+/>
+
+`theme.colors()` merges: it adds new colors and replaces existing ones by name,
+so a theme can grow over several calls.
+
+The delta follows its base into every scheme. In dark mode the scale inverts, so
+one tone darker becomes about 0.87 tones lighter (the dark window is a little
+narrower than the full scale) and the text turns light. In high contrast,
+`'AA'` rises to `'AAA'`, so both colors meet 7:1. For APCA instead of WCAG,
+write the floor as `{ apca: 'body' }` — see
+[Contrast solving](./contrast.mdx).
+
+### 3. An accent that keeps its contrast
+
+A primary button needs a fill and a label that read well together in every
+scheme. Pin the label, then solve the fill against it:
+
+```ts
+theme.colors({
+  'accent-surface-text': { tone: 100, mode: 'fixed' },
+  'accent-surface': {
+    base: 'accent-surface-text',
+    tone: '-1',
+    contrast: 'AA',
+    mode: 'fixed',
+  },
+  'accent-text': { base: 'surface', tone: '-1', contrast: 'AA' },
+});
+```
+
+<ContrastSamples
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'accent-surface-text': { tone: 100, mode: 'fixed' },
+    'accent-surface': {
+      base: 'accent-surface-text',
+      tone: '-1',
+      contrast: 'AA',
+      mode: 'fixed',
+    },
+    'accent-text': { base: 'surface', tone: '-1', contrast: 'AA' },
+  }}
+  samples={[
+    { fg: 'accent-surface-text', bg: 'accent-surface', note: 'button label on fill' },
+    { fg: 'accent-text', bg: 'surface', note: 'link on the surface' },
+  ]}
+/>
+
+- The label sits at tone 100: white in light and high contrast, and near-white
+  (tone 95.9) in dark, where the dark tone window caps it. The fill starts one
+  tone below the label and moves down until the pair clears 4.5:1, landing
+  just past the floor at about 4.55:1 (the solver keeps a 1% margin). Because
+  the fill depends on the label, the pair passes in every scheme — in high
+  contrast the fill darkens further, until the pair clears 7:1.
+- `mode: 'fixed'` keeps both colors on their authored side of the tone scale in
+  dark mode, so the button stays a saturated fill with a light label. The
+  default, `mode: 'auto'`, inverts.
+- `accent-text` is a link color for the page. It uses the full seed saturation
+  and the same `'AA'` floor as the soft text.
+
+### 4. A border with a high-contrast pair
+
+```ts
+theme.colors({
+  border: {
+    base: 'surface',
+    tone: ['-8', '-16'],
+    saturation: 0.2,
+  },
+});
+```
+
+<Swatches
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    border: { base: 'surface', tone: ['-8', '-16'], saturation: 0.2 },
+  }}
+/>
+
+Many values accept a `[normal, highContrast]` pair. The border sits 8 tones
+from the surface in light, about 7 in dark (the dark tone window scales relative
+steps down a little), and exactly 16 in both high-contrast schemes. It has no
+contrast floor: a border is a visible step, not text.
+
+### 5. A card shadow
+
+```ts
+theme.colors({
+  'card-shadow': {
+    type: 'shadow',
+    bg: 'surface',
+    intensity: 8,
+  },
+});
+```
+
+A `shadow` is a translucent overlay, black by default, whose opacity Glaze
+solves so that once the browser composites it over `bg`, the surface lands
+exactly `intensity` tones darker, in every scheme where it has room for the
+step. `bg` is the surface the shadow falls on. Add `fg` — the element casting
+the shadow — and a darker object casts a deeper shadow.
+
+That completes the theme. Here it is on a small product card, in the scheme
+you're viewing:
+
+<UiPreview
+  hue={280}
+  saturation={80}
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'surface-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.4,
+      contrast: 'AAA',
+    },
+    'surface-text-soft': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.3,
+      contrast: 'AA',
+    },
+    'accent-surface-text': { tone: 100, mode: 'fixed' },
+    'accent-surface': {
+      base: 'accent-surface-text',
+      tone: '-1',
+      contrast: 'AA',
+      mode: 'fixed',
+    },
+    'accent-text': { base: 'surface', tone: '-1', contrast: 'AA' },
+    border: { base: 'surface', tone: ['-8', '-16'], saturation: 0.2 },
+    'card-shadow': { type: 'shadow', bg: 'surface', intensity: 8 },
+  }}
+  roles={{
+    page: 'surface',
+    card: 'surface',
+    border: 'border',
+    text: 'surface-text',
+    textSoft: 'surface-text-soft',
+    link: 'accent-text',
+    accent: 'accent-surface',
+    accentLabel: 'accent-surface-text',
+    shadow: 'card-shadow',
+  }}
+/>
+
+<Callout kind="note" title="The shadow in dark high contrast">
+  The dark high-contrast surface renders at tone 3, which leaves room for only
+  3 tones of shadow. Glaze uses the strongest shadow it can — opaque black —
+  and logs a one-time console warning; on a surface that is already black, the
+  shadow would be transparent. Dark interfaces usually show elevation with a
+  `glow`, the lightening mirror of a shadow; see
+  [Shadows and glows](./shadows-and-glows.mdx).
+</Callout>
+
+## See all four schemes
+
+Glaze resolves every color in four **scheme variants**: `light`, `dark`,
+`lightContrast`, and `darkContrast`. Here is the whole theme in one place, with
+each scheme on its own background:
+
+<Example
+  hue={280}
+  saturation={80}
+  visual="schemes"
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'surface-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.4,
+      contrast: 'AAA',
+    },
+    'surface-text-soft': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.3,
+      contrast: 'AA',
+    },
+    'accent-surface-text': { tone: 100, mode: 'fixed' },
+    'accent-surface': {
+      base: 'accent-surface-text',
+      tone: '-1',
+      contrast: 'AA',
+      mode: 'fixed',
+    },
+    'accent-text': { base: 'surface', tone: '-1', contrast: 'AA' },
+    border: { base: 'surface', tone: ['-8', '-16'], saturation: 0.2 },
+    'card-shadow': { type: 'shadow', bg: 'surface', intensity: 8 },
+  }}
+  roles={{
+    page: 'surface',
+    card: 'surface',
+    border: 'border',
+    text: 'surface-text',
+    textSoft: 'surface-text-soft',
+    link: 'accent-text',
+    accent: 'accent-surface',
+    accentLabel: 'accent-surface-text',
+    shadow: 'card-shadow',
+  }}
+/>
+
+`css()` always returns all four variants. The other output methods include
+`light` and `dark` by default; turn on the high-contrast variants once for the
+whole app:
+
+```ts
+glaze.configure({
+  modes: { dark: true, highContrast: true },
+});
+```
+
+or for one call, with `theme.tokens({ modes: { highContrast: true } })`.
+
+## Export it
+
+Output methods resolve the theme and return the colors in the shape your stack
+consumes. Colors are native `oklch()` by default; pass `format: 'rgb'` or
+`'hsl'` for other notations.
+
+### CSS custom properties
+
+`theme.css()` returns one block of declarations per scheme variant. Each color
+becomes a `--<name>-color` property (pass `suffix: ''` to drop `-color`). Wrap
+the blocks in the selectors that switch your schemes — here, the light block on
+`:root` and the dark block in a media query:
+
+<Example
+  hue={280}
+  saturation={80}
+  visual="none"
+  output="css"
+  label="styles.ts"
+  colors={{
+    surface: { tone: 97, saturation: 0.15 },
+    'surface-text': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.4,
+      contrast: 'AAA',
+    },
+    'surface-text-soft': {
+      base: 'surface',
+      tone: '-1',
+      saturation: 0.3,
+      contrast: 'AA',
+    },
+    'accent-surface-text': { tone: 100, mode: 'fixed' },
+    'accent-surface': {
+      base: 'accent-surface-text',
+      tone: '-1',
+      contrast: 'AA',
+      mode: 'fixed',
+    },
+    'accent-text': { base: 'surface', tone: '-1', contrast: 'AA' },
+    border: { base: 'surface', tone: ['-8', '-16'], saturation: 0.2 },
+    'card-shadow': { type: 'shadow', bg: 'surface', intensity: 8 },
+  }}
+  code={[
+    "const css = theme.css({ format: 'rgb' });",
+    '',
+    'const stylesheet = `',
+    ':root {',
+    '${css.light}',
+    '}',
+    '',
+    '@media (prefers-color-scheme: dark) {',
+    '  :root {',
+    '${css.dark}',
+    '  }',
+    '}`;',
+  ].join('\n')}
+/>
+
+Components then read the variables, for example
+`background: var(--surface-color)`.
+
+### Other formats
+
+Each export is one call:
+
+```ts
+theme.tokens(); // scheme → color → value
+theme.json(); // color → scheme → value
+theme.tasty(); // Tasty '#color' tokens with state maps
+theme.tailwind(); // Tailwind CSS v4 @theme block + overrides
+theme.dtcg(); // one W3C DTCG token tree per scheme
+theme.dtcgResolver(); // one DTCG Resolver-Module document
+```
+
+- `tokens()` and `json()` return plain JavaScript data, grouped by scheme or by
+  color.
+- `tasty()` returns [Tasty](https://tasty.style) `#token` bindings keyed by
+  state, and also accepts Tasty's own `okhsl` and `okhst` formats.
+- `tailwind()` returns a Tailwind CSS v4 `@theme` block plus scheme overrides,
+  so `bg-surface` and `text-surface-text` work out of the box.
+- `dtcg()` returns one W3C design-token tree per scheme for Figma, Tokens
+  Studio, Style Dictionary, and other DTCG tools; `dtcgResolver()` puts every
+  scheme in one document.
+
+To save the definitions themselves rather than resolved colors, call
+`theme.export()` and restore the snapshot with `glaze.themeFrom()`.
+[Exporting and integration](./exporting.mdx) covers choosing an export, wiring
+it into your app, and multi-theme palettes;
+[Output formats](./reference/output.md) lists every option.
+
+## One color without a theme
+
+When you need a single adaptive color, or a pair with a contrast floor, skip the
+theme and use `glaze.color()`:
+
+```ts
+import { glaze } from '@tenphi/glaze';
+
+const surface = glaze.color('#f6f5fa');
+const brandText = glaze.color({
+  from: '#7a4dbf',
+  base: surface,
+  contrast: 'AA',
+});
+
+brandText.css({ name: 'brand-text' });
+// → {
+//   light: '--brand-text-color: oklch(0.5276 0.172 298.52);',
+//   dark: '--brand-text-color: oklch(0.6588 0.1367 298.52);',
+//   lightContrast: '…',
+//   darkContrast: '…',
+// }
+```
+
+The light variant reproduces `#7a4dbf` exactly because it already passes 4.5:1
+on that surface. The dark and high-contrast variants adapt, and the floor holds
+in each of them. See [Color tokens](./reference/color-tokens.md).
+
+## Concepts at a glance
+
+1. **A theme has one hue and saturation seed**, optionally with a separate pair
+   for the dark schemes ([dark seed](./schemes.mdx#dark-seed)). Status themes
+   come from `extend()`: they inherit the same relationships with a different
+   hue. See [Designing a palette](./methodology.mdx).
+2. **A color is a root or a dependent.** Roots use an absolute `tone` or the
+   scheme extremes `'max'` / `'min'`. Dependents name a `base` and may use a
+   signed tone delta such as `'-8'` plus a `contrast` floor.
+3. **Tone is an authoring axis, not a contrast guarantee.** Equal tone deltas
+   are exact WCAG steps for neutrals. Chromatic colors can drift in rendered
+   luminance, so Glaze measures contrast floors against the resolved colors.
+   See [Tone and OKHST](./okhst.mdx).
+4. **`contrast` is a floor.** A bare number or preset means WCAG; `{ wcag }`
+   and `{ apca }` pick the metric explicitly. The solver keeps the requested
+   tone whenever it already passes with a small margin (1% over a WCAG ratio,
+   0.5 Lc over an APCA target). See [Contrast solving](./contrast.mdx).
+5. **Each color chooses its dark adaptation.** `mode: 'auto'` inverts tone
+   (`100 − t`), `'fixed'` keeps the authored side of the scale, and `'static'`
+   skips scheme adaptation. See
+   [Light, dark, and high contrast](./schemes.mdx).
+6. **Tone windows bound the ordinary schemes.** `lightTone` and `darkTone` set
+   the light and dark tone windows; high-contrast variants use the full range.
+   Values that accept `[normal, highContrast]` pairs can tighten deliberately in
+   high contrast.
+
+Output `modes` choose which scheme variants an export includes. In Tasty, the
+`states` option chooses how those variants are activated in your app.
+
+## Next steps
+
+<CardGrid>
+  <Card title="Design a palette" href="/methodology">
+    Surface ladders, accents, disabled states, effects, and status themes,
+    built up step by step.
+  </Card>
+  <Card title="Export and integrate" href="/exporting">
+    Pick an export shape and wire it into CSS, Tailwind, Tasty, JSON, or
+    design-token tools.
+  </Card>
+  <Card title="Concepts" href="/schemes">
+    How schemes, contrast floors, shadows and glows, and mixes work, down to
+    the tone model under them.
+  </Card>
+  <Card title="API reference" href="/reference">
+    Every function, method, option, and type.
+  </Card>
+</CardGrid>
+
+To explore the tone axis interactively, open the
+[playground](https://glaze.tenphi.me/playground/).

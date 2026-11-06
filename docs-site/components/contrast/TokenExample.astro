@@ -1,0 +1,19 @@
+---
+/**
+ * Code + live result for a pair of standalone `glaze.color()` tokens. The
+ * printed source is generated from the same props that drive `TokenPair`.
+ */
+import { CodeGroup } from '@tenphi/cookbook/components';
+import TokenPair, { tokenPairSource } from './TokenPair.tsx';
+import type { TokenPairProps } from './TokenPair.tsx';
+
+type Props = TokenPairProps & { caption?: string };
+
+const props = Astro.props;
+---
+
+<CodeGroup
+  label="Example source"
+  items={[{ label: 'tokens.ts', language: 'ts', code: tokenPairSource(props) }]}
+/>
+<TokenPair {...props} />
