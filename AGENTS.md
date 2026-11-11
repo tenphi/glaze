@@ -92,7 +92,7 @@ live examples; reference pages are plain Markdown.
 
 ### `harness/` files
 
-The harness that consumer projects get through [harnesspm](https://www.npmjs.com/package/harnesspm). It is for people who **use** Glaze; contributor instructions stay in this file. `npx harnesspm check` validates it.
+The harness that consumer projects get through [harnesspm](https://www.npmjs.com/package/@tenphi/harnesspm). It is for people who **use** Glaze; contributor instructions stay in this file. `npx -y @tenphi/harnesspm check` validates it.
 
 | File | Description |
 |---|---|

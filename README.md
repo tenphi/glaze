@@ -175,7 +175,7 @@ same pages live in [`docs/`](docs):
 ## Coding agents
 
 The package ships a harness for coding agents such as Claude Code and Codex,
-in [`harness/`](harness). With [harnesspm](https://www.npmjs.com/package/harnesspm)
+in [`harness/`](harness). With [harnesspm](https://www.npmjs.com/package/@tenphi/harnesspm)
 a project that depends on Glaze gets it on install:
 
 - a short rule: themes are the source of colors, and how to check them;
@@ -185,7 +185,7 @@ a project that depends on Glaze gets it on install:
   checks every contrast floor, and `glaze:contrast` measures two colors.
 
 ```bash
-npm i -D harnesspm
+npm i -D @tenphi/harnesspm
 npx harnesspm init
 npx harnesspm run glaze:inspect src/theme.ts
 ```
