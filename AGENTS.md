@@ -15,6 +15,7 @@ glaze/
 ├── src/                       Source
 ├── docs/                      Long-form docs: concepts, guides, reference (md/mdx, rendered by the site)
 ├── docs-site/                 Site-only files: home page + live-example components
+├── harness/                   Harness for coding agents in consumer projects (harnesspm), shipped in the package
 ├── assets/                    Logo + brand assets
 ├── scripts/                   Repo helpers
 ├── README.md                  Compact intro
@@ -65,6 +66,7 @@ glaze/
 | `src/validation.test.ts` | `hasRelativeTone` over both HC-pair entries and the relative-tone-without-base error (a relative HC entry on a root throws at every level; a token's is anchored to its own color); malformed `contrast` specs (and set-vs-`undefined` metric keys), non-finite or malformed numeric fields (relative strings with whitespace allowed), a shadow / glow without `bg`, and non-finite theme seeds. |
 | `src/warnings.test.ts` | Mix contrast-unmet warnings (opaque and transparent, once per scheme, the value-100 fallback, the pastel-cap hint, slack) and the chromatic drift advisory (skipped for unmet and achromatic colors). |
 | `src/hc-pair.test.ts` | Tests for the pure HC-pair selection and interpolation helpers, and `showValue`. |
+| `src/harness.test.ts` | The agent tools in `harness/`: literal-pair measurement, a ✗ from `glaze:inspect` exactly where the solver warns, APCA polarity from the role (the tool's value equals the solver's "got" value), role resolution, and theme / palette snapshots. Runs the tools' `measure.mjs` against the source, so it needs no build. |
 | `src/okhsl-color-math.test.ts` | Tests for the format writers' 0–1 scale contract, the percentage-scale guard, producer→writer composition, strict hex parsing (every digit in all four forms; bad input returns `null` from `parseHex` / `parseHexAlpha` and throws from the public entry points), `srgbToOkhsl` reading every gray as saturation 0 and keeping the faintest tints, and `apcaLuminanceFromLinearRgb` reproducing the solver's APCA Lc. |
 
 ### `docs/` files
@@ -88,6 +90,20 @@ live examples; reference pages are plain Markdown.
 | [docs/migration.md](docs/migration.md) | Migrating an existing color system, upgrading between majors (one `3.0 — …` section per breaking change; `3.0 — shadows and glows` is referenced by `src/serialize.ts` errors), common pitfalls. |
 | [docs/reference/](docs/reference/index.md) | API reference: `index` (map of every export + conventions), `theme`, `color-definitions`, `contrast`, `color-tokens`, `palette`, `output`, `configuration`, `utilities`. Lookup, not tutorial. |
 
+### `harness/` files
+
+The harness that consumer projects get through [harnesspm](https://www.npmjs.com/package/harnesspm). It is for people who **use** Glaze; contributor instructions stay in this file. `npx harnesspm check` validates it.
+
+| File | Description |
+|---|---|
+| [harness/plugin.json](harness/plugin.json) | Agent Plugins manifest. `extensions["dev.harnesspm"]` points `docs` at `../docs` and declares the two scripts. |
+| [harness/dev.harnesspm/rules/colors.md](harness/dev.harnesspm/rules/colors.md) | The one always-on rule: themes are the source of colors, never hand-written dark / HC values, use the `glaze-theme` skill, check with `glaze:inspect`. Keep it short: it is in every consumer's `AGENTS.md`. |
+| [harness/skills/glaze-theme/SKILL.md](harness/skills/glaze-theme/SKILL.md) | Workflow for creating or changing a theme: which docs page to read, the authoring order from `docs/methodology.mdx`, checking with the tools, exporting. Keep it in step with the methodology page. |
+| [harness/dev.harnesspm/scripts/measure.mjs](harness/dev.harnesspm/scripts/measure.mjs) | What the tools measure. Every function takes the Glaze module, so the tools pass the package's `dist/` build and `src/harness.test.ts` passes the source. Contrast is measured like the solver (metric luminance, the variant's `pastel`, APCA polarity from `roleOf`, which mirrors `resolveRoleInMap` in `src/resolver.ts`), so keep it in step with the resolver. |
+| [harness/dev.harnesspm/scripts/inspect.mjs](harness/dev.harnesspm/scripts/inspect.mjs) | `glaze:inspect`: a theme or palette from a JSON snapshot, inline JSON or a JS / TS module, printed as a table per theme with each floor's verdict and Glaze's warnings. Exits 1 on a missed floor. |
+| [harness/dev.harnesspm/scripts/contrast.mjs](harness/dev.harnesspm/scripts/contrast.mjs) | `glaze:contrast`: WCAG and APCA for a text color on a background, and the presets the pair passes. |
+| [harness/dev.harnesspm/scripts/cli.mjs](harness/dev.harnesspm/scripts/cli.mjs) | Shared CLI parts: loading `../../../dist/index.mjs` (in this repository, `pnpm build` first), options, tables. |
+
 ### `docs-site/` files
 
 | File | Description |
@@ -108,7 +124,7 @@ live examples; reference pages are plain Markdown.
 | `pnpm typecheck` | Type-check the library (`tsconfig.json`) and the test files (`tsconfig.test.json`, Vitest globals) without emitting. |
 | `pnpm lint` | ESLint over `src/`. |
 | `pnpm lint:fix` | ESLint with `--fix`. |
-| `pnpm format` | Prettier write `src/**/*.ts`. |
+| `pnpm format` | Prettier write `src/**/*.ts` and `harness/**/*.mjs`. |
 | `pnpm format:check` | Prettier check (no writes). |
 | `pnpm changeset` | Create a changeset entry. |
 | `pnpm release` | Build and publish (used by CI). |

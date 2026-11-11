@@ -21,6 +21,7 @@
   "files": [
     "dist",
     "docs",
+    "harness",
     "AGENTS.md"
   ],
   "sideEffects": false,
@@ -38,8 +39,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"harness/**/*.mjs\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"harness/**/*.mjs\"",
     "prepublishOnly": "pnpm run build",
     "changeset": "changeset",
     "version": "changeset version",

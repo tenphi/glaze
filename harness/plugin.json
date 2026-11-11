@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "glaze",
+  "description": "Glaze color themes: the docs, a skill for creating and changing themes, and tools that resolve a theme and check its contrast",
+  "homepage": "https://glaze.tenphi.me",
+  "repository": "https://github.com/tenphi/glaze",
+  "keywords": ["glaze", "color", "theme", "contrast", "wcag", "apca"],
+  "extensions": {
+    "dev.harnesspm": {
+      "docs": "../docs",
+      "scripts": {
+        "inspect": {
+          "file": "./dev.harnesspm/scripts/inspect.mjs",
+          "description": "Resolve a theme or palette in light, dark and high contrast, and check every contrast floor",
+          "allow": true
+        },
+        "contrast": {
+          "file": "./dev.harnesspm/scripts/contrast.mjs",
+          "description": "Measure the WCAG and APCA contrast of a text color on a background",
+          "allow": true
+        }
+      }
+    }
+  }
+}

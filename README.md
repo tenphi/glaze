@@ -172,6 +172,27 @@ same pages live in [`docs/`](docs):
   [full OKHST specification](https://github.com/tenphi/okhst) for its math.
 - [`AGENTS.md`](https://github.com/tenphi/glaze/blob/main/AGENTS.md) — source-tree orientation for contributors.
 
+## Coding agents
+
+The package ships a harness for coding agents such as Claude Code and Codex,
+in [`harness/`](harness). With [harnesspm](https://www.npmjs.com/package/harnesspm)
+a project that depends on Glaze gets it on install:
+
+- a short rule: themes are the source of colors, and how to check them;
+- the docs index, so an agent reads the pages in `docs/` of the installed version;
+- the `glaze-theme` skill, for creating and changing themes and palettes;
+- two tools: `glaze:inspect` resolves a theme or palette in all four schemes and
+  checks every contrast floor, and `glaze:contrast` measures two colors.
+
+```bash
+npm i -D harnesspm
+npx harnesspm init
+npx harnesspm run glaze:inspect src/theme.ts
+```
+
+The tools run only in projects that trust the package:
+`"trust": { "@tenphi/glaze": true }` in `harnesspm.json`.
+
 ## License
 
 [MIT](https://github.com/tenphi/glaze/blob/main/LICENSE)
