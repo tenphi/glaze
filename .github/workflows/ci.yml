@@ -42,6 +42,11 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # The agent harness in harness/ ships in the package: check its schema,
+      # its paths and that every file it names is published.
+      - name: Harness check
+        run: pnpm exec harnesspm check
+
       # The docs' live examples resolve themes from src/ at build time, so a
       # library change can break the site. Build it and run Cookbook's
       # built-output checks.

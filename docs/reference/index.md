@@ -23,7 +23,7 @@ The package ships ESM and CommonJS with full type declarations and has no runtim
 | [Palettes](./palette.md) | `glaze.palette()`, prefixes, collisions, the primary alias, `glaze.paletteFrom()`. |
 | [Output formats](./output.md) | Every output method and option, color formats, output modes, state aliases, `splitHue`, HDR output. |
 | [Configuration](./configuration.md) | `glaze.configure()` and every `GlazeConfig` field, per-instance overrides, validation, warnings. |
-| [Utilities](./utilities.md) | `glaze.format` / `glaze.formatHdr`, the HDR channel helpers, standalone `glaze.shadow` / `glaze.glow`, color math, tone utilities, the contrast solver, role helpers, guards. |
+| [Utilities](./utilities.md) | `glaze.format` / `glaze.formatHdr`, the HDR channel helpers, standalone `glaze.shadow` / `glaze.glow`, color math, tone utilities, the contrast solver, role helpers, guards, and the measuring module (`@tenphi/glaze/harness/measure`). |
 
 ## `glaze` and its statics
 
@@ -64,6 +64,8 @@ The package ships ESM and CommonJS with full type declarations and has no runtim
 ## Named exports
 
 Everything below is exported from `'@tenphi/glaze'` next to `glaze`. Apart from `GLAZE_EXPORT_VERSION` and the type guards, these are lower-level building blocks for advanced use and custom pipelines.
+
+One subpath has its own exports: `@tenphi/glaze/harness/measure`, the measuring module behind the agent tools. See [Measuring module](./utilities.md#measuring-module).
 
 | Export | Kind | Documented in |
 | --- | --- | --- |

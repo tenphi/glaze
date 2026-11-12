@@ -2,7 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["vitest/globals"]
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "types": ["vitest/globals"],
+    "paths": { "@tenphi/glaze": ["./src/index.ts"] }
   },
   "include": ["src/**/*.test.ts"],
   "exclude": ["node_modules", "dist"]
