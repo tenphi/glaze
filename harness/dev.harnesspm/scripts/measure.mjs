@@ -1,7 +1,12 @@
 /**
- * Measures what Glaze resolves, for the `glaze:inspect` and `glaze:contrast`
- * tools. Every function takes the Glaze module (`g`) so the tools run against
- * the installed build and the tests against the source.
+ * Measures what Glaze resolves, for the `glaze:inspect`, `glaze:color` and
+ * `glaze:contrast` tools. Public as `@tenphi/glaze/harness/measure` (types in
+ * `measure.d.mts`), so other harnesses can build tools on it.
+ *
+ * Every function that resolves or measures takes the Glaze module (`g`): the
+ * tools pass the installed build, the tests pass the source, and a caller
+ * passes the same `@tenphi/glaze` instance its themes come from (Glaze's
+ * config is per instance).
  *
  * Contrast is measured the way Glaze's solver measures it: in the metric's own
  * luminance basis, with each variant's `pastel` flag, and with APCA polarity
@@ -14,6 +19,10 @@
  * @typedef {{ base: string, role: string, metric: 'wcag' | 'apca', schemes: Record<string, SchemeResult> }} ContrastPair
  * @typedef {{ name: string, values: Record<string, string>, contrast?: ContrastPair }} InspectedColor
  * @typedef {{ name: string, hue: number, saturation: number, colors: InspectedColor[] }} InspectedTheme
+ * @typedef {{ value: string, hue: number, saturation: number, tone: number, alpha: number, base?: string, wcag?: number, apca?: number, target?: number, pass?: boolean, translucent?: true }} ColorScheme
+ *   `hue` in degrees, `saturation` and `tone` 0–100. `wcag` and `apca` are set when there is a base; `pass` when there is also a floor.
+ * @typedef {{ role: string, metric?: 'wcag' | 'apca', schemes: Record<string, ColorScheme> }} InspectedColorToken
+ *   `metric` is the floor's metric, set when the color has a `contrast` floor and a base.
  */
 
 /** The four scheme variants of a resolved color, in display order. */
@@ -173,6 +182,53 @@ export function inspectTheme(g, theme, name, format = 'hex') {
   };
 }
 
+/**
+ * Keeps the themes named in `themes` and, in each, the colors whose name
+ * contains any of the `colors` parts, plus the base each kept color is
+ * measured against. Empty or missing lists keep everything.
+ *
+ * @param {InspectedTheme[]} inspected
+ * @param {{ themes?: string[], colors?: string[] }} filters
+ * @returns {InspectedTheme[]}
+ */
+export function filterThemes(inspected, { themes = [], colors = [] } = {}) {
+  let kept = inspected;
+  if (themes.length > 0) {
+    const unknown = themes.filter((t) => !inspected.some((i) => i.name === t));
+    if (unknown.length > 0) {
+      throw new Error(
+        `no theme named ${unknown.map((t) => `"${t}"`).join(', ')}. Themes: ${inspected.map((i) => i.name).join(', ')}`,
+      );
+    }
+    kept = inspected.filter((i) => themes.includes(i.name));
+  }
+  if (colors.length === 0) return kept;
+  const parts = colors.map((c) => c.replace(/^#/, '').toLowerCase());
+  const matches = (name) =>
+    parts.some((part) => name.toLowerCase().includes(part));
+  if (!kept.some((theme) => theme.colors.some((c) => matches(c.name)))) {
+    throw new Error(
+      `no color name contains ${parts.map((p) => `"${p}"`).join(' or ')}`,
+    );
+  }
+  return kept.map((theme) => {
+    const matched = new Set(
+      theme.colors.filter((c) => matches(c.name)).map((c) => c.name),
+    );
+    const bases = new Set(
+      theme.colors
+        .filter((c) => matched.has(c.name) && c.contrast)
+        .map((c) => c.contrast.base),
+    );
+    return {
+      ...theme,
+      colors: theme.colors.filter(
+        (c) => matched.has(c.name) || bases.has(c.name),
+      ),
+    };
+  });
+}
+
 /** Misses of every floor in a list of inspected themes. */
 export function missesOf(themes) {
   const misses = [];
@@ -222,6 +278,119 @@ export function themesFromObject(value, fallbackName = 'theme') {
   return kindOf(value) === 'palette'
     ? Object.entries(value.themes())
     : [[fallbackName, value]];
+}
+
+const isToken = (value) =>
+  !!value &&
+  typeof value === 'object' &&
+  typeof value.resolve === 'function' &&
+  typeof value.export === 'function';
+
+/** A `glaze.color()` input with `overrides` added (a value becomes `{ from }`). */
+function withOverrides(input, overrides) {
+  const set = Object.fromEntries(
+    Object.entries(overrides).filter(([, v]) => v !== undefined),
+  );
+  if (Object.keys(set).length === 0) return input;
+  const isInput =
+    input && typeof input === 'object' && ('from' in input || 'hue' in input);
+  return isInput ? { ...input, ...set } : { from: input, ...set };
+}
+
+/**
+ * One standalone color, resolved by `glaze.color()` in every scheme, with its
+ * hue, saturation and tone. With a base, each scheme is measured against the
+ * base in that scheme, with WCAG and APCA (APCA polarity from the color's
+ * role, `'text'` unless the input sets one). A `contrast` floor gets a verdict
+ * in its own metric.
+ *
+ * `input` is a token or anything `glaze.color()` takes. For an input that is
+ * not a token, `base` (a token, or anything `glaze.color()` takes) and
+ * `contrast` replace the input's own.
+ *
+ * @returns {InspectedColorToken}
+ */
+export function inspectColor(
+  g,
+  input,
+  { base, contrast, format = 'hex' } = {},
+) {
+  if (isToken(input) && (base !== undefined || contrast !== undefined)) {
+    throw new Error(
+      'a glaze.color() token already has its base and contrast: pass its input instead',
+    );
+  }
+  const given =
+    base === undefined || isToken(base) ? base : g.glaze.color(base);
+  const token = isToken(input)
+    ? input
+    : g.glaze.color(withOverrides(input, { base: given, contrast }));
+  const exported = token.export();
+  const fields =
+    exported.form === 'value' ? (exported.overrides ?? {}) : exported.input;
+  // A base the input brought along is measured as its snapshot rehydrates.
+  const baseToken =
+    given ??
+    (fields.base === undefined ? undefined : g.glaze.colorFrom(fields.base));
+  const resolved = token.resolve();
+  const baseResolved = baseToken?.resolve();
+  const role = g.normalizeRole(fields.role) ?? 'text';
+  const polarity = g.roleToPolarity(role);
+  const config = exported.config ?? {};
+  const pastel = config.pastel ?? false;
+  const level =
+    typeof config.contrastLevel === 'number' ? config.contrastLevel : 0;
+  const specAt = (lvl) =>
+    fields.contrast === undefined || !baseResolved
+      ? undefined
+      : g.resolveContrastForLevel(fields.contrast, lvl, polarity);
+
+  /** @type {InspectedColorToken} */
+  const result = { role, schemes: {} };
+  const metric = specAt(level)?.metric;
+  if (metric) result.metric = metric;
+  for (const scheme of SCHEMES) {
+    const v = resolved[scheme.key];
+    /** @type {ColorScheme} */
+    const entry = {
+      value: formatVariant(g, v, format, pastel),
+      hue: v.h,
+      saturation: v.s * 100,
+      tone: v.t * 100,
+      alpha: v.alpha,
+    };
+    const b = baseResolved?.[scheme.key];
+    if (b) {
+      entry.base = formatVariant(g, b, format, pastel);
+      const spec = specAt(scheme.highContrast ? 100 : level);
+      if (v.alpha < 1 || b.alpha < 1) {
+        entry.translucent = true;
+        if (spec) entry.target = spec.target;
+      } else {
+        const c = linearOf(g, v, pastel);
+        const bl = linearOf(g, b, pastel);
+        entry.wcag = score(
+          g,
+          'wcag',
+          luminance(g, 'wcag', c),
+          luminance(g, 'wcag', bl),
+        );
+        entry.apca = score(
+          g,
+          'apca',
+          luminance(g, 'apca', c),
+          luminance(g, 'apca', bl),
+          polarity,
+        );
+        if (spec) {
+          entry.target = spec.target;
+          entry.pass = entry[spec.metric] >= spec.target - 1e-9;
+        }
+      }
+    }
+    result.schemes[scheme.key] = entry;
+  }
+  return result;
 }
 
 /** Parses any color Glaze accepts and returns its exact light variant. */

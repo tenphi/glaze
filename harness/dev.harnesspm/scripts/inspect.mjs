@@ -6,10 +6,11 @@
 import { readFileSync } from 'node:fs';
 import { basename, extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { fail, loadGlaze, parseArgs, table } from './cli.mjs';
+import { fail, listOf, loadGlaze, parseArgs, table } from './cli.mjs';
 import {
   FORMATS,
   SCHEMES,
+  filterThemes,
   inspectTheme,
   kindOf,
   missesOf,
@@ -17,7 +18,7 @@ import {
   themesFromSnapshot,
 } from './measure.mjs';
 
-const USAGE = `Usage: npx harnesspm run glaze:inspect <theme> [--format <format>] [--json]
+const USAGE = `Usage: npx harnesspm run glaze:inspect <theme> [--color <part>] [--theme <name>] [--format <format>] [--json]
 
 <theme> is one of:
   a JSON file with a theme.export() or palette.export() snapshot
@@ -25,14 +26,18 @@ const USAGE = `Usage: npx harnesspm run glaze:inspect <theme> [--format <format>
   a JS or TS module, optionally with #exportName. Without a name: its default
   export, else every palette it exports, else every theme. TS needs Node 22.18+.
 
+--color   show only colors whose name contains this part, plus the base each
+          is measured against. A comma list matches any part: text,border
+--theme   show only these themes of a palette, by name: danger,success
 --format  how to print colors: ${FORMATS.join(', ')} (default hex)
 --json    print the result as JSON
 
-Exits with 1 when a contrast floor is missed in any scheme.`;
+Exits with 1 when a contrast floor is missed in any scheme, among the colors
+shown.`;
 
 const { options, positional } = parseArgs(
   process.argv.slice(2),
-  ['format'],
+  ['color', 'theme', 'format'],
   ['json', 'help'],
 );
 if (options.help || positional.length !== 1) {
@@ -51,11 +56,17 @@ console.warn = (...args) => warnings.push(args.map(String).join(' '));
 
 const g = await loadGlaze();
 let themes;
+let total = 0;
 try {
   const subjects = await load(positional[0]);
-  themes = subjects.map(([name, theme]) =>
+  const all = subjects.map(([name, theme]) =>
     inspectTheme(g, theme, name, format),
   );
+  total = all.reduce((sum, theme) => sum + theme.colors.length, 0);
+  themes = filterThemes(all, {
+    themes: listOf(options.theme),
+    colors: listOf(options.color),
+  });
 } catch (error) {
   console.warn = warn;
   fail(error instanceof Error ? error.message : String(error));
@@ -63,11 +74,19 @@ try {
 console.warn = warn;
 
 const misses = missesOf(themes);
-const unique = [...new Set(warnings)];
+const shownNames = new Set(themes.flatMap((t) => t.colors.map((c) => c.name)));
+const filtered = options.color !== undefined || options.theme !== undefined;
+// A filtered run keeps the warnings that name a color it shows.
+const unique = [...new Set(warnings)].filter(
+  (w) =>
+    !filtered ||
+    [...w.matchAll(/"([^"]+)"/g)].some((m) => shownNames.has(m[1])),
+);
+const hidden = new Set(warnings).size - unique.length;
 if (options.json) {
   console.log(JSON.stringify({ themes, misses, warnings: unique }, null, 2));
 } else {
-  console.log(render(themes, misses, unique));
+  console.log(render(themes, misses, unique, total, hidden));
 }
 process.exit(misses.length > 0 ? 1 : 0);
 
@@ -122,10 +141,15 @@ function cell(pair, result) {
   return `${result.pass ? '✓' : '✗'} ${value}`;
 }
 
-function render(themes, misses, warnings) {
+function render(themes, misses, warnings, total, hidden) {
   const out = [];
   let floors = 0;
+  const shown = themes.reduce((sum, theme) => sum + theme.colors.length, 0);
+  if (shown < total) {
+    out.push(`Showing ${shown} of ${total} colors.`, '');
+  }
   for (const theme of themes) {
+    if (theme.colors.length === 0) continue;
     out.push(
       `${theme.name} (hue ${theme.hue}, saturation ${theme.saturation})`,
       '',
@@ -146,7 +170,9 @@ function render(themes, misses, warnings) {
     }
     out.push(table(rows), '');
   }
-  if (misses.length === 0) {
+  if (floors === 0) {
+    out.push('No contrast floors among these colors.');
+  } else if (misses.length === 0) {
     out.push(`All ${floors} contrast floors are met.`);
   } else {
     out.push(`${misses.length} of ${floors} contrast floors are missed:`);
@@ -158,6 +184,9 @@ function render(themes, misses, warnings) {
   }
   if (warnings.length > 0) {
     out.push('', 'Glaze warnings:', ...warnings.map((w) => `- ${w}`));
+  }
+  if (hidden > 0) {
+    out.push('', `${hidden} more Glaze warnings are about colors not shown.`);
   }
   return out.join('\n');
 }

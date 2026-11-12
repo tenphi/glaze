@@ -11,7 +11,12 @@
       "scripts": {
         "inspect": {
           "file": "./dev.harnesspm/scripts/inspect.mjs",
-          "description": "Resolve a theme or palette in light, dark and high contrast, and check every contrast floor",
+          "description": "Resolve a theme or palette in light, dark and high contrast, and check every contrast floor (filter with --color, --theme)",
+          "allow": true
+        },
+        "color": {
+          "file": "./dev.harnesspm/scripts/color.mjs",
+          "description": "Resolve one color without a theme: its values and tone in light, dark and high contrast, and its contrast on a --base",
           "allow": true
         },
         "contrast": {

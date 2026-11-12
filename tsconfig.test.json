@@ -3,7 +3,9 @@
   "compilerOptions": {
     "noEmit": true,
     "allowJs": true,
-    "types": ["vitest/globals"]
+    "resolveJsonModule": true,
+    "types": ["vitest/globals"],
+    "paths": { "@tenphi/glaze": ["./src/index.ts"] }
   },
   "include": ["src/**/*.test.ts"],
   "exclude": ["node_modules", "dist"]

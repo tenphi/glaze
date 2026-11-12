@@ -2,14 +2,23 @@
  * The agent tools in harness/: their measurements must agree with the
  * solver, so a ✗ from `glaze:inspect` means what a Glaze warning means.
  */
+import pkg from '../package.json';
 import * as g from './index';
+import * as measure from '../harness/dev.harnesspm/scripts/measure.mjs';
 import {
+  filterThemes,
+  inspectColor,
   inspectTheme,
   measurePair,
   missesOf,
   roleOf,
   themesFromSnapshot,
 } from '../harness/dev.harnesspm/scripts/measure.mjs';
+import {
+  listOf,
+  parseColorArg,
+  parseContrast,
+} from '../harness/dev.harnesspm/scripts/cli.mjs';
 
 const { glaze } = g;
 
@@ -128,5 +137,140 @@ describe('harness tools', () => {
     const themes = themesFromSnapshot(g, palette.export());
     expect(themes.map(([name]) => name)).toEqual(['default', 'danger']);
     expect(() => themesFromSnapshot(g, [])).toThrow(/snapshot/);
+  });
+
+  it('resolves one color in every scheme, keeping a value exact in light', () => {
+    const color = inspectColor(g, '#2563eb');
+    expect(color.role).toBe('text');
+    expect(color.metric).toBeUndefined();
+    expect(color.schemes.light).toMatchObject({ value: '#2563eb', alpha: 1 });
+    expect(color.schemes.light.tone).toBeCloseTo(47.6, 1);
+    expect(color.schemes.light.hue).toBeCloseTo(262.9, 1);
+    // Dark is lighter; without a base, nothing is measured.
+    expect(color.schemes.dark.tone).toBeGreaterThan(color.schemes.light.tone);
+    expect(color.schemes.dark.wcag).toBeUndefined();
+  });
+
+  it('measures a color against its base in every scheme, like the solver', () => {
+    const color = inspectColor(g, '#2563eb', {
+      base: '#ffffff',
+      contrast: 'AA',
+    });
+    expect(color.metric).toBe('wcag');
+    expect(color.schemes.light).toMatchObject({
+      base: '#ffffff',
+      target: 4.5,
+      pass: true,
+    });
+    expect(color.schemes.lightContrast.target).toBe(7);
+    // In light the pair is the literal pair glaze:contrast measures.
+    expect(color.schemes.light.wcag).toBeCloseTo(
+      measurePair(g, '#2563eb', '#ffffff').wcag,
+      6,
+    );
+    // The base adapts: it is dark in the dark schemes.
+    expect(color.schemes.dark.base).not.toBe('#ffffff');
+    for (const scheme of measure.SCHEMES) {
+      expect(color.schemes[scheme.key].pass).toBe(true);
+    }
+
+    // APCA: the solver lands 0.5 Lc past the floor, and the tool sees it.
+    const apca = inspectColor(
+      g,
+      { from: '#aaaaaa', contrast: { apca: 'content' } },
+      { base: '#ffffff' },
+    );
+    expect(apca.metric).toBe('apca');
+    expect(apca.schemes.light.apca).toBeCloseTo(60.5, 1);
+    expect(apca.schemes.lightContrast.target).toBe(75);
+  });
+
+  it('marks a floor the solver cannot meet, and takes tokens', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // No tone reaches 7:1 on a mid gray.
+    const base = glaze.color('#777777');
+    const color = inspectColor(
+      g,
+      glaze.color({ from: '#336699', base, contrast: 'AAA' }),
+    );
+    expect(color.schemes.light.base).toBe('#777777');
+    expect(color.schemes.light.pass).toBe(false);
+    expect(color.schemes.light.wcag).toBeLessThan(7);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('filters themes and colors, keeping the base of each color', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const theme = harnessTheme(253);
+    const all = [
+      inspectTheme(g, theme, 'default'),
+      inspectTheme(g, theme.extend({ hue: 20 }), 'danger'),
+    ];
+    const names = (themes: measure.InspectedTheme[]) =>
+      themes.map((t) => `${t.name}: ${t.colors.map((c) => c.name).join(' ')}`);
+
+    expect(names(filterThemes(all, { colors: ['hint'] }))).toEqual([
+      'default: surface hint',
+      'danger: surface hint',
+    ]);
+    expect(
+      names(
+        filterThemes(all, {
+          themes: ['danger'],
+          colors: ['#accent-fill-text', 'hint'],
+        }),
+      ),
+    ).toEqual(['danger: surface hint accent-fill accent-fill-text']);
+    expect(filterThemes(all, {})).toBe(all);
+    expect(() => filterThemes(all, { themes: ['nope'] })).toThrow(
+      /no theme named "nope". Themes: default, danger/,
+    );
+    expect(() => filterThemes(all, { colors: ['zzz'] })).toThrow(
+      /no color name contains "zzz"/,
+    );
+  });
+
+  it('reads command-line colors, floors and lists', () => {
+    expect(parseContrast('AA')).toBe('AA');
+    expect(parseContrast('4.5')).toBe(4.5);
+    expect(parseContrast('apca:content')).toEqual({ apca: 'content' });
+    expect(parseContrast('APCA:75')).toEqual({ apca: 75 });
+    expect(parseContrast('wcag:AAA')).toEqual({ wcag: 'AAA' });
+    expect(parseContrast('{"apca":["content","body"]}')).toEqual({
+      apca: ['content', 'body'],
+    });
+    expect(parseColorArg('#2563eb')).toBe('#2563eb');
+    expect(parseColorArg('{"from":"#2563eb","tone":40}')).toEqual({
+      from: '#2563eb',
+      tone: 40,
+    });
+    expect(() => parseColorArg('{bad')).toThrow(/invalid JSON/);
+    expect(listOf('text, border,,')).toEqual(['text', 'border']);
+    expect(listOf(undefined)).toEqual([]);
+  });
+
+  it('exports the measuring module, with its types', () => {
+    // The declarations sit next to the module, so TypeScript reads them here
+    // too: a function used in these tests must be declared.
+    expect(pkg.exports['./harness/measure']).toEqual({
+      types: './harness/dev.harnesspm/scripts/measure.d.mts',
+      default: './harness/dev.harnesspm/scripts/measure.mjs',
+    });
+    expect(Object.keys(measure).sort()).toEqual([
+      'FORMATS',
+      'SCHEMES',
+      'WCAG_PRESETS',
+      'filterThemes',
+      'formatVariant',
+      'inspectColor',
+      'inspectTheme',
+      'kindOf',
+      'measurePair',
+      'missesOf',
+      'parseColor',
+      'roleOf',
+      'themesFromObject',
+      'themesFromSnapshot',
+    ]);
   });
 });

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": [],
+    "paths": { "@tenphi/glaze": ["./src/index.ts"] }
+  },
+  "include": ["harness/**/*.d.mts"],
+  "exclude": ["node_modules", "dist"]
+}

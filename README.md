@@ -181,8 +181,15 @@ a project that depends on Glaze gets it on install:
 - a short rule: themes are the source of colors, and how to check them;
 - the docs index, so an agent reads the pages in `docs/` of the installed version;
 - the `glaze-theme` skill, for creating and changing themes and palettes;
-- two tools: `glaze:inspect` resolves a theme or palette in all four schemes and
-  checks every contrast floor, and `glaze:contrast` measures two colors.
+- three tools: `glaze:inspect` resolves a theme or palette in all four schemes and
+  checks every contrast floor (`--color` and `--theme` narrow a large palette),
+  `glaze:color` resolves one color and its contrast on a base without a theme
+  file, and `glaze:contrast` measures two colors.
+
+The tools measure with `@tenphi/glaze/harness/measure`, a public module you can
+build your own tools on. See the
+[Measuring module](https://glaze.tenphi.me/reference/utilities#measuring-module)
+reference.
 
 ```bash
 npm i -D @tenphi/harnesspm

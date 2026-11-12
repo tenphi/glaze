@@ -23,6 +23,8 @@ Search the code for `glaze(`, `glaze.palette(` and `.extend(`. Change the defini
 
 ## 3. Write colors in dependency order
 
+To start from a brand color, read its hue, saturation and tone first: `npx harnesspm run glaze:color '#2563eb'`. Add `--base <surface> --contrast AA` to see where Glaze puts it on that surface in all four schemes, before you edit any file.
+
 1. **Root surfaces** get an absolute `tone` (0–100), or `'max'` / `'min'`.
 2. **Dependent colors** name a `base`. Use a tone delta such as `tone: '-4'` for ladders, chips and hover states.
 3. **Readable colors** (text, icons, borders that must be seen) get a `contrast` floor against their base. Use APCA for content, such as `contrast: { apca: 'content' }`. Use WCAG, such as `contrast: 'AA'` or `4.5`, when a policy asks for a WCAG ratio. Do not add floors to decorative relationships.
@@ -34,10 +36,11 @@ Search the code for `glaze(`, `glaze.palette(` and `.extend(`. Change the defini
 ## 4. Check it
 
 1. Run `npx harnesspm run glaze:inspect <file>`. The file is the module that defines the theme (`#exportName` picks one export), a JSON file with a `theme.export()` or `palette.export()` snapshot, or that JSON inline.
-2. It prints each color in all four schemes and each color's contrast against its base. A ✗ is a missed floor. It exits with 1 while any floor is missed.
+2. It prints each color in all four schemes and each color's contrast against its base. A ✗ is a missed floor. It exits with 1 while any floor is missed. In a large palette, `--color <part>` keeps the colors whose name contains the part, with their bases, and `--theme <name>` keeps one theme.
 3. Fix each ✗ and each Glaze warning. Usual fixes: move the authored tone further from the base, choose a base further away, widen the scheme's tone window, lower a target that is stricter than the design needs, or give the high-contrast side its own value with a pair.
 4. Run it again until every floor is met. The high-contrast columns count: a user with "increase contrast" on sees them.
-5. For two literal colors, such as a brand color on white, run `npx harnesspm run glaze:contrast <text> <background>`. APCA is not symmetric, so the text color comes first.
+5. To try one color without a theme file, run `npx harnesspm run glaze:color <color> --base <surface> --contrast <floor>`. The color is a value or a `glaze.color()` input as JSON, such as `'{"from":"#2563eb","tone":40}'`. Floors: `AA`, `4.5`, `apca:content`.
+6. For two literal colors, such as a brand color on white, run `npx harnesspm run glaze:contrast <text> <background>`. APCA is not symmetric, so the text color comes first.
 
 ## 5. Export
 

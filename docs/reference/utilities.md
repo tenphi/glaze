@@ -1,9 +1,9 @@
 ---
 title: Utilities
-description: glaze.format and glaze.formatHdr, standalone glaze.shadow and glaze.glow, and the color math, tone, contrast-solver, role, and guard functions Glaze exports for custom pipelines.
+description: glaze.format and glaze.formatHdr, standalone glaze.shadow and glaze.glow, the color math, tone, contrast-solver, role, and guard functions Glaze exports for custom pipelines, and the measuring module behind the agent tools.
 ---
 
-Most code only needs `glaze()` and its output methods. The functions on this page are for formatting single values, computing an overlay outside a theme, and building your own pipeline on Glaze's math. Everything here is exported from `'@tenphi/glaze'`.
+Most code only needs `glaze()` and its output methods. The functions on this page are for formatting single values, computing an overlay outside a theme, and building your own pipeline on Glaze's math. Everything here is exported from `'@tenphi/glaze'`, except the [measuring module](#measuring-module), which has its own subpath.
 
 **Scales.** Hue is 0–360 everywhere. Saturation, OKHSL lightness, and stored tone are **0–1** in every converter, writer, and `ResolvedColorVariant`. Only the tone transfers `toTone` / `fromTone` / `toneFromY` / `yFromTone` speak the 0–100 tone axis that authoring uses. See [Scales](./index.md#scales).
 
@@ -644,3 +644,42 @@ if (isThemeExport(data)) glaze.themeFrom(data);
 ```
 
 The `splitHue` planning types `HuePlan`, `HueDeclaration`, and `ChannelCtx` are documented in [Output formats](./output.md#planning-types).
+
+## Measuring module
+
+`@tenphi/glaze/harness/measure` is the module the agent tools of Glaze's harness measure with: `glaze:inspect`, `glaze:color` and `glaze:contrast`. Import it to build your own tool on top, such as a token lookup for a design system's palette. It is ESM only, ships its types, and follows semver like the rest of the API.
+
+Every function that resolves or measures takes the Glaze module first. Pass the instance your themes come from: Glaze's config lives in that instance.
+
+```ts
+import * as g from '@tenphi/glaze';
+import {
+  inspectColor,
+  inspectTheme,
+  missesOf,
+} from '@tenphi/glaze/harness/measure';
+
+const report = inspectTheme(g, theme, 'default');
+missesOf([report]); // every missed floor, per scheme
+
+inspectColor(g, '#2563eb', { base: '#ffffff', contrast: 'AA' }).schemes.dark;
+// → { value: '#5486ed', hue: 262.9, saturation: 85.2, tone: 59.6, alpha: 1,
+//     base: '#222222', wcag: 4.55, apca: 37.1, target: 4.5, pass: true }
+// (numbers rounded here)
+```
+
+| Export | Returns | Description |
+| --- | --- | --- |
+| `inspectTheme(g, theme, name, format?)` | `InspectedTheme` | Every color of a theme in the four schemes, and each color with a `base` measured against it. A color with a `contrast` floor gets `pass` per scheme. |
+| `filterThemes(themes, { themes?, colors? })` | `InspectedTheme[]` | Keeps the named themes and, in each, the colors whose name contains any of the parts, plus the base each is measured against. Throws on an unknown theme or when no color matches. |
+| `missesOf(themes)` | `Miss[]` | Every missed floor: theme, color, scheme label, metric, value, target. |
+| `inspectColor(g, input, options?)` | `InspectedColorToken` | One color as `glaze.color()` resolves it: each scheme's value, hue, saturation and tone (0–100), and with a `base` its WCAG and APCA contrast there. Options: `base`, `contrast` (both replace the input's own), `format`. |
+| `measurePair(g, text, background)` | `MeasuredPair` | WCAG ratio and signed APCA Lc of two literal colors, and the presets the pair passes. |
+| `parseColor(g, value)` | `ResolvedColorVariant` | The exact light variant of a color value. |
+| `formatVariant(g, variant, format?, pastel?)` | `string` | Hex (with an alpha byte when translucent) or a `glaze.format()` format. |
+| `roleOf(g, name, defs, inferRole)` | `Role` | The role a theme gives a color: explicit, else by name, else the opposite of its base's, else `'text'`. |
+| `themesFromSnapshot(g, data, name?)`, `themesFromObject(value, name?)` | `[name, GlazeTheme][]` | The themes of a theme or palette snapshot, or of a theme or palette object. |
+| `kindOf(value)` | `'theme' \| 'palette' \| undefined` | Tells a theme from a palette, by shape. |
+| `SCHEMES`, `WCAG_PRESETS`, `FORMATS` | Constants | The four schemes in display order, the WCAG presets, and the print formats. |
+
+Contrast is measured the way the solver measures it: in the metric's own luminance, with each variant's `pastel` flag, and with APCA polarity from the color's role (`apca` is the Lc magnitude). A translucent color or base is not measured: its scheme has `translucent: true`.

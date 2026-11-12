@@ -8,5 +8,6 @@
 
 ## Checking a theme
 
-- After you change a theme, run `glaze:inspect` on the file that defines it, and fix every ✗ and every Glaze warning it prints.
-- To check two literal colors, such as a brand color on white, run `glaze:contrast <text> <background>`.
+- After you change a theme, run `glaze:inspect` on the file that defines it, and fix every ✗ and every Glaze warning it prints. In a large palette, add `--color <part>`.
+- To try one color, such as a brand color, before you add it, run `glaze:color <color> --base <surface> --contrast AA`.
+- To check two literal colors, run `glaze:contrast <text> <background>`.

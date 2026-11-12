@@ -58,3 +58,39 @@ export function table(rows) {
     )
     .join('\n');
 }
+
+/** A command-line color: inline JSON (an object) as is, anything else as a color string. */
+export function parseColorArg(arg) {
+  if (!arg.trim().startsWith('{')) return arg;
+  try {
+    return JSON.parse(arg);
+  } catch (error) {
+    throw new Error(
+      `invalid JSON in "${arg}": ${error instanceof Error ? error.message : error}`,
+    );
+  }
+}
+
+/**
+ * A `--contrast` value as a Glaze contrast spec: `AA`, `AAA`, `AA-large`,
+ * `AAA-large` or a ratio such as `4.5` for WCAG; `apca:content` or `apca:75`
+ * for APCA; or inline JSON, such as `{"apca":["content","body"]}`.
+ */
+export function parseContrast(arg) {
+  const text = arg.trim();
+  if (text.startsWith('{') || text.startsWith('[')) return JSON.parse(text);
+  const match = /^(wcag|apca):(.+)$/i.exec(text);
+  const value = match ? match[2].trim() : text;
+  const number = /^\d+(\.\d+)?$/.test(value) ? Number(value) : value;
+  return match ? { [match[1].toLowerCase()]: number } : number;
+}
+
+/** A comma-separated option as a list, without empty parts. */
+export function listOf(value) {
+  return value === undefined
+    ? []
+    : value
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+}
