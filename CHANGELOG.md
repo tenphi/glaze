@@ -1,5 +1,13 @@
 # @tenphi/glaze
 
+## 3.1.0
+
+### Minor Changes
+
+- [#113](https://github.com/tenphi/glaze/pull/113) [`fc2c517`](https://github.com/tenphi/glaze/commit/fc2c5175209353de2b2f84bd23792e668792d8c5) Thanks [@tenphi](https://github.com/tenphi)! - Ship a harness for coding agents in the package. With [harnesspm](https://www.npmjs.com/package/@tenphi/harnesspm), projects that depend on Glaze get a short rule, the docs index, a `glaze-theme` skill and three tools: `glaze:inspect` resolves a theme or palette in light, dark and high contrast and checks every contrast floor (`--color` and `--theme` narrow a large palette), `glaze:color` resolves one color without a theme file and measures it on a `--base` in every scheme, and `glaze:contrast` measures two colors with WCAG and APCA.
+
+- [#113](https://github.com/tenphi/glaze/pull/113) [`fc2c517`](https://github.com/tenphi/glaze/commit/fc2c5175209353de2b2f84bd23792e668792d8c5) Thanks [@tenphi](https://github.com/tenphi)! - Export the measuring module behind the agent tools as `@tenphi/glaze/harness/measure`, with types. `inspectTheme`, `inspectColor`, `filterThemes`, `missesOf` and `measurePair` measure a theme, a single color or a pair the way the contrast solver does, so other tools, such as a design system's token lookup, can build on them. See "Measuring module" in the Utilities reference.
+
 ## 3.0.1
 
 ### Patch Changes
