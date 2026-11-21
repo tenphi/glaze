@@ -4,7 +4,7 @@
     "noEmit": true,
     "allowJs": true,
     "resolveJsonModule": true,
-    "types": ["vitest/globals"],
+    "types": ["vitest/globals", "node"],
     "paths": { "@tenphi/glaze": ["./src/index.ts"] }
   },
   "include": ["src/**/*.test.ts"],

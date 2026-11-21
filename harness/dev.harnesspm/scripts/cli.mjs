@@ -1,5 +1,7 @@
 /** Shared parts of the Glaze tools: loading the build, options and tables. */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 const BUILD = new URL('../../../dist/index.mjs', import.meta.url);
 
@@ -83,6 +85,42 @@ export function parseContrast(arg) {
   const value = match ? match[2].trim() : text;
   const number = /^\d+(\.\d+)?$/.test(value) ? Number(value) : value;
   return match ? { [match[1].toLowerCase()]: number } : number;
+}
+
+/**
+ * A module argument as an absolute file path. A path that starts with `.` or
+ * `/`, or names an existing file, resolves from the first folder. Anything
+ * else is a path inside an installed package, such as
+ * `@acme/ui/harness/theme.mjs`, looked up from each folder in turn: through
+ * the package's `exports`, then in the `node_modules` folders above the
+ * folder, for a file the `exports` do not list.
+ */
+export function resolveModule(spec, folders = [process.cwd()]) {
+  const asPath = resolve(folders[0], spec);
+  if (spec.startsWith('.') || isAbsolute(spec) || isFile(asPath)) {
+    if (!isFile(asPath))
+      throw new Error(`cannot find ${spec} in ${folders[0]}`);
+    return asPath;
+  }
+  for (const folder of new Set(folders)) {
+    try {
+      return createRequire(join(folder, 'noop.js')).resolve(spec);
+    } catch {
+      // A path the package's exports do not list, such as a file in harness/.
+    }
+    for (let dir = folder; ; dir = dirname(dir)) {
+      const candidate = join(dir, 'node_modules', spec);
+      if (isFile(candidate)) return candidate;
+      if (dirname(dir) === dir) break;
+    }
+  }
+  throw new Error(
+    `cannot find ${spec}: it is not a file in ${folders[0]}, nor a module of a package installed in ${[...new Set(folders)].join(' or ')}`,
+  );
+}
+
+function isFile(path) {
+  return existsSync(path) && statSync(path).isFile();
 }
 
 /** A comma-separated option as a list, without empty parts. */
