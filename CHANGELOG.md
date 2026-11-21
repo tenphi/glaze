@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 3.1.1
+
+### Patch Changes
+
+- [#118](https://github.com/tenphi/glaze/pull/118) [`c5dbafb`](https://github.com/tenphi/glaze/commit/c5dbafba5e22b23166bee223477f7e92e1ce2c14) Thanks [@tenphi](https://github.com/tenphi)! - `glaze:inspect` takes a theme module inside an installed package, such as `@acme/ui/harness/theme.mjs`, as `tasty:styles --setup` does, so a library that ships its users' theme no longer has to give them a `node_modules/...` path that depends on the install layout. `#exportName` still works after a package path. The text output also rounds a theme's seed hue and saturation to one decimal in its header; `--json` and the measuring module are unchanged.
+
 ## 3.1.0
 
 ### Minor Changes
