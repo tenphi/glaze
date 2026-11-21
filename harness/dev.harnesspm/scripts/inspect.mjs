@@ -4,9 +4,16 @@
  * `contrast` floor is missed, so it also works as a check.
  */
 import { readFileSync } from 'node:fs';
-import { basename, extname, resolve } from 'node:path';
+import { basename, extname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { fail, listOf, loadGlaze, parseArgs, table } from './cli.mjs';
+import {
+  fail,
+  listOf,
+  loadGlaze,
+  parseArgs,
+  resolveModule,
+  table,
+} from './cli.mjs';
 import {
   FORMATS,
   SCHEMES,
@@ -25,6 +32,8 @@ const USAGE = `Usage: npx harnesspm run glaze:inspect <theme> [--color <part>] [
   inline JSON, such as '{"hue":250,"saturation":20,"colors":{...}}'
   a JS or TS module, optionally with #exportName. Without a name: its default
   export, else every palette it exports, else every theme. TS needs Node 22.18+.
+A file or module is a path from the current folder, or a path inside an
+installed package, such as @acme/ui/harness/theme.mjs#theme.
 
 --color   show only colors whose name contains this part, plus the base each
           is measured against. A comma list matches any part: text,border
@@ -95,7 +104,11 @@ async function load(arg) {
   const hash = arg.lastIndexOf('#');
   const file = hash > 0 ? arg.slice(0, hash) : arg;
   const exportName = hash > 0 ? arg.slice(hash + 1) : undefined;
-  const path = resolve(file);
+  // From the caller's folder first, then from the project `-C` names.
+  const path = resolveModule(
+    file,
+    [process.cwd(), process.env.HARNESSPM_PROJECT_DIR].filter(Boolean),
+  );
   if (extname(path) === '.json') {
     const data = JSON.parse(readFileSync(path, 'utf8'));
     return themesFromSnapshot(g, data, basename(path, '.json'));
@@ -117,6 +130,11 @@ async function load(arg) {
     );
   }
   return chosen.flatMap(([name, value]) => themesFromObject(value, name));
+}
+
+/** A seed to one decimal: a hue taken from a color is not a round number. */
+function round(value) {
+  return Number(value.toFixed(1));
 }
 
 function number(metric, value) {
@@ -151,7 +169,7 @@ function render(themes, misses, warnings, total, hidden) {
   for (const theme of themes) {
     if (theme.colors.length === 0) continue;
     out.push(
-      `${theme.name} (hue ${theme.hue}, saturation ${theme.saturation})`,
+      `${theme.name} (hue ${round(theme.hue)}, saturation ${round(theme.saturation)})`,
       '',
     );
     const rows = [['color', '', ...SCHEMES.map((s) => s.label)]];

@@ -35,7 +35,7 @@ To start from a brand color, read its hue, saturation and tone first: `npx harne
 
 ## 4. Check it
 
-1. Run `npx harnesspm run glaze:inspect <file>`. The file is the module that defines the theme (`#exportName` picks one export), a JSON file with a `theme.export()` or `palette.export()` snapshot, or that JSON inline.
+1. Run `npx harnesspm run glaze:inspect <file>`. The file is the module that defines the theme (`#exportName` picks one export), a JSON file with a `theme.export()` or `palette.export()` snapshot, or that JSON inline. For a theme that an installed package ships, give its path inside the package, such as `@acme/ui/harness/theme.mjs`, not a `node_modules/...` path.
 2. It prints each color in all four schemes and each color's contrast against its base. A ✗ is a missed floor. It exits with 1 while any floor is missed. In a large palette, `--color <part>` keeps the colors whose name contains the part, with their bases, and `--theme <name>` keeps one theme.
 3. Fix each ✗ and each Glaze warning. Usual fixes: move the authored tone further from the base, choose a base further away, widen the scheme's tone window, lower a target that is stricter than the design needs, or give the high-contrast side its own value with a pair.
 4. Run it again until every floor is met. The high-contrast columns count: a user with "increase contrast" on sees them.

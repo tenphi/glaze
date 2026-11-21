@@ -2,6 +2,15 @@
  * The agent tools in harness/: their measurements must agree with the
  * solver, so a ✗ from `glaze:inspect` means what a Glaze warning means.
  */
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import pkg from '../package.json';
 import * as g from './index';
 import * as measure from '../harness/dev.harnesspm/scripts/measure.mjs';
@@ -18,6 +27,7 @@ import {
   listOf,
   parseColorArg,
   parseContrast,
+  resolveModule,
 } from '../harness/dev.harnesspm/scripts/cli.mjs';
 
 const { glaze } = g;
@@ -247,6 +257,58 @@ describe('harness tools', () => {
     expect(() => parseColorArg('{bad')).toThrow(/invalid JSON/);
     expect(listOf('text, border,,')).toEqual(['text', 'border']);
     expect(listOf(undefined)).toEqual([]);
+  });
+
+  it('resolves a module argument as a file or a path inside a package', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'glaze-resolve-')));
+    const write = (path: string, text: string) => {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), text);
+    };
+    try {
+      write('app/theme.mjs', '');
+      write('app/src/theme.json', '{}');
+      // Hoisted above the app, as in a monorepo.
+      write(
+        'node_modules/@acme/ui/package.json',
+        JSON.stringify({
+          name: '@acme/ui',
+          exports: { './theme': './dist/theme.mjs' },
+        }),
+      );
+      write('node_modules/@acme/ui/dist/theme.mjs', '');
+      write('node_modules/@acme/ui/harness/theme.mjs', '');
+      const app = join(root, 'app');
+
+      expect(resolveModule('theme.mjs', [app])).toBe(join(app, 'theme.mjs'));
+      expect(resolveModule('./src/theme.json', [app])).toBe(
+        join(app, 'src/theme.json'),
+      );
+      expect(resolveModule(join(app, 'theme.mjs'), [app])).toBe(
+        join(app, 'theme.mjs'),
+      );
+      // Listed in the package's exports.
+      expect(resolveModule('@acme/ui/theme', [app])).toBe(
+        join(root, 'node_modules/@acme/ui/dist/theme.mjs'),
+      );
+      // Not listed: found in the node_modules folders above.
+      expect(resolveModule('@acme/ui/harness/theme.mjs', [app])).toBe(
+        join(root, 'node_modules/@acme/ui/harness/theme.mjs'),
+      );
+      // From the next folder when the first has no such package.
+      expect(resolveModule('@acme/ui/harness/theme.mjs', [tmpdir(), app])).toBe(
+        join(root, 'node_modules/@acme/ui/harness/theme.mjs'),
+      );
+
+      expect(() => resolveModule('./missing.mjs', [app])).toThrow(
+        `cannot find ./missing.mjs in ${app}`,
+      );
+      expect(() => resolveModule('@acme/ui/missing.mjs', [app])).toThrow(
+        `cannot find @acme/ui/missing.mjs: it is not a file in ${app}, nor a module of a package installed in ${app}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('exports the measuring module, with its types', () => {

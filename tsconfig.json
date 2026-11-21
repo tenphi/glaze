@@ -15,7 +15,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "types": []
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "node_modules", "dist"]
