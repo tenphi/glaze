@@ -20,8 +20,10 @@ import {
   fmt,
   resolveDemo,
   toneOf,
+  toneText,
   variantOf,
   wcagContrast,
+  windowEdges,
 } from '../glaze-docs';
 import type { DemoTheme, Scheme } from '../glaze-docs';
 import type { ColorDef } from '../../../src/index.ts';
@@ -123,33 +125,6 @@ const COLUMN_LABELS: Record<Scheme, string> = {
 function baseOf(def: ColorDef | undefined): string | undefined {
   if (!def || 'type' in def) return undefined;
   return def.base;
-}
-
-/**
- * The tone-window edges of each scheme: where authored tones 0 and 100 land
- * for a `fixed` color (remapped, never inverted) under the same seed and
- * config.
- */
-function windowEdges(theme: DemoTheme, schemes: Scheme[]) {
-  const probe = resolveDemo({
-    ...theme,
-    colors: {
-      lo: { tone: 0, mode: 'fixed' },
-      hi: { tone: 100, mode: 'fixed' },
-    },
-  });
-  const edges = {} as Record<Scheme, number[]>;
-  for (const s of schemes) {
-    edges[s] = ['lo', 'hi'].map((n) => toneOf(variantOf(probe.resolved, n, s)));
-  }
-  return edges;
-}
-
-/** A tone label: one decimal, or two on a window edge (`9.25`, `95.9`). */
-function toneText(t: number, edges: number[]): string {
-  if (!edges.some((e) => Math.abs(t - e) < 1e-6)) return fmt(t, 1);
-  const s = fmt(t, 2);
-  return s.endsWith('0') ? s.slice(0, -1) : s;
 }
 
 function signed(n: number): string {

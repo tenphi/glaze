@@ -293,6 +293,11 @@ export const DISABLED_TEXT_WITH_FLOOR: ColorMap = {
   },
 };
 
+/** Alternative definitions a `PaletteStep` can swap in with `extra`. */
+export const STEP_EXTRAS: Record<'disabled-floor', ColorMap> = {
+  'disabled-floor': DISABLED_TEXT_WITH_FLOOR,
+};
+
 /** The root override that tints each status theme's surface. */
 export const TINTED_SURFACE_OVERRIDE: ColorMap = {
   surface: { tone: 96, saturation: 0.8 },
@@ -324,4 +329,12 @@ export function defaultThemeAt(step: StepId): DemoTheme {
     saturation: SEED_SATURATION,
     colors: colorsUpTo(step),
   };
+}
+
+/** What a `PaletteStep` resolves: every color up to `step`, plus `extra`. */
+export function stepColors(
+  step: StepId,
+  extra?: keyof typeof STEP_EXTRAS,
+): ColorMap {
+  return { ...colorsUpTo(step), ...(extra ? STEP_EXTRAS[extra] : {}) };
 }

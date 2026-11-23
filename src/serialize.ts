@@ -74,7 +74,8 @@ export function assertNoLegacyShadows(
     `${factory}: this snapshot is export version 1 (Glaze 1.1–2) and contains ${what}. ` +
       `Glaze 3 changed what shadow "intensity", "fg" and tuning mean, so it ` +
       `would restore with different shadows. Re-author them as described in ` +
-      `docs/migration.md ("3.0 — shadows and glows") and export again.`,
+      `"3.0 — shadows and glows" of the migration guide ` +
+      `(https://glaze.tenphi.me/migration/#30--shadows-and-glows) and export again.`,
   );
 }
 

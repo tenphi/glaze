@@ -31,13 +31,7 @@ import type {
   SchemeChoice,
   SchemeColors,
 } from '../glaze-docs';
-import {
-  contrastRatioFromLuminance,
-  gamutClampedLuminance,
-  okhslToLinearSrgb,
-  relativeLuminanceFromLinearRgb,
-  variantToOkhsl,
-} from '../../../src/index.ts';
+import { okhslToLinearSrgb, variantToOkhsl } from '../../../src/index.ts';
 import type {
   ColorMap,
   MixColorDef,
@@ -46,7 +40,7 @@ import type {
 import { Big, Head, Note, Patch, Tile } from '../shadows-and-glows/parts';
 import {
   compositeInk,
-  compositeLinear,
+  compositeRatio,
 } from '../shadows-and-glows/lighting-docs';
 
 export interface ContrastMixProps extends DemoTheme {
@@ -88,10 +82,7 @@ function ratioOf(
   base: ResolvedColorVariant,
 ): number {
   return def.blend === 'transparent'
-    ? contrastRatioFromLuminance(
-        relativeLuminanceFromLinearRgb(compositeLinear(mix, base)),
-        gamutClampedLuminance(linear(base)),
-      )
+    ? compositeRatio(mix, base)
     : wcagContrast(mix, base);
 }
 

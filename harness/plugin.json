@@ -7,7 +7,7 @@
   "keywords": ["glaze", "color", "theme", "contrast", "wcag", "apca"],
   "extensions": {
     "dev.harnesspm": {
-      "docs": "../docs",
+      "docs": "./docs",
       "scripts": {
         "inspect": {
           "file": "./dev.harnesspm/scripts/inspect.mjs",

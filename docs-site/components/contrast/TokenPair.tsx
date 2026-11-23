@@ -4,51 +4,13 @@
  * scheme the reader is viewing. Both tokens are created while the site builds.
  */
 
-import type { ReactNode } from 'react';
 import { Figure } from '../primitives';
-import { glaze, literal, paint } from '../glaze-docs';
+import { glaze, paint } from '../glaze-docs';
 import type { SchemeChoice, SchemeColors } from '../glaze-docs';
 import { MetricsBlock, Sample, measurePair, quietly } from './ContrastRows';
 import { normalizeRole, roleToPolarity } from '../../../src/index.ts';
 import type { GlazeColorValue, GlazeFromInput } from '../../../src/index.ts';
-
-/** The paired token's input, without `base` (the component supplies it). */
-export type PairedInput = Omit<GlazeFromInput, 'base'> & { from: string };
-
-export interface TokenPairProps {
-  /** The base color value, wrapped with `glaze.color(value)`. */
-  base: string;
-  /** The paired color: `glaze.color({ ...color, base })`. */
-  color: PairedInput;
-  scheme?: SchemeChoice;
-  sample?: string;
-  caption?: ReactNode;
-}
-
-/** The source the figure renders, for the code block next to it. */
-export function tokenPairSource(props: TokenPairProps): string {
-  const entries = Object.entries(props.color).filter(
-    ([, v]) => v !== undefined,
-  );
-  const fields = [
-    ...entries.slice(0, 1).map(([k, v]) => `${k}: ${literal(v)}`),
-    'base: bg',
-    ...entries.slice(1).map(([k, v]) => `${k}: ${literal(v)}`),
-  ];
-  const flat = `const text = glaze.color({ ${fields.join(', ')} });`;
-  return [
-    "import { glaze } from '@tenphi/glaze';",
-    '',
-    `const bg = glaze.color(${literal(props.base)});`,
-    flat.length <= 56
-      ? flat
-      : [
-          'const text = glaze.color({',
-          ...fields.map((f) => `  ${f},`),
-          '});',
-        ].join('\n'),
-  ].join('\n');
-}
+import type { TokenPairProps } from './token-pair';
 
 const MODES = { modes: { dark: true, highContrast: true } } as const;
 

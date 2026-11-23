@@ -27,8 +27,8 @@ import Swatches from '../docs-site/components/Swatches.tsx';
 />
 ```
 
-Props are plain data, so the `.mdx` source stays readable on GitHub and in the
-npm package even though the components don't render there.
+Props are plain data, so the `.mdx` source stays readable on GitHub even though
+the components don't render there, and the docs build can evaluate them.
 
 ## Components
 
@@ -43,6 +43,27 @@ npm package even though the components don't render there.
 
 `demo-themes.ts` exports `UI_DEMO` / `UI_COLORS` / `UI_ROLES`: the product UI
 theme the previews share, so pages look consistent.
+
+## The Markdown form
+
+The package ships the pages as plain Markdown for coding agents
+(`scripts/build-docs.mjs`, run at `prepack`), so every component also has a
+Markdown form in `markdown.ts`, keyed by the component's file name. The build
+fails on a component without one.
+
+- An example prints the code the site prints (`exampleSource`), then a table
+  of what its theme resolves to in all four schemes: tone, or opacity and step
+  for an overlay, and the measured contrast of each floor.
+- A figure built from a theme adds the table of the colors it shows; a page
+  prints the same code or table only once.
+- A figure of the color space keeps only its caption, so write a caption that
+  says what the figure shows.
+
+Keep the code an example prints, and anything else both forms need, in a
+`.ts` module: the build runs TypeScript with Node's type stripping, so it can't
+load `.tsx` or `.astro` files. `token-pair.ts`, `palette-output.ts` and
+`palette-demo.ts` are examples. To read the result, run
+`node scripts/build-docs.mjs` and open `harness/docs/`.
 
 ## Writing a new component
 

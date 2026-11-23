@@ -188,6 +188,36 @@ export function toneOf(v: ResolvedColorVariant): number {
 }
 
 /**
+ * The tone-window edges of each scheme: where authored tones 0 and 100 land
+ * for a `fixed` color (remapped, never inverted) under the same seed and
+ * config.
+ */
+export function windowEdges(
+  theme: DemoTheme,
+  schemes: Scheme[] = SCHEMES,
+): Record<Scheme, number[]> {
+  const probe = resolveDemo({
+    ...theme,
+    colors: {
+      lo: { tone: 0, mode: 'fixed' },
+      hi: { tone: 100, mode: 'fixed' },
+    },
+  });
+  const edges = {} as Record<Scheme, number[]>;
+  for (const s of schemes) {
+    edges[s] = ['lo', 'hi'].map((n) => toneOf(variantOf(probe.resolved, n, s)));
+  }
+  return edges;
+}
+
+/** A tone label: one decimal, or two on a window edge (`9.25`, `95.9`). */
+export function toneText(t: number, edges: number[]): string {
+  if (!edges.some((e) => Math.abs(t - e) < 1e-6)) return fmt(t, 1);
+  const s = fmt(t, 2);
+  return s.endsWith('0') ? s.slice(0, -1) : s;
+}
+
+/**
  * Luminance where black and white text reach the same WCAG contrast
  * (`(Y + 0.05) / 0.05 = 1.05 / (Y + 0.05)`).
  */
@@ -299,4 +329,45 @@ export function themeSource(demo: DemoTheme, name = 'theme'): string {
     '',
     `${name}.colors(${literal(demo.colors, 0, name.length + 8)});`,
   ].join('\n');
+}
+
+/** What an example prints: its own `code`, else its theme and `after`. */
+export interface ExampleSourceProps extends DemoTheme {
+  /** Lines appended after the generated source (e.g. an export call). */
+  after?: string;
+  /** Replace the generated source entirely. */
+  code?: string;
+}
+
+/** The source an example prints, from the same props that drive its visual. */
+export function exampleSource(props: ExampleSourceProps): string {
+  return (
+    props.code ??
+    [
+      "import { glaze } from '@tenphi/glaze';",
+      '',
+      themeSource(props),
+      ...(props.after ? ['', props.after] : []),
+    ].join('\n')
+  );
+}
+
+function indentLines(block: string, n = 2): string {
+  return block
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => ' '.repeat(n) + line)
+    .join('\n');
+}
+
+/**
+ * An example's generated CSS: the light block of `theme.css()` on `:root`,
+ * the dark one in a `prefers-color-scheme` media query.
+ */
+export function cssOutput(theme: DemoTheme): string {
+  const css = resolveDemo(theme).theme.css({ format: 'rgb' });
+  return [
+    `:root {\n${indentLines(css.light)}\n}`,
+    `@media (prefers-color-scheme: dark) {\n  :root {\n${indentLines(css.dark, 4)}\n  }\n}`,
+  ].join('\n\n');
 }

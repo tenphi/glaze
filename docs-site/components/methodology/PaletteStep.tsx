@@ -39,18 +39,14 @@ import {
   compositeOverGamma,
   toDisplayGamma,
 } from '../../../src/okhsl-color-math.ts';
-import type {
-  ColorDef,
-  ColorMap,
-  ResolvedColorVariant,
-} from '../../../src/index.ts';
+import type { ColorDef, ResolvedColorVariant } from '../../../src/index.ts';
 import { PreviewUi } from './PalettePreview';
 import {
-  DISABLED_TEXT_WITH_FLOOR,
   PURPLE_HUE,
   SEED_SATURATION,
   STEPS,
-  colorsUpTo,
+  STEP_EXTRAS,
+  stepColors,
 } from './palette';
 import type { StepId } from './palette';
 
@@ -91,10 +87,6 @@ const SAMPLE: Record<string, string> = {
   'code-comment': '// draft',
   'code-keyword': 'const',
   'code-string': "'Q3'",
-};
-
-const EXTRAS: Record<string, ColorMap> = {
-  'disabled-floor': DISABLED_TEXT_WITH_FLOOR,
 };
 
 const Glyph = tasty({
@@ -375,7 +367,7 @@ export interface PaletteStepProps {
   /** Tokens to show, in order. Default: the ones this step adds. */
   show?: string[];
   /** Swap in an alternative definition from `palette.ts`. */
-  extra?: keyof typeof EXTRAS;
+  extra?: keyof typeof STEP_EXTRAS;
   /** Compare pinned schemes side by side instead of following the reader. */
   schemes?: Scheme[];
   /** Also render the product UI built so far. Default `true`. */
@@ -384,10 +376,7 @@ export interface PaletteStepProps {
 }
 
 export default function PaletteStep(props: PaletteStepProps) {
-  const colors: ColorMap = {
-    ...colorsUpTo(props.step),
-    ...(props.extra ? EXTRAS[props.extra] : {}),
-  };
+  const colors = stepColors(props.step, props.extra);
   const demo = resolveDemo({
     hue: PURPLE_HUE,
     saturation: SEED_SATURATION,

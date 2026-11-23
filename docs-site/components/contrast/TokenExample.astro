@@ -4,8 +4,9 @@
  * printed source is generated from the same props that drive `TokenPair`.
  */
 import { CodeGroup } from '@tenphi/cookbook/components';
-import TokenPair, { tokenPairSource } from './TokenPair.tsx';
-import type { TokenPairProps } from './TokenPair.tsx';
+import TokenPair from './TokenPair.tsx';
+import { tokenPairSource } from './token-pair.ts';
+import type { TokenPairProps } from './token-pair.ts';
 
 type Props = TokenPairProps & { caption?: string };
 

@@ -179,7 +179,9 @@ in [`harness/`](harness). With [harnesspm](https://www.npmjs.com/package/@tenphi
 a project that depends on Glaze gets it on install:
 
 - a short rule: themes are the source of colors, and how to check them;
-- the docs index, so an agent reads the pages in `docs/` of the installed version;
+- the docs of the installed version as plain Markdown, with an index
+  (`harness/docs/llms.txt`): every example as code, with the colors it
+  resolves to in all four schemes;
 - the `glaze-theme` skill, for creating and changing themes and palettes;
 - three tools: `glaze:inspect` resolves a theme or palette in all four schemes and
   checks every contrast floor (`--color` and `--theme` narrow a large palette),
