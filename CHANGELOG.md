@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 3.2.0
+
+### Minor Changes
+
+- [#121](https://github.com/tenphi/glaze/pull/121) [`99e6c28`](https://github.com/tenphi/glaze/commit/99e6c28c1fcd7d89d47073948cb75d937b9f4001) Thanks [@tenphi](https://github.com/tenphi)! - Ship the docs as plain Markdown for coding agents. `harness/docs/` holds every docs page as `.md`, indexed by `harness/docs/llms.txt`, which harnesspm gives agents as `glaze:docs`. The site's live examples become the code that produces them, with tables of what they resolve to in light, dark and both high-contrast schemes; each figure keeps its caption. `docs/` no longer ships: its pages move from `docs/*.mdx` and `docs/*.md` to `harness/docs/*.md`. Comments in the shipped code and the error for a Glaze 2 snapshot with shadows now link to the docs site.
+
 ## 3.1.1
 
 ### Patch Changes
