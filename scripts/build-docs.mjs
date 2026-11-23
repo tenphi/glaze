@@ -84,7 +84,9 @@ export function splitFrontmatter(source) {
     const field = /^(\w+):\s*(.*?)\s*$/.exec(line);
     if (!field) continue;
     const [, key, raw] = field;
-    if (/^[|>]/.test(raw) || /^\s+\S/.test(lines[i + 1] ?? '')) {
+    // The next line with content, past blank lines and comments.
+    const next = lines.slice(i + 1).find((l) => !/^\s*(#|$)/.test(l));
+    if (/^[|>]/.test(raw) || /^\s/.test(next ?? '')) {
       throw new Error(`the frontmatter's "${key}" must be one line`);
     }
     data[key] = raw.startsWith("'")
@@ -201,10 +203,12 @@ export function rewriteLinks(line, { file, out, site, errors }) {
     return url + hash;
   };
 
-  // A reference definition, `[label]: url`, also in a blockquote, but not a
-  // footnote, `[^1]: text`.
+  // A reference definition, `[label]: url 'title'`, also in a blockquote, but
+  // not a footnote, `[^1]: text`, or prose after a label.
   const definition =
-    /^((?:\s*>)*\s*\[(?!\^)[^\]]+\]:\s*)([^\s#]*)(#\S*)?(.*)$/.exec(line);
+    /^((?:\s*>)*\s*\[(?!\^)[^\]]+\]:\s*)([^\s#]*)(#\S*)?((?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*)$/.exec(
+      line,
+    );
   if (definition) {
     const [, head, url, hash = '', rest] = definition;
     return `${head}${target(url, hash)}${rest}`;
@@ -327,26 +331,22 @@ const isComponentTag = (node) => isElement(node) && /^[A-Z]/.test(node.name);
 /**
  * MDX → Markdown for the body of an `.mdx` page: imports and exports go,
  * comments go, and each component becomes what `forms` renders for it.
- * `page` is the page's URL on the site, and `firstLine` the body's first line
- * in `file`. Problems go to `errors`.
+ * `page` is the page's URL on the site. Problems go to `errors`, at the line
+ * of `body` they are on.
  */
-export async function convertMdx(
-  body,
-  { file, firstLine = 1, page, forms, errors },
-) {
+export async function convertMdx(body, { file, page, forms, errors }) {
   const { createProcessor } = await import('@mdx-js/mdx');
-  const at = (place) => `${file}:${place.line + firstLine - 1}`;
   let tree;
   try {
     tree = createProcessor().parse(body);
   } catch (error) {
-    const where = error.line ? `${at(error)}:${error.column}` : file;
+    const where = error.line ? `${file}:${error.line}:${error.column}` : file;
     errors.push(`${where}: ${error.reason ?? error.message}`);
     return '';
   }
   const esm = tree.children.filter((node) => node.type === 'mdxjsEsm');
   const elements = [];
-  const line = (node) => at(node.position.start);
+  const line = (node) => `${file}:${node.position.start.line}`;
 
   // Components in document order. Inside a component, its HTML-like
   // elements (`<li>` in `<Steps>`) are its own; anywhere else, an element or
@@ -360,12 +360,15 @@ export async function convertMdx(
         if (node !== tree) errors.push(`${line(child)}: an import or export`);
       } else if (/^mdx(Flow|Text)Expression$/.test(child.type)) {
         if (!isComment(child)) errors.push(`${line(child)}: an expression`);
-      } else if (/^mdxJsx/.test(child.type) && !inComponent) {
+      } else if (
+        child.type === 'mdxJsxTextElement' &&
+        /^[A-Z]/.test(child.name ?? '')
+      ) {
         errors.push(
-          child.type === 'mdxJsxTextElement' && /^[A-Z]/.test(child.name ?? '')
-            ? `${line(child)}: <${child.name}> inside a line of text (give a component lines of its own)`
-            : `${line(child)}: <${child.name}> has no Markdown form`,
+          `${line(child)}: <${child.name}> inside a line of text (give a component lines of its own)`,
         );
+      } else if (/^mdxJsx/.test(child.type) && !inComponent) {
+        errors.push(`${line(child)}: <${child.name}> has no Markdown form`);
       } else {
         visit(child, inComponent);
       }
@@ -419,6 +422,13 @@ export async function convertMdx(
     }
     // What the tag's line starts with: indentation, and `>` in a blockquote.
     const lineOf = (offset) => body.lastIndexOf('\n', offset - 1) + 1;
+    const first = node.children[0];
+    if (first && lineOf(startOf(first)) <= startOf(node)) {
+      errors.push(
+        `${line(node)}: <${node.name}> has children on its tag's line (put them on lines of their own)`,
+      );
+      return '';
+    }
     const prefix = body
       .slice(lineOf(startOf(node)), startOf(node))
       .replace(/[^>\s]/g, ' ');
@@ -429,7 +439,7 @@ export async function convertMdx(
       const markers = new RegExp(`^(?:[ \\t]*> ?){0,${quotes}}`, 'gm');
       const source = convert(
         replaced(node),
-        lineOf(startOf(node.children[0])),
+        lineOf(startOf(first)),
         endOf(node.children.at(-1)),
       );
       children = dedent(source.replace(markers, '')).trim();
@@ -506,15 +516,19 @@ const siteUrl = (route) => `${SITE}${route}/`;
 
 /**
  * How to read a page built from site MDX: where its examples render live,
- * and, when `body` has tables of resolved colors, what their cells say.
+ * and, when `body` has tables of what a theme resolves to (the headers
+ * `markdown.ts` prints for them), what their cells say.
  */
 export function readingNote(route, body) {
+  const tables = /^\| (Color \| Light \| Dark|(Light|Dark) \| Level \d)/m.test(
+    body,
+  );
   const note = [
-    `This page is built from the [Glaze site](${siteUrl(route)}), where its examples render live and follow the reader's appearance settings. Here, each example prints its code, a table shows what a theme resolves to in light, dark and their high-contrast (HC) variants, and **Figure** quotes the caption of a figure on the site.`,
+    `This page is built from the [Glaze site](${siteUrl(route)}), where its examples render live and follow the reader's appearance settings. Here, each example prints its code${tables ? ', a table shows what a theme resolves to in light, dark and their high-contrast (HC) variants' : ''}, and **Figure** quotes the caption of a figure on the site.`,
   ];
-  if (/^\|.*\| (tone|α) \d/m.test(body)) {
+  if (tables) {
     note.push(
-      "In the tables, `tone` is 0–100. An overlay has its opacity `α` and the `step` it paints on the color under it (`of` the step it asked for, when it can't reach it). `Δ` is the tone step from the base, and `h` and `s` are the resolved OKHSL hue and saturation (0–1). Contrast against the base is a WCAG ratio (`4.5:1`) or an APCA `Lc`, which takes the base as the text when the color is a surface; `misses` names a floor the color does not meet.",
+      "In the tables, `tone` is 0–100. An overlay has its opacity `α` and the `step` it paints on the color under it (`of` the step it asked for, when it can't reach it). `Δ` is the tone step from the base, and `h` and `s` are the resolved OKHSL hue (0–360) and saturation (0–1). Contrast against the base is a WCAG ratio (`4.5:1`) or an APCA `Lc`, which takes the base as the text when the color is a surface; `misses` names a floor the color does not meet.",
     );
   }
   return note.join('\n\n');
@@ -588,9 +602,9 @@ export async function buildDocs() {
       }
       const mdx = file.endsWith('.mdx');
       const converted = mdx
-        ? await convertMdx(body, {
+        ? // Blank lines in place of the frontmatter keep the file's lines.
+          await convertMdx('\n'.repeat(firstLine - 1) + body, {
             file,
-            firstLine,
             page: siteUrl(route),
             forms: MARKDOWN,
             errors,

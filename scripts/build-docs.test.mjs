@@ -57,6 +57,13 @@ describe('splitFrontmatter', () => {
     expect(() =>
       splitFrontmatter('---\ndescription: A long\n  line.\n---\n'),
     ).toThrow('"description" must be one line');
+    expect(() =>
+      splitFrontmatter('---\ndescription: A long\n\n  line.\n---\n'),
+    ).toThrow('"description" must be one line');
+    expect(
+      splitFrontmatter('---\ntitle: A\n  # A comment.\ndescription: B\n---\n')
+        .data,
+    ).toEqual({ title: 'A', description: 'B' });
   });
 });
 
@@ -110,7 +117,16 @@ describe('rewriteLinks', () => {
     expect(rewrite('[tone]: ./okhst.mdx#tone').line).toBe(
       '[tone]: ./okhst.md#tone',
     );
-    expect(rewrite('> [tone]: ./okhst.mdx').line).toBe('> [tone]: ./okhst.md');
+    expect(rewrite('> > [tone]: ./okhst.mdx#tone "Tone"').line).toBe(
+      '> > [tone]: ./okhst.md#tone "Tone"',
+    );
+  });
+
+  it('reads a line that only starts like a definition as prose', () => {
+    expect(rewrite('> [Tone]: the axis, see [OKHST](./okhst.mdx).')).toEqual({
+      line: '> [Tone]: the axis, see [OKHST](./okhst.md).',
+      errors: [],
+    });
   });
 
   it('reports a link to a missing page, another file, or no route', () => {
@@ -279,26 +295,35 @@ describe('convertMdx', () => {
         '<Missing />',
         '',
         'Text with <Note>a note</Note> in it.',
+        '',
+        '<Note>',
+        '  Text with <Note>a note</Note> in it.',
+        '</Note>',
+        '',
+        '<Note><Note>',
+        '  Inner.',
+        '</Note>',
+        '</Note>',
       ].join('\n'),
-      // Lines count from the file's first line, before its frontmatter.
-      { firstLine: 5 },
     );
     expect(errors).toEqual([
-      'docs/fixture.mdx:10: an expression',
-      'docs/fixture.mdx:10: <abbr> has no Markdown form',
-      'docs/fixture.mdx:13: an expression',
-      'docs/fixture.mdx:18: <Note> inside a line of text (give a component lines of its own)',
-      'docs/fixture.mdx:8: <Chart> has no Markdown form in docs-site/components/markdown.ts',
-      'docs/fixture.mdx:16: <Missing> is not imported',
+      'docs/fixture.mdx:6: an expression',
+      'docs/fixture.mdx:6: <abbr> has no Markdown form',
+      'docs/fixture.mdx:9: an expression',
+      'docs/fixture.mdx:14: <Note> inside a line of text (give a component lines of its own)',
+      'docs/fixture.mdx:17: <Note> inside a line of text (give a component lines of its own)',
+      'docs/fixture.mdx:4: <Chart> has no Markdown form in docs-site/components/markdown.ts',
+      'docs/fixture.mdx:12: <Missing> is not imported',
+      "docs/fixture.mdx:20: <Note> has children on its tag's line (put them on lines of their own)",
     ]);
   });
 
-  it('places a syntax error', async () => {
-    const { errors } = await convert('Text.\n\n<Missing\n', { firstLine: 5 });
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatch(
-      /^docs\/fixture\.mdx:8:1: Unexpected end of file/,
-    );
+  it('places a syntax error at its line in the file', async () => {
+    // The build puts blank lines where the frontmatter was.
+    const { errors } = await convert('\n'.repeat(4) + 'Text.\n\n> <Note>\n');
+    expect(errors).toEqual([
+      'docs/fixture.mdx:7:1: Expected a closing tag for `<Note>` (7:3-7:9) before the end of `blockQuote`',
+    ]);
   });
 
   it('names the page when its exports fail', async () => {
@@ -317,16 +342,18 @@ describe('convertMdx', () => {
 });
 
 describe('readingNote', () => {
-  it('explains table cells only on a page with tables of resolved colors', () => {
+  it('explains tables only on a page with tables of what a theme resolves to', () => {
     const plain = readingNote('/hdr', 'Prose.\n\n| Option | Default |');
     expect(plain).toContain('(https://glaze.tenphi.me/hdr/)');
-    expect(plain).not.toContain('`tone` is 0–100');
-    expect(readingNote('/schemes', '| `text` | tone 20.0 |')).toContain(
-      '`tone` is 0–100',
-    );
-    expect(
-      readingNote('/shadows', '| `shadow` | α 0.08 · step 8.0 |'),
-    ).toContain('`tone` is 0–100');
+    expect(plain).not.toContain('table');
+    for (const head of [
+      '| Color | Light | Dark | Light HC | Dark HC |',
+      '| Dark | Level 0 | Level 50 | HC tier |',
+    ]) {
+      const note = readingNote('/schemes', `Prose.\n\n${head}`);
+      expect(note).toContain('a table shows what a theme resolves to');
+      expect(note).toContain('`tone` is 0–100');
+    }
   });
 });
 

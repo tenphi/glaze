@@ -592,7 +592,8 @@ export const MARKDOWN: Record<string, MarkdownForm> = {
   },
   CodeGroup: (p: {
     items: { label: string; language?: string; code: string }[];
-  }) => blocks(...p.items.map((i) => fence(i.language ?? '', i.code, i.label))),
+  }) =>
+    blocks(...p.items.map((i) => fence(i.language || 'text', i.code, i.label))),
   CardGrid: (_p, c) => c.children,
   /** A list item: the link, then its body on the same line. */
   Card: (p, c) => {
