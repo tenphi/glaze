@@ -7,6 +7,7 @@ import {
   llmsIndex,
   mdxLeft,
   outputOf,
+  readingNote,
   rewriteLinks,
   routeOf,
   splitFrontmatter,
@@ -36,8 +37,13 @@ describe('splitFrontmatter', () => {
     expect(body).toBe('\nText.\n');
   });
 
-  it('returns the whole text when there is none', () => {
-    expect(splitFrontmatter('# Title\n').body).toBe('# Title\n');
+  it("returns the body's first line in the file", () => {
+    expect(splitFrontmatter('---\ntitle: A\n---\n\nText.\n').line).toBe(4);
+    expect(splitFrontmatter('# Title\n')).toEqual({
+      data: {},
+      body: '# Title\n',
+      line: 1,
+    });
   });
 
   it('reads CRLF, a BOM and quoted values, and rejects a block scalar', () => {
@@ -47,6 +53,9 @@ describe('splitFrontmatter', () => {
     expect(data).toEqual({ title: 'A "B"', description: "It's" });
     expect(() =>
       splitFrontmatter('---\ndescription: >-\n  Folded.\n---\n'),
+    ).toThrow('"description" must be one line');
+    expect(() =>
+      splitFrontmatter('---\ndescription: A long\n  line.\n---\n'),
     ).toThrow('"description" must be one line');
   });
 });
@@ -97,10 +106,11 @@ describe('rewriteLinks', () => {
     });
   });
 
-  it('rewrites a reference definition', () => {
+  it('rewrites a reference definition, also in a blockquote', () => {
     expect(rewrite('[tone]: ./okhst.mdx#tone').line).toBe(
       '[tone]: ./okhst.md#tone',
     );
+    expect(rewrite('> [tone]: ./okhst.mdx').line).toBe('> [tone]: ./okhst.md');
   });
 
   it('reports a link to a missing page, another file, or no route', () => {
@@ -139,12 +149,13 @@ describe('convertMdx', () => {
       return block;
     },
   };
-  const convert = async (body) => {
+  const convert = async (body, options) => {
     const errors = [];
     const markdown = await convertMdx(body, {
       file: 'docs/fixture.mdx',
       forms,
       errors,
+      ...options,
     });
     return { markdown: tidy(markdown), errors };
   };
@@ -208,6 +219,12 @@ describe('convertMdx', () => {
         '  {/* A comment. */}',
         '',
         '> <Swatch name="quoted" tone={1} />',
+        '',
+        '> <Note>',
+        '>   Quoted.',
+        '> </Note>',
+        '',
+        'Text {/* inline */}more.',
       ].join('\n'),
     );
     expect(errors).toEqual([]);
@@ -220,6 +237,10 @@ describe('convertMdx', () => {
         '  Two.',
         '',
         '> swatch quoted at 1',
+        '',
+        '> > Quoted.',
+        '',
+        'Text more.',
         '',
       ].join('\n'),
     );
@@ -256,15 +277,28 @@ describe('convertMdx', () => {
         '</Note>',
         '',
         '<Missing />',
+        '',
+        'Text with <Note>a note</Note> in it.',
       ].join('\n'),
+      // Lines count from the file's first line, before its frontmatter.
+      { firstLine: 5 },
     );
     expect(errors).toEqual([
-      'docs/fixture.mdx:6: an expression',
-      'docs/fixture.mdx:6: <abbr> has no Markdown form',
-      'docs/fixture.mdx:9: an expression',
-      'docs/fixture.mdx:4: <Chart> has no Markdown form in docs-site/components/markdown.ts',
-      'docs/fixture.mdx:12: <Missing> is not imported',
+      'docs/fixture.mdx:10: an expression',
+      'docs/fixture.mdx:10: <abbr> has no Markdown form',
+      'docs/fixture.mdx:13: an expression',
+      'docs/fixture.mdx:18: <Note> inside a line of text (give a component lines of its own)',
+      'docs/fixture.mdx:8: <Chart> has no Markdown form in docs-site/components/markdown.ts',
+      'docs/fixture.mdx:16: <Missing> is not imported',
     ]);
+  });
+
+  it('places a syntax error', async () => {
+    const { errors } = await convert('Text.\n\n<Missing\n', { firstLine: 5 });
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(
+      /^docs\/fixture\.mdx:8:1: Unexpected end of file/,
+    );
   });
 
   it('names the page when its exports fail', async () => {
@@ -277,8 +311,22 @@ describe('convertMdx', () => {
     );
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatch(
-      /^docs\/fixture\.mdx: its imports and exports fail: /,
+      /^docs\/fixture\.mdx: its imports, exports or props fail: /,
     );
+  });
+});
+
+describe('readingNote', () => {
+  it('explains table cells only on a page with tables of resolved colors', () => {
+    const plain = readingNote('/hdr', 'Prose.\n\n| Option | Default |');
+    expect(plain).toContain('(https://glaze.tenphi.me/hdr/)');
+    expect(plain).not.toContain('`tone` is 0–100');
+    expect(readingNote('/schemes', '| `text` | tone 20.0 |')).toContain(
+      '`tone` is 0–100',
+    );
+    expect(
+      readingNote('/shadows', '| `shadow` | α 0.08 · step 8.0 |'),
+    ).toContain('`tone` is 0–100');
   });
 });
 

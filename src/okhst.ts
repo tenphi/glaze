@@ -21,8 +21,8 @@
  *   including the high-contrast bypass and its continuous generalization under
  *   a manual contrast level.
  *
- * See `docs/okhst.mdx` for the full specification and the calibrated
- * default constants.
+ * See https://glaze.tenphi.me/okhst/ for the full specification and the
+ * calibrated default constants.
  */
 
 import { clamp, contrastFraction, lerp, showValue } from './hc-pair';

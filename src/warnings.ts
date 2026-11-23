@@ -138,7 +138,8 @@ export function warnMixContrastUnmet(
 }
 
 /**
- * Verification (the drift check in docs/okhst.mdx): a chromatic swatch
+ * Verification (the drift check,
+ * https://glaze.tenphi.me/okhst/#the-drift-check): a chromatic swatch
  * inherits the gray tone's lightness but drifts in real luminance, so a
  * contrast-floored color may land slightly under the contrast its tone
  * implies. Emit an advisory warning when the actual measured contrast

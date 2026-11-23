@@ -46,7 +46,7 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"harness/**/*.{mjs,mts}\"",
     "check:harness": "node scripts/build-docs.mjs && harnesspm check && node scripts/build-docs.mjs --clean",
     "prepublishOnly": "pnpm run build",
-    "prepack": "node scripts/build-docs.mjs && harnesspm check",
+    "prepack": "node scripts/build-docs.mjs && harnesspm check >&2",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "pnpm run build && changeset publish"

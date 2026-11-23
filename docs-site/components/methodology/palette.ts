@@ -281,6 +281,39 @@ export const STEPS: Record<StepId, ColorMap> = {
   },
 };
 
+/** How a token is drawn in its swatch. */
+export type Kind =
+  | 'fill'
+  | 'text'
+  | 'label'
+  | 'icon'
+  | 'border'
+  | 'ring'
+  | 'layer'
+  | 'cast';
+
+/** Foregrounds and other non-fill tokens, by name. Everything else is a fill. */
+export const KIND: Record<string, Kind> = {
+  'surface-text': 'text',
+  'surface-text-soft': 'text',
+  'surface-text-soft-2': 'text',
+  border: 'border',
+  placeholder: 'text',
+  focus: 'ring',
+  disabled: 'text',
+  'disabled-surface-text': 'text',
+  'accent-surface': 'label',
+  'accent-surface-2': 'label',
+  'accent-surface-hover': 'label',
+  'accent-text': 'text',
+  'accent-text-soft': 'text',
+  'accent-icon': 'icon',
+  'accent-disabled-surface-text': 'text',
+  'code-comment': 'text',
+  'code-keyword': 'text',
+  'code-string': 'text',
+};
+
 export const STEP_ORDER = Object.keys(STEPS) as StepId[];
 
 /** The contrast-floored alternative for the disabled chip label. */

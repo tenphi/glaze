@@ -42,46 +42,14 @@ import {
 import type { ColorDef, ResolvedColorVariant } from '../../../src/index.ts';
 import { PreviewUi } from './PalettePreview';
 import {
+  KIND,
   PURPLE_HUE,
   SEED_SATURATION,
   STEPS,
   STEP_EXTRAS,
   stepColors,
 } from './palette';
-import type { StepId } from './palette';
-
-/** How a token is drawn in its swatch. */
-type Kind =
-  | 'fill'
-  | 'text'
-  | 'label'
-  | 'icon'
-  | 'border'
-  | 'ring'
-  | 'layer'
-  | 'cast';
-
-/** Foregrounds and other non-fill tokens, by name. Everything else is a fill. */
-const KIND: Record<string, Kind> = {
-  'surface-text': 'text',
-  'surface-text-soft': 'text',
-  'surface-text-soft-2': 'text',
-  border: 'border',
-  placeholder: 'text',
-  focus: 'ring',
-  disabled: 'text',
-  'disabled-surface-text': 'text',
-  'accent-surface': 'label',
-  'accent-surface-2': 'label',
-  'accent-surface-hover': 'label',
-  'accent-text': 'text',
-  'accent-text-soft': 'text',
-  'accent-icon': 'icon',
-  'accent-disabled-surface-text': 'text',
-  'code-comment': 'text',
-  'code-keyword': 'text',
-  'code-string': 'text',
-};
+import type { Kind, StepId } from './palette';
 
 const SAMPLE: Record<string, string> = {
   'code-comment': '// draft',

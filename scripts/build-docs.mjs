@@ -70,19 +70,21 @@ export function routeOf(file) {
 }
 
 /**
- * A page's frontmatter fields and the body after it. The fields are one-line
- * `key: value` pairs, plain or quoted; anything else throws.
+ * A page's frontmatter fields, the body after it, and the body's first line
+ * in the file. The fields are one-line `key: value` pairs, plain or quoted; a
+ * value on more lines throws.
  */
 export function splitFrontmatter(source) {
   const text = source.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
   const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
-  if (!match) return { data: {}, body: text };
+  if (!match) return { data: {}, body: text, line: 1 };
   const data = {};
-  for (const line of match[1].split('\n')) {
+  const lines = match[1].split('\n');
+  for (const [i, line] of lines.entries()) {
     const field = /^(\w+):\s*(.*?)\s*$/.exec(line);
     if (!field) continue;
     const [, key, raw] = field;
-    if (/^[|>]/.test(raw)) {
+    if (/^[|>]/.test(raw) || /^\s+\S/.test(lines[i + 1] ?? '')) {
       throw new Error(`the frontmatter's "${key}" must be one line`);
     }
     data[key] = raw.startsWith("'")
@@ -91,7 +93,11 @@ export function splitFrontmatter(source) {
         ? JSON.parse(raw)
         : raw;
   }
-  return { data, body: text.slice(match[0].length) };
+  return {
+    data,
+    body: text.slice(match[0].length),
+    line: match[0].split('\n').length,
+  };
 }
 
 /**
@@ -195,10 +201,10 @@ export function rewriteLinks(line, { file, out, site, errors }) {
     return url + hash;
   };
 
-  // A reference definition, `[label]: url`, but not a footnote, `[^1]: text`.
-  const definition = /^(\s*\[(?!\^)[^\]]+\]:\s*)([^\s#]*)(#\S*)?(.*)$/.exec(
-    line,
-  );
+  // A reference definition, `[label]: url`, also in a blockquote, but not a
+  // footnote, `[^1]: text`.
+  const definition =
+    /^((?:\s*>)*\s*\[(?!\^)[^\]]+\]:\s*)([^\s#]*)(#\S*)?(.*)$/.exec(line);
   if (definition) {
     const [, head, url, hash = '', rest] = definition;
     return `${head}${target(url, hash)}${rest}`;
@@ -289,7 +295,7 @@ async function evaluateProps(body, file, esm, elements) {
     );
     return module.__docsProps;
   } catch (error) {
-    throw new Error(`its imports and exports fail: ${error.message}`);
+    throw new Error(`its imports, exports or props fail: ${error.message}`);
   }
 }
 
@@ -321,20 +327,26 @@ const isComponentTag = (node) => isElement(node) && /^[A-Z]/.test(node.name);
 /**
  * MDX → Markdown for the body of an `.mdx` page: imports and exports go,
  * comments go, and each component becomes what `forms` renders for it.
- * Problems go to `errors`.
+ * `page` is the page's URL on the site, and `firstLine` the body's first line
+ * in `file`. Problems go to `errors`.
  */
-export async function convertMdx(body, { file, forms, errors }) {
+export async function convertMdx(
+  body,
+  { file, firstLine = 1, page, forms, errors },
+) {
   const { createProcessor } = await import('@mdx-js/mdx');
+  const at = (place) => `${file}:${place.line + firstLine - 1}`;
   let tree;
   try {
     tree = createProcessor().parse(body);
   } catch (error) {
-    errors.push(`${file}: ${error.message}`);
+    const where = error.line ? `${at(error)}:${error.column}` : file;
+    errors.push(`${where}: ${error.reason ?? error.message}`);
     return '';
   }
   const esm = tree.children.filter((node) => node.type === 'mdxjsEsm');
   const elements = [];
-  const line = (node) => `${file}:${node.position.start.line}`;
+  const line = (node) => at(node.position.start);
 
   // Components in document order. Inside a component, its HTML-like
   // elements (`<li>` in `<Steps>`) are its own; anywhere else, an element or
@@ -349,7 +361,11 @@ export async function convertMdx(body, { file, forms, errors }) {
       } else if (/^mdx(Flow|Text)Expression$/.test(child.type)) {
         if (!isComment(child)) errors.push(`${line(child)}: an expression`);
       } else if (/^mdxJsx/.test(child.type) && !inComponent) {
-        errors.push(`${line(child)}: <${child.name}> has no Markdown form`);
+        errors.push(
+          child.type === 'mdxJsxTextElement' && /^[A-Z]/.test(child.name ?? '')
+            ? `${line(child)}: <${child.name}> inside a line of text (give a component lines of its own)`
+            : `${line(child)}: <${child.name}> has no Markdown form`,
+        );
       } else {
         visit(child, inComponent);
       }
@@ -371,7 +387,7 @@ export async function convertMdx(body, { file, forms, errors }) {
   const replaced = (node) =>
     (node.children ?? []).flatMap((child) =>
       child.type === 'mdxjsEsm' ||
-      child.type === 'mdxFlowExpression' ||
+      /^mdx(Flow|Text)Expression$/.test(child.type) ||
       isComponentTag(child)
         ? [child]
         : replaced(child),
@@ -401,23 +417,27 @@ export async function convertMdx(body, { file, forms, errors }) {
       );
       return '';
     }
+    // What the tag's line starts with: indentation, and `>` in a blockquote.
+    const lineOf = (offset) => body.lastIndexOf('\n', offset - 1) + 1;
+    const prefix = body
+      .slice(lineOf(startOf(node)), startOf(node))
+      .replace(/[^>\s]/g, ' ');
     let children = '';
     if (node.children.length > 0) {
-      const first = node.children[0];
-      const lineStart = body.lastIndexOf('\n', startOf(first) - 1) + 1;
-      children = dedent(
-        convert(replaced(node), lineStart, endOf(node.children.at(-1))),
-      ).trim();
+      // The children's lines, without the blockquote markers they carry.
+      const quotes = prefix.split('>').length - 1;
+      const markers = new RegExp(`^(?:[ \\t]*> ?){0,${quotes}}`, 'gm');
+      const source = convert(
+        replaced(node),
+        lineOf(startOf(node.children[0])),
+        endOf(node.children.at(-1)),
+      );
+      children = dedent(source.replace(markers, '')).trim();
     }
     try {
       const props = thunks[elements.indexOf(node)]();
-      const markdown = form(props, { children, printed });
-      // Later lines carry what the first line's prefix carries: its
-      // indentation, and its `>` inside a blockquote.
-      const lineStart = body.lastIndexOf('\n', startOf(node) - 1) + 1;
-      const prefix = body
-        .slice(lineStart, startOf(node))
-        .replace(/[^>\s]/g, ' ');
+      const markdown = form(props, { children, printed, page });
+      // Later lines carry the prefix too.
       return markdown
         .split('\n')
         .map((text, i) =>
@@ -481,15 +501,23 @@ export function llmsIndex(navigation, pages, errors) {
   ].join('\n');
 }
 
+/** A page's URL on the site. */
+const siteUrl = (route) => `${SITE}${route}/`;
+
 /**
  * How to read a page built from site MDX: where its examples render live,
- * and what its tables say.
+ * and, when `body` has tables of resolved colors, what their cells say.
  */
-export function readingNote(route) {
-  return [
-    `This page is built from the [Glaze site](${SITE}${route}/), where its examples render live and follow the reader's appearance settings. Here, each example's code comes with a table of what it resolves to in light, dark and their high-contrast (HC) variants, and **Figure** quotes the caption of a figure on the site.`,
-    "In the tables, `tone` is 0–100. An overlay has its opacity `α` and the `step` it paints on the color under it (`of` the step it asked for, when it can't reach it). `Δ` is the tone step from the base. Contrast against the base is a WCAG ratio (`4.5:1`) or an APCA `Lc`; `misses` names a floor the color does not meet.",
-  ].join('\n\n');
+export function readingNote(route, body) {
+  const note = [
+    `This page is built from the [Glaze site](${siteUrl(route)}), where its examples render live and follow the reader's appearance settings. Here, each example prints its code, a table shows what a theme resolves to in light, dark and their high-contrast (HC) variants, and **Figure** quotes the caption of a figure on the site.`,
+  ];
+  if (/^\|.*\| (tone|α) \d/m.test(body)) {
+    note.push(
+      "In the tables, `tone` is 0–100. An overlay has its opacity `α` and the `step` it paints on the color under it (`of` the step it asked for, when it can't reach it). `Δ` is the tone step from the base, and `h` and `s` are the resolved OKHSL hue and saturation (0–1). Contrast against the base is a WCAG ratio (`4.5:1`) or an APCA `Lc`, which takes the base as the text when the color is a surface; `misses` names a floor the color does not meet.",
+    );
+  }
+  return note.join('\n\n');
 }
 
 /**
@@ -551,20 +579,26 @@ export async function buildDocs() {
     for (const file of files) {
       const out = outputOf(file);
       const route = routeOf(file);
-      let data, body;
+      let data, body, firstLine;
       try {
-        ({ data, body } = splitFrontmatter(read(file)));
+        ({ data, body, line: firstLine } = splitFrontmatter(read(file)));
       } catch (error) {
         errors.push(`${file}: ${error.message}`);
         continue;
       }
       const mdx = file.endsWith('.mdx');
       const converted = mdx
-        ? await convertMdx(body, { file, forms: MARKDOWN, errors })
+        ? await convertMdx(body, {
+            file,
+            firstLine,
+            page: siteUrl(route),
+            forms: MARKDOWN,
+            errors,
+          })
         : body;
       const head = [`# ${data.title}`, data.description ?? ''];
       if (!data.title) errors.push(`${file}: no title in its frontmatter`);
-      if (mdx) head.push(readingNote(route));
+      if (mdx) head.push(readingNote(route, converted));
       const markdown = tidy(
         mapProse([...head, converted].join('\n\n'), (text) => [
           rewriteLinks(text, { file, out, site, errors }),
@@ -604,7 +638,7 @@ export function cleanDocs() {
 async function main() {
   if (process.argv.includes('--clean')) {
     cleanDocs();
-    console.log(`[build-docs] Removed ${OUT}/`);
+    console.error(`[build-docs] Removed ${OUT}/`);
     return;
   }
   const files = await buildDocs();
@@ -613,7 +647,7 @@ async function main() {
     fs.mkdirSync(path.dirname(path.join(ROOT, file)), { recursive: true });
     fs.writeFileSync(path.join(ROOT, file), content);
   }
-  console.log(`[build-docs] Wrote ${files.size} files to ${OUT}/`);
+  console.error(`[build-docs] Wrote ${files.size} files to ${OUT}/`);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

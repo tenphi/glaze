@@ -10,7 +10,9 @@
  *   measured as `glaze:inspect` measures it.
  * - A figure built from a theme adds a table of the colors it shows, and
  *   prints the theme's code too when the page hasn't yet. A figure of
- *   measurements gets a table of them. Every figure keeps its caption.
+ *   measurements gets a table of them. A figure the page follows with a table
+ *   of its own, or that paints a whole UI in the reader's scheme, gets only
+ *   the caption, which every figure keeps.
  * - Cookbook's components become their Markdown equivalents.
  *
  * Figures reuse what the site's components build (`figures.ts`,
@@ -102,6 +104,7 @@ import {
 import type { PaletteDemoProps } from './exporting/palette-demo.ts';
 import { paletteOutput } from './methodology/palette-output.ts';
 import {
+  KIND,
   PURPLE_HUE,
   SEED_SATURATION,
   STEPS,
@@ -116,6 +119,8 @@ export interface MarkdownContext {
   children: string;
   /** Themes and tables the page already printed: a repeat is left out. */
   printed: Set<string>;
+  /** The page's URL on the site. */
+  page: string;
 }
 
 /**
@@ -267,8 +272,8 @@ interface TableOptions {
   delta?: boolean;
   /** For a color with a `base`: its WCAG ratio, whatever its floor. */
   ratio?: boolean;
-  /** For a foreground with a `base` and no floor: its APCA Lc on the base. */
-  lc?: boolean;
+  /** For these colors with a `base` and no floor: their APCA Lc on the base. */
+  lc?: string[];
   /** Both metrics, the floor's first, then the tone. */
   both?: boolean;
   /** Hue and saturation instead of tone, for dark-seed demos. */
@@ -368,7 +373,13 @@ function cell(
     // An APCA floor on one is not measured here.
     const metric = target !== undefined ? pair?.metric : options.metric;
     if (metric === 'wcag' || (pair && options.ratio)) {
-      parts.push(contrastText('wcag', compositeRatio(v, at(under)), target));
+      parts.push(
+        contrastText(
+          'wcag',
+          compositeRatio(v, at(under)),
+          metric === 'wcag' ? target : undefined,
+        ),
+      );
     }
     return parts.join(' · ');
   } else if (v.alpha < 1) {
@@ -411,7 +422,7 @@ function cell(
   if (options.ratio) parts.push(text('wcag'));
   else if (floor) parts.push(text(floor));
   else if (options.metric) parts.push(text(options.metric));
-  else if (options.lc && pair.role !== 'surface') parts.push(text('apca'));
+  else if (options.lc?.includes(name)) parts.push(text('apca'));
   return parts.join(' · ');
 }
 
@@ -477,30 +488,37 @@ function themeTable(
 }
 
 /**
- * The theme at each manual contrast level, in light and in dark, with its
- * high-contrast tier last: each color against its base in its floor's metric
- * (WCAG without one).
+ * The theme at each manual contrast level, a table per normal scheme, with
+ * its high-contrast tier last unless `hc` is false: each color against its
+ * base in its floor's metric (WCAG without one).
  */
-function levelTables(theme: DemoTheme, levels: number[]): string {
-  const columns = [
-    ...levels.map((level) => ({
-      title: `Level ${level}`,
-      m: measure({
-        ...theme,
-        config: { ...theme.config, contrastLevel: level },
-      }),
-      slot: (s: 'light' | 'dark'): Scheme => s,
-    })),
-    {
+function levelTables(
+  theme: DemoTheme,
+  levels: number[],
+  schemes: Scheme[] = ['light', 'dark'],
+  hc = true,
+): string {
+  const columns = levels.map((level) => ({
+    title: `Level ${level}`,
+    m: measure({
+      ...theme,
+      config: { ...theme.config, contrastLevel: level },
+    }),
+    slot: (s: 'light' | 'dark'): Scheme => s,
+  }));
+  if (hc) {
+    columns.push({
       title: 'HC tier',
       m: measure(theme),
-      slot: (s: 'light' | 'dark'): Scheme =>
-        s === 'light' ? 'lightContrast' : 'darkContrast',
-    },
-  ];
+      slot: (s) => (s === 'light' ? 'lightContrast' : 'darkContrast'),
+    });
+  }
   const names = Object.keys(theme.colors);
+  const normal = schemes.filter(
+    (s): s is 'light' | 'dark' => s === 'light' || s === 'dark',
+  );
   return blocks(
-    ...(['light', 'dark'] as const).map((s) =>
+    ...normal.map((s) =>
       table(
         [COLUMNS[s], ...columns.map((c) => c.title)],
         names.map((name) => [
@@ -544,6 +562,14 @@ function themeFigure(
 /** A figure whose numbers the page gives itself, or a whole UI: its caption. */
 const figure: MarkdownForm = (p) => caption(p.caption);
 
+/** `text` on one line; `what` holding more than one paragraph throws. */
+function paragraph(text: string, what: string): string {
+  if (/\n\s*\n|^\s*([-*+] |\d+\. |```|~~~|>)/m.test(text)) {
+    throw new Error(`${what} with more than one paragraph`);
+  }
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 /** Cookbook's callout kinds as GitHub alerts, by severity. */
 const CALLOUTS: Record<string, string> = {
   note: 'NOTE',
@@ -551,13 +577,6 @@ const CALLOUTS: Record<string, string> = {
   caution: 'WARNING',
   danger: 'CAUTION',
 };
-
-/** `text` indented under a list item. */
-const indent = (text: string) =>
-  text
-    .split('\n')
-    .map((line) => (line ? `  ${line}` : line))
-    .join('\n');
 
 export const MARKDOWN: Record<string, MarkdownForm> = {
   // Cookbook ------------------------------------------------------------------
@@ -572,27 +591,24 @@ export const MARKDOWN: Record<string, MarkdownForm> = {
       .join('\n');
   },
   CodeGroup: (p: {
-    items: { label: string; language: string; code: string }[];
-  }) => blocks(...p.items.map((i) => fence(i.language, i.code, i.label))),
+    items: { label: string; language?: string; code: string }[];
+  }) => blocks(...p.items.map((i) => fence(i.language ?? '', i.code, i.label))),
   CardGrid: (_p, c) => c.children,
-  /** A list item; a body of one paragraph follows the link on its line. */
+  /** A list item: the link, then its body on the same line. */
   Card: (p, c) => {
     const link = `- [${p.title}](${p.href})`;
-    if (!c.children) return link;
-    if (/\n\s*\n|^\s*([-*+] |\d+\. |```|~~~|>)/m.test(c.children)) {
-      return `${link}\n\n${indent(c.children)}`;
-    }
-    return `${link}: ${c.children.replace(/\s+/g, ' ').trim()}`;
+    return c.children ? `${link}: ${paragraph(c.children, 'a Card')}` : link;
   },
-  /** An ordered list of its `<li>` items; anything else as it is. */
+  /** An ordered list of its `<li>` items. */
   Steps: (_p, c) => {
     const items = [...c.children.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/g)];
-    if (items.length === 0) return c.children;
+    if (items.length === 0) throw new Error('Steps with no <li> items');
     return items
-      .map((m, i) => `${i + 1}. ${m[1].replace(/\s+/g, ' ').trim()}`)
+      .map((m, i) => `${i + 1}. ${paragraph(m[1], 'a Steps item')}`)
       .join('\n');
   },
-  Preview: (p) => caption(`${p.title}. Interactive on the site.`),
+  Preview: (p, c) =>
+    caption(`${p.title}. Interactive on [the site](${c.page}).`),
 
   // Examples ------------------------------------------------------------------
 
@@ -623,7 +639,12 @@ export const MARKDOWN: Record<string, MarkdownForm> = {
       once(
         c,
         p.visual === 'levels'
-          ? levelTables(p, p.levels ?? [0, 25, 50, 75, 100])
+          ? levelTables(
+              p,
+              p.levels ?? [0, 25, 50, 75, 100],
+              p.schemes,
+              p.hc !== false,
+            )
           : themeTable(
               p,
               p.rows?.flatMap((row: { show: string[] }) => row.show) ??
@@ -693,10 +714,6 @@ export const MARKDOWN: Record<string, MarkdownForm> = {
   // Figures built from a theme ------------------------------------------------
 
   Swatches: (p, c) => themeFigure(c, p, shown(p, p.show), p.caption),
-  UiPreview: (p, c) => {
-    const theme = uiTheme(p);
-    return themeFigure(c, theme, shown(theme), p.caption);
-  },
   SchemeGrid: (p, c) => {
     const theme = uiTheme(p);
     return themeFigure(c, theme, shown(theme, p.show), p.caption);
@@ -765,7 +782,10 @@ export const MARKDOWN: Record<string, MarkdownForm> = {
     return blocks(
       once(
         c,
-        themeTable(theme, p.show ?? Object.keys(STEPS[p.step]), { lc: true }),
+        // Lc for the colors the site measures it for: not for fills.
+        themeTable(theme, p.show ?? Object.keys(STEPS[p.step]), {
+          lc: Object.keys(KIND),
+        }),
       ),
       caption(p.caption),
     );
@@ -986,10 +1006,11 @@ export const MARKDOWN: Record<string, MarkdownForm> = {
       caption(p.caption),
     ),
 
-  // Figures the page follows with a table of its own, or with nothing to
-  // measure: the caption ----------------------------------------------------
+  // Figures the page follows with a table of its own, or that paint a whole UI
+  // in the reader's scheme: the caption -------------------------------------
 
   GlowsPastWhite: figure,
   ObjectInfluence: figure,
   PalettePreview: figure,
+  UiPreview: (p) => caption(p.caption ?? 'The theme on a sample UI.'),
 };

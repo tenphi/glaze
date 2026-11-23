@@ -58,7 +58,8 @@ fails on a component without one.
   theme's code when the page hasn't printed that theme yet.
 - A figure of measurements (`StepCompare`, `WindowMap`, …) gets a table of the
   values it prints. A figure whose numbers the page gives in a table of its
-  own, or that shows a whole UI, keeps only its caption.
+  own, or that paints a whole UI in the reader's scheme (`UiPreview`,
+  `PalettePreview`), keeps only its caption.
 - Every figure keeps its caption, quoted as **Figure**, so write a caption
   that says what the figure shows.
 

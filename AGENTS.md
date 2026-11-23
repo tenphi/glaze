@@ -87,7 +87,7 @@ caption. The build fails on a component with no form, MDX inside prose, a relati
 link or route that is not a page, or a page missing from the navigation;
 `pnpm check:harness` runs it in CI. So a page links to pages by their source
 (`./okhst.mdx`, `../reference/theme.md`), which the build turns into `.md` links,
-and links any other file with a full URL; and a new component needs a Markdown form
+and links any other file with a full URL. A new component needs a Markdown form
 (see `docs-site/components/README.md`).
 
 | File | Description |
@@ -164,7 +164,7 @@ The harness that consumer projects get through [harnesspm](https://www.npmjs.com
 ## Code Conventions
 
 - TypeScript strict mode; `consistent-type-imports` enforced.
-- Test files use `*.test.ts` and live next to the module they test in `src/`.
+- Test files live next to the module they test: `*.test.ts` in `src/`, `*.test.mjs` in `scripts/`.
 - Unused vars prefixed with `_` are allowed.
 - **No runtime dependencies** — every bit of math is implemented from scratch.
 - Functional API pattern: `glaze()` factory with attached static methods; no classes.
