@@ -31,7 +31,6 @@ import type {
   SchemeChoice,
   SchemeColors,
 } from '../glaze-docs';
-import { okhslToLinearSrgb, variantToOkhsl } from '../../../src/index.ts';
 import type {
   ColorMap,
   MixColorDef,
@@ -42,37 +41,13 @@ import {
   compositeInk,
   compositeRatio,
 } from '../shadows-and-glows/lighting-docs';
+import { solvedValue } from './figures';
 
 export interface ContrastMixProps extends DemoTheme {
   /** Mix colors (with a WCAG `contrast`) to show. */
   show: string[];
   scheme?: SchemeChoice;
   caption?: ReactNode;
-}
-
-function linear(v: ResolvedColorVariant) {
-  const { h, s, l } = variantToOkhsl(v);
-  return okhslToLinearSrgb(h, s, l, v.pastel ?? false);
-}
-
-/** Where an opaque mix result sits on its base → target segment, 0–100. */
-function solvedValue(
-  def: MixColorDef,
-  mix: ResolvedColorVariant,
-  base: ResolvedColorVariant,
-  target: ResolvedColorVariant,
-): number {
-  if (def.blend === 'transparent') return mix.alpha * 100;
-  if (def.space === 'srgb') {
-    const [m, b, t] = [linear(mix), linear(base), linear(target)];
-    let axis = 0;
-    for (let i = 1; i < 3; i++) {
-      if (Math.abs(t[i] - b[i]) > Math.abs(t[axis] - b[axis])) axis = i;
-    }
-    return ((m[axis] - b[axis]) / (t[axis] - b[axis])) * 100;
-  }
-  const [m, b, t] = [mix, base, target].map((v) => variantToOkhsl(v).l);
-  return ((m - b) / (t - b)) * 100;
 }
 
 /** WCAG ratio of a mix (composited when transparent) against its base. */

@@ -39,6 +39,16 @@ describe('splitFrontmatter', () => {
   it('returns the whole text when there is none', () => {
     expect(splitFrontmatter('# Title\n').body).toBe('# Title\n');
   });
+
+  it('reads CRLF, a BOM and quoted values, and rejects a block scalar', () => {
+    const { data } = splitFrontmatter(
+      '\uFEFF---\r\ntitle: "A \\"B\\""\r\ndescription: \'It\'\'s\'\r\n---\r\nText.',
+    );
+    expect(data).toEqual({ title: 'A "B"', description: "It's" });
+    expect(() =>
+      splitFrontmatter('---\ndescription: >-\n  Folded.\n---\n'),
+    ).toThrow('"description" must be one line');
+  });
 });
 
 describe('tidy', () => {
@@ -72,29 +82,37 @@ describe('rewriteLinks', () => {
     ).toBe("[A](../okhst.md 'Tone')");
   });
 
-  it('leads a site route to its page', () => {
+  it('leads a site route to its page, and the home page to the site', () => {
     expect(rewrite('[A](/okhst/#ramp)').line).toBe('[A](./okhst.md#ramp)');
+    expect(rewrite('[A](/#x)').line).toBe('[A](https://glaze.tenphi.me/#x)');
   });
 
-  it('leads another repository file to GitHub', () => {
-    expect(rewrite('[A](../src/okhst.ts)').line).toBe(
-      '[A](https://github.com/tenphi/glaze/blob/main/src/okhst.ts)',
-    );
+  it('keeps anchors, external links, code spans and footnotes', () => {
+    const line =
+      '[A](#x) [B](https://x.dev/) `[C](./okhst.mdx)` ``[D](./x.md)``';
+    expect(rewrite(line)).toEqual({ line, errors: [] });
+    expect(rewrite('[^1]: See the spec.')).toEqual({
+      line: '[^1]: See the spec.',
+      errors: [],
+    });
   });
 
-  it('keeps anchors, external links, inline code and definitions', () => {
-    expect(rewrite('[A](#x) [B](https://x.dev/) `[C](./okhst.mdx)`').line).toBe(
-      '[A](#x) [B](https://x.dev/) `[C](./okhst.mdx)`',
-    );
+  it('rewrites a reference definition', () => {
     expect(rewrite('[tone]: ./okhst.mdx#tone').line).toBe(
       '[tone]: ./okhst.md#tone',
     );
   });
 
-  it('reports a link that leads nowhere', () => {
-    expect(rewrite('[A](./missing.mdx) [B](/nowhere)').errors).toEqual([
-      'docs/contrast.mdx: ./missing.mdx leads to a missing file',
+  it('reports a link to a missing page, another file, or no route', () => {
+    expect(
+      rewrite(
+        '[A](./missing.mdx) [B](../src/okhst.ts) [C](/nowhere) [D](./%E0.md)',
+      ).errors,
+    ).toEqual([
+      'docs/contrast.mdx: ./missing.mdx is not a page in docs/ (link another file with a full URL)',
+      'docs/contrast.mdx: ../src/okhst.ts is not a page in docs/ (link another file with a full URL)',
       'docs/contrast.mdx: /nowhere is not a page of the site',
+      'docs/contrast.mdx: ./%E0.md is not a valid link',
     ]);
   });
 });
@@ -102,10 +120,12 @@ describe('rewriteLinks', () => {
 describe('mdxLeft', () => {
   it('finds MDX in prose, not in code', () => {
     expect(mdxLeft('Text.\n\n<Example hue={1} />\n')).toBe('<Example ');
-    expect(mdxLeft("import X from './x';\n")).toBe('import ');
-    expect(mdxLeft('`<Example />` and\n\n```tsx\n<Example />\n```\n')).toBe(
-      undefined,
-    );
+    expect(mdxLeft('{/* left */}\n')).toBe('{/*');
+    expect(
+      mdxLeft(
+        '`<Example />` and\nexport the palette.\n\n```tsx\n<Example />\n```\n\n> ```tsx\n> <Example />\n> ```\n',
+      ),
+    ).toBe(undefined);
   });
 });
 
@@ -171,20 +191,94 @@ describe('convertMdx', () => {
     );
   });
 
-  it('reports a component with no form and an expression in prose', async () => {
+  it('renders components inside lists and blockquotes, keeping the prefix', async () => {
+    const { markdown, errors } = await convert(
+      [
+        "import Note from '../docs-site/components/Note.astro';",
+        "import Swatch from '../docs-site/components/Swatch.tsx';",
+        '',
+        '- Item:',
+        '',
+        '  <Note>',
+        '    One.',
+        '',
+        '    Two.',
+        '  </Note>',
+        '',
+        '  {/* A comment. */}',
+        '',
+        '> <Swatch name="quoted" tone={1} />',
+      ].join('\n'),
+    );
+    expect(errors).toEqual([]);
+    expect(markdown).toBe(
+      [
+        '- Item:',
+        '',
+        '  > One.',
+        '',
+        '  Two.',
+        '',
+        '> swatch quoted at 1',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it("leaves a component's HTML-like elements to its form", async () => {
+    const { markdown, errors } = await convert(
+      [
+        "import Note from '../docs-site/components/Note.astro';",
+        '',
+        '<Note>',
+        '  <li>',
+        '    A long step.',
+        '  </li>',
+        '</Note>',
+      ].join('\n'),
+    );
+    expect(errors).toEqual([]);
+    expect(markdown).toBe('> <li>\n  A long step.\n</li>\n');
+  });
+
+  it('reports what has no Markdown form', async () => {
     const { errors } = await convert(
       [
         "import Chart from '../docs-site/components/Chart.tsx';",
+        "import Note from '../docs-site/components/Note.astro';",
         '',
         '<Chart />',
         '',
-        'A {1 + 1} in prose.',
+        'A {1 + 1} in prose, and <abbr>HC</abbr>.',
+        '',
+        '<Note>',
+        '  The hue is {280}.',
+        '</Note>',
+        '',
+        '<Missing />',
       ].join('\n'),
     );
     expect(errors).toEqual([
-      'docs/fixture.mdx:5: an inline element or expression',
-      'docs/fixture.mdx:3: <Chart> has no Markdown form in docs-site/components/markdown.ts',
+      'docs/fixture.mdx:6: an expression',
+      'docs/fixture.mdx:6: <abbr> has no Markdown form',
+      'docs/fixture.mdx:9: an expression',
+      'docs/fixture.mdx:4: <Chart> has no Markdown form in docs-site/components/markdown.ts',
+      'docs/fixture.mdx:12: <Missing> is not imported',
     ]);
+  });
+
+  it('names the page when its exports fail', async () => {
+    const { errors } = await convert(
+      [
+        "import { tone } from '../docs-site/components/missing.ts';",
+        '',
+        'export const theme = { tone };',
+      ].join('\n'),
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(
+      /^docs\/fixture\.mdx: its imports and exports fail: /,
+    );
   });
 });
 

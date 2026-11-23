@@ -3,24 +3,26 @@
  * becomes plain Markdown in `harness/docs/`, and `harness/docs/llms.txt`
  * indexes them in the order of the site's navigation (`docs.config.ts`). The
  * harness names that folder as Glaze's docs (`harness/plugin.json`), so
- * harnesspm gives consumers' agents the index as `glaze:docs`. `--clean`, at
- * `postpack`, removes the folder.
+ * harnesspm gives consumers' agents the index as `glaze:docs`. The folder is
+ * git-ignored and rebuilt from scratch on every run; `--clean` removes it.
  *
  *   docs/{name}.mdx | docs/{name}.md  ->  harness/docs/{name}.md
  *
  * The pages are written for the site. A page's frontmatter becomes its `#`
- * title and first paragraph. An `.mdx` page loses its imports and exports,
- * and each component becomes the Markdown that
- * `docs-site/components/markdown.ts` gives it: an example prints the code the
- * site prints, with a table of the colors it resolves, and a figure keeps its
- * caption. Its props are evaluated with the page's own exports, so the
- * values are the ones the site renders. A link to a page leads to its `.md`;
- * a link to another file in the repository becomes a GitHub link.
+ * title and first paragraph. An `.mdx` page loses its imports, exports and
+ * comments, gets a note on how to read its tables, and each component becomes
+ * the Markdown that `docs-site/components/markdown.ts` gives it: an example
+ * prints the code the site prints, with a table of what it resolves to, and a
+ * figure keeps its caption. Props are evaluated with the page's own exports,
+ * so the values are the ones the site renders. A link to a page or a site
+ * route leads to that page's `.md`.
  *
  * The build fails, so none of these ship: a component with no Markdown form;
- * an expression or element inside prose; a link that leads nowhere; MDX left
- * in a page; a page without a title, or missing from the site's navigation
- * (so missing from the index).
+ * an expression, or an element outside a component, in prose; a relative link
+ * or a route that is not a page; MDX left in a page; a page without a title,
+ * or missing from the site's navigation (so missing from the index). Anchors
+ * are checked on the site, by `cookbook check-build`; the pages keep their
+ * headings.
  *
  * It runs the site's TypeScript helpers with Node's type stripping, so it
  * needs Node 22.18+.
@@ -28,8 +30,8 @@
  * Usage: node scripts/build-docs.mjs [--clean]
  */
 import fs from 'node:fs';
+import * as nodeModule from 'node:module';
 import path from 'node:path';
-import { registerHooks } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -37,11 +39,9 @@ const ROOT_URL = pathToFileURL(`${ROOT}/`).href;
 const SOURCE = 'docs';
 const OUT = 'harness/docs';
 const SITE = 'https://glaze.tenphi.me';
-const GITHUB = 'https://github.com/tenphi/glaze/blob/main/';
 
 const posix = path.posix;
 const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
-const exists = (file) => fs.existsSync(path.join(ROOT, file));
 
 /** Every page of the site's docs, as POSIX paths from the repository root. */
 export function listPages() {
@@ -69,26 +69,40 @@ export function routeOf(file) {
   return `/${route}`;
 }
 
-/** A page's frontmatter fields (`key: value` lines) and the body after it. */
-export function splitFrontmatter(text) {
+/**
+ * A page's frontmatter fields and the body after it. The fields are one-line
+ * `key: value` pairs, plain or quoted; anything else throws.
+ */
+export function splitFrontmatter(source) {
+  const text = source.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
   const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
   if (!match) return { data: {}, body: text };
   const data = {};
   for (const line of match[1].split('\n')) {
-    const field = /^(\w+):\s*(.*)$/.exec(line);
-    if (field) data[field[1]] = field[2].replace(/^(['"])(.*)\1$/, '$2');
+    const field = /^(\w+):\s*(.*?)\s*$/.exec(line);
+    if (!field) continue;
+    const [, key, raw] = field;
+    if (/^[|>]/.test(raw)) {
+      throw new Error(`the frontmatter's "${key}" must be one line`);
+    }
+    data[key] = raw.startsWith("'")
+      ? raw.slice(1, -1).replaceAll("''", "'")
+      : raw.startsWith('"')
+        ? JSON.parse(raw)
+        : raw;
   }
   return { data, body: text.slice(match[0].length) };
 }
 
 /**
- * Whether each line is code: a fence or a line inside one. A fence closes only
- * with the same character, at least as long (CommonMark).
+ * Whether each line is code: a fence or a line inside one, also inside a
+ * blockquote. A fence closes only with the same character, at least as long
+ * (CommonMark).
  */
 function fenced(lines) {
   let fence;
   return lines.map((line) => {
-    const marker = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+    const marker = /^(?:\s*>)*\s*(`{3,}|~{3,})(.*)$/.exec(line);
     if (fence) {
       if (
         marker &&
@@ -112,6 +126,16 @@ function mapProse(text, fn) {
   return lines.flatMap((line, i) => (code[i] ? [line] : fn(line))).join('\n');
 }
 
+/** Runs `fn` on `line` with its code spans held out, then puts them back. */
+function outsideCode(line, fn) {
+  const spans = [];
+  const masked = line.replace(/(`+)[\s\S]*?(?<!`)\1(?!`)/g, (span) => {
+    spans.push(span);
+    return `\u0000${spans.length - 1}\u0000`;
+  });
+  return fn(masked).replace(/\u0000(\d+)\u0000/g, (_, i) => spans[Number(i)]);
+}
+
 /** No run of blank lines outside code, no blank lines at the ends. */
 export function tidy(markdown) {
   const lines = markdown.split('\n');
@@ -129,7 +153,7 @@ function dedent(text) {
   const indent = Math.min(
     ...lines
       .filter((line) => line.trim() !== '')
-      .map((line) => /^ */.exec(line)[0].length),
+      .map((line) => /^[ \t]*/.exec(line)[0].length),
   );
   return lines.map((line) => line.slice(indent)).join('\n');
 }
@@ -148,60 +172,64 @@ export function rewriteLinks(line, { file, out, site, errors }) {
   const target = (url, hash) => {
     if (url === '' || /^[a-z][a-z0-9+.-]*:/i.test(url)) return url + hash;
     if (url.startsWith('/')) {
-      const page = site.routes.get(url.replace(/(.)\/$/, '$1'));
+      const route = url.replace(/(.)\/$/, '$1');
+      // The site's home page is not in `docs/`.
+      if (route === '/') return `${SITE}/${hash}`;
+      const page = site.routes.get(route);
       if (page) return relative(out, page) + hash;
       errors.push(`${file}: ${url} is not a page of the site`);
       return url + hash;
     }
-    const repoPath = posix.join(posix.dirname(file), decodeURI(url));
-    const page = site.pages.get(repoPath);
-    if (page) return relative(out, page) + hash;
-    if (repoPath.startsWith('..') || !exists(repoPath)) {
-      errors.push(`${file}: ${url} leads to a missing file`);
+    let source;
+    try {
+      source = posix.join(posix.dirname(file), decodeURI(url));
+    } catch {
+      errors.push(`${file}: ${url} is not a valid link`);
       return url + hash;
     }
-    return `${GITHUB}${repoPath}${hash}`;
+    const page = site.pages.get(source);
+    if (page) return relative(out, page) + hash;
+    errors.push(
+      `${file}: ${url} is not a page in ${SOURCE}/ (link another file with a full URL)`,
+    );
+    return url + hash;
   };
 
-  // A reference definition: `[label]: url`.
-  const definition = /^(\s*\[[^\]]+\]:\s*)([^\s#]*)(#\S*)?(.*)$/.exec(line);
+  // A reference definition, `[label]: url`, but not a footnote, `[^1]: text`.
+  const definition = /^(\s*\[(?!\^)[^\]]+\]:\s*)([^\s#]*)(#\S*)?(.*)$/.exec(
+    line,
+  );
   if (definition) {
     const [, head, url, hash = '', rest] = definition;
     return `${head}${target(url, hash)}${rest}`;
   }
 
-  // Inline code keeps its text: only the parts outside backticks are links. A
-  // link may have a title, `[text](url 'title')`.
-  return line
-    .split(/(`[^`]*`)/)
-    .map((part, index) =>
-      index % 2
-        ? part
-        : part.replace(
-            /\]\(([^)\s#]*)(#[^)\s]*)?(\s+(?:"[^"]*"|'[^']*'))?\)/g,
-            (_, url, hash = '', title = '') =>
-              `](${target(url, hash)}${title})`,
-          ),
-    )
-    .join('');
+  // Code spans keep their text. A link may have a title, `[text](url 'title')`.
+  return outsideCode(line, (prose) =>
+    prose.replace(
+      /\]\(([^)\s#]*)(#[^)\s]*)?(\s+(?:"[^"]*"|'[^']*'))?\)/g,
+      (_, url, hash = '', title = '') => `](${target(url, hash)}${title})`,
+    ),
+  );
 }
 
-/** MDX left in a built page's prose, if any. */
+/** MDX left in a built page's prose, if any: a component tag or a comment. */
 export function mdxLeft(markdown) {
   let found;
   mapProse(markdown, (line) => {
-    const prose = line.split(/`[^`]*`/).join('');
-    found ??=
-      /^\s*(import|export)\s/.exec(prose)?.[0] ??
-      /<\/?[A-Z][\w.]*(\s|\/?>|$)/.exec(prose)?.[0] ??
-      /\{\/\*/.exec(prose)?.[0];
+    outsideCode(line, (prose) => {
+      found ??=
+        /<\/?[A-Z][\w.]*(\s|\/?>|$)/.exec(prose)?.[0] ??
+        /\{\/\*/.exec(prose)?.[0];
+      return prose;
+    });
     return [line];
   });
   return found;
 }
 
-const isComment = (expression) =>
-  /^\s*\/\*[\s\S]*\*\/\s*$/.test(expression ?? '');
+/** Whether an expression node holds only a comment, `{/* … *\/}`. */
+const isComment = (node) => node.data?.estree?.body?.length === 0;
 
 /** The props object literal a JSX element passes, as source. */
 function propsSource(element) {
@@ -219,6 +247,10 @@ function propsSource(element) {
   return `{ ${entries.join(', ')} }`;
 }
 
+/** Whether an import is a component: the site renders those, Node can't load them. */
+const isComponent = (from) =>
+  /\.(astro|tsx|jsx)$/.test(from) || from.endsWith('/components');
+
 /**
  * Evaluates each element's props as the page would: a module with the page's
  * exports and the imports they use (components dropped, paths made absolute),
@@ -229,14 +261,12 @@ async function evaluateProps(body, file, esm, elements) {
   for (const node of esm) {
     for (const statement of node.data.estree.body) {
       const text = body.slice(statement.start, statement.end);
-      if (statement.type !== 'ImportDeclaration') {
+      const from = statement.source?.value;
+      if (from === undefined) {
         statements.push(text);
         continue;
       }
-      const from = statement.source.value;
-
-      // Components: the site renders them, Node can't load them.
-      if (/\.(astro|tsx|jsx)$/.test(from) || from.endsWith('/components')) {
+      if (statement.type === 'ImportDeclaration' && isComponent(from)) {
         continue;
       }
       const url = from.startsWith('.')
@@ -249,14 +279,18 @@ async function evaluateProps(body, file, esm, elements) {
     }
   }
   statements.push(
-    `export const props = [\n${elements
+    `export const __docsProps = [\n${elements
       .map((element) => `() => (${propsSource(element)})`)
       .join(',\n')}\n];`,
   );
-  const module = await import(
-    `data:text/javascript,${encodeURIComponent(statements.join('\n'))}`
-  );
-  return module.props;
+  try {
+    const module = await import(
+      `data:text/javascript,${encodeURIComponent(statements.join('\n'))}`
+    );
+    return module.__docsProps;
+  } catch (error) {
+    throw new Error(`its imports and exports fail: ${error.message}`);
+  }
 }
 
 /** The component name each JSX name in a page's imports stands for. */
@@ -280,6 +314,9 @@ function componentsOf(esm) {
 
 const startOf = (node) => node.position.start.offset;
 const endOf = (node) => node.position.end.offset;
+const isElement = (node) => node.type === 'mdxJsxFlowElement';
+/** A component tag, `<Example>`, not an HTML-like one, `<li>`. */
+const isComponentTag = (node) => isElement(node) && /^[A-Z]/.test(node.name);
 
 /**
  * MDX → Markdown for the body of an `.mdx` page: imports and exports go,
@@ -288,29 +325,31 @@ const endOf = (node) => node.position.end.offset;
  */
 export async function convertMdx(body, { file, forms, errors }) {
   const { createProcessor } = await import('@mdx-js/mdx');
-  const tree = createProcessor().parse(body);
+  let tree;
+  try {
+    tree = createProcessor().parse(body);
+  } catch (error) {
+    errors.push(`${file}: ${error.message}`);
+    return '';
+  }
   const esm = tree.children.filter((node) => node.type === 'mdxjsEsm');
   const elements = [];
   const line = (node) => `${file}:${node.position.start.line}`;
 
-  // Elements in document order; MDX inside prose is an error unless a
-  // component's own children hold it (`<li>` in `<Steps>`).
+  // Components in document order. Inside a component, its HTML-like
+  // elements (`<li>` in `<Steps>`) are its own; anywhere else, an element or
+  // an expression has no Markdown form.
   const visit = (node, inComponent) => {
     for (const child of node.children ?? []) {
-      if (child.type === 'mdxJsxFlowElement') {
+      if (isComponentTag(child)) {
         elements.push(child);
         visit(child, true);
-      } else if (
-        !inComponent &&
-        (child.type === 'mdxJsxTextElement' ||
-          child.type === 'mdxTextExpression')
-      ) {
-        errors.push(`${line(child)}: an inline element or expression`);
-      } else if (
-        child.type === 'mdxFlowExpression' &&
-        !isComment(child.value)
-      ) {
-        errors.push(`${line(child)}: an expression`);
+      } else if (child.type === 'mdxjsEsm') {
+        if (node !== tree) errors.push(`${line(child)}: an import or export`);
+      } else if (/^mdx(Flow|Text)Expression$/.test(child.type)) {
+        if (!isComment(child)) errors.push(`${line(child)}: an expression`);
+      } else if (/^mdxJsx/.test(child.type) && !inComponent) {
+        errors.push(`${line(child)}: <${child.name}> has no Markdown form`);
       } else {
         visit(child, inComponent);
       }
@@ -318,23 +357,40 @@ export async function convertMdx(body, { file, forms, errors }) {
   };
   visit(tree, false);
   const components = componentsOf(esm);
-  const thunks = await evaluateProps(body, file, esm, elements);
+  let thunks;
+  try {
+    thunks = await evaluateProps(body, file, esm, elements);
+  } catch (error) {
+    errors.push(`${file}: ${error.message}`);
+    return '';
+  }
   const printed = new Set();
 
-  // The source of `nodes` between `from` and `to`, each MDX node replaced.
+  // The nodes under `node` that the Markdown replaces: imports and exports,
+  // comments and components, however deep, but not inside a component.
+  const replaced = (node) =>
+    (node.children ?? []).flatMap((child) =>
+      child.type === 'mdxjsEsm' ||
+      child.type === 'mdxFlowExpression' ||
+      isComponentTag(child)
+        ? [child]
+        : replaced(child),
+    );
+
+  // The source between `from` and `to`, each of `nodes` replaced.
   const convert = (nodes, from, to) => {
     let out = '';
     let at = from;
     for (const node of nodes) {
-      if (!/^mdx/.test(node.type)) continue;
       out += body.slice(at, startOf(node));
       out += render(node);
       at = endOf(node);
     }
     return out + body.slice(at, to);
   };
+
   const render = (node) => {
-    if (node.type !== 'mdxJsxFlowElement') return '';
+    if (!isElement(node)) return '';
     const component = components.get(node.name);
     const form = forms[component];
     if (!form) {
@@ -350,20 +406,30 @@ export async function convertMdx(body, { file, forms, errors }) {
       const first = node.children[0];
       const lineStart = body.lastIndexOf('\n', startOf(first) - 1) + 1;
       children = dedent(
-        convert(node.children, lineStart, endOf(node.children.at(-1))),
+        convert(replaced(node), lineStart, endOf(node.children.at(-1))),
       ).trim();
     }
     try {
       const props = thunks[elements.indexOf(node)]();
       const markdown = form(props, { children, printed });
-      const indent = ' '.repeat(node.position.start.column - 1);
-      return markdown.split('\n').join(`\n${indent}`);
+      // Later lines carry what the first line's prefix carries: its
+      // indentation, and its `>` inside a blockquote.
+      const lineStart = body.lastIndexOf('\n', startOf(node) - 1) + 1;
+      const prefix = body
+        .slice(lineStart, startOf(node))
+        .replace(/[^>\s]/g, ' ');
+      return markdown
+        .split('\n')
+        .map((text, i) =>
+          i === 0 ? text : text === '' ? prefix.trimEnd() : prefix + text,
+        )
+        .join('\n');
     } catch (error) {
       errors.push(`${line(node)}: <${node.name}>: ${error.message}`);
       return '';
     }
   };
-  return convert(tree.children, 0, body.length);
+  return convert(replaced(tree), 0, body.length);
 }
 
 /** `harness/docs/llms.txt`: the pages in the order of the site's navigation. */
@@ -416,17 +482,28 @@ export function llmsIndex(navigation, pages, errors) {
 }
 
 /**
+ * How to read a page built from site MDX: where its examples render live,
+ * and what its tables say.
+ */
+export function readingNote(route) {
+  return [
+    `This page is built from the [Glaze site](${SITE}${route}/), where its examples render live and follow the reader's appearance settings. Here, each example's code comes with a table of what it resolves to in light, dark and their high-contrast (HC) variants, and **Figure** quotes the caption of a figure on the site.`,
+    "In the tables, `tone` is 0–100. An overlay has its opacity `α` and the `step` it paints on the color under it (`of` the step it asked for, when it can't reach it). `Δ` is the tone step from the base. Contrast against the base is a WCAG ratio (`4.5:1`) or an APCA `Lc`; `misses` names a floor the color does not meet.",
+  ].join('\n\n');
+}
+
+/**
  * Resolves an extensionless relative import inside the repository to its
  * `.ts` file, as the site's bundler does, so Node runs the site's helpers and
  * `src/` with its type stripping.
  */
 function enableTypeScript() {
-  if (!process.features.typescript || !registerHooks) {
+  if (!process.features.typescript || !nodeModule.registerHooks) {
     throw new Error(
       `it runs TypeScript, which needs Node 22.18 or later (this is ${process.version})`,
     );
   }
-  registerHooks({
+  nodeModule.registerHooks({
     resolve(specifier, context, next) {
       const parent = context.parentURL ?? '';
       if (
@@ -474,18 +551,20 @@ export async function buildDocs() {
     for (const file of files) {
       const out = outputOf(file);
       const route = routeOf(file);
-      const { data, body } = splitFrontmatter(read(file));
+      let data, body;
+      try {
+        ({ data, body } = splitFrontmatter(read(file)));
+      } catch (error) {
+        errors.push(`${file}: ${error.message}`);
+        continue;
+      }
       const mdx = file.endsWith('.mdx');
       const converted = mdx
         ? await convertMdx(body, { file, forms: MARKDOWN, errors })
         : body;
       const head = [`# ${data.title}`, data.description ?? ''];
       if (!data.title) errors.push(`${file}: no title in its frontmatter`);
-      if (mdx) {
-        head.push(
-          `This page is also on the [Glaze site](${SITE}${route === '/' ? '' : route}/), with live examples.`,
-        );
-      }
+      if (mdx) head.push(readingNote(route));
       const markdown = tidy(
         mapProse([...head, converted].join('\n\n'), (text) => [
           rewriteLinks(text, { file, out, site, errors }),

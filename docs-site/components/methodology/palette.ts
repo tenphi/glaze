@@ -5,7 +5,8 @@
  * sync when either changes.
  */
 
-import type { ColorMap } from '../../../src/index.ts';
+import type { ColorMap, GlazeTheme } from '../../../src/index.ts';
+import { glaze } from '../glaze-docs';
 import type { DemoTheme } from '../glaze-docs';
 
 export const PURPLE_HUE = 280.3;
@@ -337,4 +338,24 @@ export function stepColors(
   extra?: keyof typeof STEP_EXTRAS,
 ): ColorMap {
   return { ...colorsUpTo(step), ...(extra ? STEP_EXTRAS[extra] : {}) };
+}
+
+/**
+ * The palette the page ends with: the default theme with every step, then
+ * each status theme extended from it, with its surface tinted.
+ */
+export function paletteThemes(): [string, GlazeTheme][] {
+  const defaultTheme = glaze(PURPLE_HUE, SEED_SATURATION);
+  defaultTheme.colors(colorsUpTo('mixes'));
+  const themes: [string, GlazeTheme][] = [['default', defaultTheme]];
+  for (const status of STATUS_THEMES) {
+    themes.push([
+      status.name,
+      defaultTheme.extend({
+        ...(status.hue !== undefined ? { hue: status.hue } : {}),
+        colors: TINTED_SURFACE_OVERRIDE,
+      }),
+    ]);
+  }
+  return themes;
 }

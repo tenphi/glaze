@@ -198,8 +198,9 @@ glaze.themeFrom: this snapshot is export version 1 (Glaze 1.1–2) and contains
   shadow colors ("card-shadow").
 Glaze 3 changed what shadow "intensity", "fg" and tuning mean, so it would
   restore with different shadows.
-Re-author them as described in docs/migration.md ("3.0 — shadows and
-  glows") and export again.
+Re-author them as described in "3.0 — shadows and glows" of the
+  migration guide (https://glaze.tenphi.me/migration/#30--shadows-and-glows)
+  and export again.
 ```
 
 A theme entry inside a palette snapshot that has no `version` of its own is checked against the palette's `version`. The check keys on `version: 1`, so a snapshot without any `version` (a hand-written one, or one from Glaze 1.0) is not checked: re-author its shadows before restoring it. How to re-author Glaze 2 shadows is in [3.0 — shadows and glows](../migration.md#30--shadows-and-glows).

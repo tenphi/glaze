@@ -53,17 +53,22 @@ fails on a component without one.
 
 - An example prints the code the site prints (`exampleSource`), then a table
   of what its theme resolves to in all four schemes: tone, or opacity and step
-  for an overlay, and the measured contrast of each floor.
-- A figure built from a theme adds the table of the colors it shows; a page
-  prints the same code or table only once.
-- A figure of the color space keeps only its caption, so write a caption that
-  says what the figure shows.
+  for an overlay, and its contrast against its base.
+- A figure built from a theme adds a table of the colors it shows, and the
+  theme's code when the page hasn't printed that theme yet.
+- A figure of measurements (`StepCompare`, `WindowMap`, …) gets a table of the
+  values it prints. A figure whose numbers the page gives in a table of its
+  own, or that shows a whole UI, keeps only its caption.
+- Every figure keeps its caption, quoted as **Figure**, so write a caption
+  that says what the figure shows.
 
-Keep the code an example prints, and anything else both forms need, in a
-`.ts` module: the build runs TypeScript with Node's type stripping, so it can't
-load `.tsx` or `.astro` files. `token-pair.ts`, `palette-output.ts` and
-`palette-demo.ts` are examples. To read the result, run
-`node scripts/build-docs.mjs` and open `harness/docs/`.
+Keep what both forms need in a `.ts` module: the code an example prints, and
+the theme a figure builds from its props (each folder's `figures.ts`, and
+`token-pair.ts`, `palette-output.ts`, `palette-demo.ts`). The build runs
+TypeScript with Node's type stripping, so it can't load `.tsx` or `.astro`
+files, and a shared builder keeps the site and the Markdown on the same
+values. To read the result, run `node scripts/build-docs.mjs` and open
+`harness/docs/`.
 
 ## Writing a new component
 

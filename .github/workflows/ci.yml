@@ -43,9 +43,9 @@ jobs:
         run: pnpm test
 
       # The agent harness in harness/ ships in the package, with the docs built
-      # as plain Markdown at pack time. Build them (any problem fails), then
-      # check the harness: its schema, its paths, that every file it names is
-      # published and that every link in the docs resolves.
+      # as plain Markdown at pack time. Build them (a broken page or link
+      # fails), then check the harness: its schema, its paths, and that every
+      # file it names ships and every relative link points at a file.
       - name: Build the agent docs and check the harness
         run: pnpm check:harness
 

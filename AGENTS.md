@@ -82,11 +82,13 @@ The package ships these pages as plain Markdown, not as their sources:
 one `.md` per page plus `llms.txt`, an index in the order of the site's navigation.
 Each component becomes its form in `docs-site/components/markdown.ts`: an example
 prints the code the site prints, with a table of what its theme resolves to in all
-four schemes, and a figure keeps its caption. The build fails on a component with
-no form, MDX inside prose, a link that leads nowhere, or a page missing from the
-navigation; `pnpm check:harness` runs it in CI. So a page links to pages by their
-source (`./okhst.mdx`, `../reference/theme.md`), which the build turns into `.md`
-links, and a new component needs a Markdown form.
+four schemes; a figure of measurements gets a table of them; every figure keeps its
+caption. The build fails on a component with no form, MDX inside prose, a relative
+link or route that is not a page, or a page missing from the navigation;
+`pnpm check:harness` runs it in CI. So a page links to pages by their source
+(`./okhst.mdx`, `../reference/theme.md`), which the build turns into `.md` links,
+and links any other file with a full URL; and a new component needs a Markdown form
+(see `docs-site/components/README.md`).
 
 | File | Description |
 |---|---|

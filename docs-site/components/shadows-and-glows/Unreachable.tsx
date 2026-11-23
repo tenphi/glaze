@@ -8,26 +8,17 @@
 import type { ReactNode } from 'react';
 import { Figure } from '../primitives';
 import { fmt, inkFor, resolveDemo, variantOf } from '../glaze-docs';
-import type { ColorMap } from '../../../src/index.ts';
 import { Big, Cells, Head, Note, Patch, Tile } from './parts';
 import { compositeInk, quietly, signed, stepOf } from './lighting-docs';
+import { unreachableTheme } from './figures';
+import type { UnreachableSpec } from './figures';
 
-export interface UnreachableProps {
-  cases: { kind: 'shadow' | 'glow'; tone: number; intensity: number }[];
+export interface UnreachableProps extends UnreachableSpec {
   caption?: ReactNode;
 }
 
 export default function Unreachable(props: UnreachableProps) {
-  const colors: ColorMap = {};
-  props.cases.forEach((c, i) => {
-    colors[`surface-${i}`] = { tone: c.tone, saturation: 0, mode: 'static' };
-    colors[`overlay-${i}`] = {
-      type: c.kind,
-      bg: `surface-${i}`,
-      intensity: c.intensity,
-    };
-  });
-  const demo = quietly(() => resolveDemo({ hue: 0, saturation: 0, colors }));
+  const demo = quietly(() => resolveDemo(unreachableTheme(props)));
   const v = (name: string) => variantOf(demo.resolved, name, 'light');
 
   return (

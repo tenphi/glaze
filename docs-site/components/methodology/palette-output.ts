@@ -12,14 +12,7 @@
  */
 
 import { glaze, literal } from '../glaze-docs';
-import type { GlazeTheme } from '../../../src/index.ts';
-import {
-  PURPLE_HUE,
-  SEED_SATURATION,
-  STATUS_THEMES,
-  TINTED_SURFACE_OVERRIDE,
-  colorsUpTo,
-} from './palette';
+import { paletteThemes } from './palette';
 
 const SHOWN = [
   'surface',
@@ -38,18 +31,11 @@ export interface OutputBlock {
 
 /** The `palette.tasty()` and `palette.css()` blocks, each cut to `SHOWN`. */
 export function paletteOutput(): OutputBlock[] {
-  const defaultTheme = glaze(PURPLE_HUE, SEED_SATURATION);
-  defaultTheme.colors(colorsUpTo('mixes'));
-  const themes: Record<string, GlazeTheme> = { default: defaultTheme };
-  const prefix: Record<string, string> = { default: '' };
-  for (const status of STATUS_THEMES) {
-    themes[status.name] = defaultTheme.extend({
-      ...(status.hue !== undefined ? { hue: status.hue } : {}),
-      colors: TINTED_SURFACE_OVERRIDE,
-    });
-    prefix[status.name] = `${status.name}-`;
-  }
-  const palette = glaze.palette(themes);
+  const entries = paletteThemes();
+  const palette = glaze.palette(Object.fromEntries(entries));
+  const prefix = Object.fromEntries(
+    entries.map(([name]) => [name, name === 'default' ? '' : `${name}-`]),
+  );
 
   const tasty = palette.tasty({
     prefix,

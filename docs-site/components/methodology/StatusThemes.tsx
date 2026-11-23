@@ -8,16 +8,9 @@
 import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Eyebrow, Figure } from '../primitives';
-import { SCHEME_LABELS, glaze, paint } from '../glaze-docs';
+import { SCHEME_LABELS, paint } from '../glaze-docs';
 import type { Scheme, SchemeChoice, SchemeColors } from '../glaze-docs';
-import type { GlazeTheme } from '../../../src/index.ts';
-import {
-  PURPLE_HUE,
-  SEED_SATURATION,
-  STATUS_THEMES,
-  TINTED_SURFACE_OVERRIDE,
-  colorsUpTo,
-} from './palette';
+import { paletteThemes } from './palette';
 
 const List = tasty({ styles: { display: 'grid', gap: '1.5x' } });
 
@@ -90,19 +83,7 @@ interface Entry {
 }
 
 function buildEntries(): Entry[] {
-  const defaultTheme = glaze(PURPLE_HUE, SEED_SATURATION);
-  defaultTheme.colors(colorsUpTo('mixes'));
-  const themes: [string, GlazeTheme][] = [['default', defaultTheme]];
-  for (const status of STATUS_THEMES) {
-    themes.push([
-      status.name,
-      defaultTheme.extend({
-        ...(status.hue !== undefined ? { hue: status.hue } : {}),
-        colors: TINTED_SURFACE_OVERRIDE,
-      }),
-    ]);
-  }
-  return themes.map(([name, theme]) => ({
+  return paletteThemes().map(([name, theme]) => ({
     name,
     prefix: name === 'default' ? '' : `${name}-`,
     count: theme.list().length,

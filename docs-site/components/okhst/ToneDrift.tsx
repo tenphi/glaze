@@ -10,13 +10,8 @@ import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Eyebrow, Figure, Strip } from '../primitives';
 import { fmt, inkFor } from '../glaze-docs';
-import {
-  formatRgb,
-  fromTone,
-  gamutClampedLuminance,
-  okhslToLinearSrgb,
-  toneFromY,
-} from '../../../src/index.ts';
+import { formatRgb, fromTone } from '../../../src/index.ts';
+import { driftRange, driftSummary, driftTones, measuredTone } from './figures';
 
 const Rows = tasty({ styles: { display: 'grid', gap: '1.5x' } });
 
@@ -78,36 +73,8 @@ export interface ToneDriftProps {
   caption?: ReactNode;
 }
 
-/** Luminance-equivalent tone of an OKHSL color. */
-function measuredTone(h: number, s: number, l: number): number {
-  return toneFromY(gamutClampedLuminance(okhslToLinearSrgb(h, s, l)));
-}
-
-/** The widest drift below and above the authored tone, at 1-tone resolution. */
-function driftRange(h: number, s: number): [number, number] {
-  let lo = 0;
-  let hi = 0;
-  for (let t = 0; t <= 100; t++) {
-    const d = measuredTone(h, s, fromTone(t)) - t;
-    lo = Math.min(lo, d);
-    hi = Math.max(hi, d);
-  }
-  return [lo, hi];
-}
-
-function summary(lo: number, hi: number): string {
-  const parts: string[] = [];
-  if (lo <= -0.05) parts.push(`up to ${fmt(-lo, 1)} tones darker`);
-  if (hi >= 0.05) parts.push(`up to ${fmt(hi, 1)} tones lighter`);
-  return parts.length ? `reads ${parts.join(', ')}` : 'matches its tone';
-}
-
 export default function ToneDrift(props: ToneDriftProps) {
-  const steps = props.steps ?? 11;
-  const tones = Array.from(
-    { length: steps },
-    (_, i) => (i * 100) / (steps - 1),
-  );
+  const tones = driftTones(props.steps);
 
   return (
     <Figure caption={props.caption}>
@@ -126,7 +93,7 @@ export default function ToneDrift(props: ToneDriftProps) {
                 <Eyebrow>
                   {row.label ?? `hue ${row.hue} · saturation ${row.saturation}`}
                 </Eyebrow>
-                <Note>{summary(lo, hi)}</Note>
+                <Note>{driftSummary(lo, hi)}</Note>
               </Header>
               <Strip>
                 {tones.map((t) => {

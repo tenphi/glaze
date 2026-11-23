@@ -9,16 +9,10 @@ import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Figure, Strip } from '../primitives';
 import { fmt, inkFor, resolveDemo, toneOf, variantOf } from '../glaze-docs';
-import type { DemoTheme, Scheme } from '../glaze-docs';
-import type { ColorMap } from '../../../src/index.ts';
+import { mixRamp } from './figures';
+import type { MixRampSpec } from './figures';
 
-export interface MixRampProps extends DemoTheme {
-  base: string;
-  target: string;
-  /** Steps from value 0 to 100 inclusive. Default 11. */
-  steps?: number;
-  spaces?: ('okhsl' | 'srgb')[];
-  scheme?: Scheme;
+export interface MixRampProps extends MixRampSpec {
   caption?: ReactNode;
 }
 
@@ -52,26 +46,8 @@ const Tone = tasty({
 });
 
 export default function MixRamp(props: MixRampProps) {
-  const scheme = props.scheme ?? 'light';
-  const steps = props.steps ?? 11;
-  const spaces = props.spaces ?? ['okhsl', 'srgb'];
-  const values = Array.from({ length: steps }, (_, i) =>
-    Number(((i * 100) / (steps - 1)).toFixed(2)),
-  );
-
-  const colors: ColorMap = { ...props.colors };
-  for (const space of spaces) {
-    for (const value of values) {
-      colors[`mix-${space}-${value}`] = {
-        type: 'mix',
-        base: props.base,
-        target: props.target,
-        value,
-        space,
-      };
-    }
-  }
-  const demo = resolveDemo({ ...props, colors });
+  const { scheme, spaces, values, theme } = mixRamp(props);
+  const demo = resolveDemo(theme);
 
   return (
     <Figure caption={props.caption}>
