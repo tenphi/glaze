@@ -17,12 +17,8 @@ import {
   variantOf,
   wcagContrast,
 } from '../glaze-docs';
-import type { Scheme } from '../glaze-docs';
-import type {
-  ColorMap,
-  ContrastSpec,
-  RelativeValue,
-} from '../../../src/index.ts';
+import { floorCompare } from './figures';
+import type { FloorCompareSpec } from './figures';
 
 const Table = tasty({
   styles: {
@@ -71,51 +67,13 @@ const Measure = tasty({
   elements: { Part: 'span', Dot: 'span' },
 });
 
-export interface FloorCompareProps {
-  /** Hues of the chromatic text colors. A neutral row is always first. */
-  hues: number[];
-  /** Theme seed saturation for the chromatic rows, 0–100. Default 90. */
-  saturation?: number;
-  /** Tone of the neutral surface. Default 97. */
-  surfaceTone?: number;
-  /** Tone delta of every text color from the surface. Default `'-49.4'`. */
-  delta?: RelativeValue;
-  /** Contrast floor of the second column. Default `'AA'`. */
-  contrast?: ContrastSpec;
-  scheme?: Scheme;
+export interface FloorCompareProps extends FloorCompareSpec {
   caption?: ReactNode;
 }
 
 export default function FloorCompare(props: FloorCompareProps) {
-  const scheme = props.scheme ?? 'light';
-  const delta = props.delta ?? '-49.4';
-  const contrast = props.contrast ?? 'AA';
-
-  const rows = [
-    { key: 'neutral', label: 'neutral', extra: { saturation: 0 } },
-    ...props.hues.map((h) => ({
-      key: `hue-${h}`,
-      label: `hue ${h}`,
-      extra: { hue: h },
-    })),
-  ];
-  const colors: ColorMap = {
-    surface: { tone: props.surfaceTone ?? 97, saturation: 0 },
-  };
-  for (const row of rows) {
-    colors[`${row.key}-step`] = { base: 'surface', tone: delta, ...row.extra };
-    colors[`${row.key}-floor`] = {
-      base: 'surface',
-      tone: delta,
-      contrast,
-      ...row.extra,
-    };
-  }
-  const demo = resolveDemo({
-    hue: props.hues[0] ?? 0,
-    saturation: props.saturation ?? 90,
-    colors,
-  });
+  const { scheme, delta, contrast, rows, theme } = floorCompare(props);
+  const demo = resolveDemo(theme);
   const surface = variantOf(demo.resolved, 'surface', scheme);
   const ink = fixed(demo.colors['neutral-floor'], scheme);
 

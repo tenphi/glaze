@@ -11,62 +11,19 @@
 import type { ReactNode } from 'react';
 import { Figure } from '../primitives';
 import { fmt, inkFor, resolveDemo, variantOf } from '../glaze-docs';
-import type { ColorMap } from '../../../src/index.ts';
 import { Big, Head, NarrowCells, Note, Patch, Tile } from './parts';
 import { compositeInk, signed, stepOf } from './lighting-docs';
+import { stepCompare } from './figures';
+import type { StepCompareSpec } from './figures';
 
-export interface StepCompareProps {
-  kind?: 'shadow' | 'glow';
-  /** Seed hue and saturation (0–100) of the chromatic surface. */
-  hue?: number;
-  saturation?: number;
-  /** Neutral surface tones. */
-  tones: number[];
-  /** Tone of a chromatic surface appended to the row. */
-  accentTone?: number;
-  intensity?: number;
-  /** Opacity of the fixed black / white layer, 0–1. */
-  fixedAlpha?: number;
+export interface StepCompareProps extends StepCompareSpec {
   caption?: ReactNode;
 }
 
 export default function StepCompare(props: StepCompareProps) {
-  const kind = props.kind ?? 'shadow';
-  const intensity = props.intensity ?? 6;
-  const fixedAlpha = props.fixedAlpha ?? 0.08;
-  const pigment = kind === 'shadow' ? 'black' : 'white';
-
-  const surfaces = props.tones.map((tone) => ({
-    name: `surface-${tone}`,
-    label: `tone ${tone}`,
-    def: { tone, saturation: 0, mode: 'static' as const },
-  }));
-  if (props.accentTone !== undefined) {
-    surfaces.push({
-      name: 'accent',
-      label: `accent ${props.accentTone}`,
-      def: { tone: props.accentTone, saturation: 1, mode: 'static' as const },
-    });
-  }
-
-  const colors: ColorMap = {
-    fixed: {
-      tone: kind === 'shadow' ? 0 : 100,
-      saturation: 0,
-      mode: 'static',
-      opacity: fixedAlpha,
-    },
-  };
-  for (const s of surfaces) {
-    colors[s.name] = s.def;
-    colors[`${kind}-${s.name}`] = { type: kind, bg: s.name, intensity };
-  }
-
-  const demo = resolveDemo({
-    hue: props.hue ?? 280,
-    saturation: props.saturation ?? 80,
-    colors,
-  });
+  const { kind, intensity, fixedAlpha, pigment, surfaces, theme } =
+    stepCompare(props);
+  const demo = resolveDemo(theme);
   const fixed = variantOf(demo.resolved, 'fixed', 'light');
 
   return (

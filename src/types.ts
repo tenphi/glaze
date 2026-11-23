@@ -211,7 +211,7 @@ export interface RegularColorDef {
    */
   from?: GlazeColorValue;
   /**
-   * Tone value (0–100, contrast-uniform — see `docs/okhst.mdx`).
+   * Tone value (0–100, contrast-uniform — see https://glaze.tenphi.me/okhst/).
    * - Number: absolute tone.
    * - String ('+N' / '-N'): relative to base color's tone (requires `base`).
    * - `'max'` / `'min'`: force to the scheme's tone extreme (no base needed).
@@ -678,8 +678,9 @@ export interface GlazeConfig {
    * approximation, and a color keeps to one side of its base as the level moves.
    *
    * Pass `'auto'` to leave manual mode; `configure()` never clears a field by
-   * omission. See `docs/reference/contrast.md` for the ramp's edge cases (un-interpolable
-   * pairs, side changes) and the export-freeze rule.
+   * omission. See https://glaze.tenphi.me/reference/contrast/#manual-contrast-level
+   * for the ramp's edge cases (un-interpolable pairs, side changes) and the
+   * export-freeze rule.
    *
    * @default 'auto'
    */

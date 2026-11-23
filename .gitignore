@@ -40,5 +40,8 @@ vite.config.ts.timestamp-*
 # Generated Glaze bundle for docs previews (docs-site/demo-bundle.ts)
 public/demo/
 
+# The plain Markdown docs, built at pack time (scripts/build-docs.mjs)
+harness/docs/
+
 # Package tarballs
 *.tgz

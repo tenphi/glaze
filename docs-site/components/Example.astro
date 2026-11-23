@@ -9,7 +9,7 @@ import { CodeGroup } from '@tenphi/cookbook/components';
 import Swatches from './Swatches.tsx';
 import UiPreview from './UiPreview.tsx';
 import SchemeGrid from './SchemeGrid.tsx';
-import { resolveDemo, themeSource } from './glaze-docs.ts';
+import { cssOutput, exampleSource } from './glaze-docs.ts';
 import type { DemoTheme, Scheme, SchemeChoice } from './glaze-docs.ts';
 import type { UiRoles } from './demo-themes.ts';
 
@@ -35,34 +35,14 @@ interface Props extends DemoTheme {
 
 const props = Astro.props;
 const visual = props.visual ?? 'swatches';
-const source =
-  props.code ??
-  [
-    "import { glaze } from '@tenphi/glaze';",
-    '',
-    themeSource(props),
-    ...(props.after ? ['', props.after] : []),
-  ].join('\n');
+const source = exampleSource(props);
 const outputItems = [];
 if (props.output === 'css') {
-  const demo = resolveDemo(props);
-  const css = demo.theme.css({ format: 'rgb' });
   outputItems.push({
     label: 'Output (CSS)',
     language: 'css',
-    code: [
-      `:root {\n${indentLines(css.light)}\n}`,
-      `@media (prefers-color-scheme: dark) {\n  :root {\n${indentLines(css.dark, 4)}\n  }\n}`,
-    ].join('\n\n'),
+    code: cssOutput(props),
   });
-}
-
-function indentLines(block: string, n = 2): string {
-  return block
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => ' '.repeat(n) + line)
-    .join('\n');
 }
 
 const theme: DemoTheme = {

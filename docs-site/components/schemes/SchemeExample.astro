@@ -9,7 +9,7 @@
 import { CodeGroup } from '@tenphi/cookbook/components';
 import SchemeTable from './SchemeTable.tsx';
 import LevelStrip from './LevelStrip.tsx';
-import { themeSource } from '../glaze-docs.ts';
+import { exampleSource } from '../glaze-docs.ts';
 import type { DemoTheme, Scheme } from '../glaze-docs.ts';
 import type { SchemeTableRow } from './SchemeTable.tsx';
 import type { LevelRoles } from './LevelStrip.tsx';
@@ -38,14 +38,7 @@ interface Props extends DemoTheme {
 
 const props = Astro.props;
 const visual = props.visual ?? 'table';
-const source =
-  props.code ??
-  [
-    "import { glaze } from '@tenphi/glaze';",
-    '',
-    themeSource(props),
-    ...(props.after ? ['', props.after] : []),
-  ].join('\n');
+const source = exampleSource(props);
 
 const theme: DemoTheme = {
   hue: props.hue,

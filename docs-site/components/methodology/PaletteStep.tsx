@@ -39,62 +39,22 @@ import {
   compositeOverGamma,
   toDisplayGamma,
 } from '../../../src/okhsl-color-math.ts';
-import type {
-  ColorDef,
-  ColorMap,
-  ResolvedColorVariant,
-} from '../../../src/index.ts';
+import type { ColorDef, ResolvedColorVariant } from '../../../src/index.ts';
 import { PreviewUi } from './PalettePreview';
 import {
-  DISABLED_TEXT_WITH_FLOOR,
+  KIND,
   PURPLE_HUE,
   SEED_SATURATION,
   STEPS,
-  colorsUpTo,
+  STEP_EXTRAS,
+  stepColors,
 } from './palette';
-import type { StepId } from './palette';
-
-/** How a token is drawn in its swatch. */
-type Kind =
-  | 'fill'
-  | 'text'
-  | 'label'
-  | 'icon'
-  | 'border'
-  | 'ring'
-  | 'layer'
-  | 'cast';
-
-/** Foregrounds and other non-fill tokens, by name. Everything else is a fill. */
-const KIND: Record<string, Kind> = {
-  'surface-text': 'text',
-  'surface-text-soft': 'text',
-  'surface-text-soft-2': 'text',
-  border: 'border',
-  placeholder: 'text',
-  focus: 'ring',
-  disabled: 'text',
-  'disabled-surface-text': 'text',
-  'accent-surface': 'label',
-  'accent-surface-2': 'label',
-  'accent-surface-hover': 'label',
-  'accent-text': 'text',
-  'accent-text-soft': 'text',
-  'accent-icon': 'icon',
-  'accent-disabled-surface-text': 'text',
-  'code-comment': 'text',
-  'code-keyword': 'text',
-  'code-string': 'text',
-};
+import type { Kind, StepId } from './palette';
 
 const SAMPLE: Record<string, string> = {
   'code-comment': '// draft',
   'code-keyword': 'const',
   'code-string': "'Q3'",
-};
-
-const EXTRAS: Record<string, ColorMap> = {
-  'disabled-floor': DISABLED_TEXT_WITH_FLOOR,
 };
 
 const Glyph = tasty({
@@ -375,7 +335,7 @@ export interface PaletteStepProps {
   /** Tokens to show, in order. Default: the ones this step adds. */
   show?: string[];
   /** Swap in an alternative definition from `palette.ts`. */
-  extra?: keyof typeof EXTRAS;
+  extra?: keyof typeof STEP_EXTRAS;
   /** Compare pinned schemes side by side instead of following the reader. */
   schemes?: Scheme[];
   /** Also render the product UI built so far. Default `true`. */
@@ -384,10 +344,7 @@ export interface PaletteStepProps {
 }
 
 export default function PaletteStep(props: PaletteStepProps) {
-  const colors: ColorMap = {
-    ...colorsUpTo(props.step),
-    ...(props.extra ? EXTRAS[props.extra] : {}),
-  };
+  const colors = stepColors(props.step, props.extra);
   const demo = resolveDemo({
     hue: PURPLE_HUE,
     saturation: SEED_SATURATION,

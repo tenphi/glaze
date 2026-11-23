@@ -25,13 +25,13 @@ contrast floor.
 
 - **OKHST color space** — OKHSL with a contrast-shaped **tone** axis. Equal
   steps give equal WCAG contrast for neutrals and a useful approximation for
-  chromatic colors. See [Tone and OKHST](docs/okhst.mdx) and the
+  chromatic colors. See [Tone and OKHST](https://glaze.tenphi.me/okhst/) and the
   [full OKHST specification](https://github.com/tenphi/okhst).
 - **WCAG 2 + APCA contrast solving** — automatic tone adjustment to meet a WCAG ratio or APCA Lc floor
 - **Unified dark mode** — one tone space for light, dark, and high-contrast; dark is a single `100 − t` inversion, no fitted curve
 - **Mix colors** — blend two colors with OKHSL or sRGB interpolation, opaque or transparent, with optional contrast solving
 - **Shadows and glows** — translucent overlays whose opacity is solved per surface, so `intensity` is an exact tone step wherever the surface has room for it (a step past black or white is pinned and warns), with object-aware strength
-- **HDR glows** — set `glowTuning.headroom` and a glow whose step passes white also gets an exact HDR value: extended sRGB `color(srgb …)` with channels past 1, plus a base and an exposure in DTCG for native apps, exported when you turn on `modes.hdr`. See [HDR glows](docs/hdr.mdx).
+- **HDR glows** — set `glowTuning.headroom` and a glow whose step passes white also gets an exact HDR value: extended sRGB `color(srgb …)` with channels past 1, plus a base and an exposure in DTCG for native apps, exported when you turn on `modes.hdr`. See [HDR glows](https://glaze.tenphi.me/hdr/).
 - **Light + Dark + High-Contrast** — all schemes from one definition
 - **Manual contrast level** — put your normal palette on a `0–100` slider between itself and the high-contrast one; every level in between is solved, not approximated, and the high-contrast tier stays available on top
 - **Per-color hue override** — absolute or relative hue shifts within a theme
@@ -152,20 +152,21 @@ In Glaze, a **scheme variant** is one of `light`, `dark`, `lightContrast`, or
 ## Documentation
 
 The full documentation, with live examples that follow your light / dark and
-contrast preferences, is at [glaze.tenphi.me](https://glaze.tenphi.me). The
-same pages live in [`docs/`](docs):
+contrast preferences, is at [glaze.tenphi.me](https://glaze.tenphi.me). Its
+sources live in [`docs/`](docs), and the package ships the same pages as plain
+Markdown in `harness/docs/`:
 
-- [Getting started](docs/getting-started.mdx) — install, build a first theme,
+- [Getting started](https://glaze.tenphi.me/getting-started/) — install, build a first theme,
   and export it.
-- Concepts: [light, dark, and high contrast](docs/schemes.mdx),
-  [contrast solving](docs/contrast.mdx),
-  [shadows and glows](docs/shadows-and-glows.mdx),
-  [mixes and transparency](docs/mixes.mdx), and the color model under them,
-  [tone and OKHST](docs/okhst.mdx).
-- Guides: [designing a palette](docs/methodology.mdx),
-  [exporting and integration](docs/exporting.mdx), and
-  [migration and upgrading](docs/migration.md) (including Glaze 2 → 3).
-- The [API reference](docs/reference/index.md) for every method, option, and
+- Concepts: [light, dark, and high contrast](https://glaze.tenphi.me/schemes/),
+  [contrast solving](https://glaze.tenphi.me/contrast/),
+  [shadows and glows](https://glaze.tenphi.me/shadows-and-glows/),
+  [mixes and transparency](https://glaze.tenphi.me/mixes/), and the color model under them,
+  [tone and OKHST](https://glaze.tenphi.me/okhst/).
+- Guides: [designing a palette](https://glaze.tenphi.me/methodology/),
+  [exporting and integration](https://glaze.tenphi.me/exporting/), and
+  [migration and upgrading](https://glaze.tenphi.me/migration/) (including Glaze 2 → 3).
+- The [API reference](https://glaze.tenphi.me/reference/) for every method, option, and
   type.
 - Explore the tone axis in the
   [ramp explorer](https://glaze.tenphi.me/okhst/#ramp-explorer), or read the
@@ -179,7 +180,9 @@ in [`harness/`](harness). With [harnesspm](https://www.npmjs.com/package/@tenphi
 a project that depends on Glaze gets it on install:
 
 - a short rule: themes are the source of colors, and how to check them;
-- the docs index, so an agent reads the pages in `docs/` of the installed version;
+- the docs of the installed version as plain Markdown, indexed by
+  `harness/docs/llms.txt`: examples as code, with tables of what they resolve
+  to in all four schemes;
 - the `glaze-theme` skill, for creating and changing themes and palettes;
 - three tools: `glaze:inspect` resolves a theme or palette in all four schemes and
   checks every contrast floor (`--color` and `--theme` narrow a large palette),

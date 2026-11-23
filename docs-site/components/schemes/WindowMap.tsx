@@ -19,12 +19,8 @@ import {
   toneOf,
   variantOf,
 } from '../glaze-docs';
-import type { Scheme } from '../glaze-docs';
-import type {
-  AdaptationMode,
-  ColorMap,
-  GlazeConfigOverride,
-} from '../../../src/index.ts';
+import { toneLabel, windowMap } from './figures';
+import type { WindowMapSpec } from './figures';
 
 const Rows = tasty({ styles: { display: 'grid', gap: '1.5x' } });
 
@@ -69,61 +65,13 @@ const Value = tasty({
   },
 });
 
-export interface WindowMapRow {
-  scheme: Scheme;
-  /** Adaptation mode for this row. Default `'auto'`. */
-  mode?: AdaptationMode;
-  /** Row label. Default: the scheme name. */
-  label?: string;
-  /** Second label line. Default: `mode: '<mode>'`. */
-  note?: string;
-}
-
-export interface WindowMapProps {
-  hue?: number;
-  saturation?: number;
-  config?: GlazeConfigOverride;
-  /** Rows, top to bottom. Default: authored, light, dark. */
-  rows?: WindowMapRow[];
-  /** Number of authored tones from 0 to 100. Default 11. */
-  steps?: number;
+export interface WindowMapProps extends WindowMapSpec {
   caption?: ReactNode;
 }
 
-/** A tone label: a whole tone bare (`0`, `100`), anything else to 3 digits. */
-function toneLabel(t: number): string {
-  const whole = Math.round(t);
-  if (Math.abs(t - whole) < 0.005) return String(whole);
-  return t.toPrecision(3);
-}
-
-const DEFAULT_ROWS: WindowMapRow[] = [
-  { scheme: 'light', mode: 'static', label: 'Authored tone', note: '' },
-  { scheme: 'light' },
-  { scheme: 'dark' },
-];
-
 export default function WindowMap(props: WindowMapProps) {
-  const rows = props.rows ?? DEFAULT_ROWS;
-  const steps = props.steps ?? 11;
-  const tones = Array.from(
-    { length: steps },
-    (_, i) => (i * 100) / (steps - 1),
-  );
-  const modes = [...new Set(rows.map((r) => r.mode ?? 'auto'))];
-
-  const colors: ColorMap = {};
-  for (const mode of modes) {
-    tones.forEach((tone, i) => {
-      colors[`${mode}-${i}`] = { tone, mode };
-    });
-  }
-  const demo = resolveDemo({
-    hue: props.hue ?? 0,
-    saturation: props.saturation ?? 0,
-    config: props.config,
-    colors,
-  });
+  const { rows, tones, theme } = windowMap(props);
+  const demo = resolveDemo(theme);
 
   return (
     <Figure caption={props.caption}>

@@ -1440,10 +1440,10 @@ function unmetKey(
 const ACHROMATIC_EPSILON = 1e-6;
 
 /**
- * After the passes, surface chromatic contrast drift (the drift check in
- * docs/okhst.mdx): a color resolved with a `base` + `contrast` may land
- * slightly under the contrast its tone implies because chromatic luminance
- * drifts from the gray tone.
+ * After the passes, surface chromatic contrast drift (the drift check,
+ * https://glaze.tenphi.me/okhst/#the-drift-check): a color resolved with a
+ * `base` + `contrast` may land slightly under the contrast its tone implies
+ * because chromatic luminance drifts from the gray tone.
  *
  * Two kinds of variant are skipped. One the solver reported as unmet (`unmet`)
  * already got a "cannot meet" warning with the same measured value, and the

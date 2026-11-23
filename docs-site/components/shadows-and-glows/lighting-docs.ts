@@ -8,6 +8,8 @@
  */
 
 import {
+  contrastRatioFromLuminance,
+  gamutClampedLuminance,
   glaze,
   okhslToLinearSrgb,
   relativeLuminanceFromLinearRgb,
@@ -72,6 +74,17 @@ export function compositeLinear(
     toDisplayGamma(linear(under)),
     toDisplayGamma(linear(over)),
     over.alpha,
+  );
+}
+
+/** WCAG ratio of `over` composited onto `under`, against `under`. */
+export function compositeRatio(
+  over: ResolvedColorVariant,
+  under: ResolvedColorVariant,
+): number {
+  return contrastRatioFromLuminance(
+    relativeLuminanceFromLinearRgb(compositeLinear(over, under)),
+    gamutClampedLuminance(linear(under)),
   );
 }
 

@@ -14,7 +14,6 @@ import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Eyebrow, Figure, Strip } from '../primitives';
 import {
-  SCHEMES,
   SCHEME_LABELS,
   fixed,
   fmt,
@@ -23,12 +22,8 @@ import {
   toneOf,
   variantOf,
 } from '../glaze-docs';
-import type { Scheme } from '../glaze-docs';
-import type {
-  AdaptationMode,
-  ColorMap,
-  GlazeConfigOverride,
-} from '../../../src/index.ts';
+import { edgeLabel, schemeRamp } from './figures';
+import type { SchemeRampSpec } from './figures';
 
 const Rows = tasty({ styles: { display: 'grid', gap: '1.5x' } });
 
@@ -68,45 +63,13 @@ const Scale = tasty({
   elements: { Values: 'div' },
 });
 
-export interface SchemeRampProps {
-  hue?: number;
-  /** Theme seed saturation, 0–100. Default 0 (neutral). */
-  saturation?: number;
-  /** Adaptation mode of every step. Default `'auto'`. */
-  mode?: AdaptationMode;
-  /** Per-theme config override (tone windows, contrast level). */
-  config?: GlazeConfigOverride;
-  /** Schemes to show, top to bottom. Default: all four. */
-  schemes?: Scheme[];
-  /** Number of steps from 0 to 100 inclusive. Default 11. */
-  steps?: number;
+export interface SchemeRampProps extends SchemeRampSpec {
   caption?: ReactNode;
 }
 
-/** A window edge: two decimals without trailing zeros (4.95, 95.9, 100). */
-function edgeLabel(tone: number): string {
-  return String(Number(fmt(tone, 2)));
-}
-
 export default function SchemeRamp(props: SchemeRampProps) {
-  const steps = props.steps ?? 11;
-  const schemes = props.schemes ?? SCHEMES;
-  const tones = Array.from(
-    { length: steps },
-    (_, i) => (i * 100) / (steps - 1),
-  );
-  const names = tones.map((t) => `tone-${fmt(t, 1)}`);
-
-  const colors: ColorMap = {};
-  tones.forEach((t, i) => {
-    colors[names[i]] = props.mode ? { tone: t, mode: props.mode } : { tone: t };
-  });
-  const demo = resolveDemo({
-    hue: props.hue ?? 280,
-    saturation: props.saturation ?? 0,
-    config: props.config,
-    colors,
-  });
+  const { schemes, tones, names, theme } = schemeRamp(props);
+  const demo = resolveDemo(theme);
 
   return (
     <Figure caption={props.caption}>

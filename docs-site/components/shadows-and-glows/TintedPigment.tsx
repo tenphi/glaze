@@ -9,21 +9,12 @@ import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Figure } from '../primitives';
 import { fmt, inkFor, resolveDemo, toneOf, variantOf } from '../glaze-docs';
-import type { ColorMap, LightingTuning } from '../../../src/index.ts';
 import { Big, Dot, Head, Legend, Note, Patch, Tile } from './parts';
 import { compositeInk, opaqueCss, signed, stepOf } from './lighting-docs';
+import { tintedPigmentTheme } from './figures';
+import type { TintedPigmentSpec } from './figures';
 
-export interface TintedPigmentProps {
-  /** Seed hue and saturation (0–100) the surfaces are tinted with. */
-  hue: number;
-  saturation: number;
-  /** Saturation factor of the surfaces (0–1). Default 0.3. */
-  surfaceSaturation?: number;
-  tones: number[];
-  intensity?: number;
-  /** Object for `hueBleed` columns: an absolute hue at full saturation. */
-  object?: { hue: number; tone: number };
-  columns: { label: string; tuning: LightingTuning; withObject?: boolean }[];
+export interface TintedPigmentProps extends TintedPigmentSpec {
   caption?: ReactNode;
 }
 
@@ -40,38 +31,7 @@ const Columns = tasty({
 });
 
 export default function TintedPigment(props: TintedPigmentProps) {
-  const intensity = props.intensity ?? 8;
-  const colors: ColorMap = {};
-  if (props.object) {
-    colors.object = {
-      tone: props.object.tone,
-      hue: props.object.hue,
-      saturation: 1,
-      mode: 'static',
-    };
-  }
-  props.tones.forEach((tone) => {
-    colors[`surface-${tone}`] = {
-      tone,
-      saturation: props.surfaceSaturation ?? 0.3,
-      mode: 'static',
-    };
-    props.columns.forEach((col, j) => {
-      colors[`shadow-${tone}-${j}`] = {
-        type: 'shadow',
-        bg: `surface-${tone}`,
-        ...(col.withObject && props.object ? { fg: 'object' } : {}),
-        intensity,
-        tuning: col.tuning,
-      };
-    });
-  });
-
-  const demo = resolveDemo({
-    hue: props.hue,
-    saturation: props.saturation,
-    colors,
-  });
+  const demo = resolveDemo(tintedPigmentTheme(props));
   const v = (name: string) => variantOf(demo.resolved, name, 'light');
 
   return (

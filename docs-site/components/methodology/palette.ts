@@ -5,7 +5,8 @@
  * sync when either changes.
  */
 
-import type { ColorMap } from '../../../src/index.ts';
+import type { ColorMap, GlazeTheme } from '../../../src/index.ts';
+import { glaze } from '../glaze-docs';
 import type { DemoTheme } from '../glaze-docs';
 
 export const PURPLE_HUE = 280.3;
@@ -280,6 +281,39 @@ export const STEPS: Record<StepId, ColorMap> = {
   },
 };
 
+/** How a token is drawn in its swatch. */
+export type Kind =
+  | 'fill'
+  | 'text'
+  | 'label'
+  | 'icon'
+  | 'border'
+  | 'ring'
+  | 'layer'
+  | 'cast';
+
+/** Foregrounds and other non-fill tokens, by name. Everything else is a fill. */
+export const KIND: Record<string, Kind> = {
+  'surface-text': 'text',
+  'surface-text-soft': 'text',
+  'surface-text-soft-2': 'text',
+  border: 'border',
+  placeholder: 'text',
+  focus: 'ring',
+  disabled: 'text',
+  'disabled-surface-text': 'text',
+  'accent-surface': 'label',
+  'accent-surface-2': 'label',
+  'accent-surface-hover': 'label',
+  'accent-text': 'text',
+  'accent-text-soft': 'text',
+  'accent-icon': 'icon',
+  'accent-disabled-surface-text': 'text',
+  'code-comment': 'text',
+  'code-keyword': 'text',
+  'code-string': 'text',
+};
+
 export const STEP_ORDER = Object.keys(STEPS) as StepId[];
 
 /** The contrast-floored alternative for the disabled chip label. */
@@ -291,6 +325,11 @@ export const DISABLED_TEXT_WITH_FLOOR: ColorMap = {
     contrast: { apca: 'non-text' },
     inherit: false,
   },
+};
+
+/** Alternative definitions a `PaletteStep` can swap in with `extra`. */
+export const STEP_EXTRAS: Record<'disabled-floor', ColorMap> = {
+  'disabled-floor': DISABLED_TEXT_WITH_FLOOR,
 };
 
 /** The root override that tints each status theme's surface. */
@@ -324,4 +363,32 @@ export function defaultThemeAt(step: StepId): DemoTheme {
     saturation: SEED_SATURATION,
     colors: colorsUpTo(step),
   };
+}
+
+/** What a `PaletteStep` resolves: every color up to `step`, plus `extra`. */
+export function stepColors(
+  step: StepId,
+  extra?: keyof typeof STEP_EXTRAS,
+): ColorMap {
+  return { ...colorsUpTo(step), ...(extra ? STEP_EXTRAS[extra] : {}) };
+}
+
+/**
+ * The palette the page ends with: the default theme with every step, then
+ * each status theme extended from it, with its surface tinted.
+ */
+export function paletteThemes(): [string, GlazeTheme][] {
+  const defaultTheme = glaze(PURPLE_HUE, SEED_SATURATION);
+  defaultTheme.colors(colorsUpTo('mixes'));
+  const themes: [string, GlazeTheme][] = [['default', defaultTheme]];
+  for (const status of STATUS_THEMES) {
+    themes.push([
+      status.name,
+      defaultTheme.extend({
+        ...(status.hue !== undefined ? { hue: status.hue } : {}),
+        colors: TINTED_SURFACE_OVERRIDE,
+      }),
+    ]);
+  }
+  return themes;
 }

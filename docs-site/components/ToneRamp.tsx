@@ -10,14 +10,9 @@ import type { ReactNode } from 'react';
 import { tasty } from '@tenphi/cookbook/styling';
 import { Figure } from './primitives';
 import { fmt, inkForLuminance } from './glaze-docs';
-import {
-  contrastRatioFromLuminance,
-  formatRgb,
-  fromTone,
-  gamutClampedLuminance,
-  okhslToLinearSrgb,
-  toTone,
-} from '../../src/index.ts';
+import { contrastRatioFromLuminance, formatRgb } from '../../src/index.ts';
+import { toneRampCells } from './okhst/figures';
+import type { ToneRampSpec } from './okhst/figures';
 
 /** The steps, joined edge to edge in one frame. */
 const Ramp = tasty({
@@ -67,30 +62,14 @@ const RatioCell = tasty({
 
 const Offset = tasty({ as: 'span', styles: { gridColumn: 'span 1' } });
 
-export interface ToneRampProps {
-  hue?: number;
-  /** OKHSL saturation, 0–100. */
-  saturation?: number;
-  /** Number of steps from 0 to 100 inclusive. Default 11. */
-  steps?: number;
-  axis?: 'tone' | 'lightness';
-  /** Show the contrast ratio between neighbors. Default true. */
-  contrast?: boolean;
+export interface ToneRampProps extends ToneRampSpec {
   caption?: ReactNode;
 }
 
 export default function ToneRamp(props: ToneRampProps) {
   const hue = props.hue ?? 280;
   const sat = (props.saturation ?? 0) / 100;
-  const steps = props.steps ?? 11;
-  const axis = props.axis ?? 'tone';
-
-  const cells = Array.from({ length: steps }, (_, i) => {
-    const value = (i * 100) / (steps - 1);
-    const l = axis === 'tone' ? fromTone(value) : value / 100;
-    const y = gamutClampedLuminance(okhslToLinearSrgb(hue, sat, l));
-    return { value, l, y, tone: toTone(l) };
-  });
+  const cells = toneRampCells(props);
 
   return (
     <Figure caption={props.caption}>

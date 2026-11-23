@@ -7,7 +7,7 @@
  */
 import { CodeGroup } from '@tenphi/cookbook/components';
 import ContrastRows from './ContrastRows.tsx';
-import { themeSource } from '../glaze-docs.ts';
+import { exampleSource } from '../glaze-docs.ts';
 import type { DemoTheme, SchemeChoice } from '../glaze-docs.ts';
 
 interface Props extends DemoTheme {
@@ -25,12 +25,7 @@ interface Props extends DemoTheme {
 }
 
 const props = Astro.props;
-const source = [
-  "import { glaze } from '@tenphi/glaze';",
-  '',
-  themeSource(props),
-  ...(props.after ? ['', props.after] : []),
-].join('\n');
+const source = exampleSource(props);
 ---
 
 <CodeGroup
