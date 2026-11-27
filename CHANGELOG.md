@@ -1,5 +1,11 @@
 # @tenphi/glaze
 
+## 3.2.1
+
+### Patch Changes
+
+- [#128](https://github.com/tenphi/glaze/pull/128) [`e7bd64a`](https://github.com/tenphi/glaze/commit/e7bd64afd728492bf1531668afd7d98842081f3e) Thanks [@tenphi](https://github.com/tenphi)! - The agent harness now names harnesspm by its new package, `@harnesspm/cli`: the `glaze:inspect`, `glaze:color` and `glaze:contrast` usage lines and the `glaze-theme` skill type `npx -y @harnesspm/cli run …`, which also works outside the project folder.
+
 ## 3.2.0
 
 ### Minor Changes
