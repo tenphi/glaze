@@ -17,15 +17,15 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.0.0(jiti@2.7.0))
+      '@harnesspm/cli':
+        specifier: ^0.18.2
+        version: 0.18.2
       '@mdx-js/mdx':
         specifier: ^3.1.1
         version: 3.1.1
       '@tenphi/cookbook':
         specifier: ^0.34.1
         version: 0.34.1(@astrojs/markdown-satteri@0.4.1)(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.3.3(@astrojs/markdown-remark@7.3.1)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.1))(esbuild@0.28.2)(eslint@10.0.0(jiti@2.7.0))(jiti@2.7.0)(react@19.2.8)(typescript@5.9.3)(yaml@2.9.1)
-      '@tenphi/harnesspm':
-        specifier: ^0.13.1
-        version: 0.13.1
       '@tenphi/tasty':
         specifier: ^3.19.2
         version: 3.19.2(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(jiti@2.7.0)(react@19.2.8)
@@ -790,6 +790,11 @@ packages:
   '@gar/promise-retry@1.0.3':
     resolution: {integrity: sha512-GmzA9ckNokPypTg10pgpeHNQe7ph+iIKKmhKu3Ob9ANkswreCx7R3cKmY781K8QK3AqVL3xVh9A42JvIAbkkSA==}
     engines: {node: ^20.17.0 || >=22.9.0}
+
+  '@harnesspm/cli@0.18.2':
+    resolution: {integrity: sha512-w+7a5hPDvhSguVgfdUBjk/GO3m6yJg3Hn8QmfrleNMa6yWdAg3HAf9jZcIQL22QTUuviluYRdMIj8xQMs07I3w==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -1662,11 +1667,6 @@ packages:
   '@tenphi/glaze@3.2.0':
     resolution: {integrity: sha512-KcI9hpEeBQtf5Yy93KwQ+APrPPO3a8/HHXSVeRmuqCLhAo1SSjVBpZX5HGzDFPczAwqCbu9/fWYjxVVLY658dQ==}
     engines: {node: '>=20'}
-
-  '@tenphi/harnesspm@0.13.1':
-    resolution: {integrity: sha512-cdrE8w1rYIQrJXLKpqa5kdlPbqAe3KBSiicBoN5v+Wv2sAbEB1Bkn6zGaWB7FPIMh78YZ8RQRhV9fzLdV/Ih5w==}
-    engines: {node: '>=20'}
-    hasBin: true
 
   '@tenphi/renderer@0.34.1':
     resolution: {integrity: sha512-4I18dFtAo77ldjPOq+IMG9dNSj9PL3b+EBBDs54Pl69B5Qb8t+ZkBLwAIew9oDg/5NF9mnIYw2N916kDEMI9dw==}
@@ -4829,6 +4829,10 @@ snapshots:
 
   '@gar/promise-retry@1.0.3': {}
 
+  '@harnesspm/cli@0.18.2':
+    dependencies:
+      yaml: 2.9.1
+
   '@humanfs/core@0.19.1': {}
 
   '@humanfs/node@0.16.7':
@@ -5538,10 +5542,6 @@ snapshots:
       typescript: 5.9.3
 
   '@tenphi/glaze@3.2.0': {}
-
-  '@tenphi/harnesspm@0.13.1':
-    dependencies:
-      yaml: 2.9.1
 
   '@tenphi/renderer@0.34.1(@astrojs/markdown-satteri@0.4.1)(@babel/core@7.29.7)(@babel/helper-plugin-utils@7.29.7)(@babel/types@7.29.8)(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(astro@7.3.3(@astrojs/markdown-remark@7.3.1)(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.3)(@types/node@24.13.3)(jiti@2.7.0)(yaml@2.9.1))(esbuild@0.28.2)(eslint@10.0.0(jiti@2.7.0))(jiti@2.7.0)(typescript@5.9.3)(yaml@2.9.1)':
     dependencies:

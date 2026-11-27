@@ -106,7 +106,7 @@ and links any other file with a full URL. A new component needs a Markdown form
 
 ### `harness/` files
 
-The harness that consumer projects get through [harnesspm](https://www.npmjs.com/package/@tenphi/harnesspm). It is for people who **use** Glaze; contributor instructions stay in this file. `pnpm check:harness` builds its docs and validates it (CI runs it).
+The harness that consumer projects get through [harnesspm](https://www.npmjs.com/package/@harnesspm/cli). It is for people who **use** Glaze; contributor instructions stay in this file. `pnpm check:harness` builds its docs and validates it (CI runs it).
 
 | File | Description |
 |---|---|

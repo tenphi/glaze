@@ -5,7 +5,7 @@
 import { fail, loadGlaze, parseArgs } from './cli.mjs';
 import { WCAG_PRESETS, measurePair } from './measure.mjs';
 
-const USAGE = `Usage: npx harnesspm run glaze:contrast <text> <background> [--json]
+const USAGE = `Usage: npx -y @harnesspm/cli run glaze:contrast <text> <background> [--json]
 
 Colors are anything glaze.color() takes: hex, rgb(), hsl(), okhsl(), okhst()
 or oklch(). APCA is not symmetric, so the text color comes first.`;
