@@ -13,7 +13,7 @@ import {
 } from './cli.mjs';
 import { FORMATS, SCHEMES, inspectColor } from './measure.mjs';
 
-const USAGE = `Usage: npx harnesspm run glaze:color <color> [--base <color>] [--contrast <floor>] [--format <format>] [--json]
+const USAGE = `Usage: npx -y @harnesspm/cli run glaze:color <color> [--base <color>] [--contrast <floor>] [--format <format>] [--json]
 
 <color> is anything glaze.color() takes:
   a value: hex, rgb(), hsl(), okhsl(), okhst() or oklch()

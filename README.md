@@ -176,7 +176,7 @@ Markdown in `harness/docs/`:
 ## Coding agents
 
 The package ships a harness for coding agents such as Claude Code and Codex,
-in [`harness/`](harness). With [harnesspm](https://www.npmjs.com/package/@tenphi/harnesspm)
+in [`harness/`](harness). With [harnesspm](https://www.npmjs.com/package/@harnesspm/cli)
 a project that depends on Glaze gets it on install:
 
 - a short rule: themes are the source of colors, and how to check them;
@@ -195,9 +195,9 @@ build your own tools on. See the
 reference.
 
 ```bash
-npm i -D @tenphi/harnesspm
-npx harnesspm init
-npx harnesspm run glaze:inspect src/theme.ts
+npm i -D @harnesspm/cli
+npx -y @harnesspm/cli init
+npx -y @harnesspm/cli run glaze:inspect src/theme.ts
 ```
 
 The tools run only in projects that trust the package:

@@ -25,7 +25,7 @@ import {
   themesFromSnapshot,
 } from './measure.mjs';
 
-const USAGE = `Usage: npx harnesspm run glaze:inspect <theme> [--color <part>] [--theme <name>] [--format <format>] [--json]
+const USAGE = `Usage: npx -y @harnesspm/cli run glaze:inspect <theme> [--color <part>] [--theme <name>] [--format <format>] [--json]
 
 <theme> is one of:
   a JSON file with a theme.export() or palette.export() snapshot
